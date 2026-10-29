@@ -13,8 +13,11 @@
  * reordered, and items missing from that order are placed below the item
  * that was above them on the other side. The viewport is each person's own and always
  * stays local. Unchanged items keep their object identity so React only
- * re-renders what another person changed.
+ * re-renders what another person changed. Server stamps (who changed an item
+ * and when) are not edits: an item whose local copy differs from base only in
+ * them is unchanged locally and takes the remote copy, stamps included.
  */
+import { unstamped } from "./stamps";
 
 export function sameValue(a, b) {
   if (a === b) return true;
@@ -75,9 +78,9 @@ function mergeItems(baseItems, localItems, remoteItems) {
     const l = local.get(id);
     const r = remote.get(id);
     const b = base.get(id);
-    const localChanged = !sameValue(b, l);
+    const localChanged = !sameValue(unstamped(b), unstamped(l));
     // Neither side changed it: keep the local object so nothing re-renders.
-    const item = localChanged || sameValue(b, r) ? l : r;
+    const item = localChanged || sameValue(l, r) ? l : r;
     if (item !== undefined) chosen.set(id, item);
   }
   const ids = (items) => items.map((item) => item.id);

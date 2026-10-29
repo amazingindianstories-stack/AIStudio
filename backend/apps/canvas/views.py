@@ -5,9 +5,8 @@ from django.http import HttpResponse
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from apps.authentication.session import lookup
 from . import access, services
-from .serialization import JS_WHITESPACE, js_json, json_length, validate_state
+from .serialization import JS_WHITESPACE, MAX_BOARD_JSON_UNITS, content_length, js_json, validate_state
 
-MAX_BOARD_JSON_UNITS = 2 * 1024 * 1024
 UUID_PATTERN = re.compile(r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}')
 
 
@@ -180,12 +179,14 @@ def board_detail(request, identifier):
         save_id = save_id_of(payload)
         if save_id is False:
             return reply(request, {'error': 'Invalid save id.'}, 400)
-        if json_length(data) > MAX_BOARD_JSON_UNITS:
+        if content_length(data) > MAX_BOARD_JSON_UNITS:
             return reply(request, {'error': 'Board is too large to save.'}, 413)
         try:
-            saved = services.save_board(identifier, validate_state(data), base_version, save_id)
+            saved = services.save_board(identifier, validate_state(data), base_version, save_id, user.id)
         except services.VersionConflict as conflict:
             return reply(request, {'error': 'VERSION_CONFLICT', 'board': conflict.board}, 409)
+        except services.BoardTooLarge:
+            return reply(request, {'error': 'Board is too large to save.'}, 413)
         if saved is None:
             return reply(request, {'error': 'Board not found.'}, 404)
         return reply(request, {'ok': True, **saved})
@@ -227,6 +228,31 @@ def board_version(request, identifier):
             return reply(request, {'error': 'Board not found.'}, 404)
         access.require(user, current, access.READ)
         return reply(request, {'version': current['version'], 'updatedAt': current['updated_at']})
+    except access.AccessError as error:
+        return reply(request, {'error': str(error)}, error.status)
+    except Exception:
+        return failure()
+
+
+ACTIVITY_CURSOR = re.compile(r'(\d{1,16})\.(\d{1,9})')
+
+
+@node_route(['GET'])
+def board_activity(request, identifier):
+    """The board's History: what was added, edited and deleted, by whom; editors only, as in Miro."""
+    user = lookup(request)
+    if user is None:
+        return reply(request, {'error': 'UNAUTHENTICATED'}, 401)
+    try:
+        existing = access.board_row(identifier) if UUID_PATTERN.fullmatch(identifier) else None
+        if existing is None:
+            return reply(request, {'error': 'Board not found.'}, 404)
+        access.require(user, existing, access.WRITE)
+        before = request.GET.get('before')
+        cursor = ACTIVITY_CURSOR.fullmatch(before) if before is not None else None
+        if before is not None and cursor is None:
+            return reply(request, {'error': 'Invalid cursor.'}, 400)
+        return reply(request, services.board_activity(identifier, (int(cursor[1]), int(cursor[2])) if cursor else None))
     except access.AccessError as error:
         return reply(request, {'error': str(error)}, error.status)
     except Exception:

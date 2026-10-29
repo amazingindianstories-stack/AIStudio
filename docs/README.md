@@ -11,6 +11,7 @@
 | [architecture/canvas-board-sync.md](architecture/canvas-board-sync.md) | Conflict-safe board autosave: the versioned save contract, board polling, the client merge and local drafts |
 | [features/library-filters.md](features/library-filters.md) | Library Filters dialog, `GET /api/history` filter/sort contract, date sections |
 | [features/board-roles.md](features/board-roles.md) | Board and project roles, the effective-role rule, the share dialog and read-only boards |
+| [features/board-history.md](features/board-history.md) | Board History (the server-side save diff, `board_activity`, its read route and panel) and object info stamps |
 | [features/board-shapes-rich-text.md](features/board-shapes-rich-text.md) | Board path shapes and the shapes panel, rich-text marks, their format v1 fields and sanitizing |
 | [operations/status.md](operations/status.md) | Current production state, incidents, owner approval gates and open items |
 | [operations/release-runbook.md](operations/release-runbook.md) | Release gates, staging and rolling a backend commit to Railway, rollback |

@@ -331,7 +331,8 @@ class BoardRoleMigrationTests(TransactionTestCase):
             plan = executor.migration_plan(final)
             self.assertEqual(sorted((m.app_label, m.name) for m, backward in plan),
                              [('canvas', '0002_board_roles'), ('canvas', '0003_canvasboard_version'),
-                              ('canvas', '0004_canvasboardsave'), ('projects', '0002_project_members')])
+                              ('canvas', '0004_canvasboardsave'), ('canvas', '0005_boardactivity'),
+                              ('projects', '0002_project_members')])
             executor.migrate(final)
             row = CanvasBoard.objects.get(pk=identifier)
             self.assertEqual((row.team_role, row.name, row.data, row.updated_at), ('edit', 'Legacy', {'nodes': []}, 2))
