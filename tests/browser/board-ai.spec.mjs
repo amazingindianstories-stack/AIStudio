@@ -81,6 +81,21 @@ test('Create with AI quotes, runs once, places sticky notes and an image on the 
         'Simulated idea: end on a single spotlight']);
     }
 
+    // The open panel stays on top of the selection's style toolbar: select the notes and pan them under the panel.
+    await page.evaluate(() => document.activeElement?.blur());
+    await page.keyboard.press('ControlOrMeta+a');
+    const swatch = page.getByTitle('Fill', { exact: true });
+    await expect(swatch).toBeVisible();
+    const panelBox = await panel.boundingBox();
+    const swatchBefore = await swatch.boundingBox();
+    await page.mouse.move(panelBox.x + panelBox.width / 2, 120);
+    await page.mouse.wheel(0, swatchBefore.y - (panelBox.y + 40));
+    await expect.poll(async () => Math.round((await swatch.boundingBox()).y)).toBe(Math.round(panelBox.y + 40));
+    const swatchBox = await swatch.boundingBox();
+    const hit = { x: swatchBox.x + swatchBox.width / 2, y: swatchBox.y + swatchBox.height / 2 };
+    expect(hit.x > panelBox.x && hit.x < panelBox.x + panelBox.width).toBe(true);
+    expect(await panel.evaluate((element, { x, y }) => element.contains(document.elementFromPoint(x, y)), hit)).toBe(true);
+
     // Refining replaces those notes in place.
     const refinement = panel.getByRole('textbox', { name: 'Refinement' });
     await refinement.fill('make them shorter');
@@ -98,11 +113,17 @@ test('Create with AI quotes, runs once, places sticky notes and an image on the 
     await panel.getByRole('textbox', { name: 'Prompt' }).fill('A lighthouse at dusk in heavy fog');
     await panel.getByRole('radio', { name: '16:9' }).click();
     await expect(panel.getByText(/Estimated cost ≈\$\d+\.\d\d/)).toBeVisible();
+    const imageSubmitted = page.waitForResponse(response => response.url().endsWith(`/api/canvas-boards/${boardId}/ai-jobs`) && response.request().method() === 'POST');
     await panel.getByRole('button', { name: 'Generate', exact: true }).click();
+    const imageJob = (await (await imageSubmitted).json()).job;
     await expect.poll(async () => (await nodes()).filter(node => node.type === 'image').length, { timeout: 90000 }).toBe(1);
     const [image] = (await nodes()).filter(node => node.type === 'image');
     expect(image.src).toMatch(/^\/api\/media\//);
-    expect([image.w, image.h]).toEqual([320, 180]);
+    // The node takes the saved image's shape. MOCK_GENERATION renders the requested 16:9; the fake provider server
+    // always returns its fixed 64x48 PNG, which the worker records as 4:3.
+    const [{ aspect_ratio: savedRatio }] = await db`SELECT aspect_ratio FROM generations WHERE id = ${imageJob.generationId}`;
+    expect(savedRatio).toBe(FAKE ? '4:3' : '16:9');
+    expect([image.w, image.h]).toEqual(FAKE ? [320, 240] : [320, 180]);
     // It went to free space next to the notes, not on top of them.
     const notes = (await nodes()).filter(node => node.type === 'sticky');
     expect(notes.some(node => node.x < image.x + image.w && image.x < node.x + node.w && node.y < image.y + image.h && image.y < node.y + node.h)).toBe(false);

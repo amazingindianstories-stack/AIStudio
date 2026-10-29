@@ -142,7 +142,7 @@ export function CanvasAiPanel({ boardId, onClose }) {
   return (
     <section
       aria-label="Create with AI"
-      className="absolute bottom-[72px] left-1/2 z-30 w-[min(560px,calc(100%-32px))] -translate-x-1/2 rounded-2xl border border-line bg-ink-750/95 p-3 shadow-pop backdrop-blur-xl"
+      className="absolute bottom-[72px] left-1/2 z-[45] w-[min(560px,calc(100%-32px))] -translate-x-1/2 rounded-2xl border border-line bg-ink-750/95 p-3 shadow-pop backdrop-blur-xl"
     >
       <header className="flex items-center gap-2">
         <Sparkles className="h-4 w-4 text-brand" aria-hidden />
