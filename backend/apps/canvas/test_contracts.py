@@ -2,7 +2,6 @@ from testsupport.frozen_oracle import run as oracle_run
 import json
 import random
 import uuid
-import subprocess
 from pathlib import Path
 from unittest.mock import patch
 

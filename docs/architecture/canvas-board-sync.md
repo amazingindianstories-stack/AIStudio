@@ -7,8 +7,8 @@ merge per node on the client and poll for other people's saves.
 ## Save contract (`PUT /api/canvas-boards/<id>`)
 
 - The body carries `data` (the graph), `baseVersion` (the board version the edits started from) and
-  `saveId` (a fresh client UUID for each save attempt). The write is one conditional
-  `UPDATE ... WHERE version = baseVersion`. There is no unconditional write: a missing or stale
+  `saveId` (a fresh client UUID for each save attempt). The write locks the board row and applies only
+  when its version equals `baseVersion`. There is no unconditional write: a missing or stale
   `baseVersion`, or a missing `saveId`, gets `409 {error: "VERSION_CONFLICT", board}` with the current
   board (graph and version), and nothing is written. A malformed `baseVersion` or `saveId` gets 400.
 - A save that changes nodes or connectors bumps `version`. A save that only changes the viewport (each
