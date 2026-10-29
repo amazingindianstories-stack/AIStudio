@@ -203,6 +203,27 @@ class PatchSaveTests(TransactionTestCase):
         self.patch(self.ben, {'nodes': {'upsert': [rect('pad', text='x' * room)]}})
         self.assertEqual(CanvasBoard.objects.get(pk=BOARD).version, version + 1)
 
+    def test_a_patch_is_measured_as_the_board_it_produces_not_by_its_own_size(self):
+        ids = [f'n{index:04}' for index in range(2000)]
+        bare = content_length(validate_state(graph(*[rect(identifier) for identifier in ids])))
+        filler = (MAX_BOARD_JSON_UNITS - 100_000 - bare) // len(ids)
+        self.put(self.ana, graph(*[rect(identifier, text='x' * filler) for identifier in ids]))
+        # Select-all and move: the patch carries every stamped node and the order, so it is over the limit itself.
+        moved = [{**item, 'x': 5} for item in self.stored()['nodes']]
+        patch = {'nodes': {'upsert': moved}, 'nodeOrder': ids}
+        self.assertGreater(content_length(patch), MAX_BOARD_JSON_UNITS)
+        version = CanvasBoard.objects.get(pk=BOARD).version
+        self.patch(self.ben, patch)
+        self.assertEqual(CanvasBoard.objects.get(pk=BOARD).version, version + 1)
+        self.assertEqual({item['x'] for item in self.stored()['nodes']}, {5})
+        # Growing every node past the limit is refused without changing the stored board or version.
+        before, history = CanvasBoard.objects.get(pk=BOARD), len(self.history())
+        grown = [{**item, 'text': item['text'] + 'y' * 60} for item in self.stored()['nodes']]
+        refused = self.patch(self.ben, {'nodes': {'upsert': grown}}, expect=413)
+        self.assertEqual(refused, {'error': 'Board is too large to save.'})
+        after = CanvasBoard.objects.get(pk=BOARD)
+        self.assertEqual((after.version, after.data, len(self.history())), (before.version, before.data, history))
+
     def test_open_boards_fetch_only_what_changed(self):
         self.put(self.ana, graph(rect('a'), rect('b'), rect('c'), connectors=[line('k', 'a', 'b')]))
         self.patch(self.ana, {'nodes': {'upsert': [rect('a', x=7)]}})

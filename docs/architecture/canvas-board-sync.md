@@ -38,7 +38,8 @@ merge per node on the client and poll for other people's saves.
   ignored (`../features/board-history.md`). The reply carries `stamps` for the objects this save added or
   edited, which the client adopts into its graph, sync base and undo snapshots without an undo step.
 - The size limit (2,097,152 UTF-16 units of the graph's JSON) counts content only: both the request check and
-  the check on the normalized graph leave out the stamps, so stamping never costs a board room. A save over it
+  the check on the normalized graph leave out the stamps, so stamping never costs a board room. A patch is
+  measured only as the whole board it produces, never by its own size. A save over it
   gets 413 and nothing is written; the editor says the board is too large to save and does not retry until the
   next edit, and the pending draft keeps the unsaved edits.
 - `GET /api/canvas-boards/<id>?saveId=<uuid>` adds `saveVersion`: the version that save landed at, or null.

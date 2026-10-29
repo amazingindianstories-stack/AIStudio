@@ -184,7 +184,7 @@ def board_detail(request, identifier):
         save_id = save_id_of(payload)
         if save_id is False:
             return reply(request, {'error': 'Invalid save id.'}, 400)
-        if content_length(data) > MAX_BOARD_JSON_UNITS:
+        if patch is None and content_length(data) > MAX_BOARD_JSON_UNITS:
             return reply(request, {'error': 'Board is too large to save.'}, 413)
         try:
             saved = services.save_board(identifier, None if patch is not None else validate_state(data), base_version,
