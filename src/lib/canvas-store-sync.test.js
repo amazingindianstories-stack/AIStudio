@@ -435,37 +435,63 @@ test("a reorder someone made during an edit is kept after it ends", async (t) =>
 
 const image = (id, extra = {}) => ({ id, type: "image", x: 0, y: 0, w: 10, h: 10, parentId: null, groupId: null, src: "/api/media/canvas/c.png", aspectLocked: true, ...extra });
 
-test("during a crop only changes to the cropped image wait, and a refused save is not repeated until it ends", async (t) => {
+function startCrop(id) {
+  store.getState().setSelection([id]);
+  store.getState().beginCrop(id);
+}
+
+const nodeById = (graphState, id) => graphState.nodes.find((item) => item.id === id);
+
+test("during a crop other people's edits appear and are adopted, and only the cropped image waits", async (t) => {
   useStorage(t);
   const server = fakeServer(t, graph(image("c"), rect("a")));
   store.getState().reset();
   await store.getState().loadBoard("board-1");
-  store.getState().setSelection(["c"]);
-  store.getState().beginCrop("c");
+  startCrop("c");
   server.edit(graph(image("c"), rect("a", { x: 40 })));
   assert.equal(await store.getState().pollRemote(), true);
-  assert.equal(store.getState().serverVersion, 2, "a change elsewhere merges as usual");
-  assert.equal(store.getState().history.present.nodes[1].x, 40);
+  assert.equal(nodeById(store.getState().history.present, "a").x, 40);
+  assert.equal(store.getState().serverVersion, 2);
+  // Their move of the image waits; their next two moves of a both arrive, the later one kept.
   server.edit(graph(image("c", { x: 30 }), rect("a", { x: 50 })));
   assert.equal(await store.getState().pollRemote(), true);
-  assert.equal(store.getState().history.present.nodes[0].x, 0, "the cropped image does not move under the person");
-  assert.equal(store.getState().history.present.nodes[1].x, 50);
-  assert.equal(store.getState().serverVersion, 2);
+  server.edit(graph(image("c", { x: 30 }), rect("a", { x: 100 })));
+  assert.equal(await store.getState().pollRemote(), true);
+  assert.equal(store.getState().serverVersion, 4);
+  assert.equal(nodeById(store.getState().history.present, "c").x, 0, "the cropped image does not move under the person");
+  assert.equal(nodeById(store.getState().history.present, "a").x, 100);
 
-  store.getState().setViewport({ x: 10, y: 10, zoom: 1 });
+  // A save during the crop goes out and keeps their move of the image.
+  addLocalNode("mine");
   await store.getState().flushSave();
-  const refused = server.puts.length;
-  store.getState().setViewport({ x: 20, y: 20, zoom: 1 });
-  await store.getState().flushSave();
-  assert.equal(server.puts.length, refused, "no more saves until the crop ends");
-  assert.equal(store.getState().saveStatus, "dirty");
+  assert.equal(store.getState().saveStatus, "saved");
+  assert.equal(nodeById(server.data, "c").x, 30);
+  assert.equal(nodeById(server.data, "a").x, 100);
+  assert.deepEqual(ids(server.data), ["c", "a", "mine"]);
 
+  // Cancelling the crop reconciles the image to their version, with nothing left to save.
   store.getState().cancelCrop();
+  assert.equal(nodeById(store.getState().history.present, "c").x, 30);
+  await store.getState().flushSave();
+  assert.equal(nodeById(server.data, "c").x, 30);
+  assert.equal(nodeById(server.data, "a").x, 100);
+});
+
+test("a crop applied while someone changed the image reconciles through the normal merge", async (t) => {
+  useStorage(t);
+  const server = fakeServer(t, graph(image("c"), rect("a")));
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  startCrop("c");
+  server.edit(graph(image("c", { x: 30 }), rect("a")));
+  assert.equal(await store.getState().pollRemote(), true);
+  store.getState().updateCropDraft({ zoom: 2 });
+  store.getState().applyCrop();
+  await store.getState().flushSave();
   await until(() => store.getState().saveStatus === "saved");
-  assert.equal(server.data.nodes[0].x, 30);
-  assert.equal(server.data.nodes[1].x, 50);
-  assert.deepEqual(server.data.viewport, { x: 20, y: 20, zoom: 1 });
-  assert.equal(server.puts.length, refused + 2);
+  // Both changed the image: this person's applied crop is the local edit that wins.
+  assert.equal(nodeById(server.data, "c").crop.zoom, 2);
+  assert.equal(store.getState().croppingImageId, null);
 });
 
 test("deleting the image being cropped ends the crop and sync carries on", async (t) => {
@@ -478,29 +504,13 @@ test("deleting the image being cropped ends the crop and sync carries on", async
   store.getState().deleteSelected();
   assert.equal(store.getState().croppingImageId, null);
   server.edit(graph(image("c"), rect("a", { x: 40 })));
-  await until(() => store.getState().history.present.nodes.some((node) => node.x === 40));
+  assert.equal(await store.getState().pollRemote(), true);
+  assert.equal(nodeById(store.getState().history.present, "a").x, 40);
   addLocalNode("mine");
   await store.getState().flushSave();
   await until(() => store.getState().saveStatus === "saved");
   assert.deepEqual(ids(server.data), ["a", "mine"]);
   assert.equal(server.data.nodes[0].x, 40);
-});
-
-test("starting other work applies an open crop as it stands, and an unchanged crop adds no undo step", (t) => {
-  t.after(() => store.getState().reset());
-  store.getState().reset();
-  store.getState().addNode(image("c"));
-  const steps = store.getState().history.past.length;
-  store.getState().beginCrop("c");
-  store.getState().setTool("rect");
-  assert.equal(store.getState().croppingImageId, null);
-  assert.equal(store.getState().history.past.length, steps);
-  store.getState().beginCrop("c");
-  store.getState().updateCropDraft({ zoom: 2 });
-  store.getState().setTool("select");
-  assert.equal(store.getState().croppingImageId, null);
-  assert.equal(store.getState().history.present.nodes[0].crop.zoom, 2);
-  assert.equal(store.getState().history.past.length, steps + 1);
 });
 
 test("a draft on the server's current version keeps its deletions without carrying its base graph", async (t) => {

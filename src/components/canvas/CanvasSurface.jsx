@@ -263,16 +263,12 @@ export const CanvasSurface = forwardRef
 
   // Pointer handlers change the selection before the browser moves focus, and
   // a selection change ends inline editing, so the editor's blur would find
-  // nothing to commit. Blur it first so the typed text is saved. A pointer
-  // reaching these handlers is outside the image being cropped (its crop
-  // overlay stops propagation), so an open crop is applied as it stands.
+  // nothing to commit. Blur it first so the typed text is saved.
   const commitInlineEdit = () => {
-    const state = useCanvasStore.getState();
     const active = document.activeElement;
-    if (state.editingTextId && active instanceof HTMLElement && containerRef.current?.contains(active)) {
+    if (useCanvasStore.getState().editingTextId && active instanceof HTMLElement && containerRef.current?.contains(active)) {
       active.blur();
     }
-    state.applyCrop();
   };
 
   const onPointerDownBackground = (e) => {

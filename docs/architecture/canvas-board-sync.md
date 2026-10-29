@@ -30,14 +30,16 @@ merge per node on the client and poll for other people's saves.
 - A save whose answer was lost (a dropped connection or a 5xx) is settled before the next save: the client
   asks for its `saveVersion`, and if it landed its graph becomes the merge base, so its changes are not
   replayed over someone's later edit. Polling waits until it is settled.
-- While a text or label edit is open, other people's saves wait: polling does not merge. While an image
-  crop is open, only changes to that image wait; the rest of their save merges, but the board is not
-  adopted as the base until the crop ends. A save refused with a 409 during either stays dirty, and no
-  further save is sent until the edit ends. An edit or crop ends when its node leaves the board, and a crop
-  also ends, applied as it stands, on any pointer down outside the image, a tool change or a keyboard action
-  other than Enter or Escape. When it ends, the tab saves and polls at once and the ordinary merge runs, so
-  an unchanged node follows a remote delete, typed text or an applied crop survives one, and remote
-  re-adds and reorders apply. Ending an edit without typing, or a crop without a change, writes nothing.
+- While a text or label edit is open, other people's saves wait: polling does not merge, and a save refused
+  with a 409 stays dirty with no further save until the edit ends. When it ends, the tab saves and polls at
+  once and the ordinary merge runs, so an unchanged node follows a remote delete and typed text survives one.
+  Ending an edit without typing writes nothing.
+- While an image is being cropped, other people's changes merge and are adopted as usual, and saves go out
+  as usual, except for that image: it stays as it is on screen, the sync base keeps its last synced copy,
+  and its latest remote version (or deletion) is held aside. Saves meanwhile write that held version, so
+  nobody's change to the image is overwritten. When the crop ends (Apply, Cancel, Enter, Escape, or the image
+  leaving the board) the normal merge reconciles it: an applied crop is a local edit and wins, otherwise
+  their version is kept.
 
 ## Local drafts (`src/lib/canvas-pending-draft.js`)
 

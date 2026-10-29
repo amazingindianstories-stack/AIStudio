@@ -281,17 +281,18 @@ function applyRemoteBoard(set, get, board, base = get().serverState) {
   const state = get();
   const version = board?.version;
   if (typeof version !== "number" || version <= state.serverVersion) return false;
-  const open = openEdit(state);
-  if (open?.waitsForAll) return false;
+  if (textEditOpen(state)) return false;
   const remote = validateCanvasState(board.data);
   const history = rebaseHistory(state.history, base, remote);
   if (gestureBaseline) gestureBaseline = rebaseHistory(gestureBaseline, base, remote);
-  // A change to the image being cropped waits: the board merges but is not adopted as the base until the crop ends.
-  const waiting = open && !sameValue(nodeOf(base, open.id), nodeOf(remote, open.id));
-  if (waiting) history.present = withNodeAsIn(history.present, state.history.present, open.id);
+  const cropped = croppedImageId(state);
+  const pending = cropped && !sameValue(nodeOf(base, cropped), nodeOf(remote, cropped));
+  cropPending = pending ? { id: cropped, remote: nodeOf(remote, cropped) } : null;
+  if (pending) history.present = withNodeAsIn(history.present, state.history.present, cropped);
   set({
     history,
-    ...(waiting ? {} : { serverVersion: version, serverState: remote }),
+    serverVersion: version,
+    serverState: pending ? withNodeAsIn(remote, base, cropped) : remote,
     ...pruneSelection(history.present, state.selection, state.selectedConnectorIds),
   });
   return true;
@@ -310,22 +311,52 @@ function withNodeAsIn(graph, previous, id) {
   return { ...graph, nodes };
 }
 
-/**
- * The node under the person's hands, while it still exists. During a text or
- * label edit every remote change waits; during an image crop only changes to
- * that image wait and the rest merge. Waiting changes merge as soon as the
- * edit ends, so an unchanged node follows a remote delete and a typed change
- * or applied crop survives it, like any other local edit.
- */
-function openEdit(state) {
-  const { present } = state.history;
-  if (state.editingTextId && nodeOf(present, state.editingTextId)) return { id: state.editingTextId, waitsForAll: true };
-  if (state.croppingImageId && nodeOf(present, state.croppingImageId)) return { id: state.croppingImageId, waitsForAll: false };
-  return null;
+/** `graph` with node `id` replaced by `node`, or without it when `node` is undefined. */
+function replaceNode(graph, id, node) {
+  const nodes = node ? graph.nodes.map((item) => (item.id === id ? node : item)) : graph.nodes.filter((item) => item.id !== id);
+  return { ...graph, nodes };
 }
 
-/** A save refused while an edit holds back the other person's change: no more saves until the edit ends. */
+/**
+ * While a text or label edit is open (and its node exists) every remote
+ * change waits, and merges as soon as the edit ends: an unchanged node then
+ * follows a remote delete and a typed change survives it, like any other
+ * local edit.
+ */
+function textEditOpen(state) {
+  return Boolean(state.editingTextId && nodeOf(state.history.present, state.editingTextId));
+}
+
+/** A save refused during a text edit: no more saves until the edit ends. */
 let conflictWaitsForEdit = false;
+
+/** The image being cropped, while it exists. */
+function croppedImageId(state) {
+  return state.croppingImageId && nodeOf(state.history.present, state.croppingImageId) ? state.croppingImageId : null;
+}
+
+/**
+ * While an image is being cropped, every remote change merges and is adopted
+ * as usual except changes to that image: it stays as it is on screen, and
+ * `serverState` keeps its last synced copy. Its latest remote version (or
+ * deletion) waits here; saves meanwhile write that version, so nobody's change
+ * to it is overwritten, and when the crop ends the normal merge reconciles it.
+ */
+let cropPending = null;
+
+function reconcileCrop() {
+  const { id, remote } = cropPending;
+  cropPending = null;
+  const state = useCanvasStore.getState();
+  const server = replaceNode(state.serverState, id, remote);
+  const history = rebaseHistory(state.history, state.serverState, server);
+  if (gestureBaseline) gestureBaseline = rebaseHistory(gestureBaseline, state.serverState, server);
+  useCanvasStore.setState({
+    history,
+    serverState: server,
+    ...pruneSelection(history.present, state.selection, state.selectedConnectorIds),
+  });
+}
 
 // ---- autosave (module-level debounce/backoff/in-flight guard) ----
 let debounceTimer = null;
@@ -383,7 +414,7 @@ async function flushSaveImpl(
   if (!state.boardId) return;
   if (state.saveStatus !== "dirty" && state.saveStatus !== "error") return;
   // Settling an unresolved save merges the board, so it also waits for the edit to end.
-  if (openEdit(state) && (unresolvedSave || conflictWaitsForEdit)) return;
+  if (textEditOpen(state) && (unresolvedSave || conflictWaitsForEdit)) return;
 
   clearDebounceTimer();
 
@@ -396,11 +427,15 @@ async function flushSaveImpl(
         if (get().boardId !== boardId) return;
       }
       const synced = get();
-      const sentPresent = synced.history.present;
-      const save = { id: crypto.randomUUID(), data: sentPresent };
-      const body = JSON.stringify({ data: sentPresent, baseVersion: synced.serverVersion, saveId: save.id });
+      const present = synced.history.present;
+      const pending = cropPending;
+      // `save.data` is what the server will hold as this tab's base sees it: the image being cropped stays at
+      // its last synced copy, while the PUT carries its pending remote version.
+      const save = { id: crypto.randomUUID(), data: pending ? replaceNode(present, pending.id, nodeOf(synced.serverState, pending.id)) : present };
+      const sent = pending ? replaceNode(present, pending.id, pending.remote) : present;
+      const body = JSON.stringify({ data: sent, baseVersion: synced.serverVersion, saveId: save.id });
       // Durable until the server acknowledges exactly this content.
-      savePendingDraft(boardId, sentPresent, Date.now(), { ...syncOf(synced), save });
+      savePendingDraft(boardId, present, Date.now(), { ...syncOf(synced), save });
       unresolvedSave = save;
       const res = await apiFetch(`/api/canvas-boards/${boardId}`, {
         method: "PUT",
@@ -423,8 +458,8 @@ async function flushSaveImpl(
         if (get().boardId !== boardId) throw new Error("board changed during save");
         const adopted = applyRemoteBoard(set, get, board) && get().serverVersion === board.version;
         if (!adopted) {
-          if (!openEdit(get())) throw new Error("save conflict without a newer board");
-          // The open edit holds back part of their change; save once more when it ends.
+          if (!textEditOpen(get())) throw new Error("save conflict without a newer board");
+          // The open text edit holds back their change; save once more when it ends.
           conflictWaitsForEdit = true;
           retryBackoffMs = DEBOUNCE_MS;
           set({ saveStatus: "dirty" });
@@ -437,11 +472,11 @@ async function flushSaveImpl(
       }
       if (!res.ok) throw new Error(`save failed: ${res.status}`);
       const j = await res.json();
-      clearPendingDraft(boardId, sentPresent);
+      clearPendingDraft(boardId, present);
       retryBackoffMs = DEBOUNCE_MS;
       if (get().boardId === boardId) {
         // What the server now holds, normalized the same way it normalizes saves.
-        set({ serverVersion: j.version, serverState: validateCanvasState(sentPresent) });
+        set({ serverVersion: j.version, serverState: validateCanvasState(save.data) });
       }
       // Only mark "saved" if nothing changed while the request was in
       // flight — an edit mid-flight already flipped status back to "dirty"
@@ -573,7 +608,7 @@ let pollInFlight = false;
 async function pollRemoteImpl(set, get) {
   const { boardId, loaded } = get();
   // An unresolved save is settled by the save retry, which then merges with the right base.
-  if (!boardId || !loaded || pollInFlight || unresolvedSave || openEdit(get())?.waitsForAll) return false;
+  if (!boardId || !loaded || pollInFlight || unresolvedSave || textEditOpen(get())) return false;
   const generation = loadGeneration;
   const current = () => generation === loadGeneration && get().boardId === boardId;
   pollInFlight = true;
@@ -628,6 +663,7 @@ export const useCanvasStore = create((set, get) => ({
     retryBackoffMs = DEBOUNCE_MS;
     unresolvedSave = null;
     conflictWaitsForEdit = false;
+    cropPending = null;
     set({
       boardId: null,
       boardName: "",
@@ -697,10 +733,7 @@ export const useCanvasStore = create((set, get) => ({
     if (w > 0 && h > 0) viewportPx = { w, h };
   },
 
-  setTool: (t) => {
-    get().applyCrop();
-    set({ tool: t });
-  },
+  setTool: (t) => set({ tool: t }),
 
   addNode: (node) => {
     mutateGraph(set, get, (present) => ({ ...present, nodes: [...present.nodes, node] }));
@@ -998,16 +1031,13 @@ export const useCanvasStore = create((set, get) => ({
   resetCropDraft: () => set({ cropDraft: { x: 0.5, y: 0.5, zoom: 1 } }),
   cancelCrop: () => set({ croppingImageId: null, cropDraft: null }),
   applyCrop: () => {
-    const { croppingImageId, cropDraft, history } = get();
+    const { croppingImageId, cropDraft } = get();
     if (!croppingImageId || !cropDraft) return;
     const crop = normalizeCrop(cropDraft);
-    const image = nodeOf(history.present, croppingImageId);
-    if (image && !sameValue(normalizeCrop(image.crop), crop)) {
-      mutateGraph(set, get, (present) => ({
-        ...present,
-        nodes: present.nodes.map((node) => node.id === croppingImageId ? { ...node, crop } : node),
-      }));
-    }
+    mutateGraph(set, get, (present) => ({
+      ...present,
+      nodes: present.nodes.map((node) => node.id === croppingImageId ? { ...node, crop } : node),
+    }));
     set({ croppingImageId: null, cropDraft: null });
   },
 
@@ -1090,7 +1120,8 @@ export const useCanvasStore = create((set, get) => ({
 }));
 
 useCanvasStore.subscribe((state, previous) => {
-  if (openEdit(previous) && !openEdit(state) && state.boardId === previous.boardId) {
+  if (cropPending && croppedImageId(state) !== cropPending.id) reconcileCrop();
+  if (textEditOpen(previous) && !textEditOpen(state) && state.boardId === previous.boardId) {
     conflictWaitsForEdit = false;
     void state.flushSave().then(() => useCanvasStore.getState().pollRemote());
   }
