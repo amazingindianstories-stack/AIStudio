@@ -549,6 +549,55 @@ test('Board touch: after a one-finger crop drag, taps select, a double tap opens
   await db.end();
 });
 
+test('Board touch: a double tap inside an open text editor keeps it open and every typed word is saved', async ({ browser, baseURL }) => {
+  test.setTimeout(120000);
+  const db = await seedUsers();
+  const project = await createProject(browser, baseURL, 'Board touch editor');
+  const desk = await signIn(browser, baseURL, OWNER, project.id);
+  const boardPath = new URL(await addSticky(desk.page, await openBoard(desk.page), { x: 500, y: 300 })).pathname;
+  const stickyId = (await boardData(desk.context, boardPath)).nodes[0].id;
+  await desk.context.close();
+
+  const phone = await signIn(browser, baseURL, OWNER, project.id, PHONE);
+  const canvas = await openBoard(phone.page);
+  const touch = new Touch(await phone.context.newCDPSession(phone.page));
+  const box = await canvas.boundingBox();
+  const sticky = phone.page.locator(`[data-node-id="${stickyId}"]`);
+  const editor = sticky.locator('[contenteditable="true"]');
+  const done = phone.page.getByRole('button', { name: 'Done', exact: true });
+  await phone.page.getByRole('button', { name: 'Edit', exact: true }).tap();
+  await expect(done).toBeVisible();
+  await centreNode(touch, sticky, box);
+  const zoom = await zoomPercent(phone.page);
+
+  const placed = await sticky.boundingBox();
+  const mid = { x: placed.x + placed.width / 2, y: placed.y + placed.height / 2 };
+  await touch.tap(mid);
+  await touch.tap(mid);
+  await expect(editor).toBeVisible();
+  await phone.page.keyboard.type('Hello');
+  await phone.page.waitForTimeout(400); // well past the double tap window
+
+  // Two quick taps inside the text belong to the editor: it stays open, the board does not zoom, and typing goes on.
+  const typed = await editor.boundingBox();
+  const inText = { x: typed.x + typed.width / 2, y: typed.y + typed.height / 2 };
+  await touch.tap(inText);
+  await touch.tap(inText);
+  await phone.page.waitForTimeout(400);
+  await expect(editor).toBeVisible();
+  expect(await zoomPercent(phone.page)).toBe(zoom);
+  await phone.page.keyboard.press('End');
+  await phone.page.keyboard.type(' world');
+  await expect(editor).toHaveText('Hello world');
+
+  await done.tap();
+  await expect(editor).toHaveCount(0);
+  await expect.poll(async () => (await boardData(phone.context, boardPath)).nodes[0].text, { timeout: 10000 }).toBe('Hello world');
+
+  await phone.context.close();
+  await db.end();
+});
+
 test('Board touch: viewing, a swipe that starts on a connector or a frame title pans the board and selects nothing', async ({ browser, baseURL }) => {
   test.setTimeout(120000);
   const db = await seedUsers();

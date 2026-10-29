@@ -380,6 +380,13 @@ export const CanvasSurface = forwardRef
       e.stopPropagation();
       return;
     }
+    // Taps inside an open editor or control belong to it (placing the caret,
+    // selecting a word), so they never count towards a double tap.
+    if (e.target.closest?.('[contenteditable="true"], input, textarea, select, [data-crop-controls]')) {
+      touch.pending = null;
+      touch.lastTap = null;
+      return;
+    }
 
     if (isDoubleTap(touch.lastTap, screen, e.timeStamp)) {
       touch.lastTap = null;
