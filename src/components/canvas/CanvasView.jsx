@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, Loader2, AlertTriangle, AlertCircle, Monitor, Eye, MessageSquare, Lock, Share2, History } from "lucide-react";
+import { Check, Loader2, AlertTriangle, AlertCircle, Eye, MessageSquare, Lock, Share2, History, Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
+import { useMediaQuery } from "@/lib/use-media-query";
 import { useCanvasStore, selectReadOnly } from "@/lib/canvas-store";
 import { isCreateTool } from "@/lib/canvas/shapes";
 import { useBoardPolling } from "@/lib/canvas/use-board-polling";
@@ -42,7 +43,6 @@ export function CanvasView() {
   const [toolLocked, setToolLocked] = useState(false);
   const [assetPanelCollapsed, setAssetPanelCollapsed] = useState(false);
   const [transientActive, setTransientActive] = useState(false);
-  const [tooSmall, setTooSmall] = useState(false);
   const [importNotice, setImportNotice] = useState("");
   const [shareOpen, setShareOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -58,6 +58,8 @@ export function CanvasView() {
   const saveStatus = useCanvasStore((s) => s.saveStatus);
   const saveError = useCanvasStore((s) => s.saveError);
   const readOnly = useCanvasStore(selectReadOnly);
+  const touchEditMode = useCanvasStore((s) => s.touchEditMode);
+  const setTouchEditMode = useCanvasStore((s) => s.setTouchEditMode);
   const boardRole = useCanvasStore((s) => s.boardRole);
   const accessLost = useCanvasStore((s) => s.accessLost);
   const boardName = useCanvasStore((s) => s.boardName);
@@ -141,14 +143,12 @@ export function CanvasView() {
     };
   }, [flushSave]);
 
-  // responsive desktop-only gate (ui-spec A1 / §10)
-  useEffect(() => {
-    const mq = window.matchMedia("(min-width: 1024px) and (hover: hover) and (pointer: fine)");
-    const update = () => setTooSmall(!mq.matches);
-    update();
-    mq.addEventListener("change", update);
-    return () => mq.removeEventListener("change", update);
-  }, []);
+  // Phones get the compact layout: the asset panel overlays as a drawer and
+  // the top controls wrap. Touch-first devices open every board view-only
+  // (pan and zoom) until Edit is tapped; a mouse-driven desktop never does.
+  const narrow = useMediaQuery("(max-width: 767px)");
+  const coarsePointer = useMediaQuery("(pointer: coarse)");
+  const touchViewOnly = coarsePointer && !touchEditMode;
 
   // Explicit board-project switch (BoardProjectSelector) — distinct from
   // CanvasAssetPanel's `scope`, which only filters displayed assets and must
@@ -199,7 +199,7 @@ export function CanvasView() {
     const onPaste = (event) => {
       const target = event.target;
       if (target?.isContentEditable || target?.tagName === "INPUT" || target?.tagName === "TEXTAREA") return;
-      if (selectReadOnly(useCanvasStore.getState())) return;
+      if (touchViewOnly || selectReadOnly(useCanvasStore.getState())) return;
       const files = Array.from(event.clipboardData?.files ?? []).filter((file) => file.type.startsWith("image/"));
       event.preventDefault();
       if (files.length) void importImageFiles(files);
@@ -207,7 +207,7 @@ export function CanvasView() {
     };
     document.addEventListener("paste", onPaste);
     return () => document.removeEventListener("paste", onPaste);
-  }, [importImageFiles, paste]);
+  }, [importImageFiles, paste, touchViewOnly]);
 
   // Single source of truth for "add image" (⇧I shortcut B / toolbar button)
   // — one hidden file input, one code path, so the toolbar's "(⇧I)" tooltip
@@ -235,6 +235,9 @@ export function CanvasView() {
       }
 
       const mod = e.metaKey || e.ctrlKey;
+
+      // View only on touch: a hardware keyboard may move the view, never edit.
+      if (touchViewOnly && !(mod && e.key === "0") && !(e.key === "!" && e.shiftKey)) return;
 
       if (mod && e.key.toLowerCase() === "z") {
         e.preventDefault();
@@ -392,6 +395,7 @@ export function CanvasView() {
     cut,
     paste,
     openImagePicker,
+    touchViewOnly,
   ]);
 
   // Board AI jobs follow the loaded, editable board: unfinished jobs resume and finished, unplaced results are placed.
@@ -403,7 +407,9 @@ export function CanvasView() {
   }, [boardId, loaded, loadedBoardId, readOnly]);
   useEffect(() => () => useBoardAi.getState().detach(), []);
 
-  const assetPanelWidth = assetPanelCollapsed ? 44 : 300;
+  // On phones the open panel overlays the board instead of taking a column.
+  const assetPanelWidth = assetPanelCollapsed || narrow ? 44 : 300;
+  const showEditToggle = coarsePointer && !readOnly && !noBoards && !!boardId && loaded;
 
   return (
     <div className="relative min-w-0 flex-1 overflow-hidden bg-ink-900">
@@ -414,13 +420,14 @@ export function CanvasView() {
         boardId={boardId}
         onTransientChange={setTransientActive}
         onImportFiles={importImageFiles}
+        touchViewOnly={touchViewOnly}
       />
 
       {noBoards && (
         <div
           role="status"
           className="absolute inset-y-0 right-0 z-10 grid place-items-center bg-ink-900 px-6 text-center"
-          style={{ left: assetPanelWidth }}
+          style={{ left: narrow ? 0 : assetPanelWidth }}
         >
           <div className="flex max-w-xs flex-col items-center gap-3">
             <div className="grid h-14 w-14 place-items-center rounded-2xl bg-ink-700 ring-1 ring-line">
@@ -434,7 +441,7 @@ export function CanvasView() {
 
       <CanvasAssetPanel
         projectId={activeProjectId}
-        onPlaceAtCenter={readOnly || noBoards ? undefined : placeAsset}
+        onPlaceAtCenter={readOnly || touchViewOnly || noBoards ? undefined : placeAsset}
         onCollapsedChange={setAssetPanelCollapsed}
       />
 
@@ -442,9 +449,14 @@ export function CanvasView() {
           flight), the switcher/dock/zoom render but stay disabled/dimmed
           (ui-spec §9); the asset panel loads independently */}
       <div className={cn((boardsLoading || (!loaded && boardId)) && "pointer-events-none opacity-50")}>
+        {/* The bar spans the width so it can wrap on phones; only its pills
+            take pointer events, the gaps between them reach the canvas. */}
         <div
-          className="absolute top-4 z-30 flex items-center gap-2 transition-[left] duration-200"
-          style={{ left: assetPanelWidth + 16 }}
+          className={cn(
+            "pointer-events-none absolute top-4 z-30 flex flex-wrap items-center gap-2 transition-[left] duration-200",
+            !(boardsLoading || (!loaded && boardId)) && "[&>*]:pointer-events-auto"
+          )}
+          style={{ left: assetPanelWidth + 16, right: "1rem" }}
         >
           <BoardProjectSelector
             activeProjectId={activeProjectId}
@@ -483,10 +495,39 @@ export function CanvasView() {
               History
             </button>
           )}
+          {showEditToggle && (
+            <button
+              type="button"
+              aria-pressed={touchEditMode}
+              onClick={() => setTouchEditMode(!touchEditMode)}
+              className={cn(
+                "flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-brand",
+                touchEditMode
+                  ? "border border-line bg-ink-700 text-white/85 hover:text-white"
+                  : "bg-brand text-ink-900 hover:bg-brand/90"
+              )}
+            >
+              {touchEditMode ? <Check className="h-3.5 w-3.5" /> : <Pencil className="h-3.5 w-3.5" />}
+              {touchEditMode ? "Done" : "Edit"}
+            </button>
+          )}
+          {!noBoards && (
+            <span className="ml-auto">
+              {readOnly ? (
+                <AccessChip role={boardRole} accessLost={accessLost} />
+              ) : touchViewOnly && (saveStatus === "idle" || saveStatus === "saved") ? (
+                <AccessChip role="view" accessLost={false} />
+              ) : (
+                <SaveStatusChip status={saveStatus} error={saveError} onRetry={() => flushSave()} />
+              )}
+            </span>
+          )}
         </div>
         {!noBoards && (
           <CanvasToolbar
             readOnly={readOnly}
+            viewOnly={touchViewOnly}
+            insetLeft={narrow ? 0 : assetPanelWidth}
             toolLocked={toolLocked}
             shapesOpen={shapesOpen}
             onShapesOpenChange={setShapesOpen}
@@ -496,7 +537,7 @@ export function CanvasView() {
             onAiClick={() => setAiOpen((v) => !v)}
           />
         )}
-        {aiOpen && boardId && !readOnly && <CanvasAiPanel boardId={boardId} leftInset={assetPanelWidth} onClose={() => setAiOpen(false)} />}
+        {aiOpen && boardId && !readOnly && !touchViewOnly && <CanvasAiPanel boardId={boardId} leftInset={assetPanelWidth} onClose={() => setAiOpen(false)} />}
       </div>
 
       <input
@@ -513,12 +554,6 @@ export function CanvasView() {
         }}
       />
 
-      {noBoards ? null : readOnly ? (
-        <AccessChip role={boardRole} accessLost={accessLost} />
-      ) : (
-        <SaveStatusChip status={saveStatus} error={saveError} onRetry={() => flushSave()} />
-      )}
-
       {shareOpen && boardId && (
         <BoardShareDialog
           boardId={boardId}
@@ -534,7 +569,7 @@ export function CanvasView() {
 
       {importNotice && <div role="status" className="absolute bottom-20 left-1/2 z-40 -translate-x-1/2 rounded-lg border border-line bg-ink-750/95 px-3 py-2 text-xs text-white/80 shadow-pop">{importNotice}</div>}
 
-      <StyleInspector hidden={transientActive || readOnly || noBoards} />
+      <StyleInspector hidden={transientActive || readOnly || touchViewOnly || noBoards} />
       {!noBoards && !transientActive && <ObjectInfo style={{ left: assetPanelWidth + 16 }} />}
       {historyOpen && boardId && loaded && !readOnly && (
         <BoardHistoryPanel key={boardId} boardId={boardId} onClose={closeHistory} />
@@ -556,17 +591,6 @@ export function CanvasView() {
         </div>
       )}
 
-      {tooSmall && (
-        <div className="absolute inset-0 z-50 grid place-items-center bg-ink-900/95 text-center">
-          <div className="flex max-w-xs flex-col items-center gap-3 px-6">
-            <Monitor className="h-8 w-8 text-white/50" />
-            <p className="text-sm font-medium text-white/85">Canvas Board needs a larger screen.</p>
-            <p className="text-sm text-white/55">
-              Open Veevee.ai on a desktop (1024px or wider) to use the board.
-            </p>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -581,7 +605,7 @@ function AccessChip({ role, accessLost }) {
   return (
     <div
       role="status"
-      className="absolute right-4 top-4 z-30 flex items-center gap-1.5 rounded-full border border-line bg-ink-750/95 px-3 py-1.5 text-xs text-white/60 shadow-pop backdrop-blur-xl"
+      className="flex items-center gap-1.5 whitespace-nowrap rounded-full border border-line bg-ink-750/95 px-3 py-1.5 text-xs text-white/60 shadow-pop backdrop-blur-xl"
     >
       <Icon className="h-3.5 w-3.5" />
       {label}
@@ -599,7 +623,7 @@ export function SaveStatusChip({
   if (status === "error" && error === "tooLarge") {
     // Resending the same board cannot succeed; the next edit that makes it smaller saves.
     return (
-      <div role="alert" className="absolute right-4 top-4 z-30 flex items-center gap-2 rounded-full bg-amber-400/15 px-3 py-1.5 text-xs font-medium text-amber-200 ring-1 ring-amber-400/40">
+      <div role="alert" className="flex items-center gap-2 whitespace-nowrap rounded-full bg-amber-400/15 px-3 py-1.5 text-xs font-medium text-amber-200 ring-1 ring-amber-400/40">
         <AlertTriangle className="h-3.5 w-3.5" />
         Board too large to save - remove some items and try again
       </div>
@@ -607,7 +631,7 @@ export function SaveStatusChip({
   }
   if (status === "error") {
     return (
-      <div className="absolute right-4 top-4 z-30 flex items-center gap-2 rounded-full bg-amber-400/15 px-3 py-1.5 text-xs font-medium text-amber-200 ring-1 ring-amber-400/40">
+      <div className="flex items-center gap-2 whitespace-nowrap rounded-full bg-amber-400/15 px-3 py-1.5 text-xs font-medium text-amber-200 ring-1 ring-amber-400/40">
         <AlertTriangle className="h-3.5 w-3.5" />
         Could not save - retrying
         <button
@@ -622,14 +646,14 @@ export function SaveStatusChip({
   }
   if (status === "saving" || status === "dirty") {
     return (
-      <div className="absolute right-4 top-4 z-30 flex items-center gap-1.5 rounded-full border border-line bg-ink-750/95 px-3 py-1.5 text-xs text-white/60 shadow-pop backdrop-blur-xl">
+      <div className="flex items-center gap-1.5 whitespace-nowrap rounded-full border border-line bg-ink-750/95 px-3 py-1.5 text-xs text-white/60 shadow-pop backdrop-blur-xl">
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
         Saving…
       </div>
     );
   }
   return (
-    <div className="absolute right-4 top-4 z-30 flex items-center gap-1.5 rounded-full border border-line bg-ink-750/95 px-3 py-1.5 text-xs text-white/45 shadow-pop backdrop-blur-xl">
+    <div className="flex items-center gap-1.5 whitespace-nowrap rounded-full border border-line bg-ink-750/95 px-3 py-1.5 text-xs text-white/45 shadow-pop backdrop-blur-xl">
       <Check className="h-3.5 w-3.5" />
       Saved
     </div>

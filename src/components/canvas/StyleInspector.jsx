@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   AlignLeft,
   AlignCenter,
@@ -40,6 +40,8 @@ import {
 } from "@/lib/canvas/rich-text-commands";
 
 const RICH_TEXT_TYPES = new Set(["text", "sticky"]);
+/** World height of a frame's title strip, which FrameNode draws above the box (`-top-6`). */
+const FRAME_TITLE_HEIGHT = 24;
 
 // ~12 monochrome-plus-FigJam-ish swatches — the only saturated color in the
 // board's chrome, and it only ever comes from user choice (ui-spec §5).
@@ -69,6 +71,18 @@ export function StyleInspector({ hidden }) {
   const deleteSelected = useCanvasStore((s) => s.deleteSelected);
   const beginCrop = useCanvasStore((s) => s.beginCrop);
   const editingTextId = useCanvasStore((s) => s.editingTextId);
+  const panelRef = useRef(null);
+  // Keep the panel inside its container on narrow screens: it is centred on the
+  // selection, which can sit near either edge, so clamp after layout.
+  useLayoutEffect(() => {
+    const el = panelRef.current;
+    const parent = el?.offsetParent;
+    if (!el || !parent) return;
+    const half = el.offsetWidth / 2;
+    const desired = Number.parseFloat(el.dataset.centerX ?? "0");
+    const left = Math.min(Math.max(desired, half + 8), Math.max(parent.clientWidth - half - 8, half + 8));
+    el.style.left = `${left}px`;
+  });
 
   const selectedNodes = present.nodes.filter((n) => selection.includes(n.id));
   const selectedConnectors = present.connectors.filter((c) => selectedConnectorIds.includes(c.id));
@@ -87,7 +101,8 @@ export function StyleInspector({ hidden }) {
   for (const n of selectedNodes) {
     const b = nodeBounds(n);
     bx0 = Math.min(bx0, b.x);
-    by0 = Math.min(by0, b.y);
+    // The panel sits above a frame's title, not over it.
+    by0 = Math.min(by0, n.type === "frame" ? b.y - FRAME_TITLE_HEIGHT : b.y);
     bx1 = Math.max(bx1, b.x + b.w);
     by1 = Math.max(by1, b.y + b.h);
   }
@@ -138,148 +153,154 @@ export function StyleInspector({ hidden }) {
 
   return (
     <div
-      className="absolute z-40 flex h-11 items-center gap-1 rounded-2xl border border-line bg-ink-750/95 p-1 shadow-pop backdrop-blur-xl"
+      ref={panelRef}
+      data-center-x={centerX}
+      className="absolute z-40 flex h-11 max-w-[calc(100%-1rem)] items-center gap-1 rounded-2xl border border-line bg-ink-750/95 p-1 shadow-pop backdrop-blur-xl"
       style={{ left: centerX, top, transform: "translateX(-50%)" }}
     >
       {editingRichText && <TextFormatControls popoverBelow={flipBelow} />}
 
-      {showFill && (
-        <ColorSwatchButton
-          label="Fill"
-          value={(selectedNodes[0] ).fill ?? "transparent"}
-          onChange={(v) => patch({ fill: v })}
-        />
-      )}
-
-      {(showStroke || onlyConnectors) && (
-        <>
+      {/* Only the style controls scroll on narrow screens; the text format
+          popovers sit outside this scroller so it cannot clip them. */}
+      <div className="flex min-w-0 items-center gap-1 overflow-x-auto">
+        {showFill && (
           <ColorSwatchButton
-            label="Stroke color"
-            value={onlyConnectors ? selectedConnectors[0]?.stroke ?? "#ffffff" : (selectedNodes[0] ).stroke}
-            onChange={(v) => patch({ stroke: v })}
+            label="Fill"
+            value={(selectedNodes[0] ).fill ?? "transparent"}
+            onChange={(v) => patch({ fill: v })}
           />
-          <StrokeWidthControl
-            value={onlyConnectors ? selectedConnectors[0]?.strokeWidth ?? 2 : (selectedNodes[0] ).strokeWidth ?? 2}
-            onChange={(v) => patch({ strokeWidth: v })}
-          />
-        </>
-      )}
-
-      {onlyConnectors && (
-        <ArrowheadControl
-          kind={selectedConnectors[0]?.kind ?? "arrow"}
-          onChange={(kind) => patch({ kind })}
-        />
-      )}
-
-      {showCornerRadius && (
-        <CornerRadiusControl
-          value={(selectedNodes[0] ).cornerRadius ?? 0}
-          onChange={(v) => patch({ cornerRadius: v })}
-        />
-      )}
-
-      {showTextColor && (
-        <ColorSwatchButton
-          label="Text color"
-          value={(selectedNodes[0] ).color ?? "#ffffff"}
-          onChange={(v) => patch({ color: v })}
-        />
-      )}
-
-      {showFontSize && (
-        <FontSizeControl
-          value={(selectedNodes[0] ).fontSize ?? 16}
-          onChange={(v) => patch({ fontSize: v })}
-        />
-      )}
-
-      {showTextAlign && (
-        <TextAlignControl
-          value={(selectedNodes[0] ).align ?? "left"}
-          onChange={(v) => patch({ align: v })}
-        />
-      )}
-
-      {showFrameLabel && (
-        <input
-          defaultValue={(selectedNodes[0] ).name ?? ""}
-          onBlur={(e) => patch({ name: e.currentTarget.value })}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") e.currentTarget.blur();
-          }}
-          placeholder="Frame label"
-          className="h-8 w-32 rounded-lg border border-line bg-ink-800 px-2 text-xs text-white outline-none placeholder:text-white/30 focus:border-brand/40"
-        />
-      )}
-
-      {selection.length === 1 && soleType === "image" && (
-        <button type="button" onClick={() => beginCrop(selection[0])} className="grid h-8 w-8 place-items-center rounded-lg text-white/60 hover:bg-white/10 hover:text-white" title="Crop image" aria-label="Crop image"><Crop className="h-4 w-4" /></button>
-      )}
-
-      {/* opacity — applies to every node type */}
-      {hasNodes && (
-        <OpacityControl
-          value={selectedNodes[0]?.opacity ?? 1}
-          onChange={(v) => patch({ opacity: v })}
-        />
-      )}
-
-      <Dropdown
-        align="right"
-        trigger={(open) => (
-          <span
-            className={cn(
-              "grid h-8 w-8 cursor-pointer place-items-center rounded-lg text-white/60 transition hover:bg-white/[0.08] hover:text-white",
-              open && "bg-white/[0.08] text-white"
-            )}
-            aria-label="More"
-            title="More"
-          >
-            <MoreHorizontal className="h-4 w-4" />
-          </span>
         )}
-      >
-        {(close) => (
+
+        {(showStroke || onlyConnectors) && (
           <>
-            <MenuItem
-              onClick={() => {
-                bringToFront();
-                close();
-              }}
-            >
-              <BringToFront className="h-4 w-4 text-white/45" /> Bring to front
-            </MenuItem>
-            <MenuItem
-              onClick={() => {
-                sendToBack();
-                close();
-              }}
-            >
-              <SendToBack className="h-4 w-4 text-white/45" /> Send to back
-            </MenuItem>
-            <div className="my-1 h-px bg-line" />
-            <MenuItem
-              onClick={() => {
-                duplicateSelected();
-                close();
-              }}
-            >
-              <Copy className="h-4 w-4 text-white/45" /> Duplicate
-              <span className="ml-auto text-xs text-white/40">⌘D</span>
-            </MenuItem>
-            <MenuItem
-              onClick={() => {
-                deleteSelected();
-                close();
-              }}
-            >
-              <Trash2 className="h-4 w-4 text-red-400/80" />
-              <span className="text-red-300/90">Delete</span>
-            </MenuItem>
+            <ColorSwatchButton
+              label="Stroke color"
+              value={onlyConnectors ? selectedConnectors[0]?.stroke ?? "#ffffff" : (selectedNodes[0] ).stroke}
+              onChange={(v) => patch({ stroke: v })}
+            />
+            <StrokeWidthControl
+              value={onlyConnectors ? selectedConnectors[0]?.strokeWidth ?? 2 : (selectedNodes[0] ).strokeWidth ?? 2}
+              onChange={(v) => patch({ strokeWidth: v })}
+            />
           </>
         )}
-      </Dropdown>
+
+        {onlyConnectors && (
+          <ArrowheadControl
+            kind={selectedConnectors[0]?.kind ?? "arrow"}
+            onChange={(kind) => patch({ kind })}
+          />
+        )}
+
+        {showCornerRadius && (
+          <CornerRadiusControl
+            value={(selectedNodes[0] ).cornerRadius ?? 0}
+            onChange={(v) => patch({ cornerRadius: v })}
+          />
+        )}
+
+        {showTextColor && (
+          <ColorSwatchButton
+            label="Text color"
+            value={(selectedNodes[0] ).color ?? "#ffffff"}
+            onChange={(v) => patch({ color: v })}
+          />
+        )}
+
+        {showFontSize && (
+          <FontSizeControl
+            value={(selectedNodes[0] ).fontSize ?? 16}
+            onChange={(v) => patch({ fontSize: v })}
+          />
+        )}
+
+        {showTextAlign && (
+          <TextAlignControl
+            value={(selectedNodes[0] ).align ?? "left"}
+            onChange={(v) => patch({ align: v })}
+          />
+        )}
+
+        {showFrameLabel && (
+          <input
+            defaultValue={(selectedNodes[0] ).name ?? ""}
+            onBlur={(e) => patch({ name: e.currentTarget.value })}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.currentTarget.blur();
+            }}
+            placeholder="Frame label"
+            className="h-8 w-32 rounded-lg border border-line bg-ink-800 px-2 text-xs text-white outline-none placeholder:text-white/30 focus:border-brand/40"
+          />
+        )}
+
+        {selection.length === 1 && soleType === "image" && (
+          <button type="button" onClick={() => beginCrop(selection[0])} className="grid h-8 w-8 place-items-center rounded-lg text-white/60 hover:bg-white/10 hover:text-white" title="Crop image" aria-label="Crop image"><Crop className="h-4 w-4" /></button>
+        )}
+
+        {/* opacity — applies to every node type */}
+        {hasNodes && (
+          <OpacityControl
+            value={selectedNodes[0]?.opacity ?? 1}
+            onChange={(v) => patch({ opacity: v })}
+          />
+        )}
+
+        <Dropdown
+          align="right"
+          trigger={(open) => (
+            <span
+              className={cn(
+                "grid h-8 w-8 cursor-pointer place-items-center rounded-lg text-white/60 transition hover:bg-white/[0.08] hover:text-white",
+                open && "bg-white/[0.08] text-white"
+              )}
+              aria-label="More"
+              title="More"
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </span>
+          )}
+        >
+          {(close) => (
+            <>
+              <MenuItem
+                onClick={() => {
+                  bringToFront();
+                  close();
+                }}
+              >
+                <BringToFront className="h-4 w-4 text-white/45" /> Bring to front
+              </MenuItem>
+              <MenuItem
+                onClick={() => {
+                  sendToBack();
+                  close();
+                }}
+              >
+                <SendToBack className="h-4 w-4 text-white/45" /> Send to back
+              </MenuItem>
+              <div className="my-1 h-px bg-line" />
+              <MenuItem
+                onClick={() => {
+                  duplicateSelected();
+                  close();
+                }}
+              >
+                <Copy className="h-4 w-4 text-white/45" /> Duplicate
+                <span className="ml-auto text-xs text-white/40">⌘D</span>
+              </MenuItem>
+              <MenuItem
+                onClick={() => {
+                  deleteSelected();
+                  close();
+                }}
+              >
+                <Trash2 className="h-4 w-4 text-red-400/80" />
+                <span className="text-red-300/90">Delete</span>
+              </MenuItem>
+            </>
+          )}
+        </Dropdown>
+      </div>
     </div>
   );
 }

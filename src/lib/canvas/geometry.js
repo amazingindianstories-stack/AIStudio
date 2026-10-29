@@ -4,6 +4,18 @@ import { nodeOutline, pointInPolygon, rayExit } from "./shapes";
 
 const MIN_NODE_SIZE = 4;
 
+// ---- viewport bounds ----
+
+// Reasonable, defensible bounds for "min/max zoom"; the design contract does
+// not pin exact numbers. Shared by the store, scroll-zoom, touch gestures and
+// the % readout so every path clamps the same way.
+export const MIN_ZOOM = 0.1;
+export const MAX_ZOOM = 4;
+
+export function clampZoom(zoom) {
+  return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
+}
+
 // ---- coord transforms ----
 
 export function worldToScreen(p, vp) {

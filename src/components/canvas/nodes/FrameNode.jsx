@@ -14,6 +14,7 @@ export function FrameNode({
   node,
   hasChildren,
   editingLabel,
+  viewOnly = false,
   dropHighlight,
   onCommitLabel,
   onCancelLabelEdit,
@@ -52,12 +53,12 @@ export function FrameNode({
                 onCancelLabelEdit();
               }
             }}
-            className="w-56 max-w-full border-b border-white/40 bg-transparent text-sm font-medium text-white/90 outline-none"
+            className="w-56 max-w-full select-text border-b border-white/40 bg-transparent text-sm font-medium text-white/90 outline-none"
           />
         ) : (
           <span
             onDoubleClick={onLabelDoubleClick}
-            onPointerDown={(e) => e.stopPropagation()}
+            onPointerDown={viewOnly ? undefined : (e) => e.stopPropagation()}
             className="block truncate hover:underline hover:decoration-white/30"
             title={node.name}
           >

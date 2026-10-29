@@ -185,3 +185,36 @@ test("the read-only toolbar keeps navigation and zoom but no creation tools", ()
     globalThis.React = previousReact;
   }
 });
+
+test("touch edit mode: refused on read-only boards, cleared when access drops, ends selection and edits on Done", async (t) => {
+  useStorage(t);
+  serve(t, "view");
+  const store = useCanvasStore.getState();
+  store.reset();
+  await store.loadBoard("board-1");
+  useCanvasStore.getState().setTouchEditMode(true);
+  assert.equal(useCanvasStore.getState().touchEditMode, false, "a viewer never gets touch edit mode");
+
+  useCanvasStore.getState().setBoardRole("edit");
+  useCanvasStore.getState().setTouchEditMode(true);
+  assert.equal(useCanvasStore.getState().touchEditMode, true, "an editor can turn it on");
+  useCanvasStore.getState().setSelection(["n1"]);
+  useCanvasStore.getState().setEditingTextId("n1");
+  useCanvasStore.getState().setTool("sticky");
+  useCanvasStore.getState().setTouchEditMode(false);
+  const done = useCanvasStore.getState();
+  assert.equal(done.touchEditMode, false);
+  assert.deepEqual(done.selection, []);
+  assert.equal(done.editingTextId, null);
+  assert.equal(done.tool, "select", "Done returns to the select tool");
+
+  useCanvasStore.getState().setTouchEditMode(true);
+  useCanvasStore.getState().setBoardRole("comment");
+  assert.equal(useCanvasStore.getState().touchEditMode, false, "losing edit access leaves edit mode");
+
+  useCanvasStore.getState().setBoardRole("edit");
+  useCanvasStore.getState().setTouchEditMode(true);
+  await useCanvasStore.getState().loadBoard("board-1");
+  assert.equal(useCanvasStore.getState().touchEditMode, false, "every board opens view-only on touch");
+  useCanvasStore.getState().reset();
+});

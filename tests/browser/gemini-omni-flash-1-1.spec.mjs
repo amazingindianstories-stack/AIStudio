@@ -37,6 +37,8 @@ test('Gemini Omni Flash 1.1 replaces Gemini Omni Flash in the composer and gener
   // 1.1 is offered right after Seedance 2.5; the retired preview is gone from the picker.
   const picker = page.getByRole('button', { name: /^Model:/ });
   await picker.click();
+  // The menu renders after the click; snapshot its items only once it is open.
+  await expect(page.getByRole('menuitem', { name: /^Seedance 2\.5/ })).toBeVisible();
   const names = await page.getByRole('menuitem').allInnerTexts();
   const seedance = names.findIndex(text => text.startsWith('Seedance 2.5'));
   expect(seedance).toBeGreaterThanOrEqual(0);

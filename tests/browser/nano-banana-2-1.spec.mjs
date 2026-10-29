@@ -38,6 +38,8 @@ test('Nano Banana 2.1 is picked in the composer and generates through Django enq
   await expect(picker).toContainText('Nano Banana Pro');
   await picker.click();
   const items = page.getByRole('menuitem');
+  // The menu renders after the click; snapshot its items only once it is open.
+  await expect(items.filter({ hasText: /^Nano Banana Pro/ })).toBeVisible();
   const names = await items.allInnerTexts();
   const pro = names.findIndex(text => text.startsWith('Nano Banana Pro'));
   expect(pro).toBeGreaterThanOrEqual(0);
