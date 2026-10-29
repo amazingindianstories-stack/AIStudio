@@ -291,6 +291,9 @@ function applyRemoteBoard(set, get, board, base = get().serverState) {
       heldDeletedNodes.set(id, held);
     }
   }
+  for (const id of [...heldDeletedNodes.keys()]) {
+    if (nodeOf(remote, id)) heldDeletedNodes.delete(id);
+  }
   set({
     history,
     serverVersion: version,

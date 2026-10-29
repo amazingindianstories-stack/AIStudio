@@ -379,6 +379,29 @@ test("a node someone else deleted while it was open for editing goes away unless
   assert.equal(server.data.nodes[1].text, "typed");
 });
 
+test("a node deleted and then restored by someone else while it is open for editing stays", async (t) => {
+  useStorage(t);
+  const sticky = (id, text) => ({ ...rect(id), type: "sticky", text, fontSize: 16, color: "#000000" });
+  const server = fakeServer(t, graph(rect("a"), sticky("s", "old")));
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  store.getState().setSelection(["s"]);
+  store.getState().setEditingTextId("s");
+  server.edit(graph(rect("a")));
+  assert.equal(await store.getState().pollRemote(), true);
+  // The other person undoes their delete.
+  server.edit(graph(rect("a"), sticky("s", "old")));
+  assert.equal(await store.getState().pollRemote(), true);
+  store.getState().setViewport({ x: 10, y: 10, zoom: 1 });
+  await store.getState().flushSave();
+  assert.deepEqual(ids(server.data), ["a", "s"]);
+  store.getState().commitText("s", "old", "old");
+  assert.deepEqual(ids(store.getState().history.present), ["a", "s"]);
+  addLocalNode("mine");
+  await store.getState().flushSave();
+  assert.deepEqual(ids(server.data), ["a", "s", "mine"]);
+});
+
 test("a draft on the server's current version keeps its deletions without carrying its base graph", async (t) => {
   useStorage(t);
   const server = fakeServer(t, graph(rect("a"), rect("b")));
