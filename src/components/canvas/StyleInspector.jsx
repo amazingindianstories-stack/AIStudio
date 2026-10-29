@@ -40,6 +40,8 @@ import {
 } from "@/lib/canvas/rich-text-commands";
 
 const RICH_TEXT_TYPES = new Set(["text", "sticky"]);
+/** World height of a frame's title strip, which FrameNode draws above the box (`-top-6`). */
+const FRAME_TITLE_HEIGHT = 24;
 
 // ~12 monochrome-plus-FigJam-ish swatches — the only saturated color in the
 // board's chrome, and it only ever comes from user choice (ui-spec §5).
@@ -99,7 +101,8 @@ export function StyleInspector({ hidden }) {
   for (const n of selectedNodes) {
     const b = nodeBounds(n);
     bx0 = Math.min(bx0, b.x);
-    by0 = Math.min(by0, b.y);
+    // The panel sits above a frame's title, not over it.
+    by0 = Math.min(by0, n.type === "frame" ? b.y - FRAME_TITLE_HEIGHT : b.y);
     bx1 = Math.max(bx1, b.x + b.w);
     by1 = Math.max(by1, b.y + b.h);
   }

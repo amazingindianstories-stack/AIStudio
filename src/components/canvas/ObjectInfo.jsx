@@ -38,11 +38,12 @@ export function ObjectInfo({ style }) {
   if (!created && !updated) return null;
   const name = (id) => displayName(people.get(id), id);
   const changedSinceCreated = updated && (!created || object.updatedAt !== object.createdAt || object.updatedBy !== object.createdBy);
+  // Sits just above the tool dock, which rises above the zoom control below the desktop width.
   return (
     <p
       aria-label="Object info"
       style={style}
-      className="pointer-events-none absolute bottom-[4.75rem] z-30 flex max-w-[min(32rem,calc(100%-2rem))] flex-wrap items-center gap-x-2 gap-y-0.5 rounded-full border border-line bg-ink-750/95 px-3 py-1.5 text-xs text-white/55 shadow-pop backdrop-blur-xl"
+      className="pointer-events-none absolute bottom-[4.75rem] max-lg:bottom-32 z-30 flex max-w-[min(32rem,calc(100%-2rem))] flex-wrap items-center gap-x-2 gap-y-0.5 rounded-full border border-line bg-ink-750/95 px-3 py-1.5 text-xs text-white/55 shadow-pop backdrop-blur-xl"
     >
       {created && (
         <span>

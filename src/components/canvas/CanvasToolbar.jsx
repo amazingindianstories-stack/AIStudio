@@ -64,7 +64,8 @@ export function CanvasToolbar({
   return (
     <>
       {/* The dock centres in the free strip between the asset panel and the
-          zoom control; below the desktop width it sits above the zoom control. */}
+          zoom control; below the desktop width it sits above the zoom control,
+          and on phones its buttons shrink so every tool fits the width. */}
       {!viewOnly && (
       <div
         className="pointer-events-none absolute bottom-4 right-44 z-30 flex justify-center transition-[left] duration-200 max-lg:bottom-[4.25rem] max-lg:right-4"
@@ -73,7 +74,7 @@ export function CanvasToolbar({
       <div
         role="toolbar"
         aria-label="Board tools"
-        className="pointer-events-auto flex max-w-full items-center gap-1 overflow-x-auto rounded-2xl border border-line bg-ink-750/95 p-1.5 shadow-pop backdrop-blur-xl"
+        className="pointer-events-auto flex max-w-full items-center gap-1 overflow-x-auto rounded-2xl border border-line bg-ink-750/95 p-1.5 shadow-pop backdrop-blur-xl max-sm:gap-0.5 max-sm:p-1"
       >
         <ToolGroup>
           <ToolButton
@@ -127,7 +128,7 @@ export function CanvasToolbar({
             trigger={(open) => (
               <span
                 className={cn(
-                  "relative grid h-9 w-9 place-items-center rounded-lg transition-colors",
+                  "relative grid h-9 w-9 place-items-center rounded-lg transition-colors max-sm:h-8 max-sm:w-8",
                   shapeToolActive
                     ? "bg-ink-600 ring-1 ring-line text-white"
                     : "text-white/55 hover:bg-white/[0.07] hover:text-white",
@@ -217,7 +218,7 @@ export function CanvasToolbar({
         <ToolGroup>
           <button
             type="button"
-            className="grid h-9 w-9 cursor-pointer place-items-center rounded-lg text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white"
+            className="grid h-9 w-9 cursor-pointer place-items-center rounded-lg text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white max-sm:h-8 max-sm:w-8"
             title="Add image (⇧I)"
             aria-label="Add image"
             onClick={onAddImageClick}
@@ -232,7 +233,7 @@ export function CanvasToolbar({
           <button
             type="button"
             className={cn(
-              "relative grid h-9 w-9 cursor-pointer place-items-center rounded-lg transition-colors",
+              "relative grid h-9 w-9 cursor-pointer place-items-center rounded-lg transition-colors max-sm:h-8 max-sm:w-8",
               aiOpen ? "bg-ink-600 text-white ring-1 ring-line" : "text-white/55 hover:bg-white/[0.07] hover:text-white"
             )}
             title="Create with AI"
@@ -255,11 +256,11 @@ export function CanvasToolbar({
 }
 
 function ToolGroup({ children }) {
-  return <div className="flex items-center gap-1">{children}</div>;
+  return <div className="flex items-center gap-1 max-sm:gap-0.5">{children}</div>;
 }
 
 function Divider() {
-  return <span className="mx-0.5 h-5 w-px bg-line" aria-hidden />;
+  return <span className="mx-0.5 h-5 w-px bg-line max-sm:mx-0" aria-hidden />;
 }
 
 function ToolButton({
@@ -281,7 +282,7 @@ function ToolButton({
       aria-pressed={active}
       title={`${label} (${shortcut})`}
       className={cn(
-        "relative grid h-9 w-9 place-items-center rounded-lg transition-colors",
+        "relative grid h-9 w-9 place-items-center rounded-lg transition-colors max-sm:h-8 max-sm:w-8",
         active ? "text-white" : "text-white/55 hover:bg-white/[0.07] hover:text-white"
       )}
     >
