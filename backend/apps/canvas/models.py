@@ -16,6 +16,8 @@ class CanvasBoard(models.Model):
     updated_at = models.BigIntegerField()
     # What every signed-in teammate gets without an explicit membership.
     team_role = models.TextField(db_default='edit')
+    # Bumped by every graph save; editors send the version they started from.
+    version = models.BigIntegerField(db_default=1)
 
     class Meta:
         managed = True
@@ -38,3 +40,19 @@ class BoardMember(models.Model):
         db_table = 'board_members'
         indexes = [models.Index(fields=['user'], name='board_members_user_idx')]
         constraints = [models.CheckConstraint(condition=models.Q(role__in=BOARD_ROLES), name='board_members_role_check')]
+
+
+class CanvasBoardSave(models.Model):
+    """A client save id a board applied, kept SAVE_RETENTION_MS so a draft left behind by a save that
+    landed (its response lost) is recognised and not replayed over other people's later edits."""
+    id = models.UUIDField(primary_key=True, db_default=RandomUUID())
+    board_id = models.UUIDField()
+    save_id = models.UUIDField()
+    version = models.BigIntegerField()
+    applied_at = models.BigIntegerField()
+
+    class Meta:
+        managed = True
+        db_table = 'canvas_board_saves'
+        indexes = [models.Index(fields=['applied_at'], name='canvas_board_saves_applied_idx')]
+        constraints = [models.UniqueConstraint(fields=('board_id', 'save_id'), name='canvas_board_saves_board_save_key')]

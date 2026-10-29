@@ -1,6 +1,7 @@
 """Format v1 path shapes and rich-text marks, held to the cases the frontend serializer also runs."""
 import copy
 import json
+from uuid import uuid4
 from pathlib import Path
 
 from django.test import SimpleTestCase, TransactionTestCase, override_settings
@@ -58,16 +59,20 @@ class ShapesRichTextSaveTests(TransactionTestCase):
         CanvasBoard.objects.create(id=self.board, project_id=self.project, name='Shapes',
                                    created_by=session_fixtures.UID, data={}, created_at=1, updated_at=2)
 
+    def save(self, data):
+        """A save over the board's current version, as the editor sends it."""
+        return {'data': data, 'baseVersion': CanvasBoard.objects.get(pk=self.board).version, 'saveId': str(uuid4())}
+
     def test_a_saved_board_keeps_shapes_and_sanitized_marks(self):
         self.cookie()
         case = FIXTURE['cases']['shapes']
-        response = self.client.put('/api/canvas-boards/' + self.board, data=json.dumps({'data': case['input']}),
+        response = self.client.put('/api/canvas-boards/' + self.board, data=json.dumps(self.save(case['input'])),
                                    content_type='application/json')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(CanvasBoard.objects.get(pk=self.board).data, case['expected'])
         self.assertEqual(self.client.get('/api/canvas-boards/' + self.board).json()['data'], case['expected'])
         unsafe = FIXTURE['cases']['marks']
-        self.client.put('/api/canvas-boards/' + self.board, data=json.dumps({'data': unsafe['input']}), content_type='application/json')
+        self.client.put('/api/canvas-boards/' + self.board, data=json.dumps(self.save(unsafe['input'])), content_type='application/json')
         stored = json.dumps(CanvasBoard.objects.get(pk=self.board).data)
         self.assertNotIn('javascript:', stored.lower())
         self.assertNotIn('data:text', stored)

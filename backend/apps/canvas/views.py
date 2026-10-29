@@ -1,4 +1,5 @@
 import json
+import re
 from django.conf import settings
 from django.http import HttpResponse
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
@@ -7,6 +8,7 @@ from . import access, services
 from .serialization import JS_WHITESPACE, js_json, json_length, validate_state
 
 MAX_BOARD_JSON_UNITS = 2 * 1024 * 1024
+UUID_PATTERN = re.compile(r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}')
 
 
 def node_route(methods):
@@ -159,20 +161,72 @@ def board_detail(request, identifier):
             if existing is None:
                 return reply(request, {'error': 'Board not found.'}, 404)
             level = access.require(user, existing, access.READ)
-            board = services.get_board(identifier)
+            save_id = save_id_of(request.GET.dict())
+            if save_id is False:
+                return reply(request, {'error': 'Invalid save id.'}, 400)
+            board = services.get_board(identifier, save_id)
             return reply(request, {**board, 'role': access.LEVEL_NAMES[level]}) if board else reply(request, {'error': 'Board not found.'}, 404)
-        # A missing board keeps the frozen validate-then-404 order; an existing one checks the role first.
+        # A missing board keeps the frozen validate-then-404 order; an existing one checks the role first,
+        # so a read-only user is refused before any version check and never receives a 409 with the graph.
         if existing is not None:
             access.require(user, existing, access.WRITE)
-        data = property_of(body(request), 'data')
+        payload = body(request)
+        data = property_of(payload, 'data')
         if not isinstance(data, dict):
             return reply(request, {'error': 'Invalid board data.'}, 400)
+        base_version = base_version_of(payload)
+        if base_version is False:
+            return reply(request, {'error': 'Invalid base version.'}, 400)
+        save_id = save_id_of(payload)
+        if save_id is False:
+            return reply(request, {'error': 'Invalid save id.'}, 400)
         if json_length(data) > MAX_BOARD_JSON_UNITS:
             return reply(request, {'error': 'Board is too large to save.'}, 413)
-        updated = services.save_board(identifier, validate_state(data))
-        if updated is None:
+        try:
+            saved = services.save_board(identifier, validate_state(data), base_version, save_id)
+        except services.VersionConflict as conflict:
+            return reply(request, {'error': 'VERSION_CONFLICT', 'board': conflict.board}, 409)
+        if saved is None:
             return reply(request, {'error': 'Board not found.'}, 404)
-        return reply(request, {'ok': True, 'updatedAt': updated})
+        return reply(request, {'ok': True, **saved})
+    except access.AccessError as error:
+        return reply(request, {'error': str(error)}, error.status)
+    except Exception:
+        return failure()
+
+
+def base_version_of(payload):
+    """None when absent (refused as a conflict, so no client writes over a version it never saw), False when malformed."""
+    value = payload.get('baseVersion') if isinstance(payload, dict) else None
+    if value is None:
+        return None
+    # body() parses every JSON number as a float.
+    if isinstance(value, float) and value.is_integer() and 1 <= value <= 2 ** 53:
+        return int(value)
+    return False
+
+
+def save_id_of(payload):
+    """The client's UUID for a save attempt: None when absent (a save without one is refused as a conflict),
+    False when malformed."""
+    value = payload.get('saveId') if isinstance(payload, dict) else None
+    if value is None:
+        return None
+    return value if isinstance(value, str) and UUID_PATTERN.fullmatch(value) else False
+
+
+@node_route(['GET'])
+def board_version(request, identifier):
+    """Polled while a board is open, so it reads two integers and never the graph."""
+    user = lookup(request)
+    if user is None:
+        return reply(request, {'error': 'UNAUTHENTICATED'}, 401)
+    try:
+        current = services.board_version(identifier)
+        if current is None:
+            return reply(request, {'error': 'Board not found.'}, 404)
+        access.require(user, current, access.READ)
+        return reply(request, {'version': current['version'], 'updatedAt': current['updated_at']})
     except access.AccessError as error:
         return reply(request, {'error': str(error)}, error.status)
     except Exception:
@@ -185,8 +239,7 @@ def board_upload(request, identifier):
     if actor is None:
         return reply(request, {'error': 'UNAUTHENTICATED'}, 401)
     try:
-        import re
-        existing = access.board_row(identifier) if re.fullmatch(r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}', identifier) else None
+        existing = access.board_row(identifier) if UUID_PATTERN.fullmatch(identifier) else None
         if existing is None:
             return reply(request, {'error': 'Board not found.'}, 404)
         access.require(actor, existing, access.WRITE)

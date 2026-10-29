@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
+import { useTextFrozenWhileEditing } from "./use-frozen-text";
 
 /**
  * Labeled rectangular container. Border is solid `lineStrong` once it has
@@ -21,6 +22,7 @@ export function FrameNode({
 
 ) {
   const labelRef = useRef(null);
+  const startName = useTextFrozenWhileEditing(node.name, editingLabel);
 
   useEffect(() => {
     if (editingLabel) labelRef.current?.select();
@@ -40,7 +42,7 @@ export function FrameNode({
             autoFocus
             defaultValue={node.name}
             onPointerDown={(e) => e.stopPropagation()}
-            onBlur={(e) => onCommitLabel(e.currentTarget.value)}
+            onBlur={(e) => onCommitLabel(e.currentTarget.value, startName)}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();

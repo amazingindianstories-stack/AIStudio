@@ -202,6 +202,108 @@ test('Canvas browser edits persist through Django after reload', async ({ page, 
   expect(persisted.data.nodes.some(row => row.id === node.id)).toBeTruthy();
 });
 
+test('Two sessions editing one board merge each other\'s work, undo only their own and keep in-progress typing', async ({ browser, baseURL }) => {
+  const boardPath = /\/api\/canvas-boards\/[^/]+$/;
+  const isSave = response => boardPath.test(new URL(response.url()).pathname) && response.request().method() === 'PUT';
+  const sessions = [];
+  for (const label of ['A', 'B']) {
+    const context = await browser.newContext({ baseURL });
+    await authenticate(context, baseURL);
+    sessions.push({ label, context, page: await context.newPage() });
+  }
+  const [a, b] = sessions;
+  try {
+    const created = await postAsBrowser(a.context.request, '/api/projects', { data: { op: 'createProject', name: `Canvas two sessions ${randomUUID()}` } });
+    expect(created.ok()).toBeTruthy();
+    const { project } = await created.json();
+    for (const session of sessions) {
+      await session.page.addInitScript(projectId => {
+        localStorage.setItem('veevee-draft-settings-v1', JSON.stringify({ activeProjectId: projectId }));
+      }, project.id);
+      await ready(session.page);
+      session.loaded = session.page.waitForResponse(response => boardPath.test(new URL(response.url()).pathname) && response.request().method() === 'GET');
+      await session.page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Board', exact: true }).click();
+      session.canvas = session.page.getByRole('application', { name: 'Board canvas' });
+      await expect(session.canvas).toBeVisible();
+      session.boardUrl = (await session.loaded).url();
+      session.conflicts = 0;
+      session.page.on('response', response => { if (isSave(response) && response.status() === 409) session.conflicts += 1; });
+    }
+    expect(b.boardUrl).toBe(a.boardUrl);
+    const serverNodes = async () => (await (await a.context.request.get(a.boardUrl)).json()).data.nodes;
+    const node = (session, id) => session.page.locator(`[data-node-id="${id}"]`);
+    const addRect = async (session, x, y) => {
+      await session.canvas.click({ position: { x: 1300, y: 700 } });
+      await session.page.keyboard.press('r');
+      const before = new Set((await session.page.locator('[data-node-id]').evaluateAll(els => els.map(el => el.dataset.nodeId))));
+      await session.canvas.click({ position: { x, y } });
+      const after = await session.page.locator('[data-node-id]').evaluateAll(els => els.map(el => el.dataset.nodeId));
+      return after.find(id => !before.has(id));
+    };
+
+    // A's save reaches B through polling within seconds.
+    const firstSave = a.page.waitForResponse(isSave);
+    const r1 = await addRect(a, 650, 250);
+    expect((await firstSave).ok()).toBeTruthy();
+    await expect(node(b, r1)).toBeVisible({ timeout: 10000 });
+
+    // Concurrent edits: B's polls wait until B has sent its save, and that save waits until A's lands,
+    // so B always saves over a stale version and must merge.
+    let releaseB, markBSent;
+    const aLanded = new Promise(resolve => { releaseB = resolve; });
+    const bSent = new Promise(resolve => { markBSent = resolve; });
+    const boardOrVersion = /\/api\/canvas-boards\/[^/]+(\/version)?$/;
+    await b.page.route(boardOrVersion, async route => {
+      if (route.request().method() === 'PUT') { markBSent(); await aLanded; }
+      else if (route.request().url().endsWith('/version')) await bSent;
+      await route.continue();
+    });
+    const aSaved = a.page.waitForResponse(isSave);
+    const r2 = await addRect(a, 900, 250);
+    const r3 = await addRect(b, 650, 480);
+    expect((await aSaved).ok()).toBeTruthy();
+    releaseB();
+    await expect.poll(() => b.conflicts, { timeout: 15000 }).toBeGreaterThan(0);
+    await expect.poll(async () => (await serverNodes()).map(row => row.id).sort(), { timeout: 15000 }).toEqual([r1, r2, r3].sort());
+    await b.page.unroute(boardOrVersion);
+    for (const session of sessions) {
+      for (const id of [r1, r2, r3]) await expect(node(session, id)).toBeVisible({ timeout: 10000 });
+    }
+
+    // Undo in B removes only B's own rectangle; A's work stays on both screens and on the server.
+    await b.canvas.click({ position: { x: 1300, y: 700 } });
+    await b.page.keyboard.press('ControlOrMeta+z');
+    await expect(node(b, r3)).toHaveCount(0);
+    await expect(node(b, r1)).toBeVisible();
+    await expect(node(b, r2)).toBeVisible();
+    await expect.poll(async () => (await serverNodes()).map(row => row.id).sort(), { timeout: 15000 }).toEqual([r1, r2].sort());
+    await expect(node(a, r3)).toHaveCount(0, { timeout: 10000 });
+
+    // B types into a new sticky while A adds a rectangle. A's change waits until B ends the edit,
+    // then it merges, the typing survives and both edits save.
+    await b.canvas.click({ position: { x: 1300, y: 700 } });
+    await b.page.getByRole('button', { name: 'Sticky note', exact: true }).click();
+    await b.canvas.click({ position: { x: 1000, y: 520 } });
+    await b.page.keyboard.type('typed while A edits');
+    // B's save of the new sticky may land first, so A's save can meet a 409, merge and save again.
+    const aSavedR4 = a.page.waitForResponse(response => isSave(response) && response.ok());
+    const r4 = await addRect(a, 1150, 250);
+    await aSavedR4;
+    const editor = b.page.locator('[contenteditable="true"]');
+    await expect(editor).toHaveText('typed while A edits');
+    await b.page.keyboard.type(' and after');
+    // Clicking empty canvas ends the edit, as a person would.
+    await b.canvas.click({ position: { x: 1300, y: 700 } });
+    await expect(editor).toHaveCount(0);
+    await expect(node(b, r4)).toBeVisible({ timeout: 10000 });
+    await expect.poll(async () => (await serverNodes()).find(row => row.type === 'sticky')?.text, { timeout: 15000 }).toBe('typed while A edits and after');
+    expect((await serverNodes()).map(row => row.id)).toEqual(expect.arrayContaining([r1, r2, r4]));
+    await expect(a.page.getByText('typed while A edits and after')).toBeVisible({ timeout: 10000 });
+  } finally {
+    for (const session of sessions) await session.context.close();
+  }
+});
+
 test('Agent browser chat stores Django messages and restores them after reload', async ({ page, context, baseURL }) => {
   await authenticate(context, baseURL);
   await freshProject(context, page, 'Agent browser chat');

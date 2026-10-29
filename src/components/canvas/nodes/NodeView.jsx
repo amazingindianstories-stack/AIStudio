@@ -103,7 +103,7 @@ export function NodeView({
                 node={node}
                 editing={editing}
                 readOnly={readOnly}
-                onCommit={(text, marks, height) => onCommitText(node.id, text, marks, height)}
+                onCommit={(text, marks, height, from) => onCommitText(node.id, text, marks, height, from)}
                 onCancel={() => onCancelEdit(node.id)}
               />
             );
@@ -113,7 +113,7 @@ export function NodeView({
                 node={node}
                 editing={editing}
                 readOnly={readOnly}
-                onCommit={(text, marks, height) => onCommitText(node.id, text, marks, height)}
+                onCommit={(text, marks, height, from) => onCommitText(node.id, text, marks, height, from)}
                 onCancel={() => onCancelEdit(node.id)}
               />
             );
@@ -123,7 +123,7 @@ export function NodeView({
                 node={node}
                 editing={editing}
                 readOnly={readOnly}
-                onCommit={(text, marks, height) => onCommitText(node.id, text, marks, height)}
+                onCommit={(text, marks, height, from) => onCommitText(node.id, text, marks, height, from)}
                 onCancel={() => onCancelEdit(node.id)}
               />
             );
@@ -134,7 +134,7 @@ export function NodeView({
                 hasChildren={hasChildren}
                 editingLabel={editing}
                 dropHighlight={dropHighlight}
-                onCommitLabel={(name) => onCommitText(node.id, name)}
+                onCommitLabel={(name, from) => onCommitText(node.id, name, undefined, undefined, { text: from })}
                 onCancelLabelEdit={() => onCancelEdit(node.id)}
                 onLabelDoubleClick={(e) => onDoubleClickBody(e, node)}
               />

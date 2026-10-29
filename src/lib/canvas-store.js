@@ -1,11 +1,12 @@
 "use client";
 
 import { create, } from "zustand";
-import { clearPendingDraft, readPendingDraft, savePendingDraft, shouldUseKeepalive } from "./canvas-pending-draft";
+import { DRAFT_SYNC_MAX_AGE_MS, clearPendingDraft, readPendingDraft, savePendingDraft, shouldUseKeepalive } from "./canvas-pending-draft";
 
 import { apiFetch } from "./api";
 import { canEditRole } from "./board-access";
 import { emptyCanvasState, validateCanvasState } from "./canvas/serialization";
+import { mergeCanvasStates, rebaseHistory, sameValue } from "./canvas/merge";
 import {
   moveNodesBy,
   resizeNode,
@@ -284,10 +285,131 @@ function mutateGraph(
   markDirty(set, get);
 }
 
+// ---- sync with other editors ----
+// `serverVersion`/`serverState` are the board version this tab last synced
+// and that version's graph: the base of the three-way merge when someone
+// else saved in between (a 409 on save, or a newer version seen by polling).
+
+/** The draft metadata that lets a restored draft merge instead of overwrite. */
+function syncOf(state) {
+  return { baseVersion: state.serverVersion, base: state.serverState };
+}
+
+/**
+ * Merges another editor's newer `board` into the working graph and every
+ * undo/redo snapshot, then adopts it as the sync base. `base` is what this
+ * tab's edits are measured against: the last synced graph, or the graph of
+ * this tab's own save that landed without an acknowledgement. Returns false
+ * for a response that is not newer than what this tab already synced.
+ */
+function applyRemoteBoard(set, get, board, base = get().serverState) {
+  const state = get();
+  const version = board?.version;
+  if (typeof version !== "number" || version <= state.serverVersion) return false;
+  if (textEditOpen(state)) return false;
+  const remote = validateCanvasState(board.data);
+  const cropped = croppedImageId(state);
+  const held = Boolean(cropped) && !sameValue(nodeOf(base, cropped), nodeOf(remote, cropped));
+  cropHold = held ? { id: cropped, remote: nodeOf(remote, cropped) } : null;
+  // Adopted as the base with the cropped image as it was, so no snapshot absorbs the held version.
+  const adopted = held ? withNodeFrom(remote, base, cropped) : remote;
+  const history = rebaseHistory(state.history, base, adopted);
+  if (gestureBaseline) gestureBaseline = rebaseHistory(gestureBaseline, base, adopted);
+  set({
+    history,
+    serverVersion: version,
+    serverState: adopted,
+    ...pruneSelection(history.present, state.selection, state.selectedConnectorIds),
+  });
+  return true;
+}
+
+function nodeOf(graph, id) {
+  return graph.nodes.find((node) => node.id === id);
+}
+
+/**
+ * While a text or label edit is open (and its node exists) every remote
+ * change waits, and merges as soon as the edit ends: an unchanged node then
+ * follows a remote delete and a typed change survives it, like any other
+ * local edit.
+ */
+function textEditOpen(state) {
+  return Boolean(state.editingTextId && nodeOf(state.history.present, state.editingTextId));
+}
+
+/** A save refused during a text edit: no more saves until the edit ends. */
+let conflictWaitsForEdit = false;
+
+/** `graph` with node `id` as in `source` (removed if `source` lacks it), in place or above the node below it there. */
+function withNodeFrom(graph, source, id) {
+  const node = nodeOf(source, id);
+  if (!node) return { ...graph, nodes: graph.nodes.filter((item) => item.id !== id) };
+  if (nodeOf(graph, id)) return { ...graph, nodes: graph.nodes.map((item) => (item.id === id ? node : item)) };
+  const nodes = [...graph.nodes];
+  const below = source.nodes.slice(0, source.nodes.indexOf(node)).findLast((item) => nodeOf(graph, item.id));
+  nodes.splice(below ? nodes.findIndex((item) => item.id === below.id) + 1 : 0, 0, node);
+  return { ...graph, nodes };
+}
+
+/** The image being cropped, while it exists. */
+function croppedImageId(state) {
+  return state.croppingImageId && nodeOf(state.history.present, state.croppingImageId) ? state.croppingImageId : null;
+}
+
+/**
+ * While an image is being cropped, other people's changes to that image are
+ * held back: `remote` is their latest version (undefined if they deleted it)
+ * and `serverState` keeps the image as in the last adopted base. Everything
+ * else merges as usual, and this person's own edits to the image show and save
+ * at once. A save writes their held version unless this person changed the
+ * image, and when the crop ends the ordinary merge applies it.
+ */
+let cropHold = null;
+
+function reconcileCrop() {
+  const { id, remote } = cropHold;
+  cropHold = null;
+  const state = useCanvasStore.getState();
+  const server = withNodeFrom(state.serverState, { nodes: remote ? [remote] : [] }, id);
+  const history = rebaseHistory(state.history, state.serverState, server);
+  if (gestureBaseline) gestureBaseline = rebaseHistory(gestureBaseline, state.serverState, server);
+  useCanvasStore.setState({
+    history,
+    serverState: server,
+    ...pruneSelection(history.present, state.selection, state.selectedConnectorIds),
+  });
+  const { present } = history;
+  if (!sameValue(present.nodes, server.nodes) || !sameValue(present.connectors, server.connectors)) {
+    markDirty(useCanvasStore.setState, useCanvasStore.getState);
+  }
+}
+
 // ---- autosave (module-level debounce/backoff/in-flight guard) ----
 let debounceTimer = null;
 let retryBackoffMs = DEBOUNCE_MS;
 let saveInFlight = null;
+/**
+ * The latest save attempt ({id, data}) without a definite answer: in flight,
+ * or failed in a way that may have landed (a dropped connection, a 5xx).
+ * Until it is settled, its changes cannot be told apart from unsaved edits.
+ */
+let unresolvedSave = null;
+
+/**
+ * Asks the server whether the unresolved save landed and merges the board:
+ * if it did, its graph is the merge base, so its changes count as already
+ * saved rather than as edits to replay over someone else's later change.
+ */
+async function settleUnresolvedSave(set, get, boardId) {
+  const save = unresolvedSave;
+  const res = await apiFetch(`/api/canvas-boards/${boardId}?saveId=${save.id}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`save lookup failed: ${res.status}`);
+  const board = await res.json();
+  if (get().boardId !== boardId || unresolvedSave !== save) return;
+  applyRemoteBoard(set, get, board, typeof board.saveVersion === "number" ? validateCanvasState(save.data) : undefined);
+  unresolvedSave = null;
+}
 
 function clearDebounceTimer() {
   if (debounceTimer) {
@@ -319,17 +441,29 @@ async function flushSaveImpl(
   const state = get();
   if (!state.boardId || selectReadOnly(state)) return;
   if (state.saveStatus !== "dirty" && state.saveStatus !== "error") return;
+  // Settling an unresolved save merges the board, so it also waits for the edit to end.
+  if (textEditOpen(state) && (unresolvedSave || conflictWaitsForEdit)) return;
 
   clearDebounceTimer();
 
   saveInFlight = (async () => {
     const boardId = state.boardId ;
-    const sentPresent = state.history.present;
-    const body = JSON.stringify({ data: sentPresent });
-    // Durable until the server acknowledges exactly this content.
-    savePendingDraft(boardId, sentPresent);
     set({ saveStatus: "saving" });
     try {
+      if (unresolvedSave) {
+        await settleUnresolvedSave(set, get, boardId);
+        if (get().boardId !== boardId) return;
+      }
+      const synced = get();
+      const sentPresent = synced.history.present;
+      const hold = cropHold;
+      const ownCropEdit = Boolean(hold) && !sameValue(nodeOf(sentPresent, hold.id), nodeOf(synced.serverState, hold.id));
+      const sent = hold && !ownCropEdit ? withNodeFrom(sentPresent, { nodes: hold.remote ? [hold.remote] : [] }, hold.id) : sentPresent;
+      const save = { id: crypto.randomUUID(), data: sentPresent };
+      const body = JSON.stringify({ data: sent, baseVersion: synced.serverVersion, saveId: save.id });
+      // Durable until the server acknowledges exactly this content.
+      savePendingDraft(boardId, sentPresent, Date.now(), { ...syncOf(synced), save });
+      unresolvedSave = save;
       const res = await apiFetch(`/api/canvas-boards/${boardId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -338,6 +472,8 @@ async function flushSaveImpl(
         // a normal request and rely on the pending draft if the page unloads.
         keepalive: Boolean(opts?.keepalive) && shouldUseKeepalive(body),
       });
+      // Any answer below 500 is definite: applied, or refused before writing.
+      if (unresolvedSave === save && res.status < 500) unresolvedSave = null;
       if (res.status === 401) {
         redirectToLogin();
         set({ saveStatus: "error" });
@@ -349,19 +485,42 @@ async function flushSaveImpl(
         set({ saveStatus: "idle", accessLost: true });
         return;
       }
+      if (res.status === 409) {
+        // Someone else saved first: merge their graph under this tab's edits and save the result.
+        const { board } = await res.json();
+        if (get().boardId !== boardId) throw new Error("board changed during save");
+        const adopted = applyRemoteBoard(set, get, board) && get().serverVersion === board.version;
+        if (!adopted) {
+          if (!textEditOpen(get())) throw new Error("save conflict without a newer board");
+          // The open text edit holds back their change; save once more when it ends.
+          conflictWaitsForEdit = true;
+          retryBackoffMs = DEBOUNCE_MS;
+          set({ saveStatus: "dirty" });
+          return;
+        }
+        retryBackoffMs = DEBOUNCE_MS;
+        set({ saveStatus: "dirty" });
+        scheduleFlush(get, 0);
+        return;
+      }
       if (!res.ok) throw new Error(`save failed: ${res.status}`);
       const j = await res.json();
       clearPendingDraft(boardId, sentPresent);
       retryBackoffMs = DEBOUNCE_MS;
+      // This person's change to the image was written over the held one, so nothing is held any more.
+      if (ownCropEdit && cropHold === hold) cropHold = null;
+      if (get().boardId === boardId) {
+        // What the server now holds, normalized the same way it normalizes saves; an image still held
+        // keeps its base copy.
+        set({ serverVersion: j.version, serverState: validateCanvasState(cropHold ? sentPresent : sent) });
+      }
       // Only mark "saved" if nothing changed while the request was in
       // flight — an edit mid-flight already flipped status back to "dirty"
       // and scheduled its own retry timer; overwriting it here would make
       // that timer's guard wrongly bail and silently drop the edit.
-      if (get().history.present === sentPresent) {
+      if (get().history.present === synced.history.present) {
         set({ saveStatus: "saved" });
       }
-      // Keep boardName untouched — only updatedAt bookkeeping matters here.
-      void j.updatedAt;
     } catch {
       set({ saveStatus: "error" });
       retryBackoffMs = Math.min(MAX_RETRY_MS, retryBackoffMs * 2);
@@ -374,6 +533,40 @@ async function flushSaveImpl(
   } finally {
     saveInFlight = null;
   }
+}
+
+function draftSyncUsable(pending) {
+  return Date.now() - pending.at < DRAFT_SYNC_MAX_AGE_MS;
+}
+
+/**
+ * Un-acknowledged local edits from an earlier visit, merged with what other
+ * people saved meanwhile and ready to re-save, or null when there are none.
+ * A draft that is itself a save the server applied already landed and is
+ * dropped; when the draft's unresolved save landed, that save's graph is the
+ * merge base. Otherwise the base is the graph the edits started from. A draft
+ * without one (too large to carry it, saved before versions, or older than
+ * the server keeps save ids) keeps the server's copy of every item both have
+ * and adds only the items that exist solely in the draft.
+ */
+function restoredDraft(pending, server, serverVersion, saveLanded) {
+  if (!pending) return null;
+  const draft = validateCanvasState(pending.data);
+  const usable = draftSyncUsable(pending);
+  let base;
+  if (usable && saveLanded) {
+    if (!pending.save.data) return null;
+    base = validateCanvasState(pending.save.data);
+  } else if (usable && pending.base) base = validateCanvasState(pending.base);
+  else if (usable && pending.baseVersion === serverVersion) base = server;
+  else base = { ...draft, nodes: alsoIn(draft.nodes, server.nodes), connectors: alsoIn(draft.connectors, server.connectors) };
+  const restored = mergeCanvasStates(base, draft, server);
+  return sameValue(restored, server) ? null : restored;
+}
+
+function alsoIn(items, others) {
+  const ids = new Set(others.map((item) => item.id));
+  return items.filter((item) => ids.has(item.id));
 }
 
 // Guards against out-of-order GET responses when boards are switched in
@@ -391,9 +584,11 @@ async function loadBoardImpl(set, get, id) {
   get().reset();
   set({ boardId: id, loaded: false });
 
+  const pending = readPendingDraft(id);
+  const saveLookup = pending?.save && draftSyncUsable(pending) ? `?saveId=${encodeURIComponent(pending.save.id)}` : "";
   let res;
   try {
-    res = await apiFetch(`/api/canvas-boards/${id}`, { cache: "no-store" });
+    res = await apiFetch(`/api/canvas-boards/${id}${saveLookup}`, { cache: "no-store" });
   } catch (err) {
     if (myGeneration === loadGeneration) set({ boardId: null, loaded: true });
     throw err;
@@ -417,17 +612,12 @@ async function loadBoardImpl(set, get, id) {
   const data = validateCanvasState(board.data);
   if (myGeneration !== loadGeneration) return; // superseded while parsing
 
-  // Un-acknowledged local edits newer than the server copy win and are re-saved.
-  // A read-only board keeps any such draft untouched for when edit access returns.
+  // A read-only board keeps any unsaved draft untouched for when edit access returns.
   const boardRole = board.role ?? null;
   const editable = canEditRole(boardRole);
-  const pending = editable ? readPendingDraft(board.id) : null;
-  const serverUpdatedAt = Number(board.updatedAt) || 0;
-  let restored = null;
-  if (pending && pending.at > serverUpdatedAt) {
-    try { restored = validateCanvasState(pending.data); } catch { restored = null; }
-  }
-  if (!restored && pending) clearPendingDraft(board.id);
+  const serverVersion = board.version;
+  const restored = editable ? restoredDraft(pending, data, serverVersion, typeof board.saveVersion === "number") : null;
+  if (editable && !restored) clearPendingDraft(board.id);
 
   set({
     boardId: board.id,
@@ -436,6 +626,8 @@ async function loadBoardImpl(set, get, id) {
     accessLost: false,
     tool: editable ? get().tool : "select",
     history: { past: [], present: restored || data, future: [] },
+    serverVersion,
+    serverState: data,
     selection: [],
     selectedConnectorIds: [],
     editingTextId: null,
@@ -445,6 +637,57 @@ async function loadBoardImpl(set, get, id) {
     loaded: true,
   });
   if (restored) scheduleFlush(get, 0);
+}
+
+let pollInFlight = false;
+
+/**
+ * Asks for the board's version (two integers, never the graph) and, only when
+ * someone else saved, fetches the board and merges it. A save in flight
+ * takes precedence: its 409 merges, or the next poll sees the newer version.
+ * Resolves true when another person's change was merged.
+ */
+async function pollRemoteImpl(set, get) {
+  const { boardId, loaded } = get();
+  // An unresolved save is settled by the save retry, which then merges with the right base.
+  if (!boardId || !loaded || pollInFlight || unresolvedSave || textEditOpen(get())) return false;
+  const generation = loadGeneration;
+  const current = () => generation === loadGeneration && get().boardId === boardId;
+  pollInFlight = true;
+  try {
+    const res = await apiFetch(`/api/canvas-boards/${boardId}/version`, { cache: "no-store" });
+    if (!res.ok) return false;
+    const { version } = await res.json();
+    if (!current() || typeof version !== "number" || version <= get().serverVersion) return false;
+    const full = await apiFetch(`/api/canvas-boards/${boardId}`, { cache: "no-store" });
+    if (!full.ok) return false;
+    const board = await full.json();
+    return current() && !saveInFlight && !unresolvedSave && applyRemoteBoard(set, get, board);
+  } catch {
+    // Offline or a transient failure: the next poll tries again.
+    return false;
+  } finally {
+    pollInFlight = false;
+  }
+}
+
+function writeNodeText(set, get, id, text, marks, contentHeight, from) {
+  const node = get().history.present.nodes.find((n) => n.id === id);
+  if (!node) return;
+  if (from && from.text === text && sameValue(from.marks?.length ? from.marks : null, marks?.length ? marks : null)) return;
+  const h = node.type === "text" && Number.isFinite(contentHeight) && contentHeight > node.h ? contentHeight : node.h;
+  if (node.type === "frame") {
+    if (node.name === text) return;
+  } else if ((node.text ?? "") === text && h === node.h && JSON.stringify(node.marks ?? null) === JSON.stringify(marks?.length ? marks : null)) {
+    return;
+  }
+  mutateGraph(set, get, (present) => ({
+    ...present,
+    nodes: present.nodes.map((n) => {
+      if (n.id !== id) return n;
+      return n.type === "frame" ? { ...n, name: text } : { ...withText(n, text, marks), h };
+    }),
+  }));
 }
 
 // Clipboard (spec: "copy/paste within a board and across boards"). Kept as
@@ -459,6 +702,8 @@ export const useCanvasStore = create((set, get) => ({
   accessLost: false,
   loaded: false,
   history: { past: [], present: emptyCanvasState(), future: [] },
+  serverVersion: null,
+  serverState: emptyCanvasState(),
   selection: [],
   selectedConnectorIds: [],
   tool: "select",
@@ -469,6 +714,9 @@ export const useCanvasStore = create((set, get) => ({
 
   loadBoard: (id) => loadBoardImpl(set, get, id),
 
+  /** One poll for other people's saves; see `useBoardPolling` for the cadence. */
+  pollRemote: () => pollRemoteImpl(set, get),
+
   reset: () => {
     clearDebounceTimer();
     if (gestureEndTimer) {
@@ -477,6 +725,9 @@ export const useCanvasStore = create((set, get) => ({
     }
     gestureBaseline = null;
     retryBackoffMs = DEBOUNCE_MS;
+    unresolvedSave = null;
+    conflictWaitsForEdit = false;
+    cropHold = null;
     set({
       boardId: null,
       boardName: "",
@@ -484,6 +735,8 @@ export const useCanvasStore = create((set, get) => ({
       accessLost: false,
       loaded: false,
       history: { past: [], present: emptyCanvasState(), future: [] },
+      serverVersion: null,
+      serverState: emptyCanvasState(),
       selection: [],
       selectedConnectorIds: [],
       tool: "select",
@@ -501,7 +754,7 @@ export const useCanvasStore = create((set, get) => ({
     const state = get();
     if (!state.boardId || selectReadOnly(state)) return false;
     if (state.saveStatus !== "dirty" && state.saveStatus !== "error" && state.saveStatus !== "saving") return false;
-    return savePendingDraft(state.boardId, state.history.present);
+    return savePendingDraft(state.boardId, state.history.present, Date.now(), { ...syncOf(state), save: unresolvedSave });
   },
 
   setViewport: (vp) => {
@@ -635,23 +888,13 @@ export const useCanvasStore = create((set, get) => ({
 
   /** Commits an in-place text edit to node `id` (not the selection, which
    * may already have moved on when an editor closes). Frames take `name`. A
-   * text box grows (never shrinks) to `contentHeight`, so no line is clipped. */
-  commitNodeText: (id, text, marks, contentHeight) => {
-    const node = get().history.present.nodes.find((n) => n.id === id);
-    if (!node) return;
-    const h = node.type === "text" && Number.isFinite(contentHeight) && contentHeight > node.h ? contentHeight : node.h;
-    if (node.type === "frame") {
-      if (node.name === text) return;
-    } else if ((node.text ?? "") === text && h === node.h && JSON.stringify(node.marks ?? null) === JSON.stringify(marks?.length ? marks : null)) {
-      return;
-    }
-    mutateGraph(set, get, (present) => ({
-      ...present,
-      nodes: present.nodes.map((n) => {
-        if (n.id !== id) return n;
-        return n.type === "frame" ? { ...n, name: text } : { ...withText(n, text, marks), h };
-      }),
-    }));
+   * text box grows (never shrinks) to `contentHeight`, so no line is clipped.
+   * `from` is what the editor opened with: an edit that typed nothing keeps
+   * the node as it is now, including another person's newer text. */
+  commitNodeText: (id, text, marks, contentHeight, from) => {
+    writeNodeText(set, get, id, text, marks, contentHeight, from);
+    // Ending the edit here (not only in the editor) also releases remote merges held for it.
+    if (get().editingTextId === id) set({ editingTextId: null });
   },
 
   moveSelectionBy: (dx, dy) => {
@@ -866,15 +1109,19 @@ export const useCanvasStore = create((set, get) => ({
   },
   resetCropDraft: () => set({ cropDraft: { x: 0.5, y: 0.5, zoom: 1 } }),
   cancelCrop: () => set({ croppingImageId: null, cropDraft: null }),
+  /**
+   * Ends the crop first, so another person's held change to the image merges
+   * in, then sets only the crop on the image's current version. An image they
+   * deleted meanwhile comes back with the crop, as typed text survives a delete.
+   */
   applyCrop: () => {
-    const { croppingImageId, cropDraft } = get();
-    if (!croppingImageId || !cropDraft) return;
+    const { croppingImageId: id, cropDraft, history } = get();
+    if (!id || !cropDraft) return;
     const crop = normalizeCrop(cropDraft);
-    mutateGraph(set, get, (present) => ({
-      ...present,
-      nodes: present.nodes.map((node) => node.id === croppingImageId ? { ...node, crop } : node),
-    }));
+    const withCrop = (graph) => ({ ...graph, nodes: graph.nodes.map((node) => (node.id === id ? { ...node, crop } : node)) });
+    const cropped = withCrop(history.present);
     set({ croppingImageId: null, cropDraft: null });
+    mutateGraph(set, get, (present) => (nodeOf(present, id) ? withCrop(present) : withNodeFrom(present, cropped, id)));
   },
 
   paste: () => {
@@ -960,6 +1207,18 @@ export const useCanvasStore = create((set, get) => ({
     set({ editingTextId: id });
   },
 }));
+
+useCanvasStore.subscribe((state, previous) => {
+  if (cropHold && croppedImageId(state) !== cropHold.id) reconcileCrop();
+  if (textEditOpen(previous) && !textEditOpen(state) && state.boardId === previous.boardId) {
+    conflictWaitsForEdit = false;
+    void state.flushSave().then(() => useCanvasStore.getState().pollRemote());
+  }
+  // An edit or crop whose node left the board (deleted, cut, undone) has ended.
+  const { present } = state.history;
+  if (state.croppingImageId && !nodeOf(present, state.croppingImageId)) useCanvasStore.setState({ croppingImageId: null, cropDraft: null });
+  if (state.editingTextId && !nodeOf(present, state.editingTextId)) useCanvasStore.setState({ editingTextId: null });
+});
 
 // Re-exported for consumers that need to build frame-membership candidates
 // (StyleInspector/CanvasSurface) without re-deriving the FrameNode filter.

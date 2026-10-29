@@ -58,7 +58,8 @@ class BoardRoleTests(TransactionTestCase):
         read = self.client.get('/api/canvas-boards/' + BOARD)
         with patch('apps.media.images.save_canvas_asset', return_value='/api/media/canvas/fixture.png'):
             upload = self.send('post', f'/api/canvas-boards/{BOARD}/upload', {'dataUrl': 'data:image/png;base64,AA=='}).status_code
-        save = self.send('put', '/api/canvas-boards/' + BOARD, {'data': {}}).status_code
+        save = self.send('put', '/api/canvas-boards/' + BOARD, {'data': {}, 'saveId': str(uuid4()),
+                         'baseVersion': CanvasBoard.objects.get(pk=BOARD).version}).status_code
         rename = self.send('post', '/api/canvas-boards', {'op': 'renameBoard', 'id': BOARD, 'name': 'Board'}).status_code
         share = self.send('post', f'/api/canvas-boards/{BOARD}/access', {'op': 'setMember', 'userId': str(self.other.id), 'role': 'view'}).status_code
         settings = self.send('post', f'/api/canvas-boards/{BOARD}/access', {'op': 'setTeamRole', 'role': CanvasBoard.objects.get(pk=BOARD).team_role}).status_code
@@ -329,7 +330,8 @@ class BoardRoleMigrationTests(TransactionTestCase):
             executor = MigrationExecutor(connection)
             plan = executor.migration_plan(final)
             self.assertEqual(sorted((m.app_label, m.name) for m, backward in plan),
-                             [('canvas', '0002_board_roles'), ('projects', '0002_project_members')])
+                             [('canvas', '0002_board_roles'), ('canvas', '0003_canvasboard_version'),
+                              ('canvas', '0004_canvasboardsave'), ('projects', '0002_project_members')])
             executor.migrate(final)
             row = CanvasBoard.objects.get(pk=identifier)
             self.assertEqual((row.team_role, row.name, row.data, row.updated_at), ('edit', 'Legacy', {'nodes': []}, 2))

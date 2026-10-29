@@ -58,6 +58,8 @@ export function RichTextContent({ text, marks, openLinks = false }) {
 export function RichTextEditor({ text, marks, onCommit, onCancel, className, style }) {
   const ref = useRef(null);
   const settled = useRef(false);
+  // What this edit opened with, so a commit that typed nothing keeps another person's newer text.
+  const seeded = useRef({ text, marks });
   const callbacks = useRef({ onCommit, onCancel });
   callbacks.current = { onCommit, onCancel };
 
@@ -66,11 +68,12 @@ export function RichTextEditor({ text, marks, onCommit, onCancel, className, sty
     settled.current = true;
     const value = readRichDom(ref.current);
     // The laid-out content height lets a text box grow to fit what was typed.
-    callbacks.current.onCommit(value.text, value.marks, ref.current.scrollHeight);
+    callbacks.current.onCommit(value.text, value.marks, ref.current.scrollHeight, seeded.current);
   };
 
   useLayoutEffect(() => {
     const el = ref.current;
+    const opened = seeded.current;
     writeRichDom(el, text, marks);
     el.focus();
     const range = document.createRange();
@@ -86,7 +89,7 @@ export function RichTextEditor({ text, marks, onCommit, onCancel, className, sty
         if (settled.current || el.isConnected) return;
         settled.current = true;
         const value = readRichDom(el);
-        callbacks.current.onCommit(value.text, value.marks);
+        callbacks.current.onCommit(value.text, value.marks, undefined, opened);
       });
     };
     // Seeded once per open editor; later prop changes are this edit's own commits.

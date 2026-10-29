@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import { useCanvasStore, selectReadOnly } from "@/lib/canvas-store";
 import { isCreateTool } from "@/lib/canvas/shapes";
+import { useBoardPolling } from "@/lib/canvas/use-board-polling";
 import {
   CanvasSurface,
   buildDefaultNode,
@@ -55,6 +56,7 @@ export function CanvasView() {
   const loadBoard = useCanvasStore((s) => s.loadBoard);
   const reset = useCanvasStore((s) => s.reset);
   const flushSave = useCanvasStore((s) => s.flushSave);
+  const pollRemote = useCanvasStore((s) => s.pollRemote);
   const setTool = useCanvasStore((s) => s.setTool);
   const undo = useCanvasStore((s) => s.undo);
   const redo = useCanvasStore((s) => s.redo);
@@ -91,6 +93,9 @@ export function CanvasView() {
       cancelled = true;
     };
   }, [boardId, loadBoard]);
+
+  // other people's saves appear within seconds while this tab is visible
+  useBoardPolling(boardId, pollRemote);
 
   // reset canvas-store when leaving the board view entirely (unmount)
   useEffect(() => {
