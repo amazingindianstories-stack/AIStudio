@@ -1,7 +1,7 @@
 "use client";
 
 import { create, } from "zustand";
-import { clearPendingDraft, readPendingDraft, savePendingDraft, shouldUseKeepalive } from "./canvas-pending-draft";
+import { DRAFT_SYNC_MAX_AGE_MS, clearPendingDraft, readPendingDraft, savePendingDraft, shouldUseKeepalive } from "./canvas-pending-draft";
 
 import { apiFetch } from "./api";
 import { emptyCanvasState, validateCanvasState } from "./canvas/serialization";
@@ -272,17 +272,19 @@ function syncOf(state) {
 
 /**
  * Merges another editor's newer `board` into the working graph and every
- * undo/redo snapshot, then adopts it as the sync base. Returns false for a
- * response that is not newer than what this tab already synced.
+ * undo/redo snapshot, then adopts it as the sync base. `base` is what this
+ * tab's edits are measured against: the last synced graph, or the graph of
+ * this tab's own save that landed without an acknowledgement. Returns false
+ * for a response that is not newer than what this tab already synced.
  */
-function applyRemoteBoard(set, get, board) {
+function applyRemoteBoard(set, get, board, base = get().serverState) {
   const state = get();
   const version = board?.version;
   if (typeof version !== "number" || version <= state.serverVersion) return false;
   const remote = validateCanvasState(board.data);
   const keepLocal = new Set([state.editingTextId, state.croppingImageId].filter(Boolean));
-  const history = rebaseHistory(state.history, state.serverState, remote, { keepLocal });
-  if (gestureBaseline) gestureBaseline = rebaseHistory(gestureBaseline, state.serverState, remote);
+  const history = rebaseHistory(state.history, base, remote, { keepLocal });
+  if (gestureBaseline) gestureBaseline = rebaseHistory(gestureBaseline, base, remote);
   set({
     history,
     serverVersion: version,
@@ -298,6 +300,27 @@ let retryBackoffMs = DEBOUNCE_MS;
 let saveInFlight = null;
 /** The graph whose draft the latest save attempt stored, with that attempt's save id. */
 let draftedPresent = null;
+/**
+ * The latest save attempt ({id, data}) without a definite answer: in flight,
+ * or failed in a way that may have landed (a dropped connection, a 5xx).
+ * Until it is settled, its changes cannot be told apart from unsaved edits.
+ */
+let unresolvedSave = null;
+
+/**
+ * Asks the server whether the unresolved save landed and merges the board:
+ * if it did, its graph is the merge base, so its changes count as already
+ * saved rather than as edits to replay over someone else's later change.
+ */
+async function settleUnresolvedSave(set, get, boardId) {
+  const save = unresolvedSave;
+  const res = await apiFetch(`/api/canvas-boards/${boardId}?saveId=${save.id}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`save lookup failed: ${res.status}`);
+  const board = await res.json();
+  if (get().boardId !== boardId || unresolvedSave !== save) return;
+  applyRemoteBoard(set, get, board, typeof board.saveVersion === "number" ? validateCanvasState(save.data) : undefined);
+  unresolvedSave = null;
+}
 
 function clearDebounceTimer() {
   if (debounceTimer) {
@@ -333,13 +356,19 @@ async function flushSaveImpl(
 
   saveInFlight = (async () => {
     const boardId = state.boardId ;
-    const sentPresent = state.history.present;
-    const saveId = crypto.randomUUID();
-    const body = JSON.stringify({ data: sentPresent, baseVersion: state.serverVersion, saveId });
-    // Durable until the server acknowledges exactly this content.
-    draftedPresent = savePendingDraft(boardId, sentPresent, Date.now(), { ...syncOf(state), saveId }) ? sentPresent : null;
     set({ saveStatus: "saving" });
     try {
+      if (unresolvedSave) {
+        await settleUnresolvedSave(set, get, boardId);
+        if (get().boardId !== boardId) return;
+      }
+      const synced = get();
+      const sentPresent = synced.history.present;
+      const save = { id: crypto.randomUUID(), data: sentPresent };
+      const body = JSON.stringify({ data: sentPresent, baseVersion: synced.serverVersion, saveId: save.id });
+      // Durable until the server acknowledges exactly this content.
+      draftedPresent = savePendingDraft(boardId, sentPresent, Date.now(), { ...syncOf(synced), save }) ? sentPresent : null;
+      unresolvedSave = save;
       const res = await apiFetch(`/api/canvas-boards/${boardId}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -348,6 +377,8 @@ async function flushSaveImpl(
         // a normal request and rely on the pending draft if the page unloads.
         keepalive: Boolean(opts?.keepalive) && shouldUseKeepalive(body),
       });
+      // Any answer below 500 is definite: applied, or refused before writing.
+      if (unresolvedSave === save && res.status < 500) unresolvedSave = null;
       if (res.status === 401) {
         redirectToLogin();
         set({ saveStatus: "error" });
@@ -393,20 +424,30 @@ async function flushSaveImpl(
   }
 }
 
+function draftSyncUsable(pending) {
+  return Date.now() - pending.at < DRAFT_SYNC_MAX_AGE_MS;
+}
+
 /**
  * Un-acknowledged local edits from an earlier visit, merged with what other
  * people saved meanwhile and ready to re-save, or null when there are none.
- * A draft whose save the server applied already landed and is dropped. The
- * merge base is the graph the edits started from; a draft without it (too
- * large to carry it, or saved before versions) keeps the server's copy of
- * every item both have and adds only the items that exist solely in the draft.
+ * A draft that is itself a save the server applied already landed and is
+ * dropped; when the draft's unresolved save landed, that save's graph is the
+ * merge base. Otherwise the base is the graph the edits started from. A draft
+ * without one (too large to carry it, saved before versions, or older than
+ * the server keeps save ids) keeps the server's copy of every item both have
+ * and adds only the items that exist solely in the draft.
  */
-function restoredDraft(pending, server, serverVersion, appliedSaveIds) {
-  if (!pending || appliedSaveIds.includes(pending.saveId)) return null;
+function restoredDraft(pending, server, serverVersion, saveLanded) {
+  if (!pending) return null;
   const draft = validateCanvasState(pending.data);
+  const usable = draftSyncUsable(pending);
   let base;
-  if (pending.base) base = validateCanvasState(pending.base);
-  else if (pending.baseVersion === serverVersion) base = server;
+  if (usable && saveLanded) {
+    if (!pending.save.data) return null;
+    base = validateCanvasState(pending.save.data);
+  } else if (usable && pending.base) base = validateCanvasState(pending.base);
+  else if (usable && pending.baseVersion === serverVersion) base = server;
   else base = { ...draft, nodes: alsoIn(draft.nodes, server.nodes), connectors: alsoIn(draft.connectors, server.connectors) };
   const restored = mergeCanvasStates(base, draft, server);
   return sameValue(restored, server) ? null : restored;
@@ -432,9 +473,11 @@ async function loadBoardImpl(set, get, id) {
   get().reset();
   set({ boardId: id, loaded: false });
 
+  const pending = readPendingDraft(id);
+  const saveLookup = pending?.save && draftSyncUsable(pending) ? `?saveId=${encodeURIComponent(pending.save.id)}` : "";
   let res;
   try {
-    res = await apiFetch(`/api/canvas-boards/${id}`, { cache: "no-store" });
+    res = await apiFetch(`/api/canvas-boards/${id}${saveLookup}`, { cache: "no-store" });
   } catch (err) {
     if (myGeneration === loadGeneration) set({ boardId: null, loaded: true });
     throw err;
@@ -459,7 +502,7 @@ async function loadBoardImpl(set, get, id) {
   if (myGeneration !== loadGeneration) return; // superseded while parsing
 
   const serverVersion = board.version;
-  const restored = restoredDraft(readPendingDraft(board.id), data, serverVersion, board.appliedSaveIds);
+  const restored = restoredDraft(pending, data, serverVersion, typeof board.saveVersion === "number");
   if (!restored) clearPendingDraft(board.id);
 
   set({
@@ -489,7 +532,8 @@ let pollInFlight = false;
  */
 async function pollRemoteImpl(set, get) {
   const { boardId, loaded } = get();
-  if (!boardId || !loaded || pollInFlight) return false;
+  // An unresolved save is settled by the save retry, which then merges with the right base.
+  if (!boardId || !loaded || pollInFlight || unresolvedSave) return false;
   const generation = loadGeneration;
   const current = () => generation === loadGeneration && get().boardId === boardId;
   pollInFlight = true;
@@ -501,7 +545,7 @@ async function pollRemoteImpl(set, get) {
     const full = await apiFetch(`/api/canvas-boards/${boardId}`, { cache: "no-store" });
     if (!full.ok) return false;
     const board = await full.json();
-    return current() && !saveInFlight && applyRemoteBoard(set, get, board);
+    return current() && !saveInFlight && !unresolvedSave && applyRemoteBoard(set, get, board);
   } catch {
     // Offline or a transient failure: the next poll tries again.
     return false;
@@ -542,6 +586,7 @@ export const useCanvasStore = create((set, get) => ({
     }
     gestureBaseline = null;
     retryBackoffMs = DEBOUNCE_MS;
+    unresolvedSave = null;
     set({
       boardId: null,
       boardName: "",
@@ -568,7 +613,7 @@ export const useCanvasStore = create((set, get) => ({
     if (state.saveStatus !== "dirty" && state.saveStatus !== "error" && state.saveStatus !== "saving") return false;
     // The last save attempt already stored exactly this content with its save id.
     if (state.history.present === draftedPresent) return true;
-    return savePendingDraft(state.boardId, state.history.present, Date.now(), syncOf(state));
+    return savePendingDraft(state.boardId, state.history.present, Date.now(), { ...syncOf(state), save: unresolvedSave });
   },
 
   setViewport: (vp) => {

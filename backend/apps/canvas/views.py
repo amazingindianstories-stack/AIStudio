@@ -151,7 +151,10 @@ def board_detail(request, identifier):
         return reply(request, {'error': 'UNAUTHENTICATED'}, 401)
     try:
         if request.method in ('GET', 'HEAD'):
-            board = services.get_board(identifier)
+            save_id = save_id_of(request.GET.dict())
+            if save_id is False:
+                return reply(request, {'error': 'Invalid save id.'}, 400)
+            board = services.get_board(identifier, save_id)
             return reply(request, board) if board else reply(request, {'error': 'Board not found.'}, 404)
         payload = body(request)
         data = property_of(payload, 'data')
@@ -188,7 +191,8 @@ def base_version_of(payload):
 
 
 def save_id_of(payload):
-    """The client's UUID for this save attempt: None when absent (refused as a conflict), False when malformed."""
+    """The client's UUID for a save attempt: None when absent (a save without one is refused as a conflict),
+    False when malformed."""
     value = payload.get('saveId') if isinstance(payload, dict) else None
     if value is None:
         return None

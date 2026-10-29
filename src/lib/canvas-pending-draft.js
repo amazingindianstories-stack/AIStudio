@@ -11,6 +11,11 @@ const PREFIX = "veevee-canvas-pending-v1:";
 export const KEEPALIVE_MAX_BYTES = 60 * 1024;
 /** localStorage is ~5 MB per origin; never let one board evict everything else. */
 const MAX_DRAFT_CHARS = 4 * 1024 * 1024;
+/**
+ * The server keeps applied save ids for 30 days. An older draft can no longer
+ * tell whether its save landed, so it restores as if it had no base.
+ */
+export const DRAFT_SYNC_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 function storage() {
   try {
@@ -27,15 +32,18 @@ export function shouldUseKeepalive(body) {
 /**
  * `sync` records the server version the edits started from and that version's
  * graph, so a restored draft merges with what other people saved meanwhile,
- * and the id of the save sending this content, so a draft whose save landed
- * is not replayed. When the base graph does not fit, the draft keeps only its
- * version and the restore keeps the server's copy of everything both have.
+ * and `save` ({id, data}), the latest save attempt whose outcome is unknown,
+ * so a restore can ask whether it landed instead of replaying it. A draft that
+ * is itself that attempt stores only `save.id`. When the base graph does not
+ * fit, the draft keeps only its version (and the id of a save of exactly this
+ * content), and the restore keeps the server's copy of everything both have.
  */
 export function savePendingDraft(boardId, data, at = Date.now(), sync = {}) {
   const store = storage();
   if (!store || !boardId) return false;
-  const { baseVersion, base, saveId } = sync;
-  for (const draft of [{ at, data, baseVersion, saveId, base }, { at, data, baseVersion, saveId }]) {
+  const { baseVersion, base, save } = sync;
+  const ownSave = save && save.data === data ? { id: save.id } : undefined;
+  for (const draft of [{ at, data, baseVersion, base, save: ownSave ?? save }, { at, data, baseVersion, save: ownSave }]) {
     try {
       const serialized = JSON.stringify(draft);
       if (serialized.length > MAX_DRAFT_CHARS) continue;

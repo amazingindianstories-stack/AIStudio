@@ -82,3 +82,17 @@ test("a draft over the browser's storage quota falls back to the draft without i
   assert.equal(savePendingDraft("board-1", { nodes: ["y".repeat(200)] }, 200, { baseVersion: 5, base: { nodes: [] } }), false);
   assert.deepEqual(readPendingDraft("board-1"), { at: 100, data: { nodes: [1] }, baseVersion: 4 });
 });
+
+test("a draft names the unresolved save: by id when it is that save, with its graph when edits came after", (t) => {
+  const store = memoryStorage();
+  useStorage(t, store);
+  const sent = { nodes: [1] };
+  savePendingDraft("board-1", sent, 100, { baseVersion: 4, base: { nodes: [] }, save: { id: "s1", data: sent } });
+  assert.deepEqual(readPendingDraft("board-1"), { at: 100, data: sent, baseVersion: 4, base: { nodes: [] }, save: { id: "s1" } });
+  savePendingDraft("board-1", { nodes: [1, 2] }, 200, { baseVersion: 4, base: { nodes: [] }, save: { id: "s1", data: sent } });
+  assert.deepEqual(readPendingDraft("board-1").save, { id: "s1", data: sent });
+  // Without room for graphs, only a save of exactly this content keeps its id.
+  const big = { nodes: ["x".repeat(4 * 1024 * 1024)] };
+  savePendingDraft("board-1", { nodes: [3] }, 300, { baseVersion: 5, base: big, save: { id: "s2", data: big } });
+  assert.deepEqual(readPendingDraft("board-1"), { at: 300, data: { nodes: [3] }, baseVersion: 5 });
+});

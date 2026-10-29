@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { useCanvasStore } from "./canvas-store.js";
-import { readPendingDraft, savePendingDraft } from "./canvas-pending-draft.js";
+import { DRAFT_SYNC_MAX_AGE_MS, readPendingDraft, savePendingDraft } from "./canvas-pending-draft.js";
 import { emptyCanvasState } from "./canvas/serialization.js";
 
 function useStorage(t) {
@@ -24,9 +24,9 @@ const store = useCanvasStore;
 
 /** A board endpoint with the server's conditional-save contract; `edit` is another person's save. */
 function fakeServer(t, data) {
-  const server = { version: 1, data, applied: [], puts: [], versionReads: 0, boardReads: 0, holdPut: null, dropResponse: false };
+  const server = { version: 1, data, applied: new Map(), puts: [], boardUrls: [], versionReads: 0, boardReads: 0, holdPut: null, dropResponse: false };
   const board = () => ({ id: "board-1", projectId: "p", name: "Board", createdBy: null, createdAt: 1, updatedAt: server.version,
-    version: server.version, appliedSaveIds: server.applied, data: server.data });
+    version: server.version, data: server.data });
   server.edit = (next) => { server.data = next; server.version += 1; };
   t.mock.method(globalThis, "fetch", async (url, init = {}) => {
     if (url.endsWith("/version")) {
@@ -41,12 +41,14 @@ function fakeServer(t, data) {
         return json(409, { error: "VERSION_CONFLICT", board: board() });
       }
       server.edit(body.data);
-      server.applied = [body.saveId, ...server.applied];
+      server.applied.set(body.saveId, server.version);
       if (server.dropResponse) throw new TypeError("Failed to fetch");
       return json(200, { ok: true, updatedAt: server.version, version: server.version });
     }
     server.boardReads += 1;
-    return json(200, board());
+    server.boardUrls.push(url);
+    const saveId = new URL(url, "http://veevee.test").searchParams.get("saveId");
+    return json(200, saveId === null ? board() : { ...board(), saveVersion: server.applied.get(saveId) ?? null });
   });
   t.after(() => store.getState().reset());
   return server;
@@ -132,7 +134,7 @@ test("a poll leaves the merge to a save that is already in flight", async (t) =>
   const saving = store.getState().flushSave();
   // Leaving the page mid-save keeps the draft tied to the save that is carrying it.
   store.getState().persistPendingDraft();
-  assert.equal(readPendingDraft("board-1").saveId, server.puts[0].saveId);
+  assert.equal(readPendingDraft("board-1").save.id, server.puts[0].saveId);
   server.edit(graph(rect("a"), rect("theirs")));
   assert.equal(await store.getState().pollRemote(), false);
   assert.equal(store.getState().serverVersion, 1);
@@ -146,7 +148,7 @@ test("a draft left by a dropped connection merges with what others saved since",
   useStorage(t);
   const server = fakeServer(t, graph(rect("a"), rect("theirs")));
   server.version = 3;
-  savePendingDraft("board-1", graph(rect("a", { y: 5 }), rect("mine")), 10, { baseVersion: 1, base: graph(rect("a")) });
+  savePendingDraft("board-1", graph(rect("a", { y: 5 }), rect("mine")), Date.now(), { baseVersion: 1, base: graph(rect("a")) });
   store.getState().reset();
   await store.getState().loadBoard("board-1");
   const present = store.getState().history.present;
@@ -161,7 +163,7 @@ test("a draft too large to carry its base graph keeps the server's copy and adds
   useStorage(t);
   const server = fakeServer(t, graph(rect("a", { x: 30 }), rect("theirs")));
   server.version = 2;
-  savePendingDraft("board-1", graph(rect("a"), rect("mine")), 10, { baseVersion: 1 });
+  savePendingDraft("board-1", graph(rect("a"), rect("mine")), Date.now(), { baseVersion: 1 });
   store.getState().reset();
   await store.getState().loadBoard("board-1");
   const present = store.getState().history.present;
@@ -194,7 +196,7 @@ test("a draft whose save landed before the connection dropped is discarded, keep
   server.dropResponse = true;
   await store.getState().flushSave();
   assert.equal(store.getState().saveStatus, "error");
-  assert.equal(readPendingDraft("board-1").saveId, server.puts[0].saveId);
+  assert.equal(readPendingDraft("board-1").save.id, server.puts[0].saveId);
   server.dropResponse = false;
   // Leaving the board keeps that draft; someone else then moves the node this person added.
   store.getState().persistPendingDraft();
@@ -208,11 +210,128 @@ test("a draft whose save landed before the connection dropped is discarded, keep
   assert.equal(server.puts.length, 1);
 });
 
+const filled = (fill, ...rest) => graph(rect("a", { fill }), ...rest);
+const fillOf = (state) => state.nodes.find((node) => node.id === "a").fill;
+
+function recolorA(fill) {
+  store.getState().setSelection(["a"]);
+  store.getState().updateSelectedStyle({ fill });
+}
+
+test("a save that landed without a response is not replayed over a later edit by someone else", async (t) => {
+  useStorage(t);
+  const server = fakeServer(t, filled("#ffffff"));
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  recolorA("#111111");
+  server.dropResponse = true;
+  await store.getState().flushSave();
+  assert.equal(store.getState().saveStatus, "error");
+  server.dropResponse = false;
+  // Polling waits for the retry to find out whether that save landed.
+  assert.equal(await store.getState().pollRemote(), false);
+  server.edit(filled("#222222"));
+
+  await store.getState().flushSave();
+  await until(() => store.getState().saveStatus === "saved");
+  assert.equal(fillOf(store.getState().history.present), "#222222");
+  assert.equal(fillOf(server.data), "#222222");
+  assert.equal(server.puts.at(-1).baseVersion, 3);
+});
+
+test("a save that never landed is retried as this person's edit", async (t) => {
+  useStorage(t);
+  const server = fakeServer(t, filled("#ffffff"));
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  recolorA("#111111");
+  t.mock.method(globalThis, "fetch", async () => { throw new TypeError("Failed to fetch"); }, { times: 1 });
+  await store.getState().flushSave();
+  assert.equal(store.getState().saveStatus, "error");
+  server.edit(filled("#ffffff", rect("theirs")));
+  await store.getState().flushSave();
+  await until(() => store.getState().saveStatus === "saved");
+  assert.equal(fillOf(server.data), "#111111");
+  assert.deepEqual(ids(server.data), ["a", "theirs"]);
+});
+
+test("a draft written while a save was in flight uses that save as its base once it landed", async (t) => {
+  useStorage(t);
+  const server = fakeServer(t, filled("#ffffff"));
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  recolorA("#111111");
+  let release;
+  server.holdPut = new Promise((resolve) => { release = resolve; });
+  const saving = store.getState().flushSave();
+  addLocalNode("later");
+  // The page goes away mid-save: the draft holds the newer edits and the save in flight.
+  store.getState().persistPendingDraft();
+  server.dropResponse = true;
+  server.holdPut = null;
+  release();
+  await saving;
+  store.getState().reset();
+  server.dropResponse = false;
+  server.edit(filled("#222222"));
+
+  await store.getState().loadBoard("board-1");
+  const present = store.getState().history.present;
+  assert.equal(fillOf(present), "#222222");
+  assert.deepEqual(ids(present), ["a", "later"]);
+  await until(() => store.getState().saveStatus === "saved");
+  assert.equal(fillOf(server.data), "#222222");
+  assert.deepEqual(ids(server.data), ["a", "later"]);
+});
+
+test("after many saves on a busy board a landed draft is dropped and an unlanded one still merges", async (t) => {
+  useStorage(t);
+  const server = fakeServer(t, filled("#ffffff"));
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  recolorA("#111111");
+  server.dropResponse = true;
+  await store.getState().flushSave();
+  server.dropResponse = false;
+  store.getState().reset();
+  for (let i = 0; i < 80; i += 1) server.edit(filled(`#0000${String(i).padStart(2, "0")}`));
+  await store.getState().loadBoard("board-1");
+  assert.equal(fillOf(store.getState().history.present), "#000079");
+  assert.equal(store.getState().saveStatus, "idle");
+  assert.equal(readPendingDraft("board-1"), null);
+
+  savePendingDraft("board-1", filled("#333333"), Date.now(), { baseVersion: 82, base: filled("#000079"), save: { id: crypto.randomUUID(), data: filled("#333333") } });
+  const others = [];
+  for (let i = 0; i < 80; i += 1) {
+    others.push(rect(`n${i}`));
+    server.edit(filled("#000079", ...others));
+  }
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  const present = store.getState().history.present;
+  assert.equal(fillOf(present), "#333333");
+  assert.equal(present.nodes.length, 81);
+});
+
+test("a draft older than the save-id retention never asks about its save and lets the server copy win", async (t) => {
+  useStorage(t);
+  const server = fakeServer(t, filled("#222222", rect("theirs")));
+  server.version = 4;
+  const at = Date.now() - DRAFT_SYNC_MAX_AGE_MS - 1000;
+  savePendingDraft("board-1", filled("#111111", rect("mine")), at, { baseVersion: 1, base: filled("#ffffff"), save: { id: crypto.randomUUID(), data: filled("#111111") } });
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  assert.equal(server.boardUrls.some((url) => url.includes("saveId")), false);
+  const present = store.getState().history.present;
+  assert.equal(fillOf(present), "#222222");
+  assert.deepEqual(ids(present), ["a", "theirs", "mine"]);
+});
+
 test("a draft on the server's current version keeps its deletions without carrying its base graph", async (t) => {
   useStorage(t);
   const server = fakeServer(t, graph(rect("a"), rect("b")));
   server.version = 2;
-  savePendingDraft("board-1", graph(rect("a")), 10, { baseVersion: 2 });
+  savePendingDraft("board-1", graph(rect("a")), Date.now(), { baseVersion: 2 });
   store.getState().reset();
   await store.getState().loadBoard("board-1");
   assert.deepEqual(ids(store.getState().history.present), ["a"]);
