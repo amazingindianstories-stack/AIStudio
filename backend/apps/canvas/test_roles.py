@@ -134,12 +134,12 @@ class BoardRoleTests(TransactionTestCase):
         self.as_user(self.other)
         self.assertEqual(self.send('post', '/api/canvas-boards', {'op': 'deleteBoard', 'id': BOARD}).status_code, 403)
         self.as_user(self.owner)
-        self.assertEqual(self.send('post', '/api/canvas-boards', {'op': 'deleteBoard', 'id': BOARD}).json(), {'boards': []})
+        self.assertEqual(self.send('post', '/api/canvas-boards', {'op': 'deleteBoard', 'id': BOARD}).json(), {'boards': [], 'canCreate': False})
         self.assertFalse(BoardMember.objects.exists())
         board = CanvasBoard.objects.create(project_id=PROJECT, name='Second', created_by=self.owner.id, data={}, created_at=1, updated_at=1)
         self.grant_project(self.mate, 'owner')
         self.as_user(self.mate)
-        self.assertEqual(self.send('post', '/api/canvas-boards', {'op': 'deleteBoard', 'id': str(board.id)}).json(), {'boards': []})
+        self.assertEqual(self.send('post', '/api/canvas-boards', {'op': 'deleteBoard', 'id': str(board.id)}).json(), {'boards': [], 'canCreate': True})
 
     def test_share_dialog_members_and_validation(self):
         self.as_user(self.owner)
@@ -240,30 +240,61 @@ class BoardRoleTests(TransactionTestCase):
             self.as_user(user)
             return self.send('post', '/api/canvas-boards', {'op': 'createBoard', 'projectId': PROJECT, 'name': 'New'})
 
-        # A project without explicit members stays team-wide.
-        for user in (self.mate, self.other, self.admin):
-            with self.subTest(members=False, user=user.name):
-                self.assertEqual(create(user).status_code, 200)
-        self.grant_project(self.owner, 'owner')
+        def can_create(user):
+            self.as_user(user)
+            return self.client.get('/api/canvas-boards?projectId=' + PROJECT).json()['canCreate']
+
+        # A project without explicit members, or with only its creator's owner row, stays team-wide.
+        Project.objects.filter(pk=PROJECT).update(created_by=self.owner.id)
+        for creator_row in (False, True):
+            if creator_row:
+                self.grant_project(self.owner, 'owner')
+            for user in (self.mate, self.other, self.admin):
+                with self.subTest(creator_row=creator_row, user=user.name):
+                    self.assertTrue(can_create(user))
+                    self.assertEqual(create(user).status_code, 200)
+        # Any other member restricts creation to project editors and above.
+        self.grant_project(self.other, 'viewer')
         before = CanvasBoard.objects.count()
         for role in ('commenter', 'viewer', None):
             with self.subTest(role=role):
                 ProjectMember.objects.filter(user_id=self.mate.id).delete()
                 if role:
                     self.grant_project(self.mate, role)
+                self.assertFalse(can_create(self.mate))
                 response = create(self.mate)
                 self.assertEqual((response.status_code, response.json()), (403, {'error': 'FORBIDDEN'}))
         self.assertEqual(CanvasBoard.objects.count(), before)
-        # Board membership and team access do not grant creation in a project with members.
-        self.grant_board(self.other, 'edit')
-        self.assertEqual(create(self.other).status_code, 403)
+        # Board membership and team access do not grant creation in a restricted project.
+        ProjectMember.objects.filter(user_id=self.mate.id).delete()
+        self.grant_board(self.mate, 'edit')
+        self.assertEqual(create(self.mate).status_code, 403)
         for role in ('owner', 'co_owner', 'editor'):
             with self.subTest(role=role):
                 self.grant_project(self.mate, role)
+                self.assertTrue(can_create(self.mate))
                 response = create(self.mate)
-                self.assertEqual(response.status_code, 200)
-                self.assertEqual(response.json()['board']['role'], 'owner')
+                self.assertEqual((response.status_code, response.json()['board']['role'], response.json()['canCreate']), (200, 'owner', True))
+        self.assertTrue(can_create(self.admin))
         self.assertEqual(create(self.admin).status_code, 200)
+
+    def test_teammates_create_boards_in_a_fresh_project_until_it_gets_members(self):
+        self.as_user(self.owner)
+        project = self.send('post', '/api/projects', {'op': 'createProject', 'name': 'Fresh'}).json()['project']['id']
+        self.as_user(self.mate)
+        created = self.send('post', '/api/canvas-boards', {'op': 'createBoard', 'projectId': project, 'name': 'Mine'})
+        self.assertEqual(created.status_code, 200)
+        self.as_user(self.owner)
+        self.send('post', f'/api/projects/{project}/members', {'op': 'setMember', 'userId': str(self.other.id), 'role': 'viewer'})
+        for user, status in ((self.other, 403), (self.mate, 403), (self.owner, 200)):
+            with self.subTest(user=user.name):
+                self.as_user(user)
+                response = self.send('post', '/api/canvas-boards', {'op': 'createBoard', 'projectId': project, 'name': 'Next'})
+                self.assertEqual(response.status_code, status)
+        # The board the teammate created earlier stays theirs.
+        self.as_user(self.mate)
+        listed = self.client.get('/api/canvas-boards?projectId=' + project).json()
+        self.assertEqual(([board['role'] for board in listed['boards'] if board['name'] == 'Mine'], listed['canCreate']), (['owner'], False))
 
     def test_deleting_a_user_removes_their_memberships(self):
         self.grant_board(self.mate, 'edit')

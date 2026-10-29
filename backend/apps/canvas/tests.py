@@ -24,7 +24,7 @@ class BoardMetadataReadTests(TransactionTestCase):
         for suffix in ['', '?projectId=', '?projectId=&projectId='+self.project]:
             response = self.client.get('/api/canvas-boards'+suffix)
             self.assertEqual((response.status_code,response.json()),(400,{'error':'projectId required.'}))
-        self.assertEqual(self.client.get('/api/canvas-boards?projectId=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa').json(),{'boards':[]})
+        self.assertEqual(self.client.get('/api/canvas-boards?projectId=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa').json(),{'boards':[],'canCreate':True})
         self.cookie(age=2*86400000)
         missing = self.client.get('/api/canvas-boards')
         self.assertEqual(missing.status_code,400)
@@ -34,7 +34,7 @@ class BoardMetadataReadTests(TransactionTestCase):
         self.cookie(age=2*86400000)
         with CaptureQueriesContext(connection) as queries:
             response = self.client.get('/api/canvas-boards?projectId='+self.project+'&projectId=eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee')
-        self.assertEqual(response.json(),{'boards':[{'id':'cccccccc-cccc-4ccc-8ccc-cccccccccccc','projectId':self.project,'name':'दृश्य','createdBy':None,'createdAt':1,'updatedAt':2,'teamRole':'edit','role':'edit'}]})
+        self.assertEqual(response.json(),{'boards':[{'id':'cccccccc-cccc-4ccc-8ccc-cccccccccccc','projectId':self.project,'name':'दृश्य','createdBy':None,'createdAt':1,'updatedAt':2,'teamRole':'edit','role':'edit'}],'canCreate':True})
         selects = [query['sql'] for query in queries if 'FROM "canvas_boards"' in query['sql']]
         self.assertEqual(len(selects),1)
         self.assertNotIn('"data"',selects[0])

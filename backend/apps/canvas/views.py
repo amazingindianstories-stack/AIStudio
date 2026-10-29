@@ -99,6 +99,10 @@ def name_value(value):
     return value.strip(JS_WHITESPACE)
 
 
+def board_list(project, user):
+    return {'boards': services.list_boards(project, user), 'canCreate': access.can_create_board(user, project)}
+
+
 @node_route(['GET', 'POST'])
 def board_metadata_reads(request):
     user = lookup(request)
@@ -110,7 +114,7 @@ def board_metadata_reads(request):
             project = values[0] if values else None
             if not project:
                 return reply(request, {'error': 'projectId required.'}, 400)
-            return reply(request, {'boards': services.list_boards(project, user)})
+            return reply(request, board_list(project, user))
         data = body(request)
         operation = property_of(data, 'op')
         if operation == 'createBoard':
@@ -122,7 +126,7 @@ def board_metadata_reads(request):
             if not name:
                 return reply(request, {'error': 'Name required.'}, 400)
             board = services.create_board(project, name, user)
-            return reply(request, {'boards': services.list_boards(project, user), 'board': board})
+            return reply(request, {**board_list(project, user), 'board': board})
         if operation in ('renameBoard', 'deleteBoard'):
             identifier = property_of(data, 'id')
             if not truthy(identifier):
@@ -135,7 +139,7 @@ def board_metadata_reads(request):
                 services.rename_board(identifier, name_value(property_of(data, 'name')))
             else:
                 services.delete_board(identifier)
-            return reply(request, {'boards': services.list_boards(existing['project_id'], user)})
+            return reply(request, board_list(existing['project_id'], user))
         return reply(request, {'error': 'Unknown op.'}, 400)
     except access.AccessError as error:
         return reply(request, {'error': str(error)}, error.status)

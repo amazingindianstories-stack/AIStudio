@@ -31,10 +31,12 @@ the graph. Board list and detail responses carry the caller's `role`.
 Transferring ownership sets `created_by` to the new owner, drops the new owner's board membership
 and keeps the previous owner on the board as an editor.
 
-Creating a board (`createBoard` on `POST /api/canvas-boards`) needs project editor or above once the
-project has explicit project members, and admins may always create. A project without project members
-stays team-wide: any signed-in teammate may create a board there. A refused creation gets 403
-`FORBIDDEN`. The creator owns the new board.
+Creating a board (`createBoard` on `POST /api/canvas-boards`) stays team-wide while a project has no
+project members, or only its creator's (`projects.created_by`) owner row: any signed-in teammate may
+create a board there. Once anyone else is added to the project, creating a board needs project editor
+or above; admins may always create. A refused creation gets 403 `FORBIDDEN`. The creator owns the new
+board. Every board list response (`GET /api/canvas-boards` and the `createBoard`, `renameBoard` and
+`deleteBoard` replies) carries `canCreate` for the caller and project.
 
 Project roles are changed through `GET`/`POST /api/projects/<id>/members` (`setMember`, `removeMember`).
 Project owners and admins manage every role; co-owners manage roles below owner. Creating a project
@@ -45,8 +47,8 @@ makes its creator the project owner. Deleting a board, project or user removes i
 Migrations `canvas.0002_board_roles` and `projects.0002_project_members` are additive. Every existing
 and new board starts with team access `edit` and no members, so every signed-in teammate keeps
 today's open and save access, and only the board owner and admins rename and delete, as before.
-Existing projects get no project roles, so every teammate keeps creating boards there. An owner narrows
-access from the share dialog.
+Existing projects get no project roles, and a new project only its creator's owner row, so every
+teammate keeps creating boards there. An owner narrows access from the share dialog.
 
 ## Frontend
 
@@ -56,4 +58,6 @@ allows. It offers only active teammates (`isActive` on `GET /api/users`) to add.
 comment-only users get a read-only canvas: navigation and zoom only, no creation tools, style
 inspector, drops, pastes, text or crop editing, and no autosave (`selectReadOnly` in
 `src/lib/canvas-store.js`). A save refused with 403 turns the open board
-read-only and keeps the unsaved edits in the local pending draft.
+read-only and keeps the unsaved edits in the local pending draft. The board switcher
+(`src/components/canvas/BoardSwitcher.jsx`) offers New board only with `canCreate`, and a project with no
+boards that the caller cannot add to shows an empty state instead of creating one.

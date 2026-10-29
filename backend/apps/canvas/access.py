@@ -66,9 +66,15 @@ def project_level(user, project_id):
     return PROJECT_LEVELS.get(role, NONE)
 
 
+def can_create_board(user, project_id):
+    """Every teammate adds boards until the project has a member besides its creator; then editors and above."""
+    creator = Project.objects.filter(pk=project_id).values_list('created_by', flat=True).first()
+    restricted = ProjectMember.objects.filter(project_id=project_id).exclude(user_id=creator).exists()
+    return not restricted or project_level(user, project_id) >= EDIT
+
+
 def require_board_creator(user, project_id):
-    """A project with explicit members takes boards from editors and above; one without stays team-wide."""
-    if ProjectMember.objects.filter(project_id=project_id).exists() and project_level(user, project_id) < EDIT:
+    if not can_create_board(user, project_id):
         raise AccessError('FORBIDDEN', 403)
 
 

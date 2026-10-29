@@ -113,7 +113,7 @@ class CanvasContractTests(TransactionTestCase):
         self.assertEqual(self.send('put', '/api/canvas-boards/' + self.board, {'data': {}}).status_code, 200)
         self.assertEqual(self.client.get('/api/canvas-boards/' + self.board).status_code, 200)
         User.objects.filter(pk=session_fixtures.UID).update(role='admin')
-        self.assertEqual(self.send('post', '/api/canvas-boards', {'op': 'deleteBoard', 'id': self.board}).json(), {'boards': []})
+        self.assertEqual(self.send('post', '/api/canvas-boards', {'op': 'deleteBoard', 'id': self.board}).json(), {'boards': [], 'canCreate': True})
 
     def test_validation_missing_rows_and_uncaught_source_failures(self):
         self.cookie()
