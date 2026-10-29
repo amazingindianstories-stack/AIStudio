@@ -107,6 +107,18 @@ export function CanvasView() {
   // other people's saves appear within seconds while this tab is visible
   useBoardPolling(boardId, pollRemote);
 
+  // The board runs edge to edge under the notch and home indicator (its
+  // controls pad for the safe area); the rest of the app stays letterboxed.
+  useEffect(() => {
+    const meta = document.querySelector('meta[name="viewport"]');
+    if (!meta) return;
+    const previous = meta.content;
+    meta.content = `${previous}, viewport-fit=cover`;
+    return () => {
+      meta.content = previous;
+    };
+  }, []);
+
   // reset canvas-store when leaving the board view entirely (unmount)
   useEffect(() => {
     return () => {
