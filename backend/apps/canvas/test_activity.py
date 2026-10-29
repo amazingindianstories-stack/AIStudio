@@ -9,7 +9,7 @@ from apps.workers import scheduler
 from . import services
 from .activity import ACTIVITY_RETENTION_MS, SNIPPET_LENGTH
 from .models import BoardActivity, BoardMember, CanvasBoard
-from .serialization import empty_state, validate_state
+from .serialization import MAX_BOARD_JSON_UNITS, content_length, empty_state, json_length, validate_state
 from .test_roles import make_user
 
 PROJECT = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
@@ -165,11 +165,22 @@ class BoardActivityTests(TransactionTestCase):
         self.save(self.ben, graph(rect('b')), base=1, expect=409)
         self.assertEqual([row[2] for row in self.history()], ['a'])
 
-    def test_a_graph_that_outgrows_the_limit_once_stamped_is_refused_without_writing(self):
-        with patch('apps.canvas.services.MAX_BOARD_JSON_UNITS', 200):
-            refused = self.save(self.ana, graph(rect('a'), rect('b')), expect=413)
+    def test_stamps_do_not_count_toward_the_size_limit(self):
+        def board(text):
+            return graph(*(rect(f'n{index:04}') for index in range(2000)), rect('pad', text=text))
+        room = MAX_BOARD_JSON_UNITS - content_length(validate_state(board('')))
+        # One unit over the limit is refused without writing anything.
+        refused = self.save(self.ana, board('x' * (room + 1)), expect=413)
         self.assertEqual(refused, {'error': 'Board is too large to save.'})
         self.assertEqual((CanvasBoard.objects.get(pk=BOARD).version, self.history()), (1, []))
+        # A board exactly at the limit saves, and stays saveable once every object carries stamps.
+        added = self.save(self.ana, board('x' * room))
+        self.assertEqual(len(added['stamps']), 2001)
+        stored = CanvasBoard.objects.get(pk=BOARD).data
+        self.assertGreater(json_length(stored), MAX_BOARD_JSON_UNITS)
+        edited = self.save(self.ben, {**stored, 'nodes': [{**item, 'fill': '#fffffe'} for item in stored['nodes']]})
+        self.assertEqual({stamp['updatedBy'] for stamp in edited['stamps'].values()}, {str(self.ben.id)})
+        self.assertEqual(len(edited['stamps']), 2001)
 
     def activity(self, user, query=''):
         self.client.cookies['veevee_session'] = sign_session(user)

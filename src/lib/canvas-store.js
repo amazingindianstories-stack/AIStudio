@@ -494,6 +494,12 @@ async function flushSaveImpl(
         set({ saveStatus: "idle", accessLost: true });
         return;
       }
+      if (res.status === 413) {
+        // Over the board size limit: resending the same graph cannot succeed, so the
+        // next edit (or Retry) saves again; the pending draft keeps the unsaved edits.
+        set({ saveStatus: "error" });
+        return;
+      }
       if (res.status === 409) {
         // Someone else saved first: merge their graph under this tab's edits and save the result.
         const { board } = await res.json();

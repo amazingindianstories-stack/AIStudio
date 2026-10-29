@@ -5,7 +5,7 @@ from django.http import HttpResponse
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from apps.authentication.session import lookup
 from . import access, services
-from .serialization import JS_WHITESPACE, MAX_BOARD_JSON_UNITS, js_json, json_length, validate_state
+from .serialization import JS_WHITESPACE, MAX_BOARD_JSON_UNITS, content_length, js_json, validate_state
 
 UUID_PATTERN = re.compile(r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}')
 
@@ -179,7 +179,7 @@ def board_detail(request, identifier):
         save_id = save_id_of(payload)
         if save_id is False:
             return reply(request, {'error': 'Invalid save id.'}, 400)
-        if json_length(data) > MAX_BOARD_JSON_UNITS:
+        if content_length(data) > MAX_BOARD_JSON_UNITS:
             return reply(request, {'error': 'Board is too large to save.'}, 413)
         try:
             saved = services.save_board(identifier, validate_state(data), base_version, save_id, user.id)

@@ -5,7 +5,7 @@ import time
 import uuid
 from django.db import connection, models, transaction
 from .models import BoardActivity, CanvasBoard, CanvasBoardSave
-from .serialization import MAX_BOARD_JSON_UNITS, empty_state, json_length, validate_state
+from .serialization import MAX_BOARD_JSON_UNITS, content_length, empty_state, validate_state
 
 META_FIELDS = ('id', 'project_id', 'name', 'created_by', 'created_at', 'updated_at', 'team_role')
 # Applied save ids are kept this long; the editor treats older drafts as having no usable base.
@@ -78,7 +78,7 @@ class VersionConflict(Exception):
 
 
 class BoardTooLarge(Exception):
-    """The graph with its server stamps is over the save limit."""
+    """The normalized graph is over the save limit."""
 
 
 def _graph(data):
@@ -102,7 +102,7 @@ def save_board(identifier, data, base_version, save_id, actor):
             row = CanvasBoard.objects.select_for_update().filter(pk=identifier).values('version', 'data').first()
             if row and row['version'] == base_version:
                 stamped, changes = activity.stamp(validate_state(row['data']), data, actor, now)
-                if json_length(stamped) > MAX_BOARD_JSON_UNITS:
+                if content_length(stamped) > MAX_BOARD_JSON_UNITS:
                     raise BoardTooLarge()
                 version = base_version + 1 if _graph(stamped) != _graph(row['data']) else base_version
                 CanvasBoard.objects.filter(pk=identifier).update(data=stamped, updated_at=now, version=version)

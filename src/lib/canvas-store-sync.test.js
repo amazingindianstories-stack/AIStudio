@@ -256,6 +256,29 @@ test("a save that never landed is retried as this person's edit", async (t) => {
   assert.deepEqual(ids(server.data), ["a", "theirs"]);
 });
 
+test("a save refused as too large shows the error and waits for the next edit instead of retrying", async (t) => {
+  useStorage(t);
+  const server = fakeServer(t, graph(rect("a")));
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  const drain = async () => { for (let i = 0; i < 20; i += 1) await new Promise((resolve) => setImmediate(resolve)); };
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  addLocalNode("big");
+  t.mock.method(globalThis, "fetch", async () => json(413, { error: "Board is too large to save." }), { times: 1 });
+  await store.getState().flushSave();
+  assert.equal(store.getState().saveStatus, "error");
+  assert.deepEqual(ids(readPendingDraft("board-1").data), ["a", "big"]);
+  t.mock.timers.tick(60_000);
+  await drain();
+  assert.equal(store.getState().saveStatus, "error");
+  assert.equal(server.puts.length, 0);
+  addLocalNode("next");
+  t.mock.timers.tick(1500);
+  await drain();
+  assert.equal(store.getState().saveStatus, "saved");
+  assert.deepEqual(ids(server.data), ["a", "big", "next"]);
+});
+
 test("a draft written while a save was in flight uses that save as its base once it landed", async (t) => {
   useStorage(t);
   const server = fakeServer(t, filled("#ffffff"));

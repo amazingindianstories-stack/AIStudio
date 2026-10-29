@@ -7,8 +7,8 @@ a node whose only difference is its position, frame or group, or a connector who
 is where a free end sits, keeps its stamps and records nothing.
 """
 from .models import BoardActivity
+from .serialization import STAMP_KEYS
 
-STAMP_KEYS = ('createdBy', 'createdAt', 'updatedBy', 'updatedAt')
 # Arrangement, not content: changing only these is a move.
 ARRANGEMENT_KEYS = ('x', 'y', 'parentId', 'groupId')
 SNIPPET_LENGTH = 120

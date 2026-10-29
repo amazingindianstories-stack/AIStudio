@@ -15,8 +15,11 @@ SIMPLE_MARKS = ('b', 'i', 'u', 's')
 SAFE_HREF = re.compile(r'(?:[hH][tT][tT][pP][sS]?://|[mM][aA][iI][lL][tT][oO]:)[^\x00-\x20\x7f]+')
 HIGHLIGHT = re.compile(r'#[0-9a-fA-F]{6}')
 ANCHORS = {'auto', 'top', 'right', 'bottom', 'left', 'center'}
-# The editor's JSON.stringify(data).length limit for a saved graph, in UTF-16 units.
+# The editor's JSON.stringify(data).length limit for a saved graph, in UTF-16 units, not counting the
+# server stamps (content_length).
 MAX_BOARD_JSON_UNITS = 2 * 1024 * 1024
+# Per-object author and time fields the server owns (apps.canvas.activity).
+STAMP_KEYS = ('createdBy', 'createdAt', 'updatedBy', 'updatedAt')
 JS_WHITESPACE = '\u0009\u000a\u000b\u000c\u000d\u0020\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff'
 
 
@@ -242,3 +245,14 @@ def js_json(value):
 
 def json_length(value):
     return len(js_json(value).encode('utf-16-le')) // 2
+
+
+def content_length(data):
+    """The board's size against MAX_BOARD_JSON_UNITS: its JSON without the server stamps, so stamping
+    an object never takes away room for content."""
+    unstamped = dict(data)
+    for key in ('nodes', 'connectors'):
+        if isinstance(data.get(key), list):
+            unstamped[key] = [{name: value for name, value in item.items() if name not in STAMP_KEYS}
+                              if isinstance(item, dict) else item for item in data[key]]
+    return json_length(unstamped)

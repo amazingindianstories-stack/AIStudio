@@ -11,11 +11,15 @@ after any 409 merge on the client, so the record reflects what was actually writ
 - a new id is an `add`, a missing one a `delete`, and a changed one an `edit`;
 - moves are not changes (as in Miro): a node whose only difference is `x`, `y`, `parentId` or `groupId`, or a
   connector whose only difference is where a free end sits, records nothing and keeps its stamps;
-- the stored graph is normalized first, so serializer defaults added since it was written are not edits.
+- the stored graph is normalized first, so serializer defaults added since it was written are not edits;
+- matching is by id alone, and a deleted object's stamps are not kept: restoring one (undo of a delete, or a
+  merge or draft restore that brings it back) records an `add` by the restoring person, who becomes its
+  creator. Keeping the original creator belongs with the later versions and restore work.
 
 Added and edited objects get `createdBy`, `createdAt`, `updatedBy` and `updatedAt` (user id, epoch ms); an
 edit keeps the creation stamps. Both serializers (`serialization.py`, `src/lib/canvas/serialization.js`)
-carry the fields, and objects saved before stamping have none until they next change.
+carry the fields, and objects saved before stamping have none until they next change. The stamps do not
+count toward the board size limit (`content_length` in `serialization.py`).
 
 Every change appends a row to `board_activity`: board, actor, action, node id, node type (`connector` for
 connectors), a snippet of up to 120 characters (a node's text, a frame's name or an image's alt text), the
