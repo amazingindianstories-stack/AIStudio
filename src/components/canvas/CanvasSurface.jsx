@@ -396,7 +396,8 @@ export const CanvasSurface = forwardRef
       (e.target ).setPointerCapture?.(e.pointerId);
       // A double tap on text opens it for typing and on an image opens its
       // crop, like a mouse double click; while viewing it switches to Edit first.
-      const nodeId = hitTest(present, screenToWorld(screen, viewport));
+      const nodeId =
+        e.target.closest?.("[data-node-id]")?.getAttribute("data-node-id") ?? hitTest(present, screenToWorld(screen, viewport));
       const node = nodeId ? present.nodes.find((n) => n.id === nodeId) : null;
       const action = doubleTapAction(node, { viewOnly: touchViewOnly, readOnly });
       if (action !== "zoom") {

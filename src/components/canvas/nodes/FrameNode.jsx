@@ -53,7 +53,7 @@ export function FrameNode({
                 onCancelLabelEdit();
               }
             }}
-            className="w-56 max-w-full border-b border-white/40 bg-transparent text-sm font-medium text-white/90 outline-none"
+            className="w-56 max-w-full select-text border-b border-white/40 bg-transparent text-sm font-medium text-white/90 outline-none"
           />
         ) : (
           <span

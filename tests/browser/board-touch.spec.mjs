@@ -639,7 +639,7 @@ test('Board touch: a double tap inside an open text editor keeps it open and eve
   await db.end();
 });
 
-test('Board touch: viewing, a swipe that starts on a connector or a frame title pans the board and selects nothing', async ({ browser, baseURL }) => {
+test('Board touch: viewing, a swipe that starts on a connector or a frame title pans the board and selects nothing, and in Edit a double tap on the title renames the frame', async ({ browser, baseURL }) => {
   test.setTimeout(120000);
   const db = await seedUsers();
   const project = await createProject(browser, baseURL, 'Board touch connector');
@@ -699,6 +699,14 @@ test('Board touch: viewing, a swipe that starts on a connector or a frame title 
   await phone.page.getByRole('button', { name: 'Edit', exact: true }).tap();
   await expect(phone.page.getByRole('button', { name: 'Done', exact: true })).toBeVisible();
   await expect(phone.page.locator('[aria-label^="Connector start endpoint"]')).toHaveCount(0);
+
+  // The title sits above the frame's box; a double tap on it opens the name for typing instead of zooming.
+  const label = await title.boundingBox();
+  const onLabel = { x: label.x + label.width / 2, y: label.y + label.height / 2 };
+  await touch.tap(onLabel);
+  await touch.tap(onLabel);
+  await expect(phone.page.locator(`[data-node-id="${frameId}"] input`)).toHaveValue('Touch frame');
+  expect(await zoomPercent(phone.page)).toBe(100);
 
   await phone.context.close();
   await db.end();

@@ -11,6 +11,7 @@ import {
   writeRichDom,
 } from "@/lib/canvas/rich-text";
 import { FORMAT_CONTROL_SELECTOR, requestLink, toggleFormat } from "@/lib/canvas/rich-text-commands";
+import { cn } from "@/lib/utils";
 
 /**
  * Formatted text as React elements: no HTML strings are ever rendered.
@@ -142,7 +143,7 @@ export function RichTextEditor({ text, marks, onCommit, onCancel, className, sty
           requestLink();
         }
       }}
-      className={className}
+      className={cn("select-text", className)}
       style={style}
     />
   );
