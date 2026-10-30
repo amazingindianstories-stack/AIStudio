@@ -132,6 +132,25 @@ class ShapePackRouteTests(TestCase):
         self.assertEqual(self.send('delete', path).status_code, 200)
         self.assertEqual(self.send('delete', path).status_code, 404)
 
+    def test_adding_and_reordering_keep_stored_nested_svg_shapes(self):
+        nested = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M0 0L5 5"/>'
+                  '<svg x="12" width="12" viewBox="0 0 10 10"><rect width="5" height="5"/></svg></svg>')
+        single = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
+                  '<svg x="12" width="12" viewBox="0 0 10 10"><rect width="5" height="5"/></svg></svg>')
+        self.as_user(self.owner)
+        created = self.send('post', '/api/canvas-shape-packs',
+                            {'name': 'Nested', 'shapes': [{'name': 'Two', 'svg': nested}, {'name': 'One', 'svg': single}]})
+        pack = created.json()['pack']
+        stored = [(s['svg'], s['viewBox']) for s in pack['shapes']]
+        self.assertTrue(all('<svg x="12"' in svg and view_box == '0 0 24 24' for svg, view_box in stored))
+        path = f"/api/canvas-shape-packs/{pack['id']}"
+        added = self.send('patch', path, {'addShapes': [{'name': 'Pump', 'svg': VALVE}]})
+        self.assertEqual(added.status_code, 200)
+        self.assertEqual([(s['svg'], s['viewBox']) for s in added.json()['pack']['shapes'][:2]], stored)
+        reordered = self.send('patch', path, {'shapes': list(reversed(added.json()['pack']['shapes']))})
+        self.assertEqual(reordered.status_code, 200)
+        self.assertEqual([(s['svg'], s['viewBox']) for s in reordered.json()['pack']['shapes'][1:]], list(reversed(stored)))
+
     def test_requires_a_session_and_a_valid_id(self):
         self.client.cookies.clear()
         self.assertEqual(self.client.get('/api/canvas-shape-packs').status_code, 401)

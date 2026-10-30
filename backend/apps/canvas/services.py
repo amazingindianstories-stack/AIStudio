@@ -6,7 +6,7 @@ import uuid
 from django.db import connection, models, transaction
 from .models import BoardActivity, CanvasBoard, CanvasBoardSave, CustomShapePack
 from .serialization import JS_WHITESPACE, MAX_BOARD_JSON_UNITS, content_length, empty_state, validate_state
-from .svg_sanitize import MAX_SHAPES_PER_PACK, sanitize_svg
+from .svg_sanitize import MAX_SHAPES_PER_PACK, SAFE_VIEWBOX_RE, sanitize_svg
 
 META_FIELDS = ('id', 'project_id', 'name', 'created_by', 'created_at', 'updated_at', 'team_role')
 # Applied save ids are kept this long; the editor treats older drafts as having no usable base.
@@ -216,12 +216,11 @@ def normalize_pack_shapes(raw_shapes):
         seen_ids.add(shape_id)
         raw_name = item.get('name')
         shape_name = raw_name.strip(JS_WHITESPACE)[:120] if isinstance(raw_name, str) and raw_name.strip(JS_WHITESPACE) else f'Shape {index + 1}'
-        inner_svg, view_box = sanitize_svg(item.get('svg'))
-        if isinstance(item.get('viewBox'), str) and item['viewBox'].strip(JS_WHITESPACE) and '<svg' not in str(item.get('svg', '')).lower():
-            from .svg_sanitize import SAFE_VIEWBOX_RE
-            vb_candidate = item['viewBox'].strip(JS_WHITESPACE)
-            if SAFE_VIEWBOX_RE.match(vb_candidate):
-                view_box = ' '.join(vb_candidate.split())
+        raw_view_box = item.get('viewBox')
+        stored = isinstance(raw_view_box, str) and raw_view_box.strip(JS_WHITESPACE)
+        inner_svg, view_box = sanitize_svg(item.get('svg'), fragment=bool(stored))
+        if stored and SAFE_VIEWBOX_RE.match(raw_view_box.strip(JS_WHITESPACE)):
+            view_box = ' '.join(raw_view_box.split())
         normalized.append({
             'id': shape_id,
             'name': shape_name,
