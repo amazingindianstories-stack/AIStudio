@@ -38,6 +38,9 @@ const NODE_TYPES = new Set([
   "stack",
   "frame",
   "image",
+  "erd",
+  "swimlane",
+  "diagram",
 ]);
 const TEXT_ALIGNS = ["left", "center", "right"];
 
@@ -49,6 +52,39 @@ const ANCHORS = new Set([
   "left",
   "center",
 ]);
+const ROW_ANCHOR_PATTERN = /^row:[a-zA-Z0-9_-]{1,64}:(?:left|right)$/;
+const STROKE_STYLES = new Set(["dashed", "dotted"]);
+const CONNECTOR_SHAPES = new Set(["curved", "straight", "orthogonal"]);
+export const CONNECTOR_CAPS = new Set([
+  "none",
+  "arrow",
+  "open-arrow",
+  "diamond",
+  "filled-diamond",
+  "circle",
+  "erd-one",
+  "erd-many",
+  "erd-only-one",
+  "erd-zero-or-one",
+  "erd-one-or-many",
+  "erd-zero-or-many",
+]);
+const VIEWBOX_PATTERN = /^-?\d+(?:\.\d+)?(?:\s+-?\d+(?:\.\d+)?){3}$/;
+const MAX_CUSTOM_SVG_UNITS = 51200;
+
+function isValidAnchor(anchor) {
+  return typeof anchor === "string" && (ANCHORS.has(anchor) || ROW_ANCHOR_PATTERN.test(anchor));
+}
+
+function isCustomSvg(svg) {
+  return typeof svg === "string" && svg.length > 0 && svg.length <= MAX_CUSTOM_SVG_UNITS;
+}
+
+function withStructuredTheme(node, r) {
+  if (STROKE_STYLES.has(r.strokeStyle)) node.strokeStyle = r.strokeStyle;
+  if (typeof r.headerFill === "string") node.headerFill = r.headerFill;
+  if (typeof r.color === "string") node.color = r.color;
+}
 
 function isFiniteNumber(v) {
   return typeof v === "number" && Number.isFinite(v);
@@ -92,6 +128,9 @@ function validateBase(
     groupId: typeof r.groupId === "string" ? r.groupId : null,
   } ;
   if (isFiniteNumber(r.opacity)) base.opacity = clamp01(r.opacity);
+  if (typeof r.diagramLayerId === "string" && r.diagramLayerId && r.diagramLayerId.length <= 64) {
+    base.diagramLayerId = r.diagramLayerId;
+  }
   return base;
 }
 
@@ -155,6 +194,30 @@ function validateNodeContent(raw) {
       };
       if (type === "rect" && isFiniteNumber(r.cornerRadius)) {
         node.cornerRadius = r.cornerRadius;
+      }
+      if (STROKE_STYLES.has(r.strokeStyle)) {
+        node.strokeStyle = r.strokeStyle;
+      }
+      if (type === "shape") {
+        if (r.tail && typeof r.tail === "object") {
+          if (typeof r.tail.nodeId === "string" && r.tail.nodeId) {
+            node.tail = {
+              nodeId: r.tail.nodeId,
+              anchor: isValidAnchor(r.tail.anchor) ? r.tail.anchor : "auto",
+            };
+          } else if (isFiniteNumber(r.tail.x) && isFiniteNumber(r.tail.y)) {
+            node.tail = { x: r.tail.x, y: r.tail.y };
+          }
+        }
+        if (isCustomSvg(r.svg)) {
+          node.svg = r.svg;
+          if (typeof r.svgViewBox === "string" && r.svgViewBox.length <= 64 && VIEWBOX_PATTERN.test(r.svgViewBox)) {
+            node.svgViewBox = r.svgViewBox;
+          }
+          if (typeof r.shapeName === "string" && r.shapeName && r.shapeName.length <= 120) {
+            node.shapeName = r.shapeName;
+          }
+        }
       }
       // Text inside a shape is optional; shapes without it load unchanged.
       if (typeof r.text === "string") {
@@ -237,6 +300,107 @@ function validateNodeContent(raw) {
       }
       return node;
     }
+    case "erd": {
+      const cols = r.columns === 1 || r.columns === 2 || r.columns === 3 ? r.columns : 3;
+      const rawRows = Array.isArray(r.rows) ? r.rows.slice(0, 100) : [];
+      const rows = [];
+      for (const item of rawRows) {
+        if (item == null || typeof item !== "object" || typeof item.id !== "string" || !item.id) continue;
+        const cells = Array.isArray(item.cells)
+          ? [str(item.cells[0], ""), str(item.cells[1], ""), str(item.cells[2], "")]
+          : ["", "", ""];
+        rows.push({ id: item.id, cells });
+      }
+      if (rows.length === 0) {
+        rows.push({ id: "r1", cells: ["PK", "id", "uuid"] });
+      }
+      const node = {
+        ...base,
+        type,
+        name: str(r.name, "Entity"),
+        columns: cols,
+        rows,
+        fill: str(r.fill, "#18181f"),
+        stroke: str(r.stroke, "#6f9bd1"),
+        strokeWidth: num(r.strokeWidth, 2),
+      };
+      withStructuredTheme(node, r);
+      return node;
+    }
+    case "swimlane": {
+      const orientation = r.orientation === "vertical" ? "vertical" : "horizontal";
+      const rawLanes = Array.isArray(r.lanes) ? r.lanes.slice(0, 50) : [];
+      const lanes = [];
+      for (const item of rawLanes) {
+        if (item == null || typeof item !== "object" || typeof item.id !== "string" || !item.id) continue;
+        lanes.push({
+          id: item.id,
+          name: str(item.name, "Lane"),
+          size: Math.max(40, num(item.size, 180)),
+        });
+      }
+      if (lanes.length === 0) {
+        lanes.push(
+          { id: "lane-1", name: "Lane 1", size: 180 },
+          { id: "lane-2", name: "Lane 2", size: 180 }
+        );
+      }
+      const node = {
+        ...base,
+        type,
+        name: str(r.name, "Pool"),
+        orientation,
+        lanes,
+        fill: str(r.fill, "transparent"),
+        stroke: str(r.stroke, "#6b7280"),
+        strokeWidth: num(r.strokeWidth, 2),
+      };
+      withStructuredTheme(node, r);
+      return node;
+    }
+    case "diagram": {
+      const rawLayers = Array.isArray(r.layers) ? r.layers.slice(0, 30) : [];
+      const layers = [];
+      for (const item of rawLayers) {
+        if (item == null || typeof item !== "object" || typeof item.id !== "string" || !item.id) continue;
+        layers.push({
+          id: item.id,
+          name: str(item.name, "Layer"),
+          visible: item.visible !== false,
+        });
+      }
+      if (layers.length === 0) {
+        layers.push({ id: "default", name: "Main layer", visible: true });
+      }
+      const node = {
+        ...base,
+        type,
+        name: str(r.name, "Diagram"),
+        layers,
+        fill: str(r.fill, "rgba(15,23,42,0.45)"),
+        stroke: str(r.stroke, "#6f9bd1"),
+        strokeWidth: num(r.strokeWidth, 2),
+      };
+      withStructuredTheme(node, r);
+      if (Array.isArray(r.containers)) {
+        const containers = [];
+        for (const c of r.containers.slice(0, 50)) {
+          if (c == null || typeof c !== "object" || typeof c.id !== "string" || !c.id) continue;
+          if (!isFiniteNumber(c.x) || !isFiniteNumber(c.y) || !isFiniteNumber(c.w) || !isFiniteNumber(c.h)) continue;
+          containers.push({
+            id: c.id,
+            name: str(c.name, "Container"),
+            x: c.x,
+            y: c.y,
+            w: Math.max(40, c.w),
+            h: Math.max(40, c.h),
+            layerId: typeof c.layerId === "string" && c.layerId ? c.layerId : "default",
+          });
+        }
+        if (containers.length > 0) node.containers = containers;
+      }
+      return node;
+    }
     default:
       return null;
   }
@@ -247,7 +411,7 @@ function validateEndpoint(raw, nodeIds) {
   const r = raw ;
   if (typeof r.nodeId === "string") {
     if (!nodeIds.has(r.nodeId)) return null; // dangling reference dropped
-    const anchor = ANCHORS.has(r.anchor ) ? (r.anchor ) : "auto";
+    const anchor = isValidAnchor(r.anchor) ? r.anchor : "auto";
     return { nodeId: r.nodeId, anchor };
   }
   if (isFiniteNumber(r.x) && isFiniteNumber(r.y)) return { x: r.x, y: r.y };
@@ -270,6 +434,32 @@ function validateConnector(raw, nodeIds) {
     strokeWidth: num(r.strokeWidth, 2),
   };
   if (isFiniteNumber(r.opacity)) connector.opacity = clamp01(r.opacity);
+  if (CONNECTOR_SHAPES.has(r.shape)) connector.shape = r.shape;
+  if (STROKE_STYLES.has(r.strokeStyle)) connector.strokeStyle = r.strokeStyle;
+  if (CONNECTOR_CAPS.has(r.startCap)) connector.startCap = r.startCap;
+  if (CONNECTOR_CAPS.has(r.endCap)) connector.endCap = r.endCap;
+  if (Array.isArray(r.waypoints)) {
+    const waypoints = [];
+    for (const pt of r.waypoints.slice(0, 64)) {
+      if (pt && typeof pt === "object" && isFiniteNumber(pt.x) && isFiniteNumber(pt.y)) {
+        waypoints.push({ x: pt.x, y: pt.y });
+      }
+    }
+    if (waypoints.length > 0) connector.waypoints = waypoints;
+  }
+  if (Array.isArray(r.labels)) {
+    const labels = [];
+    for (const lbl of r.labels.slice(0, 16)) {
+      if (lbl == null || typeof lbl !== "object" || typeof lbl.id !== "string" || !lbl.id) continue;
+      labels.push({
+        id: lbl.id,
+        text: str(lbl.text, ""),
+        position: clamp01(num(lbl.position, 0.5)),
+        orientation: lbl.orientation === "aligned" ? "aligned" : "horizontal",
+      });
+    }
+    if (labels.length > 0) connector.labels = labels;
+  }
   return withStamps(connector, r);
 }
 
@@ -294,6 +484,9 @@ export function validateCanvasState(raw) {
     if (n.tagIds) {
       n.tagIds = n.tagIds.filter((id) => tagIds.has(id));
       if (!n.tagIds.length) delete n.tagIds;
+    }
+    if (n.type === "shape" && n.tail && "nodeId" in n.tail && !nodeIds.has(n.tail.nodeId)) {
+      delete n.tail;
     }
   }
 

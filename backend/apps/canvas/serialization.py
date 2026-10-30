@@ -3,7 +3,9 @@ import json
 import math
 import re
 
-NODE_TYPES = {'rect', 'ellipse', 'triangle', 'diamond', 'shape', 'text', 'sticky', 'stack', 'frame', 'image'}
+from .svg_sanitize import sanitize_svg
+
+NODE_TYPES = {'rect', 'ellipse', 'triangle', 'diamond', 'shape', 'text', 'sticky', 'stack', 'frame', 'image', 'erd', 'swimlane', 'diagram'}
 SHAPE_TYPES = ('rect', 'ellipse', 'triangle', 'diamond', 'shape')
 # Mirrors src/lib/canvas/shapes.js and src/lib/canvas/rich-text.js.
 SHAPE_KIND = re.compile(r'[a-z][a-z0-9-]{0,39}')
@@ -25,6 +27,34 @@ MAX_REACTION_EMOJI = 16
 MAX_REACTION_VOTES = 1000
 ARRAY_INDEX = re.compile(r'0|[1-9][0-9]*')
 ANCHORS = {'auto', 'top', 'right', 'bottom', 'left', 'center'}
+ROW_ANCHOR = re.compile(r'row:[a-zA-Z0-9_-]{1,64}:(?:left|right)')
+STROKE_STYLES = {'dashed', 'dotted'}
+CONNECTOR_SHAPES = {'curved', 'straight', 'orthogonal'}
+CONNECTOR_CAPS = {'none', 'arrow', 'open-arrow', 'diamond', 'filled-diamond', 'circle',
+                  'erd-one', 'erd-many', 'erd-only-one', 'erd-zero-or-one', 'erd-one-or-many', 'erd-zero-or-many'}
+VIEWBOX_RE = re.compile(r'-?\d+(?:\.\d+)?(?:\s+-?\d+(?:\.\d+)?){3}')
+MAX_CUSTOM_SVG_UNITS = 51200
+
+
+def valid_anchor(value):
+    return isinstance(value, str) and (value in ANCHORS or bool(ROW_ANCHOR.fullmatch(value)))
+
+
+def sanitized_custom_svg(svg):
+    if not isinstance(svg, str) or not 0 < len(svg) <= MAX_CUSTOM_SVG_UNITS:
+        return None
+    try:
+        return sanitize_svg(svg, fragment=True)[0]
+    except ValueError:
+        return None
+
+
+def with_structured_theme(result, r):
+    if r.get('strokeStyle') in STROKE_STYLES:
+        result['strokeStyle'] = r['strokeStyle']
+    for key in ('headerFill', 'color'):
+        if isinstance(r.get(key), str):
+            result[key] = r[key]
 # The editor's JSON.stringify(data).length limit for a saved graph, in UTF-16 units, not counting the
 # server stamps (content_length).
 MAX_BOARD_JSON_UNITS = 2 * 1024 * 1024
@@ -189,6 +219,8 @@ def node(raw):
     result.update(parentId=string(r.get('parentId'), None), groupId=string(r.get('groupId'), None))
     if finite(r.get('opacity')):
         result['opacity'] = clamp(r['opacity'])
+    if isinstance(r.get('diagramLayerId'), str) and 0 < len(r['diagramLayerId']) <= 64:
+        result['diagramLayerId'] = r['diagramLayerId']
     result['type'] = kind
     if kind in SHAPE_TYPES:
         # Path shapes name a catalogue outline; unknown well-formed kinds are kept.
@@ -199,6 +231,24 @@ def node(raw):
         result.update(fill=string(r.get('fill'), '#ffffff'), stroke=string(r.get('stroke'), '#000000'), strokeWidth=num(r.get('strokeWidth'), 1))
         if kind == 'rect' and finite(r.get('cornerRadius')):
             result['cornerRadius'] = r['cornerRadius']
+        if r.get('strokeStyle') in STROKE_STYLES:
+            result['strokeStyle'] = r['strokeStyle']
+        if kind == 'shape':
+            tail = r.get('tail')
+            if isinstance(tail, dict):
+                if isinstance(tail.get('nodeId'), str) and tail['nodeId']:
+                    result['tail'] = {'nodeId': tail['nodeId'], 'anchor': tail['anchor'] if valid_anchor(tail.get('anchor')) else 'auto'}
+                elif finite(tail.get('x')) and finite(tail.get('y')):
+                    result['tail'] = {'x': tail['x'], 'y': tail['y']}
+            svg = sanitized_custom_svg(r.get('svg'))
+            if svg:
+                result['svg'] = svg
+                vb = r.get('svgViewBox')
+                if isinstance(vb, str) and len(vb) <= 64 and VIEWBOX_RE.fullmatch(vb):
+                    result['svgViewBox'] = vb
+                sn = r.get('shapeName')
+                if isinstance(sn, str) and 0 < len(sn) <= 120:
+                    result['shapeName'] = sn
         if isinstance(r.get('text'), str):
             result['text'] = r['text']
             with_marks(result, r)
@@ -237,6 +287,69 @@ def node(raw):
         if isinstance(r.get('crop'), (dict, list)):
             crop = object_value(r['crop'])
             result['crop'] = {'x': clamp(num(crop.get('x'), .5)), 'y': clamp(num(crop.get('y'), .5)), 'zoom': clamp(num(crop.get('zoom'), 1), 1, 8)}
+    elif kind == 'erd':
+        cols = int(r['columns']) if r.get('columns') in (1, 2, 3) else 3
+        raw_rows = r.get('rows') if isinstance(r.get('rows'), list) else []
+        rows = []
+        for item in raw_rows[:100]:
+            if not isinstance(item, dict) or not isinstance(item.get('id'), str) or not item['id']:
+                continue
+            raw_cells = item.get('cells')
+            cells = [string(raw_cells[0] if len(raw_cells) > 0 else '', ''),
+                     string(raw_cells[1] if len(raw_cells) > 1 else '', ''),
+                     string(raw_cells[2] if len(raw_cells) > 2 else '', '')] if isinstance(raw_cells, list) else ['', '', '']
+            rows.append({'id': item['id'], 'cells': cells})
+        if not rows:
+            rows.append({'id': 'r1', 'cells': ['PK', 'id', 'uuid']})
+        result.update(name=string(r.get('name'), 'Entity'), columns=cols, rows=rows,
+                      fill=string(r.get('fill'), '#18181f'), stroke=string(r.get('stroke'), '#6f9bd1'),
+                      strokeWidth=num(r.get('strokeWidth'), 2))
+        with_structured_theme(result, r)
+    elif kind == 'swimlane':
+        orientation = 'vertical' if r.get('orientation') == 'vertical' else 'horizontal'
+        raw_lanes = r.get('lanes') if isinstance(r.get('lanes'), list) else []
+        lanes = []
+        for item in raw_lanes[:50]:
+            if not isinstance(item, dict) or not isinstance(item.get('id'), str) or not item['id']:
+                continue
+            lanes.append({'id': item['id'], 'name': string(item.get('name'), 'Lane'), 'size': max(40, num(item.get('size'), 180))})
+        if not lanes:
+            lanes = [{'id': 'lane-1', 'name': 'Lane 1', 'size': 180}, {'id': 'lane-2', 'name': 'Lane 2', 'size': 180}]
+        result.update(name=string(r.get('name'), 'Pool'), orientation=orientation, lanes=lanes,
+                      fill=string(r.get('fill'), 'transparent'), stroke=string(r.get('stroke'), '#6b7280'),
+                      strokeWidth=num(r.get('strokeWidth'), 2))
+        with_structured_theme(result, r)
+    elif kind == 'diagram':
+        raw_layers = r.get('layers') if isinstance(r.get('layers'), list) else []
+        layers = []
+        for item in raw_layers[:30]:
+            if not isinstance(item, dict) or not isinstance(item.get('id'), str) or not item['id']:
+                continue
+            layers.append({'id': item['id'], 'name': string(item.get('name'), 'Layer'), 'visible': item.get('visible') is not False})
+        if not layers:
+            layers = [{'id': 'default', 'name': 'Main layer', 'visible': True}]
+        result.update(name=string(r.get('name'), 'Diagram'), layers=layers,
+                      fill=string(r.get('fill'), 'rgba(15,23,42,0.45)'), stroke=string(r.get('stroke'), '#6f9bd1'),
+                      strokeWidth=num(r.get('strokeWidth'), 2))
+        with_structured_theme(result, r)
+        if isinstance(r.get('containers'), list):
+            containers = []
+            for c in r['containers'][:50]:
+                if not isinstance(c, dict) or not isinstance(c.get('id'), str) or not c['id']:
+                    continue
+                if not all(finite(c.get(key)) for key in ('x', 'y', 'w', 'h')):
+                    continue
+                containers.append({
+                    'id': c['id'],
+                    'name': string(c.get('name'), 'Container'),
+                    'x': c['x'],
+                    'y': c['y'],
+                    'w': max(40, c['w']),
+                    'h': max(40, c['h']),
+                    'layerId': c['layerId'] if isinstance(c.get('layerId'), str) and c['layerId'] else 'default',
+                })
+            if containers:
+                result['containers'] = containers
     return with_stamps(result, r)
 
 
@@ -246,7 +359,7 @@ def endpoint(raw, identifiers):
         if r['nodeId'] not in identifiers:
             return None
         anchor = r.get('anchor')
-        return {'nodeId': r['nodeId'], 'anchor': anchor if isinstance(anchor, str) and anchor in ANCHORS else 'auto'}
+        return {'nodeId': r['nodeId'], 'anchor': anchor if valid_anchor(anchor) else 'auto'}
     if finite(r.get('x')) and finite(r.get('y')):
         return {'x': r['x'], 'y': r['y']}
     return None
@@ -263,6 +376,32 @@ def connector(raw, identifiers):
               'stroke': string(r.get('stroke'), '#000000'), 'strokeWidth': num(r.get('strokeWidth'), 2)}
     if finite(r.get('opacity')):
         result['opacity'] = clamp(r['opacity'])
+    if r.get('shape') in CONNECTOR_SHAPES:
+        result['shape'] = r['shape']
+    if r.get('strokeStyle') in STROKE_STYLES:
+        result['strokeStyle'] = r['strokeStyle']
+    if r.get('startCap') in CONNECTOR_CAPS:
+        result['startCap'] = r['startCap']
+    if r.get('endCap') in CONNECTOR_CAPS:
+        result['endCap'] = r['endCap']
+    if isinstance(r.get('waypoints'), list):
+        waypoints = [{'x': pt['x'], 'y': pt['y']} for pt in r['waypoints'][:64]
+                     if isinstance(pt, dict) and finite(pt.get('x')) and finite(pt.get('y'))]
+        if waypoints:
+            result['waypoints'] = waypoints
+    if isinstance(r.get('labels'), list):
+        labels = []
+        for lbl in r['labels'][:16]:
+            if not isinstance(lbl, dict) or not isinstance(lbl.get('id'), str) or not lbl['id']:
+                continue
+            labels.append({
+                'id': lbl['id'],
+                'text': string(lbl.get('text'), ''),
+                'position': clamp(num(lbl.get('position'), .5)),
+                'orientation': 'aligned' if lbl.get('orientation') == 'aligned' else 'horizontal',
+            })
+        if labels:
+            result['labels'] = labels
     return with_stamps(result, r)
 
 
@@ -282,6 +421,8 @@ def validate_state(raw):
             item['tagIds'] = [value for value in item['tagIds'] if value in tag_ids]
             if not item['tagIds']:
                 del item['tagIds']
+        if item['type'] == 'shape' and isinstance(item.get('tail'), dict) and 'nodeId' in item['tail'] and item['tail']['nodeId'] not in identifiers:
+            del item['tail']
     connectors = [valid for item in obj.get('connectors', []) if (valid := connector(item, identifiers)) is not None] if isinstance(obj.get('connectors'), list) else []
     result = {'version': 1, 'viewport': {'x': num(viewport.get('x'), 0), 'y': num(viewport.get('y'), 0), 'zoom': zoom if finite(zoom) and zoom > 0 else 1},
               'nodes': nodes, 'connectors': connectors}

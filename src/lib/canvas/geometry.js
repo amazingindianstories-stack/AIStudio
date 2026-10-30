@@ -1,8 +1,23 @@
 
 
 import { nodeOutline, pointInPolygon, rayExit } from "./shapes";
+import {
+  connectorPolyline,
+  curvedWaypointsPath,
+  nearestTOnPolyline,
+  pointAtPolyline,
+  polylineToPathWithJumps,
+  snapPointToAngle,
+} from "./connector-routing";
+
+export { snapPointToAngle };
 
 const MIN_NODE_SIZE = 4;
+const CONTAINER_NODE_TYPES = new Set(["frame", "swimlane", "diagram"]);
+
+export function isContainerNode(node) {
+  return CONTAINER_NODE_TYPES.has(node?.type);
+}
 
 // ---- viewport bounds ----
 
@@ -58,7 +73,7 @@ export function moveNodesBy(
 ) {
   const idSet = new Set(ids);
   for (const node of state.nodes) {
-    if (node.type === "frame" && idSet.has(node.id)) {
+    if (isContainerNode(node) && idSet.has(node.id)) {
       for (const child of state.nodes) {
         if (child.parentId === node.id) idSet.add(child.id);
       }
@@ -223,13 +238,35 @@ const ANCHOR_DIRECTIONS = {
   left: { x: -1, y: 0 },
 };
 
+export const ERD_HEADER_HEIGHT = 36;
+export const ERD_ROW_HEIGHT = 28;
+
+function erdRowAnchorPoint(node, anchor) {
+  if (typeof anchor !== "string" || !anchor.startsWith("row:")) return null;
+  const parts = anchor.split(":");
+  if (parts.length !== 3) return null;
+  const rowId = parts[1];
+  const side = parts[2];
+  const rows = Array.isArray(node.rows) ? node.rows : [];
+  const idx = rows.findIndex((r) => r.id === rowId);
+  if (idx === -1) return null;
+  const y = node.y + (node.strokeWidth ?? 2) + ERD_HEADER_HEIGHT + (idx + 0.5) * ERD_ROW_HEIGHT;
+  const x = side === "left" ? node.x : node.x + node.w;
+  return { x, y: clamp(y, node.y, node.y + node.h) };
+}
+
 /**
  * Where an endpoint attaches to `node`. Path shapes attach to their outline:
  * a side anchor is where the ray from the center towards that box side leaves
  * the silhouette, and "auto" is where the ray towards the other end does.
+ * ERD nodes also support row-level anchors (`row:<rowId>:left|right`).
  * Every other node keeps its bounding-box anchors unchanged.
  */
 export function nodeAnchorPoint(node, anchor, towards) {
+  if (node.type === "erd") {
+    const rowPt = erdRowAnchorPoint(node, anchor);
+    if (rowPt) return rowPt;
+  }
   const bounds = nodeBounds(node);
   const outline = nodeOutline(node);
   if (!outline || anchor === "center") return anchorPoint(bounds, anchor, towards ?? boundsCenter(bounds));
@@ -258,7 +295,11 @@ export function resolveEndpoint(
 ) {
   if (!("nodeId" in ep)) return { x: ep.x, y: ep.y };
   const node = nodesById[ep.nodeId];
-  if (!node) return { x: 0, y: 0 }; // dangling ref — caller should have dropped the connector
+  if (!node) return { x: 0, y: 0 }; // dangling ref - caller should have dropped the connector
+  if (node.type === "erd") {
+    const rowPt = erdRowAnchorPoint(node, ep.anchor);
+    if (rowPt) return rowPt;
+  }
   const bounds = nodeBounds(node);
   if (!nodeOutline(node)) return anchorPoint(bounds, ep.anchor, boundsCenter(bounds));
   // A path shape's "auto" has no opposite point here, so it is the center.
@@ -276,18 +317,74 @@ function resolveTowards(
   return nodeAnchorPoint(node, ep.anchor, towards);
 }
 
-/** SVG path `d` for a connector, resolving "auto" anchors against each
- * other's rough position (nearest-perimeter-point). Deterministic/stable.
- * Renders a gentle quadratic-bezier arc (not a straight line) to match the
- * curved/brace-like connector style. */
-export function connectorPath(
-  c,
-  nodesById
-) {
+export function resolveConnectorEnds(c, nodesById) {
+  const waypoints = Array.isArray(c.waypoints) && c.waypoints.length > 0 ? c.waypoints : null;
   const fromRough = resolveEndpoint(c.from, nodesById);
   const toRough = resolveEndpoint(c.to, nodesById);
-  const from = resolveTowards(c.from, toRough, nodesById);
-  const to = resolveTowards(c.to, fromRough, nodesById);
+  const fromTarget = waypoints ? waypoints[0] : toRough;
+  const toTarget = waypoints ? waypoints[waypoints.length - 1] : fromRough;
+  const from = resolveTowards(c.from, fromTarget, nodesById);
+  const to = resolveTowards(c.to, toTarget, nodesById);
+  return { from, to };
+}
+
+/**
+ * Sampled or routed polyline points for connector `c`.
+ */
+export function connectorPoints(c, nodesById) {
+  const { from, to } = resolveConnectorEnds(c, nodesById);
+  return connectorPolyline(c, from, to, nodesById);
+}
+
+/**
+ * Point and readable angle along connector `c` at normalized arc-length `t` in [0, 1].
+ */
+export function connectorPointAt(c, nodesById, t = 0.5) {
+  return pointAtPolyline(connectorPoints(c, nodesById), t);
+}
+
+/**
+ * Nearest normalized arc-length `t` in [0.05, 0.95] along connector `c` to `worldPoint`.
+ */
+export function connectorNearestT(c, nodesById, worldPoint) {
+  return nearestTOnPolyline(connectorPoints(c, nodesById), worldPoint);
+}
+
+/**
+ * Connector `c`'s polyline `points` and SVG path `d`, from one routing pass:
+ * orthogonal routing scans the board, so a renderer derives labels, caps and
+ * the midpoint from `points` rather than routing again.
+ */
+export function connectorGeometry(c, nodesById, earlierSegments = []) {
+  const { from, to } = resolveConnectorEnds(c, nodesById);
+  const points = connectorPolyline(c, from, to, nodesById);
+  return { points, d: connectorPathFrom(c, from, to, points, earlierSegments) };
+}
+
+/** SVG path `d` for a connector, resolving "auto" anchors against each
+ * other's rough position (nearest-perimeter-point). Deterministic/stable.
+ * Supports `curved` (default), `straight` and `orthogonal` (elbow) shapes,
+ * custom `waypoints`, and optional `earlierSegments` for line jumps. */
+export function connectorPath(
+  c,
+  nodesById,
+  earlierSegments = []
+) {
+  return connectorGeometry(c, nodesById, earlierSegments).d;
+}
+
+function connectorPathFrom(c, from, to, points, earlierSegments) {
+  const shape = c.shape ?? "curved";
+  const waypoints = Array.isArray(c.waypoints) && c.waypoints.length > 0 ? c.waypoints : null;
+
+  if (shape === "straight" || shape === "orthogonal") {
+    return polylineToPathWithJumps(points, earlierSegments);
+  }
+
+  if (waypoints) {
+    return curvedWaypointsPath(from, waypoints, to);
+  }
+
   const dx = to.x - from.x;
   const dy = to.y - from.y;
   const dist = Math.hypot(dx, dy);

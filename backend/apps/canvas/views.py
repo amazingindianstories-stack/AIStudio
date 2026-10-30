@@ -464,3 +464,50 @@ def board_ai_job(request, identifier, job_id):
         return reply(request, {'error': str(error)}, error.status)
     except Exception:
         return failure()
+
+
+@node_route(['GET', 'POST'])
+def shape_packs(request):
+    user = lookup(request)
+    if user is None:
+        return reply(request, {'error': 'UNAUTHENTICATED'}, 401)
+    try:
+        if request.method in ('GET', 'HEAD'):
+            return reply(request, {'packs': services.list_shape_packs(user)})
+        data = body(request)
+        try:
+            pack = services.create_shape_pack(user, data)
+        except ValueError as error:
+            return reply(request, {'error': str(error)}, 400)
+        return reply(request, {'pack': pack}, 201)
+    except access.AccessError as error:
+        return reply(request, {'error': str(error)}, error.status)
+    except Exception:
+        return failure()
+
+
+@node_route(['PATCH', 'DELETE'])
+def shape_pack_detail(request, identifier):
+    user = lookup(request)
+    if user is None:
+        return reply(request, {'error': 'UNAUTHENTICATED'}, 401)
+    if not UUID_PATTERN.fullmatch(identifier):
+        return reply(request, {'error': 'Shape pack not found.'}, 404)
+    try:
+        if request.method == 'DELETE':
+            deleted = services.delete_shape_pack(user, identifier)
+            if not deleted:
+                return reply(request, {'error': 'Shape pack not found.'}, 404)
+            return reply(request, {'ok': True})
+        data = body(request)
+        try:
+            pack = services.update_shape_pack(user, identifier, data)
+        except ValueError as error:
+            return reply(request, {'error': str(error)}, 400)
+        if pack is None:
+            return reply(request, {'error': 'Shape pack not found.'}, 404)
+        return reply(request, {'pack': pack})
+    except access.AccessError as error:
+        return reply(request, {'error': str(error)}, error.status)
+    except Exception:
+        return failure()

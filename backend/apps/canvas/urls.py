@@ -1,7 +1,7 @@
 """Include at the root; string paths preserve source invalid-UUID responses."""
 from django.urls import path
 from .views import (board_access, board_activity, board_ai_job, board_ai_jobs, board_ai_quote, board_detail, board_metadata_reads,
-                    board_upload, board_version, board_changes)
+                    board_upload, board_version, board_changes, shape_packs, shape_pack_detail)
 
 urlpatterns = [
     path('api/canvas-boards', board_metadata_reads),
@@ -14,4 +14,6 @@ urlpatterns = [
     path('api/canvas-boards/<str:identifier>/ai-jobs/quote', board_ai_quote),
     path('api/canvas-boards/<str:identifier>/ai-jobs/<str:job_id>', board_ai_job),
     path('api/canvas-boards/<str:identifier>', board_detail),
+    path('api/canvas-shape-packs', shape_packs),
+    path('api/canvas-shape-packs/<str:identifier>', shape_pack_detail),
 ]

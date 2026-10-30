@@ -289,7 +289,7 @@ class ChangesMigrationTests(TransactionTestCase):
             old.get_model('canvas', 'CanvasBoardSave').objects.create(board_id=board, save_id=uuid4(), version=2, applied_at=2)
             executor = MigrationExecutor(connection)
             self.assertEqual([(m.app_label, m.name) for m, backward in executor.migration_plan(final)],
-                             [('canvas', '0007_canvasboardsave_changes')])
+                             [('canvas', '0007_canvasboardsave_changes'), ('canvas', '0008_customshapepack')])
             executor.migrate(final)
             self.assertEqual(list(CanvasBoardSave.objects.filter(board_id=board).values_list('version', 'changes')), [(2, None)])
             # A board saved before the upgrade is fetched whole by editors that missed that save.

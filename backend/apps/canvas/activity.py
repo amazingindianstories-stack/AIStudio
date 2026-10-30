@@ -39,7 +39,7 @@ def snippet(item):
     """A short plain-text label for the History panel: the object's text, frame name or image alt text."""
     if not isinstance(item, dict):
         return None
-    text = item.get('name') if item.get('type') == 'frame' else item.get('alt') if item.get('type') == 'image' else item.get('text')
+    text = item.get('name') if item.get('type') in ('frame', 'erd', 'swimlane', 'diagram') else item.get('alt') if item.get('type') == 'image' else item.get('text')
     if not isinstance(text, str):
         return None
     text = ' '.join(text.split())

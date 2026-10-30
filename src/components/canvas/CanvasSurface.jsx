@@ -19,15 +19,20 @@ import { getAssetDragData } from "@/lib/asset-drag-contract";
 
 import {
   computeFrameMembership,
+  connectorNearestT,
   hitTest,
+  isContainerNode,
   marqueeHits,
   moveNodesBy,
   nodeAnchorPoint,
   nodeBounds,
   resizeNode,
+  resolveEndpoint,
   screenToWorld,
 } from "@/lib/canvas/geometry";
-import { isCreateTool, shapeKindOfTool } from "@/lib/canvas/shapes";
+import { snapPointToAngle } from "@/lib/canvas/connector-routing";
+import { ensureShapePacksLoaded, getCustomShapeByTool, isCreateTool, isKnownShapeKind, shapeKindOfTool } from "@/lib/canvas/shapes";
+import { getDiagramTheme } from "@/lib/canvas/diagram-themes";
 import {
   LONG_PRESS_MS,
   doubleTapAction,
@@ -40,7 +45,7 @@ import {
   swipeZoomViewport,
 } from "@/lib/canvas/touch-gestures";
 import { selectionActions } from "@/lib/canvas/selection-actions";
-import { cullBoard } from "@/lib/canvas/culling";
+import { cullBoard, hiddenBoardIds } from "@/lib/canvas/culling";
 import { withLastStyle } from "@/lib/canvas/styles";
 import { currentUserId, takeStickyFromStack } from "@/lib/canvas/sticky-actions";
 import { markSystemClipboard } from "@/lib/canvas/use-board-clipboard";
@@ -79,11 +84,37 @@ export function buildDefaultNode(tool, center) {
 function buildBaseNode(tool, center) {
   const id = crypto.randomUUID();
   const base = { id, opacity: 1, parentId: null, groupId: null };
-  const shapeStyle = {
-    fill: "rgba(255,255,255,0.06)",
-    stroke: "rgba(255,255,255,0.55)",
-    strokeWidth: 2,
-  };
+  const themeId = useCanvasStore.getState()?.diagramThemeId ?? "default";
+  const theme = getDiagramTheme(themeId);
+  const shapeStyle =
+    theme.id === "default"
+      ? {
+          fill: "rgba(255,255,255,0.06)",
+          stroke: "rgba(255,255,255,0.55)",
+          strokeWidth: 2,
+        }
+      : {
+          fill: theme.fill,
+          stroke: theme.stroke,
+          strokeWidth: 2,
+          color: theme.color,
+        };
+  if (typeof tool === "string" && tool.startsWith("custom-shape:")) {
+    const custom = getCustomShapeByTool(tool);
+    return {
+      ...base,
+      type: "shape",
+      shape: "custom",
+      shapeName: custom?.name || "Custom Shape",
+      svg: custom?.svg || '<rect x="10" y="10" width="80" height="80" />',
+      svgViewBox: custom?.viewBox || "0 0 100 100",
+      x: center.x - 70,
+      y: center.y - 70,
+      w: 140,
+      h: 140,
+      ...shapeStyle,
+    };
+  }
   if (typeof tool === "string" && tool.startsWith("shape:")) {
     const kind = shapeKindOfTool(tool);
     const size = SHAPE_DEFAULT_SIZE[kind] ?? { w: 160, h: 120 };
@@ -112,6 +143,68 @@ function buildBaseNode(tool, center) {
         h: 120,
         ...shapeStyle,
         cornerRadius: tool === "rect" ? 0 : tool === "rect-rounded" ? 16 : undefined,
+      };
+    case "erd":
+      return {
+        ...base,
+        type: "erd",
+        name: "users",
+        x: center.x - 130,
+        y: center.y - 80,
+        w: 260,
+        h: 160,
+        fill: theme.id === "default" ? "#18181b" : theme.fill,
+        stroke: theme.id === "default" ? "#6366f1" : theme.stroke,
+        strokeWidth: 2,
+        headerFill: theme.id === "default" ? "rgba(99, 102, 241, 0.28)" : theme.headerFill,
+        color: theme.id === "default" ? "#f4f4f5" : theme.color,
+        columns: 3,
+        rows: [
+          { id: "row-1", cells: ["PK", "id", "uuid"] },
+          { id: "row-2", cells: ["", "email", "varchar"] },
+          { id: "row-3", cells: ["FK", "org_id", "uuid"] },
+        ],
+      };
+    case "swimlane":
+    case "swimlane-vertical": {
+      const isVert = tool === "swimlane-vertical";
+      return {
+        ...base,
+        type: "swimlane",
+        name: "Swimlane Pool",
+        orientation: isVert ? "vertical" : "horizontal",
+        x: center.x - (isVert ? 240 : 300),
+        y: center.y - (isVert ? 220 : 180),
+        w: isVert ? 480 : 600,
+        h: isVert ? 440 : 360,
+        fill: theme.id === "default" ? "rgba(24, 24, 27, 0.45)" : theme.fill,
+        stroke: theme.id === "default" ? "#52525b" : theme.stroke,
+        strokeWidth: 2,
+        headerFill: theme.id === "default" ? "rgba(63, 63, 70, 0.55)" : theme.headerFill,
+        color: theme.id === "default" ? "#f4f4f5" : theme.color,
+        lanes: [
+          { id: "lane-1", name: "Lane 1", size: 160 },
+          { id: "lane-2", name: "Lane 2", size: 160 },
+        ],
+      };
+    }
+    case "diagram":
+      return {
+        ...base,
+        type: "diagram",
+        name: "System Diagram",
+        x: center.x - 320,
+        y: center.y - 220,
+        w: 640,
+        h: 440,
+        fill: "rgba(15, 23, 42, 0.35)",
+        stroke: theme.id === "default" ? "#6366f1" : theme.stroke,
+        strokeWidth: 2,
+        layers: [
+          { id: "layer-main", name: "Core flow", visible: true },
+          { id: "layer-notes", name: "Details & notes", visible: true },
+        ],
+        containers: [],
       };
     case "text":
       return {
@@ -181,6 +274,11 @@ export const CanvasSurface = forwardRef
   const resizeSelected = useCanvasStore((s) => s.resizeSelected);
   const duplicateSelectionInPlace = useCanvasStore((s) => s.duplicateSelectionInPlace);
   const updateConnectorEndpoint = useCanvasStore((s) => s.updateConnectorEndpoint);
+  const updateConnectorWaypoints = useCanvasStore((s) => s.updateConnectorWaypoints);
+  const upsertConnectorLabel = useCanvasStore((s) => s.upsertConnectorLabel);
+  const updateCalloutTail = useCanvasStore((s) => s.updateCalloutTail);
+  const focusedDiagramId = useCanvasStore((s) => s.focusedDiagramId);
+  const setFocusedDiagramId = useCanvasStore((s) => s.setFocusedDiagramId);
   const keepGestureAlive = useCanvasStore((s) => s.keepGestureAlive);
 
   const items = useStore((s) => s.items);
@@ -216,6 +314,12 @@ export const CanvasSurface = forwardRef
     }
     return counts;
   }, [displayState.nodes]);
+  const hidden = useMemo(() => hiddenBoardIds(displayState, focusedDiagramId), [displayState, focusedDiagramId]);
+  // Pointer hit tests and the marquee only reach objects the board shows.
+  const pickable = useMemo(
+    () => (hidden.nodes.size ? { ...present, nodes: present.nodes.filter((n) => !hidden.nodes.has(n.id)) } : present),
+    [present, hidden]
+  );
   // Large boards hold thousands of objects: mount only those near the viewport (see cullBoard),
   // so panning stays smooth and off-screen media never loads.
   const { nodes: renderedNodes, connectors: renderedConnectors } = useMemo(
@@ -223,9 +327,26 @@ export const CanvasSurface = forwardRef
       cullBoard(displayState, nodesById, viewport, size, {
         nodeIds: [...selection, editingTextId, croppingImageId, connectorHoverTargetId].filter(Boolean),
         connectorIds: selectedConnectorIds,
-      }),
-    [displayState, nodesById, viewport, size, selection, editingTextId, croppingImageId, connectorHoverTargetId, selectedConnectorIds]
+      }, hidden),
+    [displayState, nodesById, viewport, size, selection, editingTextId, croppingImageId, connectorHoverTargetId, selectedConnectorIds, hidden]
   );
+  // Pack shape outlines load lazily; a board that holds pack kinds loads them on open and on
+  // remote changes, then draws again with the real outlines.
+  const [, setShapePacksReady] = useState(false);
+  const needsShapePacks = useMemo(
+    () => displayState.nodes.some((n) => n.type === "shape" && n.shape !== "custom" && !isKnownShapeKind(n.shape)),
+    [displayState.nodes]
+  );
+  useEffect(() => {
+    if (!needsShapePacks) return;
+    let active = true;
+    ensureShapePacksLoaded().then(() => {
+      if (active) setShapePacksReady(true);
+    });
+    return () => {
+      active = false;
+    };
+  }, [needsShapePacks]);
   const selectedNodes = useMemo(() => {
     const selected = new Set(selection);
     return displayState.nodes.filter((n) => selected.has(n.id));
@@ -399,7 +520,7 @@ export const CanvasSurface = forwardRef
       // A double tap on text opens it for typing and on an image opens its
       // crop, like a mouse double click; while viewing it switches to Edit first.
       const nodeId =
-        e.target.closest?.("[data-node-id]")?.getAttribute("data-node-id") ?? hitTest(present, screenToWorld(screen, viewport));
+        e.target.closest?.("[data-node-id]")?.getAttribute("data-node-id") ?? hitTest(pickable, screenToWorld(screen, viewport));
       const node = nodeId ? present.nodes.find((n) => n.id === nodeId) : null;
       const action = doubleTapAction(node, { viewOnly: touchViewOnly, readOnly });
       if (action !== "zoom") {
@@ -597,8 +718,58 @@ export const CanvasSurface = forwardRef
       startWorld: screenToWorld(screen, viewport),
       connectorFromId: node.id,
       connectorFromAnchor: anchor,
+      fromHandle: true,
       moved: false,
     };
+  };
+
+  const onCalloutTailPointerDown = (e, node, startWorld) => {
+    e.stopPropagation();
+    if (readOnly) return;
+    (e.target ).setPointerCapture?.(e.pointerId);
+    const screen = toScreenLocal(e.clientX, e.clientY);
+    dragRef.current = {
+      kind: "callout-tail",
+      startScreen: screen,
+      startWorld,
+      calloutNodeId: node.id,
+      moved: false,
+    };
+    onTransientChange?.(true);
+  };
+
+  const onWaypointPointerDown = (e, connectorId, index, point, isExisting) => {
+    e.stopPropagation();
+    if (readOnly) return;
+    (e.target ).setPointerCapture?.(e.pointerId);
+    const screen = toScreenLocal(e.clientX, e.clientY);
+    dragRef.current = {
+      kind: "connector-waypoint",
+      startScreen: screen,
+      startWorld: point,
+      connectorId,
+      waypointIndex: index,
+      isExisting,
+      moved: false,
+    };
+    onTransientChange?.(true);
+  };
+
+  const onLabelPointerDown = (e, connectorId, labelId) => {
+    e.stopPropagation();
+    if (readOnly) return;
+    (e.target ).setPointerCapture?.(e.pointerId);
+    const screen = toScreenLocal(e.clientX, e.clientY);
+    useCanvasStore.setState({ selectedConnectorIds: [connectorId], selection: [] });
+    dragRef.current = {
+      kind: "connector-label",
+      startScreen: screen,
+      startWorld: screenToWorld(screen, viewport),
+      connectorId,
+      labelId,
+      moved: false,
+    };
+    onTransientChange?.(true);
   };
 
   // (D) Grab a selected connector's endpoint dot — mirrors how resize
@@ -648,7 +819,7 @@ export const CanvasSurface = forwardRef
     if (readOnly || touchViewOnly || touchRef.current.lastPointerType === "touch") return;
     const screen = toScreenLocal(e.clientX, e.clientY);
     const worldPoint = screenToWorld(screen, viewport);
-    const nodeId = hitTest(present, worldPoint);
+    const nodeId = hitTest(pickable, worldPoint);
     if (nodeId) {
       if (!selection.includes(nodeId)) setSelection([nodeId]);
     } else {
@@ -803,11 +974,11 @@ export const CanvasSurface = forwardRef
         else constrainedDx = 0;
       }
       const next = moveNodesBy(present, selection, constrainedDx, constrainedDy);
-      // frame drop-highlight preview
+      // container drop-highlight preview
       const movedNode = next.nodes.find((n) => n.id === selection[0]);
-      if (movedNode && movedNode.type !== "frame") {
-        const frames = next.nodes.filter((n) => n.type === "frame");
-        const targetFrame = computeFrameMembership(movedNode, frames);
+      if (movedNode && !isContainerNode(movedNode)) {
+        const containers = next.nodes.filter((n) => isContainerNode(n));
+        const targetFrame = computeFrameMembership(movedNode, containers);
         setDropHighlightFrameId(targetFrame);
       }
       setPreview(next);
@@ -827,10 +998,20 @@ export const CanvasSurface = forwardRef
     }
 
     if (drag.kind === "connector" && (drag.connectorFromId || drag.connectorFromPoint)) {
-      const worldPoint = screenToWorld(screen, viewport);
-      const target = hitTest(present, worldPoint);
+      let worldPoint = screenToWorld(screen, viewport);
+      const fromPt = draftConnector?.fromPoint ?? drag.startWorld;
+      const disableSnap = e.metaKey || e.ctrlKey;
+      const target = disableSnap ? null : hitTest(pickable, worldPoint);
+      if (e.shiftKey && !target) {
+        worldPoint = snapPointToAngle(fromPt, worldPoint);
+        drag.shiftStraight = true;
+      } else {
+        drag.shiftStraight = Boolean(e.shiftKey);
+      }
       setConnectorHoverTargetId(target && target !== drag.connectorFromId ? target : null);
-      setDraftConnector((d) => (d ? { ...d, toPoint: worldPoint } : d));
+      setDraftConnector((d) =>
+        d ? { ...d, toPoint: worldPoint, shape: e.shiftKey ? "straight" : undefined } : d
+      );
       return;
     }
 
@@ -839,18 +1020,58 @@ export const CanvasSurface = forwardRef
     }
 
     if (drag.kind === "connector-endpoint" && drag.endpointConnectorId && drag.endpointEnd) {
-      // Reuses the exact snap-to-node hit-test + hover-highlight the
-      // connector CREATE flow already uses (drag.kind === "connector"
-      // above) — no new geometry. Mutates the REAL connector every tick
-      // (coalesced) so the live preview renders in its true style/curve via
-      // connectorPath (untouched, design.md D4), not a dashed draft.
-      const worldPoint = screenToWorld(screen, viewport);
-      const target = hitTest(present, worldPoint);
+      let worldPoint = screenToWorld(screen, viewport);
+      const disableSnap = e.metaKey || e.ctrlKey;
+      const target = disableSnap ? null : hitTest(pickable, worldPoint);
+      if (e.shiftKey && !target) {
+        const conn = present.connectors.find((c) => c.id === drag.endpointConnectorId);
+        if (conn) {
+          const otherEnd = drag.endpointEnd === "from" ? conn.to : conn.from;
+          const otherPt = resolveEndpoint(otherEnd, nodesById);
+          worldPoint = snapPointToAngle(otherPt, worldPoint);
+        }
+      }
       setConnectorHoverTargetId(target);
       const endpoint = target
         ? { nodeId: target, anchor: "auto" }
         : { x: worldPoint.x, y: worldPoint.y };
       updateConnectorEndpoint(drag.endpointConnectorId, drag.endpointEnd, endpoint);
+      return;
+    }
+
+    if (drag.kind === "connector-waypoint" && drag.connectorId) {
+      const worldPoint = screenToWorld(screen, viewport);
+      const conn = present.connectors.find((c) => c.id === drag.connectorId);
+      if (!conn) return;
+      const existing = Array.isArray(conn.waypoints) ? [...conn.waypoints] : [];
+      if (drag.isExisting && drag.waypointIndex < existing.length) {
+        existing[drag.waypointIndex] = { x: worldPoint.x, y: worldPoint.y };
+      } else {
+        existing[0] = { x: worldPoint.x, y: worldPoint.y };
+      }
+      updateConnectorWaypoints(drag.connectorId, existing, { coalesce: true });
+      return;
+    }
+
+    if (drag.kind === "connector-label" && drag.connectorId && drag.labelId) {
+      const worldPoint = screenToWorld(screen, viewport);
+      const conn = present.connectors.find((c) => c.id === drag.connectorId);
+      if (!conn) return;
+      const position = connectorNearestT(conn, nodesById, worldPoint);
+      upsertConnectorLabel(drag.connectorId, { id: drag.labelId, position }, { coalesce: true });
+      return;
+    }
+
+    if (drag.kind === "callout-tail" && drag.calloutNodeId) {
+      const worldPoint = screenToWorld(screen, viewport);
+      const disableSnap = e.metaKey || e.ctrlKey;
+      const target = disableSnap ? null : hitTest(pickable, worldPoint);
+      const validTarget = target && target !== drag.calloutNodeId ? target : null;
+      setConnectorHoverTargetId(validTarget);
+      const tail = validTarget
+        ? { nodeId: validTarget, anchor: "auto" }
+        : { x: worldPoint.x, y: worldPoint.y };
+      updateCalloutTail(drag.calloutNodeId, tail, { coalesce: true });
       return;
     }
   };
@@ -872,7 +1093,7 @@ export const CanvasSurface = forwardRef
             w: Math.abs(w2.x - w1.x),
             h: Math.abs(w2.y - w1.y),
           };
-          const hits = marqueeHits(present, rect);
+          const hits = marqueeHits(pickable, rect);
           if (hits.length) setSelection(Array.from(new Set([...selection, ...hits])));
         }
       }
@@ -907,9 +1128,14 @@ export const CanvasSurface = forwardRef
     // e.shiftKey at release time), which returns early before reaching here.
 
     if (drag.kind === "connector") {
-      // Either end may be attached (a node) or free (a world point) — a
-      // free-standing line/arrow is just a connector with one or both
-      // endpoints free, per design.md's unified connector/arrow model.
+      // Quick diagram creation (Line 176): clicking a connection handle without dragging
+      // creates a linked copy + connector in that direction.
+      if (drag.fromHandle && drag.connectorFromId && !drag.moved && !connectorHoverTargetId) {
+        useCanvasStore.getState().quickCreateFromNode(drag.connectorFromId, drag.connectorFromAnchor || "right");
+        setDraftConnector(null);
+        setConnectorHoverTargetId(null);
+        return;
+      }
       const from = drag.connectorFromId
         ? { nodeId: drag.connectorFromId, anchor: drag.connectorFromAnchor ?? ("auto" ) }
         : (drag.connectorFromPoint ?? null);
@@ -918,10 +1144,19 @@ export const CanvasSurface = forwardRef
         : (draftConnector?.toPoint ?? null);
       const isNodeToNode = !!drag.connectorFromId && !!connectorHoverTargetId;
       if (from && to && (isNodeToNode || drag.moved)) {
-        addConnector(from, to, "arrow");
+        addConnector(from, to, "arrow", drag.shiftStraight ? { shape: "straight" } : {});
         if (!toolLocked) onAfterSingleShotPlace();
       }
       setDraftConnector(null);
+      setConnectorHoverTargetId(null);
+      return;
+    }
+
+    if (
+      drag.kind === "connector-waypoint" ||
+      drag.kind === "connector-label" ||
+      drag.kind === "callout-tail"
+    ) {
       setConnectorHoverTargetId(null);
       return;
     }
@@ -1142,6 +1377,8 @@ export const CanvasSurface = forwardRef
             onCancelEdit={onCancelEdit}
             onPointerDownHandle={onPointerDownHandle}
             onConnectorHandlePointerDown={onConnectorHandlePointerDown}
+            onCalloutTailPointerDown={onCalloutTailPointerDown}
+            nodesById={nodesById}
             connectorHoverTarget={connectorHoverTargetId === n.id}
             cropMode={croppingImageId === n.id}
             cropDraft={croppingImageId === n.id ? cropDraft : null}
@@ -1168,6 +1405,24 @@ export const CanvasSurface = forwardRef
           marqueeWorldRect={marqueeWorldRect}
           draftConnector={draftConnector}
           onEndpointPointerDown={readOnly || touchViewOnly ? undefined : onEndpointPointerDown}
+          onWaypointPointerDown={readOnly || touchViewOnly ? undefined : onWaypointPointerDown}
+          onResetWaypoints={
+            readOnly || touchViewOnly
+              ? undefined
+              : (connId) => updateConnectorWaypoints(connId, [])
+          }
+          onLabelPointerDown={readOnly || touchViewOnly ? undefined : onLabelPointerDown}
+          onLabelDoubleClick={
+            readOnly || touchViewOnly
+              ? undefined
+              : (connId) =>
+                  upsertConnectorLabel(connId, {
+                    id: `lbl-${crypto.randomUUID().slice(0, 8)}`,
+                    text: "Label",
+                    position: 0.5,
+                    orientation: "horizontal",
+                  })
+          }
           onConnectorContextMenu={onConnectorContextMenu}
         />
 
@@ -1178,6 +1433,25 @@ export const CanvasSurface = forwardRef
           />
         )}
       </div>
+
+      {focusedDiagramId && nodesById[focusedDiagramId] && (
+        <div
+          role="status"
+          aria-label="Diagram focus mode active"
+          className="absolute left-1/2 top-4 z-40 flex -translate-x-1/2 items-center gap-2 rounded-full border border-indigo-500/40 bg-ink-800/95 px-3 py-1 text-xs text-white shadow-pop backdrop-blur"
+        >
+          <span className="font-medium text-indigo-300">
+            Focus mode: {nodesById[focusedDiagramId].name || "Diagram"}
+          </span>
+          <button
+            type="button"
+            onClick={() => setFocusedDiagramId(null)}
+            className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] hover:bg-white/20"
+          >
+            Exit
+          </button>
+        </div>
+      )}
 
       {contextMenu && (
         <CanvasContextMenu

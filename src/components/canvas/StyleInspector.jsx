@@ -59,6 +59,11 @@ export function StyleInspector({ hidden }) {
   const duplicateSelected = useCanvasStore((s) => s.duplicateSelected);
   const deleteSelected = useCanvasStore((s) => s.deleteSelected);
   const beginCrop = useCanvasStore((s) => s.beginCrop);
+  const insertShapeOnConnector = useCanvasStore((s) => s.insertShapeOnConnector);
+  const upsertConnectorLabel = useCanvasStore((s) => s.upsertConnectorLabel);
+  const removeConnectorLabel = useCanvasStore((s) => s.removeConnectorLabel);
+  const updateConnectorWaypoints = useCanvasStore((s) => s.updateConnectorWaypoints);
+  const convertSelectionToDiagram = useCanvasStore((s) => s.convertSelectionToDiagram);
   const editingTextId = useCanvasStore((s) => s.editingTextId);
   const panelRef = useRef(null);
   // Keep the panel inside its container on narrow screens: it is centred on the
@@ -126,14 +131,21 @@ export function StyleInspector({ hidden }) {
   const onlyConnectors = hasConnectors && !hasNodes;
 
   const isShape = selectedNodes.length > 0 && selectedNodes.every(isShapeNode);
-  const showFill = isShape || (homogeneous && (soleType === "sticky" || soleType === "stack" || soleType === "frame"));
-  const showStroke = isShape;
+  const isStructured =
+    homogeneous && (soleType === "erd" || soleType === "swimlane" || soleType === "diagram");
+  const showFill =
+    isShape || isStructured || (homogeneous && (soleType === "sticky" || soleType === "stack" || soleType === "frame"));
+  const showStroke = isShape || isStructured;
   const showCornerRadius = homogeneous && soleType === "rect";
   const shapeText = isShape && selectedNodes.every((n) => n.text || n.id === editingTextId);
   const showTextColor = shapeText || (homogeneous && (soleType === "text" || soleType === "sticky"));
   const showFontSize = showTextColor;
   const showTextAlign = shapeText || (homogeneous && soleType === "text");
   const showFrameLabel = homogeneous && soleType === "frame";
+  const parentDiagram =
+    hasNodes && selectedNodes[0]?.parentId && nodesById[selectedNodes[0].parentId]?.type === "diagram"
+      ? nodesById[selectedNodes[0].parentId]
+      : null;
 
   // `updateSelectedStyle` patches BOTH the node `selection` and
   // `selectedConnectorIds` in one call (see canvas-store.ts's
@@ -183,14 +195,65 @@ export function StyleInspector({ hidden }) {
               value={onlyConnectors ? selectedConnectors[0]?.strokeWidth ?? 2 : (selectedNodes[0] ).strokeWidth ?? 2}
               onChange={(v) => patch({ strokeWidth: v })}
             />
+            <StrokeStyleControl
+              value={
+                onlyConnectors
+                  ? selectedConnectors[0]?.strokeStyle ?? "solid"
+                  : selectedNodes[0]?.strokeStyle ?? "solid"
+              }
+              onChange={(v) => patch({ strokeStyle: v })}
+            />
           </>
         )}
 
         {onlyConnectors && (
-          <ArrowheadControl
-            kind={selectedConnectors[0]?.kind ?? "arrow"}
-            onChange={(kind) => patch({ kind })}
-          />
+          <>
+            <ConnectorShapeControl
+              value={selectedConnectors[0]?.shape ?? "curved"}
+              onChange={(shape) => patch({ shape })}
+            />
+            <ArrowheadControl
+              kind={selectedConnectors[0]?.kind ?? "arrow"}
+              onChange={(kind) => patch({ kind })}
+            />
+            <CapPickerDropdown
+              label="Start cap"
+              value={selectedConnectors[0]?.startCap ?? "none"}
+              onChange={(startCap) => patch({ startCap })}
+            />
+            <CapPickerDropdown
+              label="End cap"
+              value={
+                selectedConnectors[0]?.endCap ??
+                (selectedConnectors[0]?.kind === "arrow" ? "arrow" : "none")
+              }
+              onChange={(endCap) => patch({ endCap })}
+            />
+            {selectedConnectors.length === 1 && (
+              <SingleConnectorActions
+                connector={selectedConnectors[0]}
+                onAddOrUpdateLabel={(label) => upsertConnectorLabel(selectedConnectors[0].id, label)}
+                onRemoveLabel={(labelId) => removeConnectorLabel(selectedConnectors[0].id, labelId)}
+                onInsertShape={() => insertShapeOnConnector(selectedConnectors[0].id, "rect")}
+                onResetWaypoints={() => updateConnectorWaypoints(selectedConnectors[0].id, [])}
+              />
+            )}
+          </>
+        )}
+
+        {parentDiagram && Array.isArray(parentDiagram.layers) && parentDiagram.layers.length > 0 && (
+          <select
+            aria-label="Diagram topic layer"
+            value={selectedNodes[0]?.diagramLayerId || parentDiagram.layers[0]?.id || ""}
+            onChange={(e) => patch({ diagramLayerId: e.target.value })}
+            className="h-7 rounded-lg border border-line bg-ink-800 px-1.5 text-[11px] text-white outline-none"
+          >
+            {parentDiagram.layers.map((layer) => (
+              <option key={layer.id} value={layer.id}>
+                {layer.name}
+              </option>
+            ))}
+          </select>
         )}
 
         {showCornerRadius && (
@@ -304,6 +367,16 @@ export function StyleInspector({ hidden }) {
                 <Copy className="h-4 w-4 text-white/45" /> Duplicate
                 <span className="ml-auto text-xs text-white/40">⌘D</span>
               </MenuItem>
+              {hasNodes && soleType !== "diagram" && (
+                <MenuItem
+                  onClick={() => {
+                    convertSelectionToDiagram();
+                    close();
+                  }}
+                >
+                  <Square className="h-4 w-4 text-white/45" /> Convert to diagram
+                </MenuItem>
+              )}
               <MenuItem
                 onClick={() => {
                   deleteSelected();
@@ -380,6 +453,198 @@ function StrokeWidthControl({ value, onChange }) {
           {w === 1 ? "S" : w === 2 ? "M" : "L"}
         </button>
       ))}
+    </div>
+  );
+}
+
+function StrokeStyleControl({ value = "solid", onChange }) {
+  const OPTIONS = [
+    { id: "solid", label: "Solid border", glyph: "───" },
+    { id: "dashed", label: "Dashed border", glyph: "- - -" },
+    { id: "dotted", label: "Dotted border", glyph: "· · ·" },
+  ];
+  return (
+    <div className="flex items-center gap-0.5 rounded-lg bg-ink-800 p-0.5">
+      {OPTIONS.map((opt) => (
+        <button
+          key={opt.id}
+          type="button"
+          aria-label={opt.label}
+          title={opt.label}
+          onClick={() => onChange(opt.id)}
+          className={cn(
+            "grid h-7 w-8 place-items-center rounded-md text-[10px] font-mono transition",
+            value === opt.id ? "bg-ink-600 text-white ring-1 ring-line" : "text-white/50 hover:text-white"
+          )}
+        >
+          {opt.glyph}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ConnectorShapeControl({ value = "curved", onChange }) {
+  const OPTIONS = [
+    { id: "curved", label: "Curved line", text: "Curve" },
+    { id: "orthogonal", label: "Orthogonal line", text: "Elbow" },
+    { id: "straight", label: "Straight line", text: "Straight" },
+  ];
+  return (
+    <div className="flex items-center gap-0.5 rounded-lg bg-ink-800 p-0.5">
+      {OPTIONS.map((opt) => (
+        <button
+          key={opt.id}
+          type="button"
+          aria-label={opt.label}
+          title={opt.label}
+          onClick={() => onChange(opt.id)}
+          className={cn(
+            "h-7 rounded-md px-2 text-[10px] font-medium transition",
+            value === opt.id ? "bg-ink-600 text-white ring-1 ring-line" : "text-white/50 hover:text-white"
+          )}
+        >
+          {opt.text}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const CAP_OPTIONS = [
+  { id: "none", label: "None" },
+  { id: "arrow", label: "Filled arrow" },
+  { id: "open-arrow", label: "Open arrow" },
+  { id: "diamond", label: "Hollow diamond" },
+  { id: "filled-diamond", label: "Filled diamond" },
+  { id: "circle", label: "Circle" },
+  { id: "erd-one", label: "ERD One (|)" },
+  { id: "erd-only-one", label: "ERD Only one (||)" },
+  { id: "erd-many", label: "ERD Many (<)" },
+  { id: "erd-one-or-many", label: "ERD One or many (|<)" },
+  { id: "erd-zero-or-one", label: "ERD Zero or one (o|)" },
+  { id: "erd-zero-or-many", label: "ERD Zero or many (o<)" },
+];
+
+function CapPickerDropdown({ label, value = "none", onChange }) {
+  return (
+    <select
+      aria-label={label}
+      title={label}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="h-7 rounded-lg border border-line bg-ink-800 px-1.5 text-[10px] text-white outline-none"
+    >
+      {CAP_OPTIONS.map((cap) => (
+        <option key={cap.id} value={cap.id}>
+          {label.startsWith("Start") ? `Start: ${cap.label}` : `End: ${cap.label}`}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+function SingleConnectorActions({
+  connector,
+  onAddOrUpdateLabel,
+  onRemoveLabel,
+  onInsertShape,
+  onResetWaypoints,
+}) {
+  const labels = Array.isArray(connector.labels) ? connector.labels : [];
+  const primary = labels[0] || null;
+  const hasWaypoints = Array.isArray(connector.waypoints) && connector.waypoints.length > 0;
+
+  return (
+    <div className="flex items-center gap-1">
+      {!primary ? (
+        <button
+          type="button"
+          aria-label="Add line label"
+          onClick={() =>
+            onAddOrUpdateLabel({
+              id: `lbl-${crypto.randomUUID().slice(0, 8)}`,
+              text: "Label",
+              position: 0.5,
+              orientation: "horizontal",
+            })
+          }
+          className="h-7 rounded-lg border border-line bg-ink-800 px-2 text-[10px] font-medium text-white/80 hover:bg-white/10 hover:text-white"
+        >
+          + Label
+        </button>
+      ) : (
+        <div className="flex items-center gap-1 rounded-lg bg-ink-800 px-1.5 py-0.5">
+          <input
+            type="text"
+            aria-label="Line label text"
+            value={primary.text}
+            onChange={(e) => onAddOrUpdateLabel({ ...primary, text: e.target.value })}
+            placeholder="Label"
+            className="h-6 w-20 bg-transparent text-xs text-white outline-none"
+          />
+          <button
+            type="button"
+            aria-label="Toggle line label orientation"
+            title={primary.orientation === "aligned" ? "Aligned with line" : "Horizontal label"}
+            onClick={() =>
+              onAddOrUpdateLabel({
+                ...primary,
+                orientation: primary.orientation === "aligned" ? "horizontal" : "aligned",
+              })
+            }
+            className="rounded bg-white/10 px-1.5 py-0.5 text-[9px] text-white/80 hover:bg-white/20"
+          >
+            {primary.orientation === "aligned" ? "Aligned" : "Horiz"}
+          </button>
+          <button
+            type="button"
+            aria-label="Add another line label"
+            title="Add another label on this line"
+            onClick={() =>
+              onAddOrUpdateLabel({
+                id: `lbl-${crypto.randomUUID().slice(0, 8)}`,
+                text: `Label ${labels.length + 1}`,
+                position: Math.min(0.85, 0.25 + labels.length * 0.25),
+                orientation: "horizontal",
+              })
+            }
+            className="rounded bg-white/10 px-1 py-0.5 text-[10px] text-white/80 hover:bg-white/20"
+          >
+            +
+          </button>
+          <button
+            type="button"
+            aria-label="Remove line label"
+            onClick={() => onRemoveLabel(primary.id)}
+            className="rounded p-0.5 text-white/50 hover:text-rose-400"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </div>
+      )}
+
+      <button
+        type="button"
+        aria-label="Insert shape on line"
+        title="Insert shape on line and split connector"
+        onClick={onInsertShape}
+        className="h-7 rounded-lg border border-line bg-ink-800 px-2 text-[10px] font-medium text-white/80 hover:bg-white/10 hover:text-white"
+      >
+        + Shape on line
+      </button>
+
+      {hasWaypoints && (
+        <button
+          type="button"
+          aria-label="Reset line path"
+          title="Reset custom bend points"
+          onClick={onResetWaypoints}
+          className="h-7 rounded-lg border border-line bg-ink-800 px-2 text-[10px] font-medium text-white/70 hover:bg-white/10 hover:text-white"
+        >
+          Reset path
+        </button>
+      )}
     </div>
   );
 }

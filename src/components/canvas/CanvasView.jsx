@@ -7,6 +7,7 @@ import { useStore } from "@/lib/store";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { useCanvasStore, selectReadOnly } from "@/lib/canvas-store";
 import { isCreateTool } from "@/lib/canvas/shapes";
+import { hiddenBoardIds } from "@/lib/canvas/culling";
 import { useBoardPolling } from "@/lib/canvas/use-board-polling";
 import { noteKeyboardCopy, pageTextSelected, useBoardClipboard } from "@/lib/canvas/use-board-clipboard";
 import { copySelectionStyle, pasteSelectionStyle } from "@/lib/canvas/sticky-actions";
@@ -331,7 +332,8 @@ export function CanvasView() {
       }
       if (e.key === "Tab") {
         const s = useCanvasStore.getState();
-        const nodes = s.history.present.nodes;
+        const hidden = hiddenBoardIds(s.history.present, s.focusedDiagramId).nodes;
+        const nodes = s.history.present.nodes.filter((n) => !hidden.has(n.id));
         if (!nodes.length) return;
         e.preventDefault();
         const curIdx = s.selection.length ? nodes.findIndex((n) => n.id === s.selection[0]) : -1;

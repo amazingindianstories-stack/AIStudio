@@ -19,7 +19,11 @@ import {
   nodeBounds,
   computeFrameMembership,
   resolveEndpoint,
+  isContainerNode,
+  connectorPointAt,
 } from "./canvas/geometry";
+import { getDiagramTheme, loadDiagramThemeId, saveDiagramThemeId } from "./canvas/diagram-themes";
+import { hiddenBoardIds } from "./canvas/culling";
 import {
   bringToFront as zBringToFront,
   sendToBack as zSendToBack,
@@ -99,6 +103,16 @@ function normalizeCrop(crop) {
   };
 }
 
+function applyDiagramLayerPatch(next, patch) {
+  if (patch.diagramLayerId === undefined) return next;
+  if (patch.diagramLayerId) {
+    next.diagramLayerId = patch.diagramLayerId;
+  } else {
+    delete next.diagramLayerId;
+  }
+  return next;
+}
+
 export function applyStylePatchToNode(n, patch) {
   const opacity = patch.opacity !== undefined ? clamp01(patch.opacity) : n.opacity;
   switch (n.type) {
@@ -113,26 +127,32 @@ export function applyStylePatchToNode(n, patch) {
         fill: patch.fill ?? n.fill,
         stroke: patch.stroke ?? n.stroke,
         strokeWidth: patch.strokeWidth ?? n.strokeWidth,
-        cornerRadius:
-          n.type === "rect" && patch.cornerRadius !== undefined
-            ? patch.cornerRadius
-            : n.cornerRadius,
       };
+      if (n.type === "rect" && patch.cornerRadius !== undefined) {
+        next.cornerRadius = Math.max(0, patch.cornerRadius);
+      }
+      if (patch.strokeStyle !== undefined) {
+        if (patch.strokeStyle === "dashed" || patch.strokeStyle === "dotted") {
+          next.strokeStyle = patch.strokeStyle;
+        } else {
+          delete next.strokeStyle;
+        }
+      }
       // Text styling inside a shape is only stored once it is set.
       if (patch.fontSize !== undefined) next.fontSize = patch.fontSize;
       if (patch.color !== undefined) next.color = patch.color;
       if (patch.align !== undefined) next.align = patch.align;
-      return withFontPatch(next, patch);
+      return applyDiagramLayerPatch(withFontPatch(next, patch), patch);
     }
     case "text":
-      return withFontPatch({
+      return applyDiagramLayerPatch(withFontPatch({
         ...n,
         opacity,
         text: patch.text ?? n.text,
         fontSize: patch.fontSize ?? n.fontSize,
         color: patch.color ?? n.color,
         align: patch.align ?? n.align,
-      }, patch);
+      }, patch), patch);
     case "sticky": {
       const next = withFontPatch({
         ...n,
@@ -145,20 +165,42 @@ export function applyStylePatchToNode(n, patch) {
       // Auto font size and a chosen size replace each other.
       if (patch.autoFit) next.autoFit = true;
       else if (patch.autoFit === false || patch.fontSize !== undefined) delete next.autoFit;
-      return next;
+      return applyDiagramLayerPatch(next, patch);
     }
     case "stack":
-      return { ...n, opacity, fill: patch.fill ?? n.fill };
+      return applyDiagramLayerPatch({ ...n, opacity, fill: patch.fill ?? n.fill }, patch);
     case "frame":
-      return {
+      return applyDiagramLayerPatch({
         ...n,
         opacity,
         fill: patch.fill ?? n.fill,
         stroke: patch.stroke ?? n.stroke,
         name: patch.name ?? n.name,
+      }, patch);
+    case "erd":
+    case "swimlane":
+    case "diagram": {
+      const next = {
+        ...n,
+        opacity,
+        fill: patch.fill ?? n.fill,
+        stroke: patch.stroke ?? n.stroke,
+        strokeWidth: patch.strokeWidth ?? n.strokeWidth,
+        name: patch.name ?? n.name,
       };
+      if (patch.strokeStyle !== undefined) {
+        if (patch.strokeStyle === "dashed" || patch.strokeStyle === "dotted") {
+          next.strokeStyle = patch.strokeStyle;
+        } else {
+          delete next.strokeStyle;
+        }
+      }
+      if (patch.headerFill !== undefined) next.headerFill = patch.headerFill;
+      if (patch.color !== undefined) next.color = patch.color;
+      return applyDiagramLayerPatch(next, patch);
+    }
     case "image":
-      return { ...n, opacity };
+      return applyDiagramLayerPatch({ ...n, opacity }, patch);
   }
 }
 
@@ -180,13 +222,38 @@ function withText(n, text, marks) {
 }
 
 function applyStylePatchToConnector(c, patch) {
-  return {
+  const next = {
     ...c,
     stroke: patch.stroke ?? c.stroke,
     strokeWidth: patch.strokeWidth ?? c.strokeWidth,
     kind: patch.kind ?? c.kind,
     opacity: patch.opacity !== undefined ? clamp01(patch.opacity) : c.opacity,
   };
+  if (patch.shape !== undefined) {
+    if (patch.shape === "straight" || patch.shape === "orthogonal") {
+      next.shape = patch.shape;
+    } else {
+      delete next.shape;
+    }
+  }
+  if (patch.strokeStyle !== undefined) {
+    if (patch.strokeStyle === "dashed" || patch.strokeStyle === "dotted") {
+      next.strokeStyle = patch.strokeStyle;
+    } else {
+      delete next.strokeStyle;
+    }
+  }
+  if (patch.startCap !== undefined) {
+    if (patch.startCap && patch.startCap !== "none") next.startCap = patch.startCap;
+    else delete next.startCap;
+  }
+  if (patch.endCap !== undefined) {
+    next.endCap = patch.endCap;
+    next.kind = patch.endCap === "none" ? "line" : "arrow";
+  } else if (patch.kind !== undefined && c.endCap !== undefined) {
+    next.endCap = patch.kind === "arrow" ? "arrow" : "none";
+  }
+  return next;
 }
 
 function shiftFreeEndpoint(ep, dx, dy) {
@@ -240,16 +307,16 @@ function buildClones(
   return { clones, idMap };
 }
 
-function pruneSelection(
-  present,
-  selection,
-  selectedConnectorIds
-) {
-  const nodeIds = new Set(present.nodes.map((n) => n.id));
-  const connIds = new Set(present.connectors.map((c) => c.id));
+/** The selection of `state` limited to the objects `present` has and the board shows. */
+function pruneSelection(present, { selection, selectedConnectorIds, focusedDiagramId }) {
+  const hidden = hiddenBoardIds(present, focusedDiagramId);
+  const nodeIds = new Set(present.nodes.filter((n) => !hidden.nodes.has(n.id)).map((n) => n.id));
+  const connIds = new Set(present.connectors.filter((c) => !hidden.connectors.has(c.id)).map((c) => c.id));
+  const keptNodes = selection.filter((id) => nodeIds.has(id));
+  const keptConnectors = selectedConnectorIds.filter((id) => connIds.has(id));
   return {
-    selection: selection.filter((id) => nodeIds.has(id)),
-    selectedConnectorIds: selectedConnectorIds.filter((id) => connIds.has(id)),
+    selection: keptNodes.length === selection.length ? selection : keptNodes,
+    selectedConnectorIds: keptConnectors.length === selectedConnectorIds.length ? selectedConnectorIds : keptConnectors,
   };
 }
 
@@ -299,7 +366,7 @@ function mutateGraph(
     scheduleGestureEnd(set, get);
   } else {
     finalizePendingGesture(set, get);
-    set({ history: commitHistory(get().history, nextPresent) });
+    set({ history: commitHistory(get().history, nextPresent), ...pruneSelection(nextPresent, get()) });
   }
   markDirty(set, get);
 }
@@ -338,7 +405,7 @@ function applyRemoteBoard(set, get, board, base = get().serverState) {
     history,
     serverVersion: version,
     serverState: adopted,
-    ...pruneSelection(history.present, state.selection, state.selectedConnectorIds),
+    ...pruneSelection(history.present, state),
   });
   return true;
 }
@@ -396,7 +463,7 @@ function reconcileCrop() {
   useCanvasStore.setState({
     history,
     serverState: server,
-    ...pruneSelection(history.present, state.selection, state.selectedConnectorIds),
+    ...pruneSelection(history.present, state),
   });
   const { present } = history;
   if (!sameValue(present.nodes, server.nodes) || !sameValue(present.connectors, server.connectors)) {
@@ -767,7 +834,8 @@ function writeNodeText(set, get, id, text, marks, contentHeight, from) {
   if (!node) return;
   if (from && from.text === text && sameValue(from.marks?.length ? from.marks : null, marks?.length ? marks : null)) return;
   const h = node.type === "text" && Number.isFinite(contentHeight) && contentHeight > node.h ? contentHeight : node.h;
-  if (node.type === "frame") {
+  const isNamedNode = node.type === "frame" || node.type === "erd" || node.type === "swimlane" || node.type === "diagram";
+  if (isNamedNode) {
     if (node.name === text) return;
   } else if ((node.text ?? "") === text && h === node.h && JSON.stringify(node.marks ?? null) === JSON.stringify(marks?.length ? marks : null)) {
     return;
@@ -776,7 +844,7 @@ function writeNodeText(set, get, id, text, marks, contentHeight, from) {
     ...present,
     nodes: present.nodes.map((n) => {
       if (n.id !== id) return n;
-      return n.type === "frame" ? { ...n, name: text } : { ...withText(n, text, marks), h };
+      return isNamedNode ? { ...n, name: text } : { ...withText(n, text, marks), h };
     }),
   }));
 }
@@ -798,6 +866,8 @@ export const useCanvasStore = create((set, get) => ({
   selection: [],
   selectedConnectorIds: [],
   tool: "select",
+  diagramThemeId: loadDiagramThemeId(),
+  focusedDiagramId: null,
   // Touch devices open a board pan-and-zoom only; the Edit button turns this on
   // for the session. Never true on a read-only board.
   touchEditMode: false,
@@ -836,6 +906,7 @@ export const useCanvasStore = create((set, get) => ({
       selection: [],
       selectedConnectorIds: [],
       tool: "select",
+      focusedDiagramId: null,
       touchEditMode: false,
       editingTextId: null,
       saveStatus: "idle",
@@ -913,8 +984,13 @@ export const useCanvasStore = create((set, get) => ({
     const cx = bounds.x + bounds.w / 2;
     const cy = bounds.y + bounds.h / 2;
     get().setViewport({ x: cx - viewportPx.w / 2 / zoom, y: cy - viewportPx.h / 2 / zoom, zoom });
-    if (node) get().setSelection([id]);
-    else set({ selection: [], selectedConnectorIds: [id], editingTextId: null });
+    const { selection, selectedConnectorIds } = pruneSelection(present, {
+      selection: node ? [id] : [],
+      selectedConnectorIds: node ? [] : [id],
+      focusedDiagramId: get().focusedDiagramId,
+    });
+    get().setSelection(selection);
+    set({ selectedConnectorIds });
     return true;
   },
 
@@ -1078,14 +1154,14 @@ export const useCanvasStore = create((set, get) => ({
       get,
       (present) => {
         let next = moveNodesBy(present, selection, dx, dy);
-        // Drag-end reparenting: a dragged (non-frame) node adopts whichever
-        // frame its center now sits inside, or is released if dragged out.
-        const frames = next.nodes.filter((n) => n.type === "frame");
+        // Drag-end reparenting: a dragged (non-container) node adopts whichever
+        // container (frame, swimlane, diagram) its center now sits inside, or is released if dragged out.
+        const containers = next.nodes.filter((n) => isContainerNode(n));
         next = {
           ...next,
           nodes: next.nodes.map((n) => {
-            if (n.type === "frame" || !selectedIds.has(n.id)) return n;
-            const newParentId = computeFrameMembership(n, frames);
+            if (isContainerNode(n) || !selectedIds.has(n.id)) return n;
+            const newParentId = computeFrameMembership(n, containers);
             return newParentId !== (n.parentId ?? null) ? { ...n, parentId: newParentId } : n;
           }),
         };
@@ -1226,20 +1302,26 @@ export const useCanvasStore = create((set, get) => ({
     mutateGraph(set, get, (present) => ({ ...present, nodes: zSendBackward(present.nodes, selection) }));
   },
 
-  addConnector: (from, to, kind) => {
+  addConnector: (from, to, kind, extra = {}) => {
+    const theme = getDiagramTheme(get().diagramThemeId);
     const connector = {
       id: crypto.randomUUID(),
       from,
       to,
       kind,
-      stroke: "rgba(255,255,255,0.7)",
-      strokeWidth: 2,
+      stroke: extra.stroke ?? theme.connectorStroke ?? "rgba(255,255,255,0.7)",
+      strokeWidth: extra.strokeWidth ?? 2,
+      ...(extra.shape && extra.shape !== "curved" ? { shape: extra.shape } : {}),
+      ...(extra.strokeStyle && extra.strokeStyle !== "solid" ? { strokeStyle: extra.strokeStyle } : {}),
+      ...(extra.startCap && extra.startCap !== "none" ? { startCap: extra.startCap } : {}),
+      ...(extra.endCap ? { endCap: extra.endCap } : {}),
     };
     mutateGraph(set, get, (present) => ({
       ...present,
       connectors: [...present.connectors, connector],
     }));
     set({ selection: [], selectedConnectorIds: [connector.id] });
+    return connector.id;
   },
 
   updateConnectorEndpoint: (connectorId, end, endpoint) => {
@@ -1256,6 +1338,302 @@ export const useCanvasStore = create((set, get) => ({
       }),
       { coalesce: true }
     );
+  },
+
+  updateConnectorWaypoints: (connectorId, waypoints, opts) => {
+    const exists = get().history.present.connectors.some((c) => c.id === connectorId);
+    if (!exists) return;
+    mutateGraph(
+      set,
+      get,
+      (present) => ({
+        ...present,
+        connectors: present.connectors.map((c) => {
+          if (c.id !== connectorId) return c;
+          const next = { ...c };
+          if (Array.isArray(waypoints) && waypoints.length > 0) {
+            next.waypoints = waypoints.map((pt) => ({ x: pt.x, y: pt.y }));
+          } else {
+            delete next.waypoints;
+          }
+          return next;
+        }),
+      }),
+      opts
+    );
+  },
+
+  upsertConnectorLabel: (connectorId, label, opts) => {
+    const exists = get().history.present.connectors.some((c) => c.id === connectorId);
+    if (!exists || !label) return;
+    mutateGraph(
+      set,
+      get,
+      (present) => ({
+        ...present,
+        connectors: present.connectors.map((c) => {
+          if (c.id !== connectorId) return c;
+          const existing = Array.isArray(c.labels) ? [...c.labels] : [];
+          const labelId = label.id || crypto.randomUUID();
+          const idx = existing.findIndex((item) => item.id === labelId);
+          const normalized = {
+            id: labelId,
+            text: typeof label.text === "string" ? label.text : (existing[idx]?.text ?? "Label"),
+            position: clamp01(typeof label.position === "number" ? label.position : (existing[idx]?.position ?? 0.5)),
+            orientation: (label.orientation ?? existing[idx]?.orientation) === "aligned" ? "aligned" : "horizontal",
+          };
+          if (idx >= 0) existing[idx] = normalized;
+          else existing.push(normalized);
+          return { ...c, labels: existing };
+        }),
+      }),
+      opts
+    );
+  },
+
+  removeConnectorLabel: (connectorId, labelId) => {
+    const exists = get().history.present.connectors.some((c) => c.id === connectorId);
+    if (!exists) return;
+    mutateGraph(set, get, (present) => ({
+      ...present,
+      connectors: present.connectors.map((c) => {
+        if (c.id !== connectorId || !Array.isArray(c.labels)) return c;
+        const filtered = c.labels.filter((item) => item.id !== labelId);
+        const next = { ...c };
+        if (filtered.length > 0) next.labels = filtered;
+        else delete next.labels;
+        return next;
+      }),
+    }));
+  },
+
+  insertShapeOnConnector: (connectorId, shapeKind = "rect") => {
+    if (selectReadOnly(get())) return null;
+    const { present } = get().history;
+    const connector = present.connectors.find((c) => c.id === connectorId);
+    if (!connector) return null;
+    const nodesById = Object.fromEntries(present.nodes.map((n) => [n.id, n]));
+    const pt = connectorPointAt(connector, nodesById, 0.5);
+    const theme = getDiagramTheme(get().diagramThemeId);
+    const w = 140;
+    const h = 80;
+    const newNode = {
+      id: crypto.randomUUID(),
+      type: shapeKind === "rect" || shapeKind === "ellipse" || shapeKind === "triangle" || shapeKind === "diamond" ? shapeKind : "shape",
+      ...(shapeKind !== "rect" && shapeKind !== "ellipse" && shapeKind !== "triangle" && shapeKind !== "diamond" ? { shape: shapeKind } : {}),
+      ...(shapeKind === "rect" ? { cornerRadius: 8 } : {}),
+      x: pt.x - w / 2,
+      y: pt.y - h / 2,
+      w,
+      h,
+      fill: theme.fill,
+      stroke: theme.stroke,
+      strokeWidth: 2,
+      color: theme.color,
+      text: "",
+      parentId: null,
+      groupId: null,
+    };
+    const c1 = {
+      ...unstamped(connector),
+      id: connector.id,
+      from: connector.from,
+      to: { nodeId: newNode.id, anchor: "auto" },
+    };
+    delete c1.waypoints;
+    const c2 = {
+      ...unstamped(connector),
+      id: crypto.randomUUID(),
+      from: { nodeId: newNode.id, anchor: "auto" },
+      to: connector.to,
+    };
+    delete c2.waypoints;
+    delete c2.labels;
+    mutateGraph(set, get, (curr) => ({
+      ...curr,
+      nodes: [...curr.nodes, newNode],
+      connectors: curr.connectors.flatMap((c) => (c.id === connectorId ? [c1, c2] : [c])),
+    }));
+    set({ selection: [newNode.id], selectedConnectorIds: [] });
+    return newNode.id;
+  },
+
+  quickCreateFromNode: (nodeId, anchor = "right") => {
+    if (selectReadOnly(get())) return null;
+    const { present } = get().history;
+    const source = present.nodes.find((n) => n.id === nodeId);
+    if (!source) return null;
+    const GAP = 80;
+    let x = source.x + source.w + GAP;
+    let y = source.y;
+    let oppositeAnchor = "left";
+    if (anchor === "left") {
+      x = source.x - source.w - GAP;
+      y = source.y;
+      oppositeAnchor = "right";
+    } else if (anchor === "bottom") {
+      x = source.x;
+      y = source.y + source.h + GAP;
+      oppositeAnchor = "top";
+    } else if (anchor === "top") {
+      x = source.x;
+      y = source.y - source.h - GAP;
+      oppositeAnchor = "bottom";
+    }
+    const newId = crypto.randomUUID();
+    const clone = {
+      ...unstamped(source),
+      id: newId,
+      x,
+      y,
+      groupId: null,
+    };
+    if ("text" in clone) clone.text = "";
+    delete clone.marks;
+    if (clone.type === "erd" && Array.isArray(clone.rows)) {
+      clone.name = `${source.name || "Entity"} Copy`;
+      clone.rows = clone.rows.map((r, i) => ({
+        ...r,
+        id: `row-${crypto.randomUUID().slice(0, 8)}-${i}`,
+      }));
+    }
+    const theme = getDiagramTheme(get().diagramThemeId);
+    const newConnector = {
+      id: crypto.randomUUID(),
+      from: { nodeId: source.id, anchor },
+      to: { nodeId: newId, anchor: oppositeAnchor },
+      kind: "arrow",
+      stroke: theme.connectorStroke ?? "rgba(255,255,255,0.7)",
+      strokeWidth: 2,
+    };
+    mutateGraph(set, get, (curr) => ({
+      ...curr,
+      nodes: [...curr.nodes, clone],
+      connectors: [...curr.connectors, newConnector],
+    }));
+    set({ selection: [newId], selectedConnectorIds: [] });
+    return newId;
+  },
+
+  updateNodeFields: (nodeId, patch, opts) => {
+    if (!nodeId || !patch) return;
+    const exists = get().history.present.nodes.some((n) => n.id === nodeId);
+    if (!exists) return;
+    mutateGraph(
+      set,
+      get,
+      (present) => ({
+        ...present,
+        nodes: present.nodes.map((n) => {
+          if (n.id !== nodeId) return n;
+          const next = { ...n, ...patch };
+          for (const [k, v] of Object.entries(patch)) {
+            if (v === undefined) delete next[k];
+          }
+          return next;
+        }),
+      }),
+      opts
+    );
+  },
+
+  updateCalloutTail: (nodeId, tail, opts) => {
+    get().updateNodeFields(nodeId, { tail: tail ?? undefined }, opts);
+  },
+
+  setDiagramTheme: (themeId) => {
+    saveDiagramThemeId(themeId);
+    set({ diagramThemeId: themeId });
+  },
+
+  applyThemeToSelection: (themeId) => {
+    const theme = getDiagramTheme(themeId ?? get().diagramThemeId);
+    const { selection, selectedConnectorIds } = get();
+    if (!selection.length && !selectedConnectorIds.length) return;
+    const selectedIds = new Set(selection);
+    const selectedConnSet = new Set(selectedConnectorIds);
+    mutateGraph(set, get, (present) => ({
+      ...present,
+      nodes: present.nodes.map((n) => {
+        if (!selectedIds.has(n.id)) return n;
+        if (n.type === "sticky") return { ...n, fill: theme.stickyFill ?? n.fill, color: theme.stickyColor ?? n.color };
+        if (n.type === "erd" || n.type === "swimlane" || n.type === "diagram") {
+          return { ...n, fill: theme.fill, stroke: theme.stroke, headerFill: theme.headerFill, color: theme.color };
+        }
+        return applyStylePatchToNode(n, { fill: theme.fill, stroke: theme.stroke, color: theme.color });
+      }),
+      connectors: present.connectors.map((c) =>
+        selectedConnSet.has(c.id) ? { ...c, stroke: theme.connectorStroke } : c
+      ),
+    }));
+  },
+
+  setFocusedDiagramId: (id) => {
+    if (!id) {
+      set({ focusedDiagramId: null });
+      return;
+    }
+    const node = get().history.present.nodes.find((n) => n.id === id && n.type === "diagram");
+    if (!node) {
+      set({ focusedDiagramId: null });
+      return;
+    }
+    set({ focusedDiagramId: id });
+    get().focusObject(id);
+  },
+
+  convertSelectionToDiagram: (name = "Diagram") => {
+    if (selectReadOnly(get())) return null;
+    const { selection, history } = get();
+    const selSet = new Set(selection);
+    const selectedNodes = history.present.nodes.filter((n) => selSet.has(n.id) && n.type !== "diagram");
+    if (!selectedNodes.length) return null;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const n of selectedNodes) {
+      minX = Math.min(minX, n.x);
+      minY = Math.min(minY, n.y);
+      maxX = Math.max(maxX, n.x + n.w);
+      maxY = Math.max(maxY, n.y + n.h);
+    }
+    const PAD_X = 48;
+    const PAD_TOP = 64;
+    const PAD_BOTTOM = 48;
+    const theme = getDiagramTheme(get().diagramThemeId);
+    const diagramNode = {
+      id: crypto.randomUUID(),
+      type: "diagram",
+      x: minX - PAD_X,
+      y: minY - PAD_TOP,
+      w: Math.max(320, maxX - minX + PAD_X * 2),
+      h: Math.max(240, maxY - minY + PAD_TOP + PAD_BOTTOM),
+      name,
+      fill: "rgba(15, 23, 42, 0.35)",
+      stroke: theme.stroke,
+      strokeWidth: 2,
+      layers: [
+        { id: "layer-main", name: "Core flow", visible: true },
+        { id: "layer-notes", name: "Details & notes", visible: true },
+      ],
+      containers: [],
+      parentId: null,
+      groupId: null,
+    };
+    mutateGraph(set, get, (present) => ({
+      ...present,
+      nodes: [
+        diagramNode,
+        ...present.nodes.map((n) =>
+          selSet.has(n.id) && n.type !== "diagram"
+            ? { ...n, parentId: diagramNode.id, diagramLayerId: n.diagramLayerId || "layer-main" }
+            : n
+        ),
+      ],
+    }));
+    set({ selection: [diagramNode.id], selectedConnectorIds: [] });
+    return diagramNode.id;
   },
 
   /** Copies the selected objects; returns whether anything was copied. */
@@ -1331,8 +1709,7 @@ export const useCanvasStore = create((set, get) => ({
     if (selectReadOnly(get())) return;
     finalizePendingGesture(set, get);
     const history = undoHistory(get().history);
-    const { selection, selectedConnectorIds } = get();
-    set({ history, ...pruneSelection(history.present, selection, selectedConnectorIds) });
+    set({ history, ...pruneSelection(history.present, get()) });
     markDirty(set, get);
   },
 
@@ -1340,8 +1717,7 @@ export const useCanvasStore = create((set, get) => ({
     if (selectReadOnly(get())) return;
     finalizePendingGesture(set, get);
     const history = redoHistory(get().history);
-    const { selection, selectedConnectorIds } = get();
-    set({ history, ...pruneSelection(history.present, selection, selectedConnectorIds) });
+    set({ history, ...pruneSelection(history.present, get()) });
     markDirty(set, get);
   },
 
@@ -1374,10 +1750,11 @@ export const useCanvasStore = create((set, get) => ({
 
   selectAll: () => {
     const { present } = get().history;
-    set({
+    set(pruneSelection(present, {
       selection: present.nodes.map((n) => n.id),
       selectedConnectorIds: present.connectors.map((c) => c.id),
-    });
+      focusedDiagramId: get().focusedDiagramId,
+    }));
   },
 
   clearSelection: () => set({ selection: [], selectedConnectorIds: [], editingTextId: null }),
