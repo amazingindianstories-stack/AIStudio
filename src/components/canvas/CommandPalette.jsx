@@ -6,7 +6,8 @@ import { Search } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/lib/canvas-store";
 import { useBoardUi } from "@/lib/canvas/board-ui";
-import { useBoardPrefs } from "@/lib/canvas/board-prefs";
+import { readRecentBoards, useBoardPrefs } from "@/lib/canvas/board-prefs";
+import { useStore } from "@/lib/store";
 import { comboLabels, isMacPlatform, shortcutEntries } from "@/lib/canvas/shortcuts";
 import { dockTools, toolLabel } from "@/lib/canvas/toolbar-tools";
 import { readingOrder } from "@/lib/canvas/keyboard-nav";
@@ -36,6 +37,8 @@ export function CommandPalette({ canEdit, boardId, runToolbarTool, openBoard, on
   const inputRef = useRef(null);
   const listRef = useRef(null);
   const prefs = useBoardPrefs();
+  const userId = useStore((s) => s.currentUser?.id);
+  const recentBoards = useMemo(() => readRecentBoards(userId), [userId]);
   const selection = useCanvasStore((s) => s.selection);
   const selectedConnectorIds = useCanvasStore((s) => s.selectedConnectorIds);
   const hasFrames = useCanvasStore((s) => s.history.present.nodes.some((n) => n.type === "frame"));
@@ -93,12 +96,12 @@ export function CommandPalette({ canEdit, boardId, runToolbarTool, openBoard, on
       add("Selection", "redo", "Redo", () => store().redo(), hintFor("edit.redo", mac));
     }
 
-    for (const board of prefs.recentBoards) {
+    for (const board of recentBoards) {
       if (board.id === boardId) continue;
       add("Recent boards", `board.${board.id}`, board.name || "Untitled board", () => openBoard({ project: board.projectId, board: board.id }));
     }
     return list;
-  }, [prefs, canEdit, hasFrames, selection, selectedConnectorIds, boardId, runToolbarTool, openBoard, mac]);
+  }, [prefs, recentBoards, canEdit, hasFrames, selection, selectedConnectorIds, boardId, runToolbarTool, openBoard, mac]);
 
   const shown = useMemo(() => (query ? commands.filter((c) => commandMatches(`${c.section} ${c.label}`, query)) : commands), [commands, query]);
   const at = shown.length ? Math.min(active, shown.length - 1) : -1;

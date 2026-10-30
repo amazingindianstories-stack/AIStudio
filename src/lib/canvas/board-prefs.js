@@ -7,9 +7,13 @@ import { create } from "zustand";
  * every board. Board-wide settings everyone shares live in the board data
  * instead. There is no server-side user preference store, so these stay in
  * localStorage and fall back to the defaults when it is unavailable.
+ *
+ * The toolbar and shortcut prefs belong to the device. Recent boards name
+ * boards, so they are kept per account and cleared on sign-out.
  */
 
 const KEY = "veevee-board-prefs-v1";
+const recentKey = (userId) => `${KEY}:${userId}`;
 
 export const DEFAULT_PREFS = {
   // Off: single-character shortcuts (V, N, 1-9, ?...) never fire, so screen
@@ -20,8 +24,6 @@ export const DEFAULT_PREFS = {
   toolbarOrder: [],
   // Creation tools unpinned from the toolbar (still reachable from its menu).
   toolbarHidden: [],
-  // Boards this person opened lately, newest first: {id, projectId, name}.
-  recentBoards: [],
 };
 
 export const MAX_RECENT_BOARDS = 8;
@@ -51,7 +53,6 @@ export function parsePrefs(raw) {
     singleKeyShortcuts: value.singleKeyShortcuts !== false,
     toolbarOrder: ids(value.toolbarOrder),
     toolbarHidden: ids(value.toolbarHidden),
-    recentBoards: recentBoards(value.recentBoards),
   };
 }
 
@@ -82,13 +83,6 @@ export const useBoardPrefs = create((set, get) => ({
     set({ ...readPrefs(), hydrated: true });
   },
 
-  /** Puts a just-opened board first in the recent boards. */
-  rememberBoard: (board) => {
-    get().hydrate();
-    const rest = get().recentBoards.filter((b) => b.id !== board.id);
-    get().setPrefs({ recentBoards: [board, ...rest] });
-  },
-
   setPrefs: (patch) => {
     // Never write over saved prefs that have not been read yet.
     get().hydrate();
@@ -103,6 +97,37 @@ function pick(state) {
     singleKeyShortcuts: state.singleKeyShortcuts,
     toolbarOrder: state.toolbarOrder,
     toolbarHidden: state.toolbarHidden,
-    recentBoards: state.recentBoards,
   };
+}
+
+/** The boards `userId` opened lately on this browser, newest first: {id, projectId, name}. */
+export function readRecentBoards(userId) {
+  if (!userId) return [];
+  try {
+    const raw = storage()?.getItem(recentKey(userId));
+    return raw ? recentBoards(JSON.parse(raw)) : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Puts a just-opened board first in `userId`'s recent boards. */
+export function rememberBoard(userId, board) {
+  if (!userId) return;
+  const next = recentBoards([board, ...readRecentBoards(userId).filter((b) => b.id !== board.id)]);
+  try {
+    storage()?.setItem(recentKey(userId), JSON.stringify(next));
+  } catch {
+    // Full or blocked storage: the board is just not listed as recent.
+  }
+}
+
+/** Forgets `userId`'s recent boards on this browser, for sign-out. */
+export function clearRecentBoards(userId) {
+  if (!userId) return;
+  try {
+    storage()?.removeItem(recentKey(userId));
+  } catch {
+    // Blocked storage never held any.
+  }
 }

@@ -920,8 +920,8 @@ export const useCanvasStore = create((set, get) => ({
 
   /**
    * Shows `vp` without recording it as the board's saved view, for a
-   * presentation stepping through frames. Putting the earlier view back the
-   * same way leaves nothing to save.
+   * presentation stepping through frames. A save made meanwhile can still
+   * carry it, so the presentation puts the earlier view back with setViewport.
    */
   showViewport: (vp) => {
     const { history } = get();

@@ -1,7 +1,7 @@
 "use client";
 
 import { fontFamilyCss } from "@/lib/canvas/fonts";
-import { MAX_SHAPE_TEXT, pointsToPath, shapeDetail, shapeRenderPoints } from "@/lib/canvas/shapes";
+import { MAX_SHAPE_TEXT, pointsToPath, shapeDetail, shapeRenderPoints, textColorOf } from "@/lib/canvas/shapes";
 import { RichTextContent, RichTextEditor } from "./RichText";
 
 const SHAPE_TEXT_CLASS = "max-h-full w-full overflow-hidden whitespace-pre-wrap break-words outline-none";
@@ -18,7 +18,7 @@ export function ShapeNode({ node, editing, readOnly, onCommit, onCancel }) {
   const { w, h, fill, stroke, strokeWidth, type } = node;
   const inset = strokeWidth / 2;
   const paint = { fill, stroke, strokeWidth, vectorEffect: "non-scaling-stroke" };
-  const textStyle = { fontSize: node.fontSize ?? 16, color: node.color ?? "#ffffff", fontFamily: fontFamilyCss(node.fontFamily),
+  const textStyle = { fontSize: node.fontSize ?? 16, color: textColorOf(node), fontFamily: fontFamilyCss(node.fontFamily),
     textAlign: node.align ?? "center" };
 
   return (

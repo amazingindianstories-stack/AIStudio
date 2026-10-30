@@ -29,7 +29,7 @@ export function stopPresentation() {
   const presenting = ui.presenting;
   if (!presenting) return;
   ui.setPresenting(null);
-  if (presenting.returnViewport) useCanvasStore.getState().showViewport(presenting.returnViewport);
+  if (presenting.returnViewport) useCanvasStore.getState().setViewport(presenting.returnViewport);
   if (typeof document !== "undefined" && document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
 }
 
