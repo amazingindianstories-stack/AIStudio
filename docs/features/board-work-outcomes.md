@@ -13,7 +13,7 @@ No feature is skipped or needs a product decision at this point.
 | Line | Feature | Size | Outcome | Evidence and remaining acceptance work |
 | --- | --- | --- | --- | --- |
 | 216 | Cards | M | Built | `WorkTools` implements structured fields, existing-user assignees, D and Cmd/Ctrl+Shift+Enter; `WorkNode` renders cards. Existing browser spec covers details and reload. Browser verified D creation, Ctrl+Shift+Enter details, all fields and reload persistence in iteration 3. Iteration 4 verified viewer/commenter inspection, disabled fields, blocked D creation, no browser board saves, and direct API save rejection (403), with unchanged persisted data. Iteration 5 verified Meta/Cmd details and editing through the widget selector after the card DOM node is culled, with API persistence and reload acceptance. Cards acceptance is complete. |
-| 217 | Columns | M | Pending verification | `work-records.layoutColumns` uses board data; `WorkTools` adds, renames, recolors and moves lanes upward. Iteration 6 browser verified adding, renaming, recoloring and reordering columns and swimlanes, selecting both for a child card, saved cell geometry/containment and reload persistence. Remaining: reorder with existing children, offscreen operations and read-only Columns controls. |
+| 217 | Columns | M | Pending verification | `work-records.layoutColumns` uses board data; `WorkTools` adds, renames, recolors and moves lanes upward. Iteration 6 browser verified adding, renaming, recoloring and reordering columns and swimlanes, selecting both for a child card, saved cell geometry/containment and reload persistence. Iteration 7 browser verified viewer/commenter inspection of widget title, every lane/swimlane name and color, disabled reordering/add/arrange controls and child placement selectors, no browser writes and API save rejection. Remaining: reorder with existing children and offscreen operations. |
 | 218 | Tables | XL | Pending verification | Django `WorkTable`/`WorkRecord` and `work_tables` own data; board widgets hold dataset IDs. `WorkDataPanel` has fields, card/sticky copying, CSV/Excel and owner-only editing. Verify schema migrations, indexed queries, roles and file round trips. |
 | 219 | Filter, sort, search, grouping | M | Pending completion | SQL search/filter/sort and SQL group counts exist. Panel never sends `groupBy`; rendering groups only its current page. Complete grouping across pagination and add browser coverage. |
 | 220 | Formulas and calculations | L | Pending verification | `work_formulas` uses an AST allowlist and SQL expressions; `work_tables.query` computes sums/averages across the query. Verify invalid expressions, nulls, numeric sorting and UI flows. |
@@ -150,3 +150,20 @@ The first browser attempt used system Python without Django; use
 A subsequent selector failure established that CSS-capitalized lane labels
 retain lowercase accessible names (`lane`, `swimlane`); corrected selectors
 then passed. Next increment: finish Columns acceptance before Tables.
+
+
+## Iteration 7: Columns read-only role acceptance
+
+Permanent browser coverage now inspects the Columns widget as both a viewer and
+a commenter. Every lane/swimlane name and color remains visible but disabled,
+as do the widget title, reorder controls, add-column/swimlane/card controls and
+Arrange cards. Child lane/swimlane selectors are also disabled. Existing API
+403, no browser-save and unchanged persisted-board checks cover both roles.
+No production change was required. Columns remains pending existing-child
+reordering and offscreen operations.
+
+Validation: permanent `Board work:` browser test passed (1 test, 36.3 seconds)
+through the shared heavy lock and disposable PostgreSQL harness with explicit
+mock providers. All 936 unit tests and lint passed; git diff checks passed.
+The harness exited successfully and cleaned up its owned servers, workers,
+browser and database. No commit, push or deployment.
