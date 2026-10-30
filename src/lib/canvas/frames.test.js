@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  FRAME_PRESETS, applyFramePreset, copyOrigin, enclosingFrameId, frameAroundSelection, incrementDates, pasteDestinations,
-  presetOfFrame, renameDuplicatedFrames, renestFrames,
+  FRAME_PRESETS, applyFramePreset, copyOrigin, enclosingFrameId, frameAroundSelection, holdsCopied, incrementDates, keepHiddenFrames,
+  pasteDestinations, presetOfFrame, renameDuplicatedFrames, renestFrames,
 } from "./frames.js";
 import { applyFrameMove, descendantIds, moveNodesBy } from "./geometry.js";
 
@@ -94,6 +94,18 @@ test("dates in a duplicated frame title move on a day", () => {
   assert.equal(incrementDates(""), "");
 });
 
+test("a date without a year counts in a common year and two overlapping dates move on once", () => {
+  assert.equal(incrementDates("Review Feb 28"), "Review Mar 1");
+  assert.equal(incrementDates("Review Feb 29"), "Review Mar 1");
+  assert.equal(incrementDates("28 Feb"), "1 Mar");
+  assert.equal(incrementDates("Feb 28, 2028"), "Feb 29, 2028");
+  assert.equal(incrementDates("Feb 29, 2026"), "Feb 29, 2026");
+  assert.equal(incrementDates("Apr 31"), "Apr 31");
+  assert.equal(incrementDates("2026-02-30"), "2026-02-30");
+  assert.equal(incrementDates("3 Mar 5"), "4 Mar 5");
+  assert.equal(incrementDates("Mar 3 and 2026-01-31"), "Mar 4 and 2026-02-01");
+});
+
 test("duplicated frames are renamed, other clones are not", () => {
   const sources = [frame("f", 0, 0, 10, 10, { name: "Day 2026-01-01" }), box("b", 0, 0)];
   const clones = [{ ...sources[0], id: "f2" }, { ...sources[1], id: "b2" }];
@@ -109,6 +121,26 @@ test("paste into frames keeps the offsets from the copied frame in every selecte
   const destinations = pasteDestinations([frame("d1", 1000, 0, 400, 400), frame("d2", 0, 2000, 400, 400)], origin);
   assert.deepEqual(destinations, [{ dx: 900, dy: -100, parentId: "d1" }, { dx: -100, dy: 1900, parentId: "d2" }]);
   assert.deepEqual(copyOrigin([box("x", 30, 40), box("y", 90, 90)], [box("x", 30, 40), box("y", 90, 90)]), { x: 30, y: 40 });
+});
+
+test("a frame holds what was copied when it, or anything inside it, was copied", () => {
+  const nodes = [frame("f", 0, 0, 400, 400), frame("g", 0, 0, 100, 100, { parentId: "f" }), box("a", 10, 10, 50, 50, { parentId: "g" }), frame("other", 900, 0, 100, 100)];
+  assert.equal(holdsCopied(nodes[0], [nodes[0]], nodes), true);
+  assert.equal(holdsCopied(nodes[0], [nodes[2]], nodes), true);
+  assert.equal(holdsCopied(nodes[3], [nodes[2]], nodes), false);
+});
+
+test("hidden frames keep their place, size and z-order through an edit by someone who cannot manage them", () => {
+  const secret = frame("secret", 100, 100, 300, 300, { hidden: true });
+  const before = { nodes: [box("a", 0, 0), secret, box("b", 0, 0)], connectors: [] };
+  const after = { nodes: [box("a", 5, 5), box("b", 0, 0, 50, 50, { parentId: "secret" }), frame("new", 0, 0, 10, 10, { hidden: true })], connectors: [] };
+  const kept = keepHiddenFrames(before, after);
+  assert.deepEqual(kept.nodes.map((n) => n.id), ["a", "secret", "b", "new"]);
+  assert.equal(kept.nodes[1], secret);
+  assert.equal(kept.nodes[2].parentId, null);
+  assert.equal("hidden" in kept.nodes[3], false);
+  const plain = { nodes: [box("a", 0, 0)], connectors: [] };
+  assert.equal(keepHiddenFrames(plain, plain), plain);
 });
 
 test("a synced copy node keeps the frame's size and points at the source", async () => {

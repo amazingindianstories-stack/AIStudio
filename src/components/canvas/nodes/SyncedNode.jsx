@@ -9,7 +9,8 @@ const noop = () => {};
 
 /**
  * A view-only copy of a frame on another board. The content is the source frame's, drawn scaled into this
- * node's box; clicking the badge opens the original board.
+ * node's box; clicking the badge opens the original board. A synced copy inside that content is drawn as a
+ * plain outline, so copies that hold each other never nest without end.
  */
 export function SyncedNode({ node }) {
   const result = useSyncedFrame(node.sourceBoardId, node.sourceNodeId);
@@ -34,26 +35,37 @@ export function SyncedNode({ node }) {
       {result.status === "error" && <p className="absolute inset-0 grid place-items-center text-xs text-white/50">Could not load the copy. Retrying.</p>}
       {frame && (
         <div className="pointer-events-none absolute left-0 top-0 origin-top-left" style={{ transform: `scale(${scale}) translate(${-frame.x}px, ${-frame.y}px)` }}>
-          {result.data.nodes.map((n) => (
-            <NodeView
-              key={n.id}
-              node={n}
-              tool="hand"
-              showRing={false}
-              showHandles={false}
-              readOnly
-              viewOnly
-              editingTextId={null}
-              dragging={false}
-              onPointerDownBody={noop}
-              onDoubleClickBody={noop}
-              onCommitText={noop}
-              onCancelEdit={noop}
-              onPointerDownHandle={noop}
-              onConnectorHandlePointerDown={noop}
-              hasChildren={result.data.nodes.some((c) => c.parentId === n.id)}
-            />
-          ))}
+          {result.data.nodes.map((n) =>
+            n.type === "synced" ? (
+              <div
+                key={n.id}
+                className="absolute flex items-center justify-center gap-1 rounded-sm border border-dashed border-brand/50 px-2 text-xs text-white/50"
+                style={{ left: n.x, top: n.y, width: n.w, height: n.h }}
+              >
+                <Link2 className="h-3 w-3 shrink-0" />
+                <span className="truncate">{n.name || "Synced copy"}</span>
+              </div>
+            ) : (
+              <NodeView
+                key={n.id}
+                node={n}
+                tool="hand"
+                showRing={false}
+                showHandles={false}
+                readOnly
+                viewOnly
+                editingTextId={null}
+                dragging={false}
+                onPointerDownBody={noop}
+                onDoubleClickBody={noop}
+                onCommitText={noop}
+                onCancelEdit={noop}
+                onPointerDownHandle={noop}
+                onConnectorHandlePointerDown={noop}
+                hasChildren={result.data.nodes.some((c) => c.parentId === n.id)}
+              />
+            )
+          )}
         </div>
       )}
     </div>

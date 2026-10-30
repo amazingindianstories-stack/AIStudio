@@ -97,7 +97,7 @@ def frame_copies(request, identifier, node_id):
         if row is None or not NODE_ID_PATTERN.fullmatch(node_id):
             return reply(request, {'error': 'Frame not found.'}, 404)
         marker = [{'type': 'synced', 'sourceBoardId': identifier, 'sourceNodeId': node_id}]
-        rows = list(CanvasBoard.objects.filter(data__nodes__contains=marker)
+        rows = list(CanvasBoard.objects.filter(access.readable(user)).filter(data__nodes__contains=marker)
                     .values('id', 'project_id', 'created_by', 'team_role', 'name', 'data')[:200])
         levels = access.roles_for(user, rows)
         copies = []
@@ -107,7 +107,7 @@ def frame_copies(request, identifier, node_id):
             nodes = validate_state(entry['data'])['nodes']
             for item in nodes:
                 if item.get('type') == 'synced' and item['sourceBoardId'] == identifier and item['sourceNodeId'] == node_id:
-                    copies.append({'boardId': str(entry['id']), 'boardName': entry['name'], 'nodeId': item['id']})
+                    copies.append({'boardId': str(entry['id']), 'boardName': entry['name'], 'projectId': str(entry['project_id']), 'nodeId': item['id']})
         return reply(request, {'copies': copies})
     except Exception:
         return failure()

@@ -10,11 +10,11 @@ const frame = (id, x, y, w, h, name = "Frame") => ({ id, type: "frame", x, y, w,
 
 const json = (body) => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
 
-async function board(t, nodes) {
+async function board(t, nodes, role = "edit") {
   t.mock.method(globalThis, "fetch", async (url, init = {}) =>
     (init.method || "GET") === "PUT"
       ? json({ ok: true, updatedAt: Date.now() })
-      : json({ id: "board-1", name: "Board", data: { ...emptyCanvasState(), nodes }, updatedAt: 1, role: "edit" }));
+      : json({ id: "board-1", name: "Board", data: { ...emptyCanvasState(), nodes }, updatedAt: 1, role }));
   useCanvasStore.getState().reset();
   await useCanvasStore.getState().loadBoard("board-1");
   t.after(() => useCanvasStore.getState().reset());
@@ -45,7 +45,7 @@ test("frameSelection does nothing without a selection", async (t) => {
 });
 
 test("a frame takes a size preset and can be hidden and revealed", async (t) => {
-  const store = await board(t, [frame("f", 10, 20, 300, 300)]);
+  const store = await board(t, [frame("f", 10, 20, 300, 300)], "co_owner");
   setFramePreset("f", { id: "slide-16-9", w: 1280, h: 720 });
   assert.deepEqual([get(store, "f").x, get(store, "f").y, get(store, "f").w, get(store, "f").h], [10, 20, 1280, 720]);
   setFrameHidden("f", true);
@@ -75,6 +75,46 @@ test("pasting a copy into a frame places it at the same offset and nests it", as
   const copy = store.getState().history.present.nodes.find((n) => n.type === "sticky" && n.id !== "s");
   assert.equal(copy.parentId, "f2");
   assert.deepEqual([copy.x, copy.y], [1050, 60]);
+});
+
+test("copying a selected frame and pasting it again makes an offset duplicate, not a copy nested in itself", async (t) => {
+  const store = await board(t, [frame("f", 0, 0, 400, 400), { ...frame("inner", 50, 50, 100, 100), parentId: "f" }]);
+  for (const ids of [["f"], ["inner"]]) {
+    store.getState().setSelection(ids);
+    store.getState().copy();
+    store.getState().paste();
+    const [id] = store.getState().selection;
+    const copy = get(store, id);
+    assert.notEqual(id, ids[0]);
+    assert.equal(copy.parentId, null);
+    assert.deepEqual([copy.x, copy.y], [get(store, ids[0]).x + 20, get(store, ids[0]).y + 20]);
+  }
+  store.getState().setSelection(["inner"]);
+  store.getState().copy();
+  store.getState().setSelection(["f"]);
+  store.getState().paste();
+  assert.equal(get(store, store.getState().selection[0]).parentId, null);
+});
+
+test("an editor cannot move, resize, delete, hide into or fill a hidden frame, as the server keeps it", async (t) => {
+  const store = await board(t, [frame("open", 0, 0, 200, 200), { ...frame("secret", 500, 0, 300, 300), hidden: true }, sticky("s", 900, 0)]);
+  const secret = get(store, "secret");
+  store.getState().setSelection(["secret"]);
+  store.getState().moveSelectionBy(40, 40);
+  setFramePreset("secret", { id: "square", w: 800, h: 800 });
+  store.getState().deleteSelected();
+  assert.equal(get(store, "secret"), secret);
+  assert.deepEqual(store.getState().history.present.nodes.map((n) => n.id), ["open", "secret", "s"]);
+  store.getState().editBoard((graph) => ({ ...graph, nodes: graph.nodes.map((n) => (n.id === "s" ? { ...n, parentId: "secret" } : n)) }));
+  assert.equal(get(store, "s").parentId, null);
+  setFrameHidden("open", true);
+  assert.equal("hidden" in get(store, "open"), false);
+  store.getState().setSelection(["secret"]);
+  store.getState().copy();
+  store.getState().paste();
+  const copy = get(store, store.getState().selection[0]);
+  assert.equal(copy.type, "frame");
+  assert.equal("hidden" in copy, false);
 });
 
 test("viewers cannot create frames", async (t) => {

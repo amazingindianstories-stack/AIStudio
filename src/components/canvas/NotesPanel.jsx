@@ -5,6 +5,8 @@ import { FileText, Bold, Italic, Link2, Pin, PinOff, Underline, X } from "lucide
 import { cn } from "@/lib/utils";
 import { useCanvasStore, selectReadOnly } from "@/lib/canvas-store";
 import { useNotesPanel } from "@/lib/notes-panel";
+import { displayName } from "@/lib/board-access";
+import { usePeople } from "@/lib/canvas/use-people";
 import { NOTE_TEMPLATES, resolveRefs, withNotesRefs, withNotesText, withoutNotesRef } from "@/lib/canvas/notes";
 import { MAX_NOTES_TEXT } from "@/lib/canvas/extras";
 import { toggleFormat } from "@/lib/canvas/rich-text-commands";
@@ -34,6 +36,7 @@ export function NotesPanel() {
   const open = useNotesPanel((s) => s.open);
   const pinned = useNotesPanel((s) => s.pinned);
   const hydrate = useNotesPanel((s) => s.hydrate);
+  const people = usePeople();
   const readOnly = useCanvasStore(selectReadOnly);
   const notes = useCanvasStore((s) => s.history.present.notes ?? null);
   const nodes = useCanvasStore((s) => s.history.present.nodes);
@@ -137,7 +140,7 @@ export function NotesPanel() {
       </div>
 
       <footer className="flex items-center gap-2 border-t border-line px-3 py-2 text-xs text-white/50">
-        <span className="min-w-0 flex-1 truncate">{notes?.updatedBy && stamp ? `Last edited by ${notes.updatedBy}, ${stamp}` : "Double-click the text to edit"}</span>
+        <span className="min-w-0 flex-1 truncate">{notes?.updatedBy && stamp ? `Last edited by ${displayName(people.get(notes.updatedBy), notes.updatedBy)}, ${stamp}` : "Double-click the text to edit"}</span>
         {!readOnly && (
           <>
             <button type="button" disabled={picked.length === 0} title="Link the selected objects" onClick={() => setNotes(withNotesRefs(notes, picked))} className="rounded bg-white/10 px-2 py-1 text-white/80 hover:bg-white/15 disabled:opacity-40">

@@ -4,6 +4,8 @@ Sources are the board's team access (what every signed-in teammate gets), the us
 membership, the user's project membership, board ownership (`created_by`) and the admin role.
 Every board route asks `role_for`/`roles_for` and compares levels; nothing else decides access.
 """
+from django.db.models import Q
+
 from apps.authentication.models import User
 from apps.projects.models import PROJECT_ROLES, Project, ProjectMember
 from .models import BOARD_ROLES, BoardMember, CanvasBoard
@@ -41,6 +43,16 @@ def roles_for(user, boards):
     board_roles = dict(BoardMember.objects.filter(user_id=user.id, board_id__in=ids).values_list('board_id', 'role')) if ids else {}
     project_roles = dict(ProjectMember.objects.filter(user_id=user.id, project_id__in=projects).values_list('project_id', 'role')) if projects else {}
     return {str(row['id']): _level(user, row, board_roles.get(row['id']), project_roles.get(row['project_id'])) for row in boards}
+
+
+def readable(user):
+    """A filter for the boards `user` may at least view, from the same sources `_level` counts; `roles_for`
+    still decides each board's level."""
+    if user.role == 'admin':
+        return Q()
+    return (Q(created_by=user.id) | Q(team_role__in=BOARD_LEVELS)
+            | Q(id__in=BoardMember.objects.filter(user_id=user.id, role__in=BOARD_LEVELS).values('board_id'))
+            | Q(project_id__in=ProjectMember.objects.filter(user_id=user.id, role__in=PROJECT_LEVELS).values('project_id')))
 
 
 def role_for(user, board):
