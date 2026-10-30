@@ -232,6 +232,7 @@ function LayerRow({ row, active, hidden, editable, canMoveUp, canMoveDown, hasSe
                   </MenuItem>
                   <div className="my-1 h-px bg-white/10" />
                   <MenuItem
+                    disabled={row.locked}
                     onClick={() => {
                       close();
                       onDelete(row);
@@ -248,6 +249,16 @@ function LayerRow({ row, active, hidden, editable, canMoveUp, canMoveDown, hasSe
       )}
     </li>
   );
+}
+
+function deleteDescription(row) {
+  if (!row?.count) return "The layer is empty. You can undo this.";
+  const deleted = row.count - row.lockedCount;
+  const parts = [];
+  if (deleted) parts.push(`This also deletes the ${objectCountLabel(deleted).toLowerCase()} on it.`);
+  if (row.lockedCount) parts.push(`${objectCountLabel(row.lockedCount)} locked ${row.lockedCount === 1 ? "moves" : "move"} to the default layer.`);
+  parts.push("You can undo this.");
+  return parts.join(" ");
 }
 
 function layerCount(state) {
@@ -332,11 +343,7 @@ export function LayersPanel({ onClose }) {
       <ConfirmActionDialog
         open={deleting != null}
         title={`Delete ${deleting?.name ?? "layer"}?`}
-        description={
-          deleting?.count
-            ? `This also deletes the ${objectCountLabel(deleting.count).toLowerCase()} on it. You can undo this.`
-            : "The layer is empty. You can undo this."
-        }
+        description={deleteDescription(deleting)}
         confirmLabel="Delete layer"
         destructive
         onCancel={() => setDeleting(null)}

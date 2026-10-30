@@ -2,12 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useCanvasStore } from "@/lib/canvas-store";
-import { marqueeHits, nodeBounds, screenToWorld } from "@/lib/canvas/geometry";
+import { marqueeHits, nodeBounds, screenToWorld, unionBounds } from "@/lib/canvas/geometry";
 import { lockedIdSet } from "@/lib/canvas/locks";
 import { GRID_SIZE, useViewPrefs } from "@/lib/canvas/view-prefs";
 import { lassoHits, preciseMarqueeHits } from "@/lib/canvas/selection-geometry";
 import { SNAP_DISTANCE_PX, gridResizeDelta, snapCandidates, snapMove } from "@/lib/canvas/snapping";
-import { applyDeltas, arrangeUnits, autoLayoutBaseGap, autoLayoutDeltas, dominantAxis, unionBounds } from "@/lib/canvas/arrange";
+import { applyDeltas, arrangeUnits, autoLayoutBaseGap, autoLayoutDeltas, dominantAxis } from "@/lib/canvas/arrange";
 
 /** How long a mouse press holds still on the background to start a precise marquee. */
 export const PRECISE_HOLD_MS = 500;

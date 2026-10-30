@@ -46,6 +46,22 @@ export function nodeBounds(n) {
   return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
 }
 
+/** The union box {x, y, w, h} of `boxes`, or null when there are none. */
+export function unionBounds(boxes) {
+  let x0 = Infinity;
+  let y0 = Infinity;
+  let x1 = -Infinity;
+  let y1 = -Infinity;
+  for (const b of boxes) {
+    x0 = Math.min(x0, b.x);
+    y0 = Math.min(y0, b.y);
+    x1 = Math.max(x1, b.x + b.w);
+    y1 = Math.max(y1, b.y + b.h);
+  }
+  if (!Number.isFinite(x0)) return null;
+  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+}
+
 // ---- rotation ----
 // `rotation` is degrees clockwise about the node's center (0 < r < 360,
 // omitted when 0). A node's "local frame" is its unrotated box in world

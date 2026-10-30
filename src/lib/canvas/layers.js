@@ -7,6 +7,7 @@
  * Locking a layer is board-wide (board data); hiding one is each person's own
  * view (see layer-visibility.js).
  */
+import { withoutLock } from "./locks";
 import { MAX_LAYER_NAME, MAX_LAYERS } from "./serialization";
 
 export const DEFAULT_LAYER_NAME = "Default layer";
@@ -74,18 +75,29 @@ export function moveLayer(state, id, index) {
   return withLayers(state, next);
 }
 
-/** Removes a layer with everything on it, and the connectors attached to those objects. */
+/**
+ * Removes a layer with everything on it, and the connectors attached to those
+ * objects. A locked layer is not deleted, and locked objects on the layer
+ * move to the default layer instead of being deleted.
+ */
 export function deleteLayer(state, id) {
   const layers = layersOf(state);
-  if (!layers.some((layer) => layer.id === id)) return state;
-  const removed = new Set(state.nodes.filter((n) => n.layerId === id).map((n) => n.id));
+  const layer = layers.find((l) => l.id === id);
+  if (!layer || layer.locked) return state;
+  const removed = new Set(state.nodes.filter((n) => n.layerId === id && !n.locked).map((n) => n.id));
   const attached = (end) => "nodeId" in end && removed.has(end.nodeId);
-  const next = withLayers(state, layers.filter((layer) => layer.id !== id));
+  const next = withLayers(state, layers.filter((l) => l.id !== id));
   return {
     ...next,
     nodes: state.nodes
       .filter((n) => !removed.has(n.id))
-      .map((n) => (n.parentId && removed.has(n.parentId) ? { ...n, parentId: null } : n)),
+      .map((n) => {
+        if (n.layerId !== id && !(n.parentId && removed.has(n.parentId))) return n;
+        const kept = { ...n };
+        if (kept.layerId === id) delete kept.layerId;
+        if (kept.parentId && removed.has(kept.parentId)) kept.parentId = null;
+        return kept;
+      }),
     connectors: state.connectors.filter((c) => !attached(c.from) && !attached(c.to)),
   };
 }
@@ -125,7 +137,7 @@ export function duplicateLayer(state, id, layerId, newId) {
   const clones = [];
   for (const n of state.nodes) {
     if (!idMap.has(n.id)) continue;
-    const clone = { ...n, id: idMap.get(n.id), layerId };
+    const clone = { ...withoutLock(n), id: idMap.get(n.id), layerId };
     for (const key of ["createdBy", "createdAt", "updatedBy", "updatedAt"]) delete clone[key];
     if (clone.parentId) clone.parentId = idMap.get(clone.parentId) ?? clone.parentId;
     if (clone.groupId) clone.groupId = `${clone.groupId}:${layerId}`;

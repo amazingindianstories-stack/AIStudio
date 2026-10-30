@@ -91,19 +91,54 @@ function attachedTo(endpoint, nodeIds) {
   return !("nodeId" in endpoint) || nodeIds.has(endpoint.nodeId);
 }
 
-/**
- * Board settings merge per setting (background, start view, layers): the
- * side that changed one wins, and local wins when both did.
- */
-function mergeSettings(base, local, remote) {
+function pick(base, local, remote) {
+  return sameValue(base, local) ? remote : local;
+}
+
+/** Merges an object per key: the side that changed a key wins, and local wins when both did. */
+function mergeFields(base, local, remote, mergeKey = (key, b, l, r) => pick(b, l, r)) {
   if (sameValue(local ?? null, remote ?? null)) return local;
   const keys = new Set([...Object.keys(base ?? {}), ...Object.keys(local ?? {}), ...Object.keys(remote ?? {})]);
   const merged = {};
   for (const key of keys) {
-    const value = sameValue(base?.[key], local?.[key]) ? remote?.[key] : local?.[key];
+    const value = mergeKey(key, base?.[key], local?.[key], remote?.[key]);
     if (value !== undefined) merged[key] = value;
   }
   return Object.keys(merged).length ? merged : undefined;
+}
+
+/**
+ * Layers merge per layer id: a layer added on either side stays, one deleted
+ * on one side goes only when the other side left it unchanged, and a layer
+ * both sides changed merges per field (name, lock). The order follows the
+ * same rule as the z-order.
+ */
+function mergeLayers(base = [], local = [], remote = []) {
+  if (sameValue(local, remote)) return local.length ? local : undefined;
+  const b = byId(base);
+  const l = byId(local);
+  const r = byId(remote);
+  const chosen = new Map();
+  for (const id of new Set([...b.keys(), ...l.keys(), ...r.keys()])) {
+    const layer =
+      l.has(id) && r.has(id)
+        ? mergeFields(b.get(id), l.get(id), r.get(id))
+        : b.has(id) && sameValue(b.get(id), l.get(id) ?? r.get(id))
+          ? undefined
+          : (l.get(id) ?? r.get(id));
+    if (layer !== undefined) chosen.set(id, layer);
+  }
+  const ids = (layers) => layers.map((layer) => layer.id);
+  const merged = mergeOrder(ids(base), ids(local), ids(remote), chosen).map((id) => chosen.get(id));
+  return merged.length ? merged : undefined;
+}
+
+/**
+ * Board settings merge per setting (background, start view): the side that
+ * changed one wins, and local wins when both did. Layers merge per layer.
+ */
+function mergeSettings(base, local, remote) {
+  return mergeFields(base, local, remote, (key, b, l, r) => (key === "layers" ? mergeLayers(b, l, r) : pick(b, l, r)));
 }
 
 /** Merges `remote` into `local` relative to `base`; see the module comment for the rules. */

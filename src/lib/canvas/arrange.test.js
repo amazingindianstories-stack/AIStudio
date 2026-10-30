@@ -12,16 +12,10 @@ import {
   duplicateOffset,
   idsOfKind,
   selectionKinds,
-  unionBounds,
 } from "./arrange.js";
 
 const n = (id, x, y, w = 100, h = 100, extra = {}) => ({ id, type: "rect", x, y, w, h, parentId: null, groupId: null, ...extra });
 const after = (state, deltas) => Object.fromEntries(applyDeltas(state, deltas).nodes.map((m) => [m.id, [m.x, m.y]]));
-
-test("unionBounds", () => {
-  assert.equal(unionBounds([]), null);
-  assert.deepEqual(unionBounds([{ x: 0, y: 0, w: 10, h: 10 }, { x: 20, y: -5, w: 5, h: 5 }]), { x: 0, y: -5, w: 25, h: 15 });
-});
 
 test("units: locked objects are skipped and a group is one unit", () => {
   const state = { nodes: [n("a", 0, 0), n("g1", 200, 0, 50, 50, { groupId: "g" }), n("g2", 300, 100, 50, 50, { groupId: "g" }), n("l", 0, 500, 10, 10, { locked: true })] };

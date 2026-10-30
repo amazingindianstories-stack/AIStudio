@@ -5,7 +5,7 @@
  * step, saves through the per-object save path, and does nothing for people
  * who cannot edit. Locked objects are skipped (see arrange.js).
  */
-import { nodeBounds } from "./geometry";
+import { nodeBounds, unionBounds } from "./geometry";
 import { lockedIdSet } from "./locks";
 import {
   alignDeltas,
@@ -15,7 +15,6 @@ import {
   distributeDeltas,
   duplicateOffset,
   idsOfKind,
-  unionBounds,
 } from "./arrange";
 
 export function arrangeActions(set, get, { mutateGraph, buildClones, readOnly }) {

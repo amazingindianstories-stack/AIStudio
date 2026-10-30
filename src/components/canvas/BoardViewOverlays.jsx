@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/lib/canvas-store";
-import { nodeBounds, worldToScreen } from "@/lib/canvas/geometry";
+import { nodeBounds, unionBounds, worldToScreen } from "@/lib/canvas/geometry";
 import { layeredView } from "@/lib/canvas/layers";
 import { useViewPrefs } from "@/lib/canvas/view-prefs";
 import {
@@ -14,7 +14,6 @@ import {
   scrollThumb,
   selectionSize,
   toMinimap,
-  unionBounds,
   viewRect,
 } from "@/lib/canvas/board-view";
 

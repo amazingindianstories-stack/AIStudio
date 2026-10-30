@@ -9,21 +9,25 @@ export function layerRows(state) {
   const layers = layersOf(state);
   const known = new Set(layers.map((layer) => layer.id));
   const counts = new Map();
+  const lockedCounts = new Map();
   let onDefault = 0;
   for (const n of state?.nodes ?? []) {
-    if (n.layerId && known.has(n.layerId)) counts.set(n.layerId, (counts.get(n.layerId) ?? 0) + 1);
-    else onDefault += 1;
+    if (n.layerId && known.has(n.layerId)) {
+      counts.set(n.layerId, (counts.get(n.layerId) ?? 0) + 1);
+      if (n.locked) lockedCounts.set(n.layerId, (lockedCounts.get(n.layerId) ?? 0) + 1);
+    } else onDefault += 1;
   }
   const rows = layers.map((layer, index) => ({
     id: layer.id,
     name: layer.name,
     locked: layer.locked === true,
     count: counts.get(layer.id) ?? 0,
+    lockedCount: lockedCounts.get(layer.id) ?? 0,
     index,
     isDefault: false,
   }));
   rows.reverse();
-  rows.push({ id: null, name: DEFAULT_LAYER_NAME, locked: false, count: onDefault, index: -1, isDefault: true });
+  rows.push({ id: null, name: DEFAULT_LAYER_NAME, locked: false, count: onDefault, lockedCount: 0, index: -1, isDefault: true });
   return rows;
 }
 

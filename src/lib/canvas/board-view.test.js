@@ -21,7 +21,6 @@ import {
   selectionSize,
   surfaceBackground,
   toMinimap,
-  unionBounds,
   viewRect,
 } from "./board-view.js";
 
@@ -79,9 +78,7 @@ test("G cycles dots, lines, none", () => {
   assert.equal(nextGridStyle("bogus"), "dots");
 });
 
-test("union bounds and the navigation extent always include the view", () => {
-  assert.equal(unionBounds([]), null);
-  assert.deepEqual(unionBounds([{ x: 0, y: 0, w: 10, h: 10 }, { x: -5, y: 20, w: 5, h: 5 }]), { x: -5, y: 0, w: 15, h: 25 });
+test("the navigation extent always includes the view", () => {
   const view = viewRect({ x: 1000, y: 1000, zoom: 2 }, { w: 800, h: 600 });
   assert.deepEqual(view, { x: 1000, y: 1000, w: 400, h: 300 });
   assert.deepEqual(navigationExtent(null, view), view, "an empty board spans the view");

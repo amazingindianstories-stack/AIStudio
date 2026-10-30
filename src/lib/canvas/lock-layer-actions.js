@@ -100,8 +100,10 @@ export function lockLayerActions(set, get, { mutateGraph }) {
     moveLayer: (id, index) => edit((present) => moveLayerIn(present, id, index)),
     setLayerLocked: (id, locked) => edit((present) => setLayerLockedIn(present, id, locked)),
     deleteLayer: (id) => {
+      const before = get().history.present;
       edit((present) => deleteLayerFrom(present, id));
       const present = get().history.present;
+      if (present === before) return;
       const ids = new Set(present.nodes.map((n) => n.id));
       set((s) => ({
         activeLayerId: s.activeLayerId === id ? null : s.activeLayerId,
