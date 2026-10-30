@@ -64,8 +64,9 @@ the creation tools (`src/lib/canvas/toolbar-tools.js`).
 Keyboard navigation (`src/lib/canvas/keyboard-nav.js`) reads the board like a page: B focuses the
 board, Tab walks one level in reading order (wrapping inside a frame; at the top level, Tab past
 the last object or Shift+Tab before the first leaves the board for the next page control), Enter
-goes into a frame or group (or edits text), Escape comes back out, and Cmd/Ctrl+arrows jump to the nearest object in that direction. Screen
-readers hear what is selected through a polite live region.
+goes into a frame or group (or edits text), Escape comes back out, and Cmd/Ctrl+arrows jump to the
+nearest object in that direction. Screen readers hear what is selected through a polite live
+region.
 
 ## Accessibility tools
 
@@ -80,8 +81,8 @@ frames in presentation order with what each holds, then the objects outside fram
 Cmd/Ctrl+C copies the selection for pasting on a board and also puts its text on the system
 clipboard, one object per line in reading order; a selected frame contributes its title, then its
 contents. Cmd/Ctrl+Shift+C copies the selection as a PNG drawn from the board data on the board
-background, at up to twice its size and at most 4096 x 4096 pixels' worth of area; images are read through the same-origin media stream
-(`src/lib/canvas/clipboard-export.js`).
+background, at up to twice its size and at most 4096 x 4096 pixels' worth of area; images are read
+through the same-origin media stream (`src/lib/canvas/clipboard-export.js`).
 
 ## Object links and recent boards
 
