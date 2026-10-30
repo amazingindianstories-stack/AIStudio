@@ -289,6 +289,52 @@ test("a locked layer is not deleted, and deleting a layer keeps its locked objec
   assert.deepEqual(nodeOf("held"), heldOnDefault, "a protected object keeps its lock on the default layer");
 });
 
+test("no new object or copy starts out on a locked layer", async (t) => {
+  const layers = [{ id: "L", name: "Open" }, { id: "K", name: "Kept", locked: true }];
+  await open(t, graph([rect("k", { layerId: "K" }), rect("free")], { layers }));
+  const added = (before) => store.getState().history.present.nodes.slice(before);
+  const count = () => store.getState().history.present.nodes.length;
+  store.getState().setActiveLayer("K");
+  store.getState().addNode(rect("new"));
+  store.getState().addImageBatch([{ url: "/i.png", naturalW: 20, naturalH: 10 }], { x: 0, y: 0 });
+  assert.deepEqual(added(2).map((n) => n.layerId), [undefined, undefined], "a layer locked while active takes no new objects");
+
+  store.getState().duplicateLayer("K");
+  assert.equal(store.getState().activeLayerId, "K", "a locked layer's copy does not become active");
+
+  store.getState().setActiveLayer("L");
+  const copies = [];
+  for (const make of [
+    () => store.getState().duplicateSelected(),
+    () => store.getState().duplicateSelectionInPlace(),
+    () => store.getState().duplicateSelectionToward("right"),
+    () => {
+      store.getState().copy();
+      store.getState().paste();
+    },
+  ]) {
+    store.getState().setSelection(["k"]);
+    const before = count();
+    make();
+    copies.push(...added(before));
+  }
+  assert.equal(copies.length, 4);
+  for (const copy of copies) {
+    assert.equal(copy.layerId, "L", "a copy of an object on a locked layer goes on the active layer");
+    assert.equal(isLocked(store.getState().history.present, copy), false);
+  }
+
+  store.getState().setActiveLayer(null);
+  store.getState().setSelection(["k", "free"]);
+  const before = count();
+  store.getState().duplicateSelected();
+  assert.deepEqual(added(before).map((n) => n.layerId), [undefined, undefined], "with no open active layer it goes on the default layer");
+  store.getState().setActiveLayer("L");
+  store.getState().setSelection(["free"]);
+  store.getState().duplicateSelected();
+  assert.equal(added(before + 2)[0].layerId, undefined, "a copy from an unlocked layer stays on its layer");
+});
+
 test("duplicating a layer copies its objects without their locks", async (t) => {
   const layers = [{ id: "L", name: "Top" }];
   const held = rect("held", { layerId: "L", locked: true, lockedBy: OTHER, lockProtected: true });

@@ -50,10 +50,17 @@ export function unlockedIds(state, ids) {
   return ids.filter((id) => !locked.has(id));
 }
 
+/**
+ * Whether this node is under a protected lock `actorId`, at board `role`, may
+ * not lift: the server puts back any change they make to it, votes included.
+ */
+export function heldByOther(node, actorId, role) {
+  return node?.lockProtected === true && !canShareRole(role) && (actorId == null || node.lockedBy !== String(actorId));
+}
+
 /** Whether `actorId`, at board `role`, may lift this node's own lock (a layer lock is lifted on the layer). */
 export function canUnlock(node, actorId, role) {
-  if (!node?.locked) return false;
-  return node.lockProtected !== true || canShareRole(role) || (actorId != null && node.lockedBy === String(actorId));
+  return Boolean(node?.locked) && !heldByOther(node, actorId, role);
 }
 
 /**

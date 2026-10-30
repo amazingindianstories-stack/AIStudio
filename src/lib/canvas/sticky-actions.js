@@ -3,7 +3,8 @@
  * the store (never the DOM, so culled objects count) and changes it through
  * `editBoard`, one undo step per action, saved with the board's per-object
  * saves. Read-only boards change nothing: `editBoard` ignores them, and no
- * action changes a locked object (./locks.js).
+ * action changes a locked object (./locks.js), except votes, which only a
+ * protected lock someone else holds turns away, as the server does.
  */
 import { selectReadOnly, applyStylePatchToNode, useCanvasStore } from "@/lib/canvas-store";
 import { useStore } from "@/lib/store";
@@ -23,7 +24,7 @@ import { addTag, deleteTag, nodesWithTag, setTagOn, updateTag } from "./tags";
 import { canSwitchType, rememberStyle, styleKind, styleOf, switchType, withLastStyle } from "./styles";
 import { nodeBounds } from "./geometry";
 import { hiddenNodeIds } from "./layers";
-import { isLocked, lockedIdSet } from "./locks";
+import { heldByOther, lockedIdSet } from "./locks";
 
 function canvas() {
   return useCanvasStore.getState();
@@ -47,6 +48,11 @@ function selectedNodes(state = canvas()) {
 function changeableNodes(state = canvas()) {
   const locked = lockedIdSet(state.history.present);
   return selectedNodes(state).filter((node) => !locked.has(node.id));
+}
+
+/** Whether this person's vote on `node` would stand: the server turns away votes only under a protected lock they may not lift. */
+function votable(node, userId) {
+  return node?.type === "sticky" && !heldByOther(node, userId, canvas().boardRole);
 }
 
 function select(ids) {
@@ -100,7 +106,7 @@ export function takeStickyFromStack(stack) {
 /** Adds or takes back this person's `emoji` vote on sticky `id`. */
 export function toggleStickyReaction(id, emoji) {
   const userId = currentUserId();
-  if (!userId || !editable() || isLocked(canvas().history.present, id)) return;
+  if (!userId || !editable() || !votable(canvas().history.present.nodes.find((node) => node.id === id), userId)) return;
   canvas().editBoard((present) => ({
     ...present,
     nodes: present.nodes.map((node) => (node.id === id && node.type === "sticky" ? toggleReaction(node, emoji, userId) : node)),
@@ -111,11 +117,11 @@ export function toggleStickyReaction(id, emoji) {
 export function setReactionOnSelection(emoji, on) {
   const userId = currentUserId();
   if (!userId || !editable()) return;
-  const ids = new Set(changeableNodes().map((node) => node.id));
+  const ids = new Set(selectedNodes().filter((node) => votable(node, userId)).map((node) => node.id));
   canvas().editBoard((present) => ({
     ...present,
     nodes: present.nodes.map((node) => {
-      if (!ids.has(node.id) || node.type !== "sticky") return node;
+      if (!ids.has(node.id)) return node;
       const mine = Boolean(node.reactions?.[emoji]?.includes(userId));
       return mine === on ? node : toggleReaction(node, emoji, userId);
     }),

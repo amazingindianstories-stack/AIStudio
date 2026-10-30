@@ -19,7 +19,7 @@ import {
 import { Dropdown, MenuItem } from "@/components/Dropdown";
 import { ConfirmActionDialog } from "@/components/ConfirmActionDialog";
 import { useCanvasStore, selectReadOnly } from "@/lib/canvas-store";
-import { MAX_LAYERS, MAX_LAYER_NAME } from "@/lib/canvas/layers";
+import { MAX_LAYERS, MAX_LAYER_NAME, openLayer } from "@/lib/canvas/layers";
 import { dropIndex, layerRows, objectCountLabel } from "@/lib/canvas/layer-panel";
 
 const ICON_BUTTON =
@@ -277,7 +277,7 @@ function layerCount(state) {
 export function LayersPanel({ onClose }) {
   const present = useCanvasStore((s) => s.history.present);
   const hiddenLayerIds = useCanvasStore((s) => s.hiddenLayerIds);
-  const activeLayerId = useCanvasStore((s) => s.activeLayerId);
+  const activeLayerId = useCanvasStore((s) => openLayer(s.history.present, s.activeLayerId));
   const hasSelection = useCanvasStore((s) => s.selection.length > 0);
   const editable = useCanvasStore((s) => !selectReadOnly(s));
   const rows = useMemo(() => layerRows(present), [present]);
@@ -331,7 +331,7 @@ export function LayersPanel({ onClose }) {
           <LayerRow
             key={row.id ?? "default"}
             row={row}
-            active={(activeLayerId ?? null) === row.id}
+            active={activeLayerId === row.id}
             hidden={row.id != null && hidden.has(row.id)}
             editable={editable}
             canMoveUp={row.index >= 0 && row.index < custom - 1}

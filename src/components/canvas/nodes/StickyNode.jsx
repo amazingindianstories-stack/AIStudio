@@ -4,6 +4,7 @@ import { useRef } from "react";
 import { useCanvasStore } from "@/lib/canvas-store";
 import { displayName } from "@/lib/board-access";
 import { fontFamilyCss } from "@/lib/canvas/fonts";
+import { heldByOther } from "@/lib/canvas/locks";
 import { stickyAuthor } from "@/lib/canvas/stickies";
 import { tagsOf } from "@/lib/canvas/tags";
 import { toggleStickyReaction, currentUserId } from "@/lib/canvas/sticky-actions";
@@ -16,7 +17,7 @@ import { autoFitMax, useAutoFit } from "./use-auto-fit";
 const TEXT_CLASS = "h-full w-full overflow-hidden whitespace-pre-wrap break-words outline-none";
 
 /** FigJam-signature colored note block with editable text, its tags, votes and (when shown) author. */
-export function StickyNode({ node, editing, readOnly, locked = false, onCommit, onCancel }) {
+export function StickyNode({ node, editing, readOnly, onCommit, onCancel }) {
   const fitRef = useRef(null);
   const autoFit = Boolean(node.autoFit);
   const refit = useAutoFit(fitRef, autoFit, autoFitMax(node.w, node.h),
@@ -50,15 +51,16 @@ export function StickyNode({ node, editing, readOnly, locked = false, onCommit, 
           </div>
         )}
       </div>
-      {hasFooter && <StickyFooter node={node} readOnly={readOnly} locked={locked} />}
+      {hasFooter && <StickyFooter node={node} readOnly={readOnly} />}
     </div>
   );
 }
 
-function StickyFooter({ node, readOnly, locked }) {
-  const fixed = readOnly || locked;
+function StickyFooter({ node, readOnly }) {
   const tags = useCanvasStore((s) => s.history.present.tags);
+  const role = useCanvasStore((s) => s.boardRole);
   const userId = useStore((s) => s.currentUser?.id ?? null);
+  const fixed = readOnly || heldByOther(node, userId, role);
   const shown = tagsOf(node, tags ?? []);
   const votes = Object.entries(node.reactions ?? {});
   return (

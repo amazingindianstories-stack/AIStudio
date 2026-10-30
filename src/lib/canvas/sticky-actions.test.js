@@ -183,12 +183,9 @@ test("no sticky, tag or style action changes a locked sticky or one on a locked 
     sticky("styled", { fill: "#3a3a3a" })], { settings: { layers } });
   const fixed = () => nodes().filter((n) => n.id === "held" || n.id === "onLayer");
   const before = fixed();
-  toggleStickyReaction("held", "👍");
-  toggleStickyReaction("onLayer", "👍");
   store.getState().setSelection(["styled"]);
   copySelectionStyle();
   store.getState().setSelection(["a", "b", "held", "onLayer"]);
-  setReactionOnSelection("🔥", true);
   setSelectedStickyShape("rectangle");
   setSelectedStickyFlag("showAuthor", true);
   const tag = addTagToSelection("Idea");
@@ -197,13 +194,32 @@ test("no sticky, tag or style action changes a locked sticky or one on a locked 
   pasteSelectionStyle();
   clusterSelection("color", (id) => id);
   const changed = () => nodes().filter((n) => n.id === "a" || n.id === "b");
-  assert.deepEqual(changed().map((n) => [n.fill, n.tagIds, n.reactions, n.showAuthor]),
-    [["#3a3a3a", [tag.id], { "🔥": ["u1"] }, true], ["#3a3a3a", [tag.id], { "🔥": ["u1"] }, true]], "the unlocked ones change");
+  assert.deepEqual(changed().map((n) => [n.fill, n.tagIds, n.showAuthor]),
+    [["#3a3a3a", [tag.id], true], ["#3a3a3a", [tag.id], true]], "the unlocked ones change");
   store.getState().setSelection(["a", "b", "held", "onLayer"]);
   switchSelectionType("text");
   assert.deepEqual(changed().map((n) => n.type), ["text", "text"]);
   assert.deepEqual(fixed(), before);
 });
+
+for (const [role, theirs] of [["edit", undefined], ["co_owner", { "👍": ["u1"] }], ["owner", { "👍": ["u1"] }]]) {
+  test(`votes go on locked stickies, and on a protected lock someone else holds only for a co-owner or owner (role ${role})`, async (t) => {
+    const store = await openBoard(t, role, [sticky("plain", { locked: true }), sticky("onLayer", { layerId: "L" }),
+      sticky("mine", { locked: true, lockedBy: "u1", lockProtected: true }), sticky("theirs", { locked: true, lockedBy: "u2", lockProtected: true })],
+    { settings: { layers: [{ id: "L", name: "Top", locked: true }] } });
+    for (const id of ["plain", "onLayer", "mine", "theirs"]) toggleStickyReaction(id, "👍");
+    const votes = (emoji) => nodes().map((n) => n.reactions?.[emoji] && { [emoji]: n.reactions[emoji] });
+    const want = (vote, other) => [vote, vote, vote, other];
+    assert.deepEqual(votes("👍"), want({ "👍": ["u1"] }, theirs));
+    store.getState().setSelection(nodes().map((n) => n.id));
+    setReactionOnSelection("🔥", true);
+    assert.deepEqual(votes("🔥"), want({ "🔥": ["u1"] }, theirs && { "🔥": ["u1"] }));
+    setReactionOnSelection("🔥", false);
+    assert.deepEqual(votes("🔥"), want(undefined, undefined));
+    assert.deepEqual(nodes().map((n) => [n.locked, n.layerId, n.text]),
+      [[true, undefined, "plain"], [undefined, "L", "onLayer"], [true, undefined, "mine"], [true, undefined, "theirs"]], "the locks stay");
+  });
+}
 
 test("new stickies and stacks land on the layer this person picked", async (t) => {
   const store = await openBoard(t, "edit", [], { settings: { layers: [{ id: "L", name: "Top" }] } });

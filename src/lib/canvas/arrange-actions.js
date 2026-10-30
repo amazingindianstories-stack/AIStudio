@@ -48,7 +48,7 @@ export function arrangeActions(set, get, { mutateGraph, buildClones, readOnly })
       const { dx, dy } = duplicateOffset(bounds, direction);
       let idMap = new Map();
       mutateGraph(set, get, (present) => {
-        const built = buildClones(present.nodes, selection, dx, dy, true);
+        const built = buildClones(present.nodes, selection, dx, dy, true, present, get().activeLayerId);
         idMap = built.idMap;
         return { ...present, nodes: [...present.nodes, ...built.clones] };
       });

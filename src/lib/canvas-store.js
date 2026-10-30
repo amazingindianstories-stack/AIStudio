@@ -10,7 +10,7 @@ import { mergeCanvasStates, rebaseHistory, sameValue } from "./canvas/merge";
 import { boardFromChanges, buildBoardPatch } from "./canvas/patch";
 import { unstamped, withServerStamps } from "./canvas/stamps";
 import { isLocked, unlockedIds, withoutLock } from "./canvas/locks";
-import { connectorShown, hiddenNodeIds, placeOnLayer } from "./canvas/layers";
+import { connectorShown, hiddenNodeIds, placeCopies, placeOnLayer } from "./canvas/layers";
 import { lockLayerActions } from "./canvas/lock-layer-actions";
 import { arrangeActions } from "./canvas/arrange-actions";
 import { transformActions } from "./canvas/transform-actions";
@@ -292,7 +292,9 @@ function buildClones(
   ids,
   dx,
   dy,
-  keepUnmappedParent
+  keepUnmappedParent,
+  present,
+  layerId
 ) {
   const idSet = new Set(ids);
   const idMap = new Map();
@@ -316,7 +318,7 @@ function buildClones(
     // A copy is a new object: the server stamps it on save.
     clones.push({ ...withoutLock(unstamped(n)), id: newId, x: n.x + dx, y: n.y + dy, parentId: newParentId, groupId: newGroupId });
   }
-  return { clones, idMap };
+  return { clones: placeCopies(present, clones, layerId), idMap };
 }
 
 /** The selection of `state` limited to the objects `present` has and the board shows. */
@@ -1272,7 +1274,7 @@ export const useCanvasStore = create((set, get) => ({
     if (!selection.length) return;
     let idMap = new Map();
     mutateGraph(set, get, (present) => {
-      const built = buildClones(present.nodes, selection, 20, 20, true);
+      const built = buildClones(present.nodes, selection, 20, 20, true, present, get().activeLayerId);
       idMap = built.idMap;
       return { ...present, nodes: [...present.nodes, ...built.clones] };
     });
@@ -1290,7 +1292,7 @@ export const useCanvasStore = create((set, get) => ({
       (present) => {
         // Zero offset — duplicates land exactly on the originals (alt-drag
         // then drags the duplicates; the originals are left untouched).
-        const built = buildClones(present.nodes, selection, 0, 0, true);
+        const built = buildClones(present.nodes, selection, 0, 0, true, present, get().activeLayerId);
         idMap = built.idMap;
         return { ...present, nodes: [...present.nodes, ...built.clones] };
       },
@@ -1736,7 +1738,9 @@ export const useCanvasStore = create((set, get) => ({
         clipboard.map((n) => n.id),
         20,
         20,
-        false
+        false,
+        present,
+        get().activeLayerId
       );
       idMap = built.idMap;
       return { ...present, nodes: [...present.nodes, ...built.clones] };

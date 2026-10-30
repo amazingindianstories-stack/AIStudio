@@ -197,10 +197,33 @@ export function connectorShown(c, hiddenNodes) {
   return shown(c.from) && shown(c.to);
 }
 
-/** New `nodes` placed on layer `layerId` when the board has it (a node that names its layer keeps it). */
+/** `layerId` when the board has it unlocked, so new objects may go on it, else null (the default layer). */
+export function openLayer(state, layerId) {
+  return layerId && layersOf(state).some((layer) => layer.id === layerId && !layer.locked) ? layerId : null;
+}
+
+/** New `nodes` placed on layer `layerId` when the board has it unlocked (a node that names its layer keeps it). */
 export function placeOnLayer(state, nodes, layerId) {
-  if (!layerId || !layersOf(state).some((layer) => layer.id === layerId)) return nodes;
-  return nodes.map((n) => (n.layerId ? n : { ...n, layerId }));
+  const target = openLayer(state, layerId);
+  if (!target) return nodes;
+  return nodes.map((n) => (n.layerId ? n : { ...n, layerId: target }));
+}
+
+/**
+ * Copies of objects on a locked layer placed like new objects instead (layer
+ * `layerId` when open, else the default layer), so no copy starts out locked.
+ */
+export function placeCopies(state, nodes, layerId) {
+  const locked = new Set(layersOf(state).filter((layer) => layer.locked).map((layer) => layer.id));
+  if (!locked.size) return nodes;
+  const target = openLayer(state, layerId);
+  return nodes.map((n) => {
+    if (!n.layerId || !locked.has(n.layerId)) return n;
+    const next = { ...n };
+    if (target) next.layerId = target;
+    else delete next.layerId;
+    return next;
+  });
 }
 
 /** The ids of nodes on layers this person hides. */

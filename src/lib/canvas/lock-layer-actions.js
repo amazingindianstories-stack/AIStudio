@@ -121,7 +121,7 @@ export function lockLayerActions(set, get, { mutateGraph }) {
     duplicateLayer: (id) => {
       const layerId = crypto.randomUUID();
       edit((present) => duplicateLayerIn(present, id, layerId, () => crypto.randomUUID()));
-      if (layersOf(get().history.present).some((l) => l.id === layerId)) set({ activeLayerId: layerId });
+      if (layersOf(get().history.present).some((l) => l.id === layerId && !l.locked)) set({ activeLayerId: layerId });
     },
     /** Puts the selected objects that are not locked on a layer (null: the default layer). */
     moveSelectionToLayer: (layerId) => {
