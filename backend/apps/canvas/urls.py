@@ -3,7 +3,13 @@ from django.urls import path
 from .views import (board_access, board_activity, board_ai_job, board_ai_jobs, board_ai_quote, board_detail, board_metadata_reads,
                     board_upload, board_version, board_changes, shape_packs, shape_pack_detail)
 
+from .work_views import tables, table_detail, table_history, notification_inbox
+
 urlpatterns = [
+    path("api/board-notifications", notification_inbox),
+    path("api/canvas-boards/<str:identifier>/work", tables),
+    path("api/canvas-boards/<str:identifier>/work/<str:table_id>", table_detail),
+    path("api/canvas-boards/<str:identifier>/work/<str:table_id>/history", table_history),
     path('api/canvas-boards', board_metadata_reads),
     path('api/canvas-boards/<str:identifier>/upload', board_upload),
     path('api/canvas-boards/<str:identifier>/access', board_access),
