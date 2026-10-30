@@ -10,7 +10,7 @@ rebuilds the whole graph from the stored one and saves it exactly as a full save
 normalization, stamps, History and the size limit all see the resulting whole board.
 
 The board's tag table (`tags`) is small and travels whole: a patch carries it only when it changed, and an
-empty list removes it.
+empty list removes it. The visual notes (`notes`) travel the same way, null removing them.
 
 Each version a save makes records the ids of the objects it changed in any way (moves included), and whether
 the tag table changed, so an open board that is a few versions behind can fetch only those (`changes_since`).
@@ -77,6 +77,11 @@ def apply_patch(stored, patch):
         if not isinstance(patch['tags'], list):
             raise PatchError()
         graph['tags'] = patch['tags']
+    # The visual notes travel whole; null removes them.
+    if 'notes' in patch:
+        if patch['notes'] is not None and not isinstance(patch['notes'], dict):
+            raise PatchError()
+        graph['notes'] = patch['notes']
     return graph
 
 
@@ -85,6 +90,8 @@ def changed_ids(old_graph, new_graph):
     between two normalized graphs, with `tags: True` when the tag table differs, or None when there are more
     than MAX_RECORDED_IDS."""
     result = {'tags': True} if old_graph.get('tags', []) != new_graph.get('tags', []) else {}
+    if old_graph.get('notes') != new_graph.get('notes'):
+        result['notes'] = True
     for kind in KINDS:
         old = {item['id']: item for item in old_graph[kind]}
         new = {item['id']: item for item in new_graph[kind]}
@@ -118,6 +125,8 @@ def changes_since(graph, records):
         result[kind] = {'upsert': items, 'delete': sorted(ids - present)}
     if any(record.get('tags') for record in records):
         result['tags'] = graph.get('tags', [])
+    if any(record.get('notes') for record in records):
+        result['notes'] = graph.get('notes')
     result['nodeOrderHash'] = order_hash(item['id'] for item in graph['nodes'])
     result['connectorOrderHash'] = order_hash(item['id'] for item in graph['connectors'])
     return result

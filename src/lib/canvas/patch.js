@@ -57,6 +57,7 @@ export function buildBoardPatch(base, next) {
     if (!sameOrder(order, kept.concat(added))) patch[ORDER_KEYS[kind]] = order;
   }
   if (!sameValue(base.tags ?? [], next.tags ?? [])) patch.tags = next.tags ?? [];
+  if (!sameValue(base.notes ?? null, next.notes ?? null)) patch.notes = next.notes ?? null;
   return patch;
 }
 
@@ -99,6 +100,11 @@ export function applyBoardPatch(base, patch) {
   if (Array.isArray(patch.tags)) {
     if (patch.tags.length) graph.tags = patch.tags;
     else delete graph.tags;
+  }
+  // The visual notes travel whole; null removes them.
+  if ("notes" in patch) {
+    if (patch.notes) graph.notes = patch.notes;
+    else delete graph.notes;
   }
   return graph;
 }
