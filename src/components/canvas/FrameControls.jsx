@@ -33,7 +33,8 @@ export function FrameControls() {
   if (!frame || readOnly) return null;
   const preset = presetOfFrame(frame);
   const left = (frame.x - viewport.x) * viewport.zoom;
-  const top = (frame.y - viewport.y) * viewport.zoom - 64;
+  // Below the frame: the style bar of the selection sits above it.
+  const top = (frame.y + frame.h - viewport.y) * viewport.zoom + 12;
   const manage = canHideFrames(role);
 
   const showCopies = async () => {
