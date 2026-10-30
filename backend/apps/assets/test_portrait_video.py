@@ -12,7 +12,7 @@ from apps.media import posters
 from apps.media.uploads import UploadError
 
 from . import managed_pool, video_limits
-from .models import ManagedPortraitAsset, ReferenceFaceScan
+from .models import ManagedPortraitAsset, ManagedPortraitPool, ReferenceFaceScan
 from .test_portrait_gallery import GalleryBase, landscape, session_fixtures
 
 GOOD = {'containers': ['mov', 'mp4', 'm4a'], 'width': 1080, 'height': 1920, 'seconds': 8.0, 'fps': 30.0}
@@ -244,3 +244,21 @@ class VideoGalleryTests(GalleryBase):
         self.assertEqual(row.status, 'failed')
         self.assertIn('not charged', row.error)
         self.assertEqual(self.fake.seedance_payloads, [])
+
+    def test_a_quota_error_while_registering_an_expired_clip_again_waits_and_a_later_pass_sends_it(self):
+        with probe():
+            ref = self.upload(MP4, mime='video/mp4', purpose='portrait')
+            self.client.post('/api/portraits', {'uploads': [{**ref, 'name': 'Clip'}]}, content_type='application/json')
+            self.settle_uploads()
+        managed_pool._mark_deleting(ManagedPortraitAsset.objects.get(), 'expired', 1)
+        managed_pool.janitor()
+        self.fake.asset_capacity = 0
+        job = self.enqueue_with_clip(ref)
+        self.assertNotIn(self.run_worker(job, passes=3).status, ('succeeded', 'failed'))
+        self.assertEqual(ManagedPortraitAsset.objects.filter(origin='reference', status='FAILED', error_code='QuotaSharedPoolExceeded').count(), 1)
+        self.fake.asset_capacity = None
+        ManagedPortraitPool.objects.update(last_quota_error_at=managed_pool.now_ms() - managed_pool.QUOTA_BACKOFF_MS - 1)
+        self.assertEqual(self.run_worker(job).status, 'succeeded')
+        fresh = ManagedPortraitAsset.objects.get(status='ACTIVE')
+        self.assertEqual([part['video_url']['url'] for part in self.fake.seedance_payloads[-1]['content'] if part.get('type') == 'video_url'],
+                         ['asset://' + fresh.byteplus_asset_id])
