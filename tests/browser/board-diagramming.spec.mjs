@@ -31,14 +31,22 @@ const isSave = (response) => /\/api\/canvas-boards\/[^/]+$/.test(new URL(respons
 
 let boardPath = '';
 
-/** Waits for the autosave that follows `action`, then returns the stored board. */
-async function saved(page, action) {
+/**
+ * Waits for an autosave after `action`, then returns the stored board once `ready` holds. The
+ * first save response can belong to an earlier edit still in flight, so poll the stored board.
+ */
+async function saved(page, action, ready) {
   const response = page.waitForResponse(isSave);
   await action();
   const result = await response;
   expect(result.status()).toBe(200);
   boardPath = new URL(result.url()).pathname;
-  return (await page.context().request.get(boardPath)).json();
+  let board;
+  await expect.poll(async () => {
+    board = await (await page.context().request.get(boardPath)).json();
+    return ready(board);
+  }, { timeout: 15000 }).toBe(true);
+  return board;
 }
 
 /** Screen point (page coordinates) of a world point on a board at zoom 1. */
@@ -84,14 +92,16 @@ test('Board diagramming: shape packs, structured objects, connection lines, quic
   await place(page, canvas, 'database', 'Database', { x: 300, y: 200 });
   await place(page, canvas, 'terminator', 'Terminator', { x: 620, y: 200 });
   await info.attach('shapes-panel-search', { body: await page.screenshot(), contentType: 'image/png' });
-  let board = await saved(page, () => place(page, canvas, 'kubernetes pod', 'Kubernetes Pod', { x: 940, y: 200 }));
+  let board = await saved(page, () => place(page, canvas, 'kubernetes pod', 'Kubernetes Pod', { x: 940, y: 200 }),
+    (b) => b.data.nodes.length === 3);
   expect(board.data.nodes.map((node) => node.shape)).toEqual(['fc-database', 'fc-terminator', 'k8s-pod']);
   const [database, terminator] = board.data.nodes;
 
   // Structured objects: an ER entity, a swimlane pool and a diagram container.
   await place(page, canvas, 'entity', 'ER entity table', { x: 300, y: 420 });
   await place(page, canvas, 'pool', 'Swimlane pool (horizontal)', { x: 700, y: 420 });
-  board = await saved(page, () => place(page, canvas, 'container', 'Diagram container', { x: 300, y: 780 }));
+  board = await saved(page, () => place(page, canvas, 'container', 'Diagram container', { x: 300, y: 780 }),
+    (b) => b.data.nodes.length === 6);
   expect(board.data.nodes.slice(3).map((node) => node.type)).toEqual(['erd', 'swimlane', 'diagram']);
   expect(board.data.nodes[4].lanes.length).toBeGreaterThanOrEqual(2);
   await expect(page.locator(`[data-node-id="${board.data.nodes[3].id}"]`)).toBeVisible();
@@ -108,7 +118,7 @@ test('Board diagramming: shape packs, structured objects, connection lines, quic
     await page.mouse.down();
     await page.mouse.move(termCenter.x, termCenter.y, { steps: 10 });
     await page.mouse.up();
-  });
+  }, (b) => b.data.connectors.length === 1);
   expect(board.data.connectors).toHaveLength(1);
   const connectorId = board.data.connectors[0].id;
 
@@ -120,13 +130,15 @@ test('Board diagramming: shape packs, structured objects, connection lines, quic
   await page.getByLabel('Start cap').selectOption('diamond');
   await page.getByRole('button', { name: 'Add line label' }).click();
   await page.getByLabel('Line label text').fill('yes');
-  board = await saved(page, () => page.getByRole('button', { name: 'Dashed border' }).click());
+  board = await saved(page, () => page.getByRole('button', { name: 'Dashed border' }).click(),
+    (b) => b.data.connectors[0]?.strokeStyle === 'dashed');
   const line = board.data.connectors[0];
   expect([line.shape, line.endCap, line.startCap, line.strokeStyle, line.labels[0].text]).toEqual(['orthogonal', 'open-arrow', 'diamond', 'dashed', 'yes']);
   await info.attach('connection-line', { body: await page.screenshot(), contentType: 'image/png' });
 
   // Insert a shape on the line: one connector becomes two with a node between.
-  board = await saved(page, () => page.getByRole('button', { name: 'Insert shape on line' }).click());
+  board = await saved(page, () => page.getByRole('button', { name: 'Insert shape on line' }).click(),
+    (b) => b.data.connectors.length === 2);
   expect(board.data.connectors).toHaveLength(2);
   expect(board.data.nodes).toHaveLength(7);
   const [first, second] = board.data.connectors;
@@ -138,7 +150,7 @@ test('Board diagramming: shape packs, structured objects, connection lines, quic
   const podCenter = await screenPoint(canvas, board, { x: pod.x + pod.w / 2, y: pod.y + pod.h / 2 });
   await page.mouse.click(podCenter.x, podCenter.y);
   const quick = page.locator(`[data-node-id="${pod.id}"]`).getByRole('button', { name: 'Draw connector from bottom edge' });
-  board = await saved(page, () => quick.click());
+  board = await saved(page, () => quick.click(), (b) => b.data.connectors.length === 3);
   expect(board.data.nodes).toHaveLength(8);
   expect(board.data.connectors).toHaveLength(3);
   expect(board.data.connectors[2].from.nodeId).toBe(pod.id);

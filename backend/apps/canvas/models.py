@@ -129,4 +129,3 @@ class CustomShapePack(models.Model):
         db_table = 'canvas_custom_shape_packs'
         indexes = [models.Index(fields=['created_by'], name='canvas_shape_packs_creator_idx'),
                    models.Index(fields=['shared', 'updated_at'], name='canvas_shape_packs_shared_idx')]
-

@@ -90,6 +90,8 @@ so a board of thousands of objects keeps a few hundred elements in the DOM. The 
 text-edited or cropped, a connector's hover target, selected connectors and both endpoint nodes of every
 mounted connector are always mounted. Culling only decides what is mounted: select all, marquee, align,
 copy, export, fit, minimap, search, jump-to-object and AI placement read the whole graph from the store.
+What a diagram hides (`hiddenBoardIds`: a hidden diagram layer, or everything outside a diagram in Focus
+mode) is never mounted, even when selected (`../features/board-diagramming.md`).
 
 ## Local drafts (`src/lib/canvas-pending-draft.js`)
 

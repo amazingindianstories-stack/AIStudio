@@ -3,14 +3,15 @@
 Shape packs, structured diagram objects and connection-line features on canvas boards. Everything
 is an optional field in board format v1, so older boards load and save unchanged. The twin
 serializers, `src/lib/canvas/serialization.js` and `backend/apps/canvas/serialization.py`, coerce
-the fields the same way; `backend/apps/canvas/fixtures/format_v1_shapes_rich_text.json` holds the
-shared cases. It builds on the generic path shapes in [board-shapes-rich-text.md](board-shapes-rich-text.md).
+the fields the same way. It builds on the generic path shapes in
+[board-shapes-rich-text.md](board-shapes-rich-text.md).
 
 ## Shape packs
 
 The shapes panel (**S**) lists packs: flowchart, UML, BPMN, data flow, value stream, electrical,
 process, callouts, diagram, and a cloud and Kubernetes architecture pack. Packs load lazily
-(a dynamic import in `src/lib/canvas/shapes.js`), so a board that uses no pack ships none of them.
+(a dynamic import in `src/lib/canvas/shapes.js`) when the panel opens or a board holds a shape kind
+not yet known, so a board that uses no pack ships none of them.
 A placed pack shape is an ordinary `type: "shape"` node with a `shape` kind. Which packs are
 enabled and the diagram theme are personal preferences in `localStorage`, not board data.
 
@@ -24,11 +25,12 @@ redistribution. Users who need them upload the vendor SVGs as a custom shape pac
 
 ### Custom shape packs
 
-A user uploads SVG files into a named pack kept per user in the `CustomShapePack` table
-(`/api/canvas-shape-packs`, `/api/canvas-shape-packs/<id>`; only the owner or an admin may edit or
-delete). `backend/apps/canvas/svg_sanitize.py` sanitizes on upload: a 50 KB cap, at most 100
-shapes per pack, an allowlist of tags and attributes, and no scripts, event handlers, external
-references, `<use>`, `<image>`, `<style>` or `data:` URLs. A placed custom shape is a `shape`
+A user uploads SVG files into a named pack in the `CustomShapePack` table
+(`/api/canvas-shape-packs`, `/api/canvas-shape-packs/<id>`). A pack is listed to its owner, or to
+everyone once its owner shares it with the organisation, and only the owner or an admin may edit,
+reorder or delete it. `backend/apps/canvas/svg_sanitize.py` sanitizes on upload: a 50 KB cap, at
+most 100 shapes per pack, an allowlist of tags and attributes, and no scripts, event handlers,
+external references, `<use>`, `<image>`, `<style>` or `data:` URLs. A placed custom shape is a `shape`
 node with kind `custom` and the sanitized `svg`, `svgViewBox` and `shapeName` fields. The server
 serializer runs the same sanitizer on every save and stores its output, so a hand-crafted board
 cannot smuggle markup in, and the board draws the markup as an SVG image, which never runs

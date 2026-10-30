@@ -511,4 +511,3 @@ def shape_pack_detail(request, identifier):
         return reply(request, {'error': str(error)}, error.status)
     except Exception:
         return failure()
-

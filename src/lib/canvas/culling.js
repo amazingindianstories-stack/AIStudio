@@ -11,7 +11,8 @@
  * Always mounted, wherever they are: the selection (so dragging, resizing and
  * keyboard moves keep their element), the node being text-edited or cropped,
  * any extra ids the caller pins (a connector's hover target), and both
- * endpoints of every mounted connector.
+ * endpoints of every mounted connector. What hiddenBoardIds hides is never
+ * mounted, even when kept.
  */
 
 /** Screen pixels mounted beyond each edge of the viewport. */

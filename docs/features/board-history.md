@@ -23,8 +23,9 @@ carry the fields, and objects saved before stamping have none until they next ch
 count toward the board size limit (`content_length` in `serialization.py`).
 
 Every change appends a row to `board_activity`: board, actor, action, node id, node type (`connector` for
-connectors), a snippet of up to 120 characters (a node's text, a frame's name or an image's alt text), the
-save time and its position within the save. Viewport-only saves and refused saves record nothing.
+connectors), a snippet of up to 120 characters (a node's text, the name of a frame, ERD, swimlane or
+diagram, or an image's alt text), the save time and its position within the save. Viewport-only saves
+and refused saves record nothing.
 `run_scheduler` deletes rows older than 90 days daily (`board_activity`, the 03:17 UTC slot); deleting a
 board deletes its rows. Versions, restore and content backups are not part of this.
 

@@ -301,4 +301,3 @@ def delete_shape_pack(user, identifier):
         raise access.AccessError('Only the pack owner can delete this shape pack.', 403)
     row.delete()
     return True
-
