@@ -27,7 +27,12 @@ async function harness(server, run) {
   globalThis.fetch = async (url, init = {}) => {
     const call = { url: String(url), method: init.method || "GET", body: init.body ? JSON.parse(init.body) : null };
     calls.push(call);
-    return server(call) ?? json(200, {});
+    const response = server(call);
+    if (response) return response;
+    // CanvasView polls the inbox even when the project has no board. Match the
+    // Django response contract instead of returning the generic empty object.
+    if (call.url === "/api/board-notifications") return json(200, { notifications: [], preferences: {} });
+    return json(200, {});
   };
   const root = createRoot(document.querySelector("#root"));
   const settle = () => act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
@@ -201,6 +206,8 @@ test("the copy and cut shortcuts leave selected page text to the browser instead
       await settle();
       const nodes = () => useCanvasStore.getState().history.present.nodes.map((node) => node.id);
       assert.deepEqual(nodes(), ["s1"]);
+      assert.ok([...document.querySelectorAll("button")].some((button) => button.textContent === "Inbox (0)"), "the polled empty inbox renders without breaking the canvas");
+
       await act(async () => useCanvasStore.getState().setSelection(["s1"]));
       const note = document.body.appendChild(document.createElement("p"));
       note.textContent = "Generated caption";
