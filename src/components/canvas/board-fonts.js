@@ -2,8 +2,10 @@
  * The board font library (src/lib/canvas/fonts.js), self-hosted through
  * next/font. Nothing is preloaded: each font only declares its @font-face and
  * CSS variable, so a browser downloads a font (and only the scripts it needs)
- * once an object on the board uses it. src/app/layout.jsx sets the variables
- * on the root element, so menus portaled outside the board see them too.
+ * once an object on the board uses it. Only the board's page (src/app/page.jsx)
+ * imports this module, and it sets the variables on the root element while the
+ * board is open, so menus portaled outside the board see them too. Inter is
+ * the page font from src/app/layout.jsx (see `fontVariable`).
  */
 import {
   Caveat,
@@ -13,7 +15,6 @@ import {
   Fira_Sans,
   IBM_Plex_Mono,
   IBM_Plex_Sans,
-  Inter,
   JetBrains_Mono,
   Lobster,
   Lora,
@@ -42,7 +43,6 @@ import {
   Ubuntu,
 } from "next/font/google";
 
-const inter = Inter({ display: "swap", preload: false, variable: "--board-font-inter" });
 const roboto = Roboto({ display: "swap", preload: false, variable: "--board-font-roboto" });
 const openSans = Open_Sans({ display: "swap", preload: false, variable: "--board-font-open-sans" });
 const montserrat = Montserrat({ display: "swap", preload: false, variable: "--board-font-montserrat" });
@@ -77,9 +77,8 @@ const notoSansSc = Noto_Sans_SC({ display: "swap", preload: false, variable: "--
 const notoSansTc = Noto_Sans_TC({ display: "swap", preload: false, variable: "--board-font-noto-sans-tc" });
 const notoSansKr = Noto_Sans_KR({ display: "swap", preload: false, variable: "--board-font-noto-sans-kr" });
 
-/** Class names that define every board font's CSS variable; set on the canvas root. */
+/** Class names that define every board font's CSS variable. */
 export const BOARD_FONT_VARIABLES = [
-  inter.variable,
   roboto.variable,
   openSans.variable,
   montserrat.variable,

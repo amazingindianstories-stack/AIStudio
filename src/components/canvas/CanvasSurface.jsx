@@ -43,6 +43,7 @@ import { selectionActions } from "@/lib/canvas/selection-actions";
 import { cullBoard } from "@/lib/canvas/culling";
 import { withLastStyle } from "@/lib/canvas/styles";
 import { currentUserId, takeStickyFromStack } from "@/lib/canvas/sticky-actions";
+import { markSystemClipboard } from "@/lib/canvas/use-board-clipboard";
 import { NodeView, } from "./nodes/NodeView";
 import { ConnectorLayer } from "./ConnectorLayer";
 import { CanvasContextMenu, } from "./CanvasContextMenu";
@@ -673,11 +674,12 @@ export const CanvasSurface = forwardRef
       case "duplicate":
         s.duplicateSelected();
         break;
+      // A browser copy follows, so the system clipboard is marked too (useBoardClipboard).
       case "copy":
-        s.copy();
+        if (s.copy()) markSystemClipboard();
         break;
       case "cut":
-        s.cut();
+        if (s.cut()) markSystemClipboard();
         break;
       case "paste":
         s.paste();

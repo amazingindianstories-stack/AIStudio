@@ -53,8 +53,9 @@ the store's `editBoard`, so it is one undo step, a per-node save, and a no-op on
   Enter continues, Enter on an empty item ends it, Tab and Shift+Tab nest up to 5 levels. Markers are
   ordinary text (`lists.js`), so lists need no format field; numbers are rewritten on commit.
 - **Fonts.** `fontFamily` on text, stickies and shapes picks one of 34 fonts (sans, serif, mono,
-  handwriting and CJK), self-hosted through next/font in `src/components/canvas/board-fonts.js` and
-  downloaded only when used. An unknown id is kept and renders in the default font.
+  handwriting and CJK), self-hosted through next/font in `src/components/canvas/board-fonts.js` (loaded
+  by the board's page only; Inter is the page font) and downloaded only when used. An unknown id is
+  kept and renders in the default font.
 - **Colors.** Fill, stroke and text colors use the 23 board colors plus "My colors": up to 16 colors
   picked by spectrum, hex or eyedropper, saved per person in this browser.
 - **Remembered style.** A style chosen in the inspector becomes the default for that person's next
@@ -70,6 +71,7 @@ Personal preferences (custom colors, remembered styles) use `localStorage` under
 ## Collaboration and roles
 
 Tags merge per tag id like nodes, and emoji votes merge per person even when both sides changed
-the same sticky, so two people voting at once both count (`src/lib/canvas/merge.js`). View and comment
+the same sticky, so two people voting at once both count (`src/lib/canvas/merge.js`). A sticky this
+person only voted on takes the other person's newer content, with the vote added. View and comment
 access see tags, votes and authors but get no inspector, sticky menu or vote buttons, and the server
 refuses their saves.

@@ -15,6 +15,7 @@ import { AssetLibrary } from "@/components/AssetLibrary";
 import { PortraitGallery } from "@/components/PortraitGallery";
 import { startFreezeWatchdog, stopFreezeWatchdog } from "@/lib/freeze-watchdog";
 import { CanvasView } from "@/components/canvas/CanvasView";
+import { BOARD_FONT_VARIABLES } from "@/components/canvas/board-fonts";
 import { StudioView } from "@/components/StudioView";
 import { Toaster } from "@/components/Toaster";
 import { TextPromptDialog } from "@/components/TextPromptDialog";
@@ -54,6 +55,14 @@ export default function Page() {
       setView("studio");
     }
   }, [view, currentUser, setView]);
+
+  // The board fonts' variables go on the root element while the board is open, so portaled menus see them too.
+  useEffect(() => {
+    if (view !== "canvas") return;
+    const classes = BOARD_FONT_VARIABLES.split(" ");
+    document.documentElement.classList.add(...classes);
+    return () => document.documentElement.classList.remove(...classes);
+  }, [view]);
 
   useEffect(() => {
     loadMe();

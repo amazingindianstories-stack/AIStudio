@@ -62,9 +62,9 @@ export function boardFont(id) {
   return BY_ID.get(id) ?? BY_ID.get(DEFAULT_FONT);
 }
 
-/** The CSS variable next/font sets for a font id. */
+/** The CSS variable next/font sets for a font id; Inter is the page's own font. */
 export function fontVariable(id) {
-  return `--board-font-${id}`;
+  return id === DEFAULT_FONT ? "--font-sans" : `--board-font-${id}`;
 }
 
 /** The CSS `font-family` for an object's `fontFamily`; undefined keeps the page font. */

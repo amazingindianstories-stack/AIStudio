@@ -276,15 +276,19 @@ test('Board text: lists, custom colors, fonts and the remembered style', async (
   let board = await storedBoard(context, boardId, (b) => b.data.nodes.some((node) => node.text === '• one\n• two\n\t◦ nested'));
   const list = board.data.nodes.find((node) => node.type === 'text');
 
-  // "1. " starts a numbered list.
+  // "1. " starts a numbered list; Enter on an empty item ends it, and the next Enter is a plain new line.
   await page.keyboard.press('t');
   await canvas.click({ position: { x: 300, y: 420 } });
   await expect(editor).toBeFocused();
   await page.keyboard.type('1. first');
   await page.keyboard.press('Enter');
   await page.keyboard.type('second');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('plain');
   await page.keyboard.press('ControlOrMeta+Enter');
-  await storedBoard(context, boardId, (b) => b.data.nodes.some((node) => node.text === '1. first\n2. second'));
+  await storedBoard(context, boardId, (b) => b.data.nodes.some((node) => node.text === '1. first\n2. second\n\nplain'));
   await info.attach('lists', { body: await page.screenshot(), contentType: 'image/png' });
 
   // A hex color is applied and saved to this person's colors; a font from the library.

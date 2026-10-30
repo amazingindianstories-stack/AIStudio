@@ -17,7 +17,8 @@
  * and when) are not edits: an item whose local copy differs from base only in
  * them is unchanged locally and takes the remote copy, stamps included.
  * Emoji votes merge per person even when both sides changed a sticky, so two
- * people voting at once both count. The board's tag table merges per tag id
+ * people voting at once both count, and a local copy that differs from base
+ * only in votes takes the remote copy with the local votes added. The board's tag table merges per tag id
  * like nodes.
  */
 import { mergeReactions } from "./reactions";
@@ -83,23 +84,32 @@ function mergeItems(baseItems, localItems, remoteItems) {
     const r = remote.get(id);
     const b = base.get(id);
     const localChanged = !sameValue(unstamped(b), unstamped(l));
+    // A local vote alone is not an edit: the remote copy wins and keeps the vote.
+    const localEdited = localChanged && !(b && l && r && sameValue(unvoted(unstamped(b)), unvoted(unstamped(l))));
     // Neither side changed it: keep the local object so nothing re-renders.
-    let item = localChanged || sameValue(l, r) ? l : r;
-    if (item === l && l && r && localChanged && !sameValue(l.reactions, r.reactions)) item = withVotes(l, b, r);
+    let item = localEdited || sameValue(l, r) ? l : r;
+    if (l && r && localChanged && !sameValue(l.reactions, r.reactions)) item = withVotes(item, b, l, r);
     if (item !== undefined) chosen.set(id, item);
   }
   const ids = (items) => items.map((item) => item.id);
   return mergeOrder(ids(baseItems), ids(localItems), ids(remoteItems), chosen).map((id) => chosen.get(id));
 }
 
-/** `local` keeping the other side's votes as well as its own. */
-function withVotes(local, base, remote) {
+function unvoted(item) {
+  if (!item || !("reactions" in item)) return item;
+  const rest = { ...item };
+  delete rest.reactions;
+  return rest;
+}
+
+/** `item` (the side that won) with both sides' votes. */
+function withVotes(item, base, local, remote) {
   const reactions = mergeReactions(base?.reactions, local.reactions, remote.reactions);
-  if (sameValue(reactions, local.reactions)) return local;
-  const next = { ...local };
+  if (sameValue(reactions, item.reactions)) return item;
+  const next = { ...item };
   if (reactions) next.reactions = reactions;
   else delete next.reactions;
-  return next;
+  return sameValue(next, local) ? local : next;
 }
 
 function attachedTo(endpoint, nodeIds) {

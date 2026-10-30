@@ -136,14 +136,14 @@ function lastStylesFor(userId) {
   return lastStyles.styles;
 }
 
-/** `node` (a new object) with the last style its person used on its kind. */
+/** `node` (a new object) with the last style its person used on its kind; a cleared setting (null) keeps the default. */
 export function withLastStyle(node, userId) {
   const kind = styleKind(node);
   const style = kind && lastStylesFor(userId)[kind];
   if (!style) return node;
   const next = { ...node };
   for (const key of STYLE_KEYS[kind]) {
-    if (style[key] === undefined) continue;
+    if (style[key] == null) continue;
     if (key === "autoFit") {
       if (style.autoFit) next.autoFit = true;
       else delete next.autoFit;

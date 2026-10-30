@@ -138,9 +138,9 @@ const BLOCK_TAGS = new Set(["DIV", "P", "LI", "H1", "H2", "H3", "H4", "H5", "H6"
  * Reads a contentEditable subtree back into `{ text, marks }`. This is the
  * input sanitizer: only text and the six known formats survive; tags,
  * attributes, styles and links outside http/https/mailto are discarded.
- * `onPosition(node, offset)`, when given, hears where each text node and
- * each line-making <br> starts in the text, so callers can map offsets back
- * to the DOM exactly as the text was read.
+ * `onPosition(node, start, end)`, when given, hears where each text node and
+ * each line-making <br> starts and ends in the text, so callers can map
+ * offsets between the text and the DOM exactly as the text was read.
  */
 export function readRichDom(root, onPosition) {
   let text = "";
@@ -160,7 +160,7 @@ export function readRichDom(root, onPosition) {
       const data = node.data;
       if (!data) return;
       flush();
-      onPosition?.(node, text.length);
+      onPosition?.(node, text.length, text.length + data.length);
       runs.push({ start: text.length, end: text.length + data.length, format });
       text += data;
       return;
@@ -175,13 +175,13 @@ export function readRichDom(root, onPosition) {
       // <div><br></div> is the browser's empty line: it holds a line, no character.
       if (inBlock && parent.childNodes.length === 1) {
         flush();
-        onPosition?.(el, text.length);
+        onPosition?.(el, text.length, text.length);
         return;
       }
       // A trailing <br> after content in a block only keeps that line open.
       if (inBlock && el === parent.lastChild && el.previousSibling) return;
       flush();
-      onPosition?.(el, text.length);
+      onPosition?.(el, text.length, text.length + 1);
       text += "\n";
       return;
     }

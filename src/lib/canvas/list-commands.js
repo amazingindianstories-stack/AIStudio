@@ -8,16 +8,30 @@
 import { listOnEnter, listOnSpace, listOnTab } from "./lists";
 import { readRichDom } from "./rich-text";
 
-/** The editor's text and the caret's offset in it, or null without a collapsed caret inside `root`. */
+/**
+ * The editor's text and the caret's offset in it, or null without a collapsed
+ * caret inside `root`. The caret is placed through the same `readRichDom`
+ * walk as `domPoint`: between two runs of text it sits at the start of the
+ * later one when it is inside that one's element (an empty line's <div>, say),
+ * and otherwise at the end of the earlier one.
+ */
 function textAndCaret(root) {
   const selection = root.ownerDocument.getSelection();
   if (!selection?.rangeCount || !selection.isCollapsed || !root.contains(selection.focusNode)) return null;
-  const range = root.ownerDocument.createRange();
-  range.setStart(root, 0);
-  range.setEnd(selection.focusNode, selection.focusOffset);
-  const before = root.ownerDocument.createElement("div");
-  before.appendChild(range.cloneContents());
-  return { text: readRichDom(root).text, caret: readRichDom(before).text.length };
+  const { focusNode, focusOffset } = selection;
+  const caret = root.ownerDocument.createRange();
+  caret.setStart(focusNode, focusOffset);
+  let offset = null;
+  let previous = null;
+  const { text } = readRichDom(root, (node, start, end) => {
+    if (offset !== null) return;
+    if (node === focusNode && node.nodeType === 3) offset = start + focusOffset;
+    else if (caret.comparePoint(node, 0) >= 0) {
+      const opensLine = !previous || (focusNode.contains(node) && !focusNode.contains(previous.node));
+      offset = opensLine ? start : previous.end;
+    } else previous = { node, end };
+  });
+  return { text, caret: offset ?? previous?.end ?? 0 };
 }
 
 /**

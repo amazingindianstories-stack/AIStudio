@@ -89,6 +89,11 @@ test("votes, shape, author label, tags and type switching edit stickies, includi
   assert.deepEqual(nodes().map((n) => n.w), [350, 350]);
   setSelectedStickyFlag("showAuthor", true);
   assert.deepEqual(nodes().map((n) => n.showAuthor), [true, true]);
+  // Choosing what is already set is no undo step.
+  const steps = undoSteps();
+  setSelectedStickyShape("rectangle");
+  setSelectedStickyFlag("showAuthor", true);
+  assert.equal(undoSteps(), steps);
 
   const tag = addTagToSelection("Idea");
   assert.equal(addTagToSelection(" idea ").id, tag.id);

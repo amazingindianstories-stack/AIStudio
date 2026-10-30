@@ -120,13 +120,13 @@ def with_font(result, raw):
 
 
 def unique_strings(raw, limit, length=None):
-    result = []
+    result = {}
     for value in raw if isinstance(raw, list) else []:
-        if isinstance(value, str) and value and (length is None or utf16_length(value) <= length) and value not in result:
-            result.append(value)
+        if isinstance(value, str) and value and value not in result and (length is None or utf16_length(value) <= length):
+            result[value] = None
             if len(result) == limit:
                 break
-    return result
+    return list(result)
 
 
 def reactions(raw):

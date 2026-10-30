@@ -289,13 +289,11 @@ export function CanvasView() {
       }
       // The browser's copy and cut events that follow also mark the system clipboard (useBoardClipboard).
       if (mod && e.key.toLowerCase() === "c") {
-        copy();
-        noteKeyboardCopy();
+        if (copy()) noteKeyboardCopy();
         return;
       }
       if (mod && e.key.toLowerCase() === "x") {
-        cut();
-        noteKeyboardCopy();
+        if (cut()) noteKeyboardCopy();
         return;
       }
       if (mod && e.key.toLowerCase() === "v") {

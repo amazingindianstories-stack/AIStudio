@@ -57,6 +57,13 @@ test("new objects take the person's last style for their kind", () => {
   assert.equal(withLastStyle({ id: "e", type: "ellipse", stroke: "#000" }, "u1").stroke, "#ff0000");
 });
 
+test("choosing the default font is remembered as no font, never as a null one", () => {
+  rememberStyle("u1", "text", { fontFamily: "lora", color: "#123abc" });
+  rememberStyle("u1", "text", { fontFamily: null });
+  const node = { id: "t", type: "text", text: "", fontSize: 16, align: "left", color: "#ffffff" };
+  assert.deepEqual(withLastStyle(node, "u1"), { ...node, color: "#123abc" });
+});
+
 test("switching type keeps id, place, text and colors and drops what the type lacks", () => {
   const sticky = { id: "a", type: "sticky", x: 1, y: 2, w: 200, h: 200, opacity: 1, parentId: "f", groupId: null,
     text: "hi", marks: [[0, 2, "b"]], fill: "#7fae86", fontSize: 18, color: "#1c1a12", tagIds: ["t"],

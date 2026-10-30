@@ -291,6 +291,8 @@ function mutateGraph(
   const state = get();
   if (!state.boardId || selectReadOnly(state)) return;
   const nextPresent = compute(state.history.present);
+  // An edit that changes nothing is no undo step and no save.
+  if (sameValue(nextPresent, state.history.present)) return;
   if (opts?.coalesce) {
     if (!gestureBaseline) gestureBaseline = state.history;
     set({ history: { ...gestureBaseline, present: nextPresent } });
@@ -1256,20 +1258,24 @@ export const useCanvasStore = create((set, get) => ({
     );
   },
 
+  /** Copies the selected objects; returns whether anything was copied. */
   copy: () => {
     const { selection, history } = get();
-    if (!selection.length) return;
+    if (!selection.length) return false;
     const selSet = new Set(selection);
     clipboard = history.present.nodes.filter((n) => selSet.has(n.id)).map((n) => ({ ...n }));
+    return true;
   },
 
+  /** Copies and deletes the selected objects; returns whether anything was cut. */
   cut: () => {
     const { selection, history } = get();
-    if (!selection.length) return;
+    if (!selection.length) return false;
     const selected = new Set(selection);
-    if (selectReadOnly(get())) return;
+    if (selectReadOnly(get())) return false;
     clipboard = history.present.nodes.filter((node) => selected.has(node.id)).map((node) => ({ ...node }));
     get().deleteSelected();
+    return true;
   },
 
   beginCrop: (id) => {

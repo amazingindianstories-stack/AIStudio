@@ -17,15 +17,15 @@ export const REACTION_EMOJIS = ["👍", "👎", "❤️", "😂", "🎉", "🔥"
 
 /** Up to `limit` distinct non-empty strings of at most `length` UTF-16 units. */
 export function uniqueStrings(raw, limit, length = Infinity) {
-  const result = [];
-  if (!Array.isArray(raw)) return result;
+  const result = new Set();
+  if (!Array.isArray(raw)) return [];
   for (const value of raw) {
-    if (typeof value === "string" && value && value.length <= length && !result.includes(value)) {
-      result.push(value);
-      if (result.length === limit) break;
+    if (typeof value === "string" && value && value.length <= length) {
+      result.add(value);
+      if (result.size === limit) break;
     }
   }
-  return result;
+  return [...result];
 }
 
 export function validateReactions(raw) {

@@ -121,3 +121,18 @@ test("a remote copy that differs only in stamps replaces an unchanged local one"
   assert.deepEqual(node(mergeCanvasStates(local, local, remote), "a"), remote.nodes[0]);
   assert.equal(mergeCanvasStates(local, local, graph([rect("a")])), local);
 });
+
+test("a local vote is not an edit: another person's concurrent edit survives and both votes count", () => {
+  const base = graph([rect("a", { text: "old", reactions: { "👍": ["ben"] } })]);
+  const local = graph([rect("a", { text: "old", reactions: { "👍": ["ben", "ana"] } })]);
+  const remote = graph([rect("a", { text: "new", fill: "#123", reactions: { "👍": ["ben"], "🔥": ["ben"] } })]);
+  assert.deepEqual(node(mergeCanvasStates(base, local, remote), "a"),
+    rect("a", { text: "new", fill: "#123", reactions: { "👍": ["ben", "ana"], "🔥": ["ben"] } }));
+  // With nothing new on the remote side the local object is kept as it is.
+  const unchanged = graph([rect("a", { text: "old", reactions: { "👍": ["ben"] } })]);
+  assert.equal(mergeCanvasStates(base, local, unchanged), local);
+  // A local content edit still wins, keeping the remote votes too.
+  const edited = graph([rect("a", { text: "mine", reactions: { "👍": ["ben", "ana"] } })]);
+  assert.deepEqual(node(mergeCanvasStates(base, edited, remote), "a"),
+    rect("a", { text: "mine", reactions: { "👍": ["ben", "ana"], "🔥": ["ben"] } }));
+});
