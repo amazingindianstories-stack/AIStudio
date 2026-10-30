@@ -99,7 +99,7 @@ function normalizeCrop(crop) {
   };
 }
 
-function applyStylePatchToNode(n, patch) {
+export function applyStylePatchToNode(n, patch) {
   const opacity = patch.opacity !== undefined ? clamp01(patch.opacity) : n.opacity;
   switch (n.type) {
     case "rect":
@@ -121,26 +121,33 @@ function applyStylePatchToNode(n, patch) {
       // Text styling inside a shape is only stored once it is set.
       if (patch.fontSize !== undefined) next.fontSize = patch.fontSize;
       if (patch.color !== undefined) next.color = patch.color;
-      return next;
+      return withFontPatch(next, patch);
     }
     case "text":
-      return {
+      return withFontPatch({
         ...n,
         opacity,
         text: patch.text ?? n.text,
         fontSize: patch.fontSize ?? n.fontSize,
         color: patch.color ?? n.color,
         align: patch.align ?? n.align,
-      };
-    case "sticky":
-      return {
+      }, patch);
+    case "sticky": {
+      const next = withFontPatch({
         ...n,
         opacity,
         text: patch.text ?? n.text,
         fill: patch.fill ?? n.fill,
         fontSize: patch.fontSize ?? n.fontSize,
         color: patch.color ?? n.color,
-      };
+      }, patch);
+      // Auto font size and a chosen size replace each other.
+      if (patch.autoFit) next.autoFit = true;
+      else if (patch.autoFit === false || patch.fontSize !== undefined) delete next.autoFit;
+      return next;
+    }
+    case "stack":
+      return { ...n, opacity, fill: patch.fill ?? n.fill };
     case "frame":
       return {
         ...n,
@@ -152,6 +159,15 @@ function applyStylePatchToNode(n, patch) {
     case "image":
       return { ...n, opacity };
   }
+}
+
+/** `fontFamily: null` returns to the board's default font. */
+function withFontPatch(n, patch) {
+  if (patch.fontFamily === undefined) return n;
+  const next = { ...n };
+  if (patch.fontFamily) next.fontFamily = patch.fontFamily;
+  else delete next.fontFamily;
+  return next;
 }
 
 /** A node with new text content; formatting ranges travel with the text. */
@@ -936,6 +952,10 @@ export const useCanvasStore = create((set, get) => ({
       set({ tool: "select", touchEditMode: false, editingTextId: null, croppingImageId: null, cropDraft: null });
     }
   },
+
+  /** One undoable edit of the graph by `compute` (present => next present), for feature modules
+   * such as ./canvas/sticky-actions.js. Read-only boards ignore it, like every edit. */
+  editBoard: (compute, opts) => mutateGraph(set, get, compute, opts),
 
   addNode: (node) => {
     mutateGraph(set, get, (present) => ({ ...present, nodes: [...present.nodes, node] }));

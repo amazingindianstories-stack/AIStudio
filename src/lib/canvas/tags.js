@@ -1,8 +1,9 @@
 /**
  * Board tags: one table per board (`state.tags`, `[{id, name, color}]`) and
- * up to eight tag ids per sticky (`tagIds`). Renaming, recoloring or deleting
- * a tag changes only the table, so it is one small change for everyone and no
- * sticky counts as edited; the serializers drop ids the table no longer has.
+ * up to eight tag ids per sticky (`tagIds`). Renaming or recoloring a tag
+ * changes only the table, so it is one small change for everyone and no
+ * sticky counts as edited. Deleting one also takes it off its stickies, and
+ * the serializers drop any id the table no longer has.
  * Mirrored by `tags` in backend/apps/canvas/serialization.py.
  */
 export const MAX_TAGS = 300;
