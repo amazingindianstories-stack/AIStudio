@@ -85,7 +85,7 @@ def _graph(data):
     return {key: value for key, value in data.items() if key != 'viewport'} if isinstance(data, dict) else data
 
 
-def save_board(identifier, data, base_version, save_id, actor, patch=None):
+def save_board(identifier, data, base_version, save_id, actor, patch=None, level=None):
     """Write the graph only over the version the editor loaded, so concurrent editors never overwrite
     each other. A save without a base version or a save id is refused like a stale one. The board row is
     locked while the save is compared with the graph it replaces (apps.canvas.activity): changed objects
@@ -96,8 +96,10 @@ def save_board(identifier, data, base_version, save_id, actor, patch=None):
     nothing, and open boards polling for changes do not refetch the graph.
     With a `patch` (apps.canvas.patch) instead of `data`, the graph saved is the patch applied to the stored
     one; everything above then runs on that whole graph, so a patch and the full graph it stands for save alike.
-    The save id row also records which objects the save changed, for `board_changes`."""
-    from . import activity, patch as board_patch
+    The save id row also records which objects the save changed, for `board_changes`.
+    Changes the actor at access `level` may not make (apps.canvas.locks) are put back; the save then makes a
+    new version and returns the graph it saved as `board`, which the editor merges like someone else's save."""
+    from . import activity, locks, patch as board_patch
     now = now_ms()
     actor = str(actor)
     if base_version is not None and save_id is not None:
@@ -107,10 +109,11 @@ def save_board(identifier, data, base_version, save_id, actor, patch=None):
                 stored = validate_state(row['data'])
                 if patch is not None:
                     data = validate_state(board_patch.apply_patch(stored, patch))
+                data, corrected = locks.enforce(stored, data, actor, level)
                 stamped, changes = activity.stamp(stored, data, actor, now)
                 if content_length(stamped) > MAX_BOARD_JSON_UNITS:
                     raise BoardTooLarge()
-                version = base_version + 1 if _graph(stamped) != _graph(row['data']) else base_version
+                version = base_version + 1 if corrected or _graph(stamped) != _graph(row['data']) else base_version
                 CanvasBoard.objects.filter(pk=identifier).update(data=stamped, updated_at=now, version=version)
                 if version != base_version:
                     with connection.cursor() as cursor:
@@ -120,7 +123,8 @@ def save_board(identifier, data, base_version, save_id, actor, patch=None):
                                        [identifier, save_id, version, now,
                                         None if changed is None else json.dumps(changed)])
                     activity.record(identifier, actor, now, changes)
-                return {'updatedAt': now, 'version': version, 'stamps': activity.stamps_of(stamped, changes)}
+                saved = {'updatedAt': now, 'version': version, 'stamps': activity.stamps_of(stamped, changes)}
+                return {**saved, 'board': stamped} if corrected else saved
     current = get_board(identifier)
     if current is None:
         return None

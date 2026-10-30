@@ -1,0 +1,839 @@
+{
+ "_comment": "Format v1 cases for rotation, locks, layers and board settings that both board serializers must agree on (src/lib/canvas/serialization.js and backend/apps/canvas/serialization.py).",
+ "cases": {
+  "rotation": {
+   "input": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [
+     {
+      "id": "r1",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1,
+      "rotation": 45
+     },
+     {
+      "id": "r2",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1,
+      "rotation": 0
+     },
+     {
+      "id": "r3",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1,
+      "rotation": 360
+     },
+     {
+      "id": "r4",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1,
+      "rotation": -15
+     },
+     {
+      "id": "r5",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1,
+      "rotation": "90"
+     },
+     {
+      "id": "r6",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1,
+      "rotation": 359.5
+     }
+    ],
+    "connectors": []
+   },
+   "expected": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [
+     {
+      "id": "r1",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "rotation": 45,
+      "type": "rect",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1
+     },
+     {
+      "id": "r2",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "rect",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1
+     },
+     {
+      "id": "r3",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "rect",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1
+     },
+     {
+      "id": "r4",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "rect",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1
+     },
+     {
+      "id": "r5",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "rect",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1
+     },
+     {
+      "id": "r6",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "rotation": 359.5,
+      "type": "rect",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1
+     }
+    ],
+    "connectors": []
+   }
+  },
+  "locks": {
+   "input": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [
+     {
+      "id": "plain",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1,
+      "locked": true
+     },
+     {
+      "id": "named",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1,
+      "locked": true,
+      "lockedBy": "7"
+     },
+     {
+      "id": "protected",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1,
+      "locked": true,
+      "lockedBy": "7",
+      "lockProtected": true
+     },
+     {
+      "id": "protected-anon",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1,
+      "locked": true,
+      "lockProtected": true
+     },
+     {
+      "id": "unlocked-with-holder",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1,
+      "locked": false,
+      "lockedBy": "7",
+      "lockProtected": true
+     },
+     {
+      "id": "truthy-lock",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1,
+      "locked": "yes",
+      "lockedBy": "7"
+     },
+     {
+      "id": "empty-holder",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1,
+      "locked": true,
+      "lockedBy": "",
+      "lockProtected": true
+     },
+     {
+      "id": "protect-not-true",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1,
+      "locked": true,
+      "lockedBy": "7",
+      "lockProtected": 1
+     }
+    ],
+    "connectors": []
+   },
+   "expected": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [
+     {
+      "id": "plain",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "locked": true,
+      "type": "rect",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1
+     },
+     {
+      "id": "named",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "locked": true,
+      "lockedBy": "7",
+      "type": "rect",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1
+     },
+     {
+      "id": "protected",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "locked": true,
+      "lockedBy": "7",
+      "lockProtected": true,
+      "type": "rect",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1
+     },
+     {
+      "id": "protected-anon",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "locked": true,
+      "type": "rect",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1
+     },
+     {
+      "id": "unlocked-with-holder",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "rect",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1
+     },
+     {
+      "id": "truthy-lock",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "rect",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1
+     },
+     {
+      "id": "empty-holder",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "locked": true,
+      "type": "rect",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1
+     },
+     {
+      "id": "protect-not-true",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "locked": true,
+      "lockedBy": "7",
+      "type": "rect",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1
+     }
+    ],
+    "connectors": []
+   }
+  },
+  "layers": {
+   "input": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "settings": {
+     "layers": [
+      {
+       "id": "a",
+       "name": "Sketches"
+      },
+      {
+       "id": "b",
+       "name": "Final",
+       "locked": true
+      },
+      {
+       "id": "a",
+       "name": "Duplicate of a"
+      },
+      {
+       "id": "",
+       "name": "No id"
+      },
+      {
+       "name": "Missing id"
+      },
+      "not a layer",
+      {
+       "id": "c",
+       "name": "LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL"
+      },
+      {
+       "id": "d",
+       "name": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+       "locked": "yes"
+      },
+      {
+       "id": "e",
+       "name": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀x"
+      },
+      {
+       "id": "f",
+       "name": 42
+      }
+     ]
+    },
+    "nodes": [
+     {
+      "id": "on-a",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1,
+      "layerId": "a"
+     },
+     {
+      "id": "on-b",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1,
+      "layerId": "b"
+     },
+     {
+      "id": "on-gone",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1,
+      "layerId": "zzz"
+     },
+     {
+      "id": "on-empty",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1,
+      "layerId": ""
+     },
+     {
+      "id": "on-default",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1
+     }
+    ],
+    "connectors": []
+   },
+   "expected": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [
+     {
+      "id": "on-a",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "layerId": "a",
+      "type": "rect",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1
+     },
+     {
+      "id": "on-b",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "layerId": "b",
+      "type": "rect",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1
+     },
+     {
+      "id": "on-gone",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "rect",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1
+     },
+     {
+      "id": "on-empty",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "rect",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1
+     },
+     {
+      "id": "on-default",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "rect",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1
+     }
+    ],
+    "connectors": [],
+    "settings": {
+     "layers": [
+      {
+       "id": "a",
+       "name": "Sketches"
+      },
+      {
+       "id": "b",
+       "name": "Final",
+       "locked": true
+      },
+      {
+       "id": "c",
+       "name": "Layer"
+      },
+      {
+       "id": "d",
+       "name": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀"
+      },
+      {
+       "id": "e",
+       "name": "Layer"
+      },
+      {
+       "id": "f",
+       "name": "Layer"
+      }
+     ]
+    }
+   }
+  },
+  "settings": {
+   "input": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "settings": {
+     "background": "#1a2B3c",
+     "startView": {
+      "x": -120.5,
+      "y": 40,
+      "zoom": 0.5,
+      "extra": 1
+     },
+     "unknown": true
+    },
+    "nodes": [],
+    "connectors": []
+   },
+   "expected": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [],
+    "connectors": [],
+    "settings": {
+     "background": "#1a2B3c",
+     "startView": {
+      "x": -120.5,
+      "y": 40,
+      "zoom": 0.5
+     }
+    }
+   }
+  },
+  "invalid-settings": {
+   "input": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "settings": {
+     "background": "red",
+     "startView": {
+      "x": 0,
+      "y": 0,
+      "zoom": 0
+     },
+     "layers": []
+    },
+    "nodes": [
+     {
+      "id": "n",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1,
+      "layerId": "a"
+     }
+    ],
+    "connectors": []
+   },
+   "expected": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [
+     {
+      "id": "n",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "rect",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1
+     }
+    ],
+    "connectors": []
+   }
+  },
+  "invalid-start-view": {
+   "input": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "settings": {
+     "background": "#abc",
+     "startView": {
+      "x": "1",
+      "y": 0,
+      "zoom": 1
+     },
+     "layers": "a"
+    },
+    "nodes": [],
+    "connectors": []
+   },
+   "expected": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [],
+    "connectors": []
+   }
+  },
+  "settings-not-object": {
+   "input": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "settings": "dark",
+    "nodes": [],
+    "connectors": []
+   },
+   "expected": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [],
+    "connectors": []
+   }
+  }
+ }
+}

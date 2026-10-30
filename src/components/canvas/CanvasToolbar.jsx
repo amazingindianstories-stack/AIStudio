@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import {
   MousePointer2,
   Hand,
+  Lasso,
   StickyNote,
   Type,
   MoveRight,
@@ -17,10 +18,15 @@ import {
   ZoomIn,
   ZoomOut,
   Sparkles,
+  Maximize,
+  Minimize,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCanvasStore, } from "@/lib/canvas-store";
-import { nodeBounds } from "@/lib/canvas/geometry";
+import { clampZoom, nodeBounds } from "@/lib/canvas/geometry";
+import { ZOOM_STEP, zoomAboutCenter, zoomToLevel } from "@/lib/canvas/viewport-nav";
+import { ViewMenu } from "./ViewMenu";
+import { toggleFullscreen, useFullscreen } from "./use-board-fullscreen";
 import { Dropdown, MenuItem } from "@/components/Dropdown";
 import { BASIC_SHAPES, isShapeTool } from "@/lib/canvas/shapes";
 import { ShapeGlyph } from "./ShapeGlyph";
@@ -93,6 +99,8 @@ export function CanvasToolbar({
             shortcut="H"
             onClick={(e) => arm("hand", e)}
           />
+          {/* No letter: Miro's L is the line tool. */}
+          <ToolButton id="lasso" active={tool === "lasso"} icon={Lasso} label="Lasso select" onClick={(e) => arm("lasso", e)} />
         </ToolGroup>
 
         {/* View and comment access: navigation only, no creation tools. */}
@@ -280,7 +288,7 @@ function ToolButton({
       onClick={onClick}
       aria-label={label}
       aria-pressed={active}
-      title={`${label} (${shortcut})`}
+      title={shortcut ? `${label} (${shortcut})` : label}
       className={cn(
         "relative grid h-9 w-9 place-items-center rounded-lg transition-colors max-sm:h-8 max-sm:w-8",
         active ? "text-white" : "text-white/55 hover:bg-white/[0.07] hover:text-white"
@@ -308,11 +316,11 @@ function ZoomControl() {
   const selection = useCanvasStore((s) => s.selection);
   const present = useCanvasStore((s) => s.history.present);
 
-  const step = (factor) => {
-    const vp = present.viewport;
-    const next = Math.min(4, Math.max(0.1, vp.zoom * factor));
-    setViewport({ ...vp, zoom: next });
-  };
+  const fullscreen = useFullscreen();
+  const viewSize = () => useCanvasStore.getState().viewportSize();
+
+  // Zoom steps keep the centre of the view in place.
+  const step = (factor) => setViewport(zoomAboutCenter(present.viewport, factor, viewSize()));
 
   const zoomToSelection = () => {
     if (!selection.length) return;
@@ -327,11 +335,8 @@ function ZoomControl() {
     const w = Math.max(x1 - x0, 1);
     const h = Math.max(y1 - y0, 1);
     const pad = 160;
-    // No container-pixel-size prop is threaded to this component; the window
-    // size is a reasonable best-effort stand-in for "fit the selection".
-    const viewW = Math.max(window.innerWidth - 420, 320);
-    const viewH = Math.max(window.innerHeight - 220, 240);
-    const nextZoom = Math.min(4, Math.max(0.1, Math.min(viewW / (w + pad), viewH / (h + pad))));
+    const { w: viewW, h: viewH } = viewSize();
+    const nextZoom = clampZoom(Math.min(viewW / (w + pad), viewH / (h + pad)));
     setViewport({
       zoom: nextZoom,
       x: (x0 + x1) / 2 - viewW / 2 / nextZoom,
@@ -345,11 +350,13 @@ function ZoomControl() {
       aria-label="Zoom"
       className="absolute bottom-4 right-4 z-30 flex items-center gap-1 rounded-lg border border-line bg-ink-800 p-1 shadow-pop"
     >
+      <ViewMenu />
+      <span className="h-4 w-px bg-line" aria-hidden />
       <button
         type="button"
         aria-label="Zoom out"
         title="Zoom out (⌘−)"
-        onClick={() => step(1 / 1.2)}
+        onClick={() => step(1 / ZOOM_STEP)}
         className="grid h-7 w-7 place-items-center rounded-md text-white/55 transition hover:bg-white/[0.07] hover:text-white"
       >
         <Minus className="h-3.5 w-3.5" />
@@ -372,7 +379,7 @@ function ZoomControl() {
           <>
             <MenuItem
               onClick={() => {
-                step(1.2);
+                step(ZOOM_STEP);
                 close();
               }}
             >
@@ -382,7 +389,7 @@ function ZoomControl() {
             </MenuItem>
             <MenuItem
               onClick={() => {
-                step(1 / 1.2);
+                step(1 / ZOOM_STEP);
                 close();
               }}
             >
@@ -413,13 +420,22 @@ function ZoomControl() {
             </MenuItem>
             <MenuItem
               onClick={() => {
-                setViewport({ ...present.viewport, zoom: 1 });
+                setViewport(zoomToLevel(present.viewport, 1, viewSize()));
                 close();
               }}
             >
               <span className="w-4" />
               <span className="flex-1">Zoom to 100%</span>
               <span className="text-xs text-white/40">⌘0</span>
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                close({ restoreFocus: false });
+                void toggleFullscreen();
+              }}
+            >
+              {fullscreen ? <Minimize className="h-4 w-4 text-white/45" /> : <Maximize className="h-4 w-4 text-white/45" />}
+              <span className="flex-1">{fullscreen ? "Exit full screen" : "Full screen"}</span>
             </MenuItem>
           </>
         )}
@@ -429,7 +445,7 @@ function ZoomControl() {
         type="button"
         aria-label="Zoom in"
         title="Zoom in (⌘+)"
-        onClick={() => step(1.2)}
+        onClick={() => step(ZOOM_STEP)}
         className="grid h-7 w-7 place-items-center rounded-md text-white/55 transition hover:bg-white/[0.07] hover:text-white"
       >
         <Plus className="h-3.5 w-3.5" />

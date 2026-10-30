@@ -1,8 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { nodeAnchorPoint } from "@/lib/canvas/geometry";
+import { nodeAnchorPoint, nodeRotation } from "@/lib/canvas/geometry";
+import { rotatedResizeCursor } from "@/lib/canvas/transform";
+import { RotateHandle } from "../RotateHandle";
 
 import { ShapeNode } from "./ShapeNode";
 import { TextNode } from "./TextNode";
@@ -12,15 +15,17 @@ import { ImageNode } from "./ImageNode";
 
 ;
 
+// `angle` is the handle's direction from the center on an upright node (n = 0), so a
+// rotated node shows the resize cursor that matches where the handle now points.
 const HANDLES = [
-  { id: "nw", cursor: "nwse-resize", cls: "-left-[5px] -top-[5px]" },
-  { id: "n", cursor: "ns-resize", cls: "left-1/2 -top-[5px] -translate-x-1/2" },
-  { id: "ne", cursor: "nesw-resize", cls: "-right-[5px] -top-[5px]" },
-  { id: "e", cursor: "ew-resize", cls: "-right-[5px] top-1/2 -translate-y-1/2" },
-  { id: "se", cursor: "nwse-resize", cls: "-right-[5px] -bottom-[5px]" },
-  { id: "s", cursor: "ns-resize", cls: "left-1/2 -bottom-[5px] -translate-x-1/2" },
-  { id: "sw", cursor: "nesw-resize", cls: "-left-[5px] -bottom-[5px]" },
-  { id: "w", cursor: "ew-resize", cls: "-left-[5px] top-1/2 -translate-y-1/2" },
+  { id: "nw", angle: 315, cls: "-left-[5px] -top-[5px]" },
+  { id: "n", angle: 0, cls: "left-1/2 -top-[5px] -translate-x-1/2" },
+  { id: "ne", angle: 45, cls: "-right-[5px] -top-[5px]" },
+  { id: "e", angle: 90, cls: "-right-[5px] top-1/2 -translate-y-1/2" },
+  { id: "se", angle: 135, cls: "-right-[5px] -bottom-[5px]" },
+  { id: "s", angle: 180, cls: "left-1/2 -bottom-[5px] -translate-x-1/2" },
+  { id: "sw", angle: 225, cls: "-left-[5px] -bottom-[5px]" },
+  { id: "w", angle: 270, cls: "-left-[5px] top-1/2 -translate-y-1/2" },
 ];
 
 const CONNECTION_ANCHORS = [
@@ -35,6 +40,8 @@ export function NodeView({
   tool,
   showRing,
   showHandles,
+  locked = false,
+  selected = false,
   readOnly,
   viewOnly = false,
   editingTextId,
@@ -45,6 +52,7 @@ export function NodeView({
   onCommitText,
   onCancelEdit,
   onPointerDownHandle,
+  onPointerDownRotate,
   onConnectorHandlePointerDown,
   connectorHoverTarget,
   hasChildren = false,
@@ -60,11 +68,14 @@ export function NodeView({
   const [hovered, setHovered] = useState(false);
   const editing = editingTextId === node.id;
   const showConnectionHandles =
-    !readOnly && !viewOnly && tool === "select" && hovered && !dragging && !editing;
+    !readOnly && !viewOnly && !locked && tool === "select" && hovered && !dragging && !editing;
   const pathShape = node.type === "shape";
   // A text box being edited grows with its text (the commit stores that height), so the
   // selection ring and handles stay around every line.
   const growing = editing && node.type === "text";
+  // Rotated about the stored center; while a text box grows during editing the
+  // origin stays there, so its top-left corner stays put (as the commit keeps it).
+  const rotation = nodeRotation(node);
 
   return (
     <div
@@ -86,7 +97,9 @@ export function NodeView({
         height: growing ? "auto" : node.h,
         minHeight: growing ? node.h : undefined,
         opacity: node.opacity ?? 1,
-        cursor: tool === "select" ? "move" : undefined,
+        cursor: tool === "select" && !locked ? "move" : undefined,
+        transform: rotation ? `rotate(${rotation}deg)` : undefined,
+        transformOrigin: rotation ? `${node.w / 2}px ${node.h / 2}px` : undefined,
       }}
     >
       {(() => {
@@ -169,9 +182,13 @@ export function NodeView({
               "pointer-events-auto absolute z-20 h-[9px] w-[9px] rounded-[1px] border border-ink-900 bg-white ring-1 ring-ink-900",
               h.cls
             )}
-            style={{ cursor: h.cursor }}
+            style={{ cursor: rotatedResizeCursor(h.angle, rotation) }}
           />
         ))}
+
+      {showHandles && !cropMode && node.type !== "frame" && onPointerDownRotate && (
+        <RotateHandle onPointerDown={(e) => onPointerDownRotate(e, node)} />
+      )}
 
       {showConnectionHandles &&
         CONNECTION_ANCHORS.map((a) => (
@@ -191,6 +208,17 @@ export function NodeView({
           />
         ))}
 
+      {/* A locked object (or one on a locked layer) shows its lock while hovered or selected. */}
+      {locked && (selected || showRing || hovered) && (
+        <span
+          data-lock-badge=""
+          title="Locked"
+          className="pointer-events-none absolute -right-2.5 -top-2.5 z-20 grid h-5 w-5 place-items-center rounded-full border border-line bg-ink-750 text-white/75 shadow-pop"
+        >
+          <Lock aria-hidden className="h-3 w-3" />
+        </span>
+      )}
+
       {connectorHoverTarget && (
         <div className="pointer-events-none absolute inset-0 rounded-sm ring-2 ring-brand/60" />
       )}
@@ -201,7 +229,8 @@ export function NodeView({
 /** A connection handle centered just outside a path shape's outline anchor,
  * touching the outline so the pointer can travel onto it without leaving. */
 function outlineHandlePosition(node, anchor) {
-  const point = nodeAnchorPoint(node, anchor);
+  // Placed inside the (rotated) node box, so it uses the upright anchor.
+  const point = nodeAnchorPoint({ ...node, rotation: 0 }, anchor);
   const OFFSET = { top: [0, -4], right: [4, 0], bottom: [0, 4], left: [-4, 0] }[anchor];
   return {
     left: point.x - node.x + OFFSET[0] - 4,

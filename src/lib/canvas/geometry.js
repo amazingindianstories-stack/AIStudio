@@ -1,8 +1,9 @@
 
 
 import { nodeOutline, pointInPolygon, rayExit } from "./shapes";
+import { lockedIdSet } from "./locks";
 
-const MIN_NODE_SIZE = 4;
+export const MIN_NODE_SIZE = 4;
 
 // ---- viewport bounds ----
 
@@ -10,7 +11,8 @@ const MIN_NODE_SIZE = 4;
 // not pin exact numbers. Shared by the store, scroll-zoom, touch gestures and
 // the % readout so every path clamps the same way.
 export const MIN_ZOOM = 0.1;
-export const MAX_ZOOM = 4;
+// 2000%, as in Miro.
+export const MAX_ZOOM = 20;
 
 export function clampZoom(zoom) {
   return Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, zoom));
@@ -28,8 +30,98 @@ export function screenToWorld(p, vp) {
 
 // ---- bounds ----
 
+/**
+ * The world axis-aligned box a node covers. A rotated node covers the box
+ * around its four rotated corners, so culling, marquee, fit and frames all
+ * see what is drawn.
+ */
 export function nodeBounds(n) {
-  return { x: n.x, y: n.y, w: n.w, h: n.h };
+  const deg = nodeRotation(n);
+  if (!deg) return { x: n.x, y: n.y, w: n.w, h: n.h };
+  const corners = nodeCorners(n);
+  const xs = corners.map((p) => p.x);
+  const ys = corners.map((p) => p.y);
+  const x = Math.min(...xs);
+  const y = Math.min(...ys);
+  return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
+}
+
+// ---- rotation ----
+// `rotation` is degrees clockwise about the node's center (0 < r < 360,
+// omitted when 0). A node's "local frame" is its unrotated box in world
+// units: rotating a local point about the center gives its world position.
+
+/** An angle as stored on a node: in [0, 360), rounded to 0.01 degree, 0 when (nearly) upright. */
+export function normalizeRotation(deg) {
+  if (!Number.isFinite(deg)) return 0;
+  const r = Math.round((((deg % 360) + 360) % 360) * 100) / 100;
+  return r >= 360 || r <= 0 ? 0 : r;
+}
+
+/** The node's rotation in degrees, 0 when it has none. */
+export function nodeRotation(n) {
+  const r = n?.rotation;
+  return Number.isFinite(r) && r > 0 && r < 360 ? r : 0;
+}
+
+/** The node with `deg` as its rotation; the field is dropped when upright. */
+export function withRotation(n, deg) {
+  const r = normalizeRotation(deg);
+  if (r === nodeRotation(n) && (r !== 0 || !("rotation" in n))) return n;
+  const next = { ...n };
+  if (r) next.rotation = r;
+  else delete next.rotation;
+  return next;
+}
+
+export function nodeCenter(n) {
+  return { x: n.x + n.w / 2, y: n.y + n.h / 2 };
+}
+
+/** `p` rotated `deg` degrees clockwise (screen axes, y down) about `center`. */
+export function rotatePoint(p, center, deg) {
+  if (!deg) return { x: p.x, y: p.y };
+  const a = (deg * Math.PI) / 180;
+  const cos = Math.cos(a);
+  const sin = Math.sin(a);
+  const dx = p.x - center.x;
+  const dy = p.y - center.y;
+  return { x: center.x + dx * cos - dy * sin, y: center.y + dx * sin + dy * cos };
+}
+
+/** A world point in the node's local (unrotated) frame. */
+export function toNodeLocal(n, p) {
+  return rotatePoint(p, nodeCenter(n), -nodeRotation(n));
+}
+
+/** A local-frame point of the node in world space. */
+export function fromNodeLocal(n, p) {
+  return rotatePoint(p, nodeCenter(n), nodeRotation(n));
+}
+
+/** The node's corners in world space, clockwise from its local top-left. */
+export function nodeCorners(n) {
+  return [
+    { x: n.x, y: n.y },
+    { x: n.x + n.w, y: n.y },
+    { x: n.x + n.w, y: n.y + n.h },
+    { x: n.x, y: n.y + n.h },
+  ].map((p) => fromNodeLocal(n, p));
+}
+
+/**
+ * The node at size w x h, placed so the point at fraction (fx, fy) of its
+ * box (0,0 the local top-left, 1,1 the local bottom-right) stays where it is
+ * in world space. Unrotated nodes keep plain arithmetic, so nothing drifts.
+ */
+export function resizeAnchored(n, w, h, fx = 0, fy = 0) {
+  const deg = nodeRotation(n);
+  if (!deg) return { ...n, x: n.x + fx * (n.w - w), y: n.y + fy * (n.h - h), w, h };
+  const fixed = fromNodeLocal(n, { x: n.x + fx * n.w, y: n.y + fy * n.h });
+  const offset = rotatePoint({ x: (fx - 0.5) * w, y: (fy - 0.5) * h }, { x: 0, y: 0 }, deg);
+  const cx = fixed.x - offset.x;
+  const cy = fixed.y - offset.y;
+  return { ...n, x: cx - w / 2, y: cy - h / 2, w, h };
 }
 
 /** Does `outer` contain the point `innerCenter`? Used for frame membership. */
@@ -56,11 +148,13 @@ export function moveNodesBy(
   dx,
   dy
 ) {
-  const idSet = new Set(ids);
+  // Locked objects stay put, including the locked children of a moved frame.
+  const locked = lockedIdSet(state);
+  const idSet = new Set(ids.filter((id) => !locked.has(id)));
   for (const node of state.nodes) {
     if (node.type === "frame" && idSet.has(node.id)) {
       for (const child of state.nodes) {
-        if (child.parentId === node.id) idSet.add(child.id);
+        if (child.parentId === node.id && !locked.has(child.id)) idSet.add(child.id);
       }
     }
   }
@@ -104,6 +198,17 @@ export function resizeNode(
   dy,
   keepAspect
 ) {
+  const deg = nodeRotation(n);
+  if (deg) {
+    // A rotated node resizes in its own frame: the pointer delta is turned
+    // into local axes, and the handle opposite the dragged one stays put in
+    // world space so the object does not drift.
+    const local = rotatePoint({ x: dx, y: dy }, { x: 0, y: 0 }, -deg);
+    const upright = resizeNode({ ...n, rotation: 0 }, handle, local.x, local.y, keepAspect);
+    const fx = handle.includes("w") ? 1 : 0;
+    const fy = handle.includes("n") ? 1 : 0;
+    return resizeAnchored(n, upright.w, upright.h, fx, fy);
+  }
   const { x, y, w, h } = n;
   const e = handle.includes("e");
   const wSide = handle.includes("w");
@@ -230,7 +335,21 @@ const ANCHOR_DIRECTIONS = {
  * Every other node keeps its bounding-box anchors unchanged.
  */
 export function nodeAnchorPoint(node, anchor, towards) {
-  const bounds = nodeBounds(node);
+  // A rotated node attaches where its rotated shape does: resolve in the
+  // node's own frame, then turn the point back into world space.
+  if (nodeRotation(node)) {
+    const local = uprightAnchorPoint(node, anchor, towards && toNodeLocal(node, towards));
+    return fromNodeLocal(node, local);
+  }
+  return uprightAnchorPoint(node, anchor, towards);
+}
+
+function uprightBounds(n) {
+  return { x: n.x, y: n.y, w: n.w, h: n.h };
+}
+
+function uprightAnchorPoint(node, anchor, towards) {
+  const bounds = uprightBounds(node);
   const outline = nodeOutline(node);
   if (!outline || anchor === "center") return anchorPoint(bounds, anchor, towards ?? boundsCenter(bounds));
   const center = boundsCenter(bounds);
@@ -259,8 +378,8 @@ export function resolveEndpoint(
   if (!("nodeId" in ep)) return { x: ep.x, y: ep.y };
   const node = nodesById[ep.nodeId];
   if (!node) return { x: 0, y: 0 }; // dangling ref — caller should have dropped the connector
-  const bounds = nodeBounds(node);
-  if (!nodeOutline(node)) return anchorPoint(bounds, ep.anchor, boundsCenter(bounds));
+  const bounds = uprightBounds(node);
+  if (!nodeOutline(node)) return fromNodeLocal(node, anchorPoint(bounds, ep.anchor, boundsCenter(bounds)));
   // A path shape's "auto" has no opposite point here, so it is the center.
   return ep.anchor === "auto" ? boundsCenter(bounds) : nodeAnchorPoint(node, ep.anchor);
 }
@@ -306,19 +425,21 @@ export function connectorPath(
 // ---- hit testing ----
 
 /** Top-most node id under `worldPoint`, or null: path shapes count only
- * inside their outline, every other node inside its bounding box. */
+ * inside their outline, every other node inside its (rotated) box. */
 export function hitTest(state, worldPoint) {
   for (let i = state.nodes.length - 1; i >= 0; i--) {
     const node = state.nodes[i];
-    const b = nodeBounds(node);
+    // Tested in the node's own frame, so a rotated node is hit inside its
+    // rotated box (or outline), not its larger axis-aligned bounds.
+    const p = toNodeLocal(node, worldPoint);
     if (
-      worldPoint.x >= b.x &&
-      worldPoint.x <= b.x + b.w &&
-      worldPoint.y >= b.y &&
-      worldPoint.y <= b.y + b.h
+      p.x >= node.x &&
+      p.x <= node.x + node.w &&
+      p.y >= node.y &&
+      p.y <= node.y + node.h
     ) {
       const outline = nodeOutline(node);
-      if (!outline || pointInPolygon(worldPoint, outline)) return node.id;
+      if (!outline || pointInPolygon(p, outline)) return node.id;
     }
   }
   return null;

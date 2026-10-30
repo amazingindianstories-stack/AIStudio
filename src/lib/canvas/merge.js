@@ -91,6 +91,21 @@ function attachedTo(endpoint, nodeIds) {
   return !("nodeId" in endpoint) || nodeIds.has(endpoint.nodeId);
 }
 
+/**
+ * Board settings merge per setting (background, start view, layers): the
+ * side that changed one wins, and local wins when both did.
+ */
+function mergeSettings(base, local, remote) {
+  if (sameValue(local ?? null, remote ?? null)) return local;
+  const keys = new Set([...Object.keys(base ?? {}), ...Object.keys(local ?? {}), ...Object.keys(remote ?? {})]);
+  const merged = {};
+  for (const key of keys) {
+    const value = sameValue(base?.[key], local?.[key]) ? remote?.[key] : local?.[key];
+    if (value !== undefined) merged[key] = value;
+  }
+  return Object.keys(merged).length ? merged : undefined;
+}
+
 /** Merges `remote` into `local` relative to `base`; see the module comment for the rules. */
 export function mergeCanvasStates(base, local, remote) {
   const merged = mergeItems(base.nodes, local.nodes, remote.nodes);
@@ -100,9 +115,13 @@ export function mergeCanvasStates(base, local, remote) {
   // A node deleted on one side drops connectors attached to it on the other.
   const connectors = mergeItems(base.connectors, local.connectors, remote.connectors)
     .filter((connector) => attachedTo(connector.from, nodeIds) && attachedTo(connector.to, nodeIds));
+  const settings = mergeSettings(base.settings, local.settings, remote.settings);
   const unchanged = (next, prev) => next.length === prev.length && next.every((item, index) => item === prev[index]);
-  if (unchanged(nodes, local.nodes) && unchanged(connectors, local.connectors)) return local;
-  return { ...local, nodes, connectors };
+  if (unchanged(nodes, local.nodes) && unchanged(connectors, local.connectors) && settings === local.settings) return local;
+  const result = { ...local, nodes, connectors };
+  if (settings) result.settings = settings;
+  else delete result.settings;
+  return result;
 }
 
 /**

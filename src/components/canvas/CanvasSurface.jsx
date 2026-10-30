@@ -20,7 +20,6 @@ import { getAssetDragData } from "@/lib/asset-drag-contract";
 import {
   computeFrameMembership,
   hitTest,
-  marqueeHits,
   moveNodesBy,
   nodeAnchorPoint,
   nodeBounds,
@@ -40,10 +39,20 @@ import {
   swipeZoomViewport,
 } from "@/lib/canvas/touch-gestures";
 import { selectionActions } from "@/lib/canvas/selection-actions";
+import { groupCenter, pointerAngle, rotateNodesAbout, rotationDragDelta, rotationTargets } from "@/lib/canvas/transform";
+import { RotateHandle } from "./RotateHandle";
 import { cullBoard } from "@/lib/canvas/culling";
+import { layeredView } from "@/lib/canvas/layers";
+import { lockedIdSet } from "@/lib/canvas/locks";
 import { NodeView, } from "./nodes/NodeView";
 import { ConnectorLayer } from "./ConnectorLayer";
 import { CanvasContextMenu, } from "./CanvasContextMenu";
+import { ArrangeOverlay, AutoLayoutHandle } from "./ArrangeOverlay";
+import { useArrangeGestures } from "./use-arrange-gestures";
+import { runArrangeMenuAction } from "./ArrangeMenu";
+import { useBoardWheel } from "./use-board-wheel";
+import { useViewPrefs } from "@/lib/canvas/view-prefs";
+import { surfaceBackground } from "@/lib/canvas/board-view";
 
  
 
@@ -152,8 +161,14 @@ export const CanvasSurface = forwardRef
   const [size, setSize] = useState({ w: 0, h: 0 });
 
   const loaded = useCanvasStore((s) => s.loaded);
-  const present = useCanvasStore((s) => s.history.present);
+  const boardState = useCanvasStore((s) => s.history.present);
+  const hiddenLayerIds = useCanvasStore((s) => s.hiddenLayerIds);
+  // The board as drawn: in layer order and without the layers this person hides, so drawing,
+  // hit-testing, marquee and culling all follow the layers. Derived only; never written back.
+  const present = useMemo(() => layeredView(boardState, hiddenLayerIds), [boardState, hiddenLayerIds]);
+  const lockedIds = useMemo(() => lockedIdSet(boardState), [boardState]);
   const selection = useCanvasStore((s) => s.selection);
+  const selectedIds = useMemo(() => new Set(selection), [selection]);
   const selectedConnectorIds = useCanvasStore((s) => s.selectedConnectorIds);
   const tool = useCanvasStore((s) => s.tool);
   const readOnly = useCanvasStore(selectReadOnly);
@@ -176,6 +191,7 @@ export const CanvasSurface = forwardRef
   const items = useStore((s) => s.items);
 
   const viewport = present.viewport;
+  const gridStyle = useViewPrefs((s) => s.grid);
 
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [preview, setPreview] = useState(null);
@@ -192,6 +208,7 @@ export const CanvasSurface = forwardRef
   // events can be told apart from real mouse ones.
   const touchRef = useRef({ pointers: new Map(), lastTap: null, pending: null, lastPointerType: "mouse" });
   const longPressRef = useRef(null);
+  const arrange = useArrangeGestures({ dragRef, view: present, viewport, size, setPreview, onTransientChange });
 
   const displayState = preview ?? present;
   const nodesById = useMemo(() => {
@@ -291,6 +308,7 @@ export const CanvasSurface = forwardRef
     const drag = dragRef.current;
     dragRef.current = null;
     if (!drag) return;
+    arrange.cancel();
     setPreview(null);
     setMarqueeScreen(null);
     setDragGhost(null);
@@ -300,31 +318,7 @@ export const CanvasSurface = forwardRef
     onTransientChange?.(false);
   };
 
-  const onWheel = useCallback(
-    (e) => {
-      e.preventDefault();
-      const local = toScreenLocal(e.clientX, e.clientY);
-      if (e.ctrlKey || e.metaKey) {
-        // zoom toward cursor
-        const worldBefore = screenToWorld(local, viewport);
-        const factor = Math.exp(-e.deltaY * 0.01);
-        const nextZoom = Math.min(4, Math.max(0.1, viewport.zoom * factor));
-        const nextVp = {
-          zoom: nextZoom,
-          x: worldBefore.x - local.x / nextZoom,
-          y: worldBefore.y - local.y / nextZoom,
-        };
-        setViewport(nextVp);
-      } else {
-        setViewport({
-          ...viewport,
-          x: viewport.x + e.deltaX / viewport.zoom,
-          y: viewport.y + e.deltaY / viewport.zoom,
-        });
-      }
-    },
-    [viewport, setViewport, toScreenLocal]
-  );
+  useBoardWheel(containerRef);
 
   const beginPan = (screen) => {
     dragRef.current = {
@@ -457,7 +451,8 @@ export const CanvasSurface = forwardRef
           if (!drag || drag.kind !== "pan" || drag.moved) return;
           const at = touchRef.current.pointers.get(pointerId) ?? screen;
           clearSelection();
-          dragRef.current = { kind: "marquee", startScreen: at, startWorld: screenToWorld(at, viewport), moved: false };
+          // A long press then drag is a precise marquee (objects mostly inside it).
+          dragRef.current = { kind: "marquee", startScreen: at, startWorld: screenToWorld(at, viewport), moved: false, precise: true };
           setMarqueeScreen({ x0: at.x, y0: at.y, x1: at.x, y1: at.y });
           onTransientChange?.(false);
         });
@@ -471,7 +466,12 @@ export const CanvasSurface = forwardRef
         moved: false,
       };
       setMarqueeScreen({ x0: screen.x, y0: screen.y, x1: screen.x, y1: screen.y });
+      // Holding the press still first makes it a precise marquee.
+      arrange.armPreciseMarquee(dragRef.current);
+      return;
     }
+
+    if (tool === "lasso") arrange.beginLasso(screen, e.shiftKey);
   };
 
   const onPointerDownNode = (e, node) => {
@@ -511,6 +511,11 @@ export const CanvasSurface = forwardRef
       return;
     }
 
+    if (tool === "lasso") {
+      arrange.beginLasso(screen, e.shiftKey);
+      return;
+    }
+
     if (tool === "select" && readOnly) {
       // View and comment access: selecting is fine, moving is not.
       if (!selection.includes(node.id)) setSelection([node.id]);
@@ -543,6 +548,12 @@ export const CanvasSurface = forwardRef
       } else if (!selection.includes(node.id)) {
         setSelection([node.id]);
       }
+      // Nothing selected can move (all locked): a click selects, a drag does nothing.
+      // An Alt-drag still copies, since copies are unlocked.
+      if (!altDuplicate && useCanvasStore.getState().selection.every((id) => lockedIds.has(id))) {
+        if (pendingDeselectId) toggleSelect(pendingDeselectId);
+        return;
+      }
       dragRef.current = {
         kind: "move",
         startScreen: screen,
@@ -554,6 +565,39 @@ export const CanvasSurface = forwardRef
       onTransientChange?.(true);
     }
   };
+
+  // The rotation handle: one object turns about its own center, a
+  // multi-selection about the center of the box around it. Previewed live,
+  // committed once on release (onPointerUp) as one undo step.
+  const onPointerDownRotate = (e, node = null) => {
+    if (readOnly || touchViewOnly) return;
+    const targets = rotationTargets(present, node ? [node.id] : selection);
+    if (!targets.length) return;
+    e.currentTarget.setPointerCapture?.(e.pointerId);
+    const screen = toScreenLocal(e.clientX, e.clientY);
+    const startWorld = screenToWorld(screen, viewport);
+    const center = groupCenter(targets);
+    dragRef.current = {
+      kind: "rotate",
+      startScreen: screen,
+      startWorld,
+      moved: false,
+      rotateIds: targets.map((n) => n.id),
+      rotateCenter: center,
+      rotateStartAngle: pointerAngle(center, startWorld),
+      rotateStartRotation: targets.length === 1 ? targets[0].rotation ?? 0 : null,
+    };
+    onTransientChange?.(true);
+  };
+  const rotateDeltaAt = (drag, e) =>
+    rotationDragDelta(drag.rotateStartAngle, pointerAngle(drag.rotateCenter, screenToWorld(toScreenLocal(e.clientX, e.clientY), viewport)), {
+      snap: e.shiftKey,
+      startRotation: drag.rotateStartRotation,
+    });
+  const rotatableSelection = useMemo(
+    () => (readOnly || touchViewOnly ? new Set() : new Set(rotationTargets(present, selection).map((n) => n.id))),
+    [present, selection, readOnly, touchViewOnly]
+  );
 
   const onPointerDownHandle = (e, node, handle) => {
     if (readOnly) return;
@@ -684,6 +728,8 @@ export const CanvasSurface = forwardRef
       case "ungroup":
         s.ungroup();
         break;
+      default:
+        runArrangeMenuAction(action);
     }
     setContextMenu(null);
   };
@@ -699,6 +745,8 @@ export const CanvasSurface = forwardRef
 
   const openNodeEditor = (node, action) => {
     setSelection([node.id]);
+    // A locked object is selected, never opened for typing or cropping.
+    if (lockedIds.has(node.id)) return;
     if (action === "crop") useCanvasStore.getState().beginCrop(node.id);
     else useCanvasStore.getState().setEditingTextId(node.id);
   };
@@ -754,6 +802,16 @@ export const CanvasSurface = forwardRef
       return;
     }
 
+    if (drag.kind === "lasso") {
+      arrange.moveLasso(drag, screen);
+      return;
+    }
+
+    if (drag.kind === "layout") {
+      arrange.moveLayout(drag, dx / viewport.zoom, dy / viewport.zoom, dx, dy);
+      return;
+    }
+
     if (drag.kind === "move") {
       // C1: on the first move past the 2px threshold, an alt-held drag
       // duplicates the selection IN PLACE (zero offset) and re-targets this
@@ -785,9 +843,14 @@ export const CanvasSurface = forwardRef
         if (Math.abs(worldDx) >= Math.abs(worldDy)) constrainedDy = 0;
         else constrainedDx = 0;
       }
-      const next = moveNodesBy(present, selection, constrainedDx, constrainedDy);
+      // Alignment guides and snap to grid (per the person's view preferences).
+      const snapped = arrange.snapMoveDelta(drag, constrainedDx, constrainedDy, {
+        lockX: e.shiftKey && constrainedDx === 0,
+        lockY: e.shiftKey && constrainedDy === 0,
+      });
+      const next = moveNodesBy(present, selection, snapped.dx, snapped.dy);
       // frame drop-highlight preview
-      const movedNode = next.nodes.find((n) => n.id === selection[0]);
+      const movedNode = next.nodes.find((n) => n.id === (selection.find((id) => !lockedIds.has(id)) ?? selection[0]));
       if (movedNode && movedNode.type !== "frame") {
         const frames = next.nodes.filter((n) => n.type === "frame");
         const targetFrame = computeFrameMembership(movedNode, frames);
@@ -797,13 +860,19 @@ export const CanvasSurface = forwardRef
       return;
     }
 
+    if (drag.kind === "rotate") {
+      setPreview(rotateNodesAbout(present, drag.rotateIds, rotateDeltaAt(drag, e), drag.rotateCenter));
+      return;
+    }
+
     if (drag.kind === "resize" && drag.resizeStartNode && drag.resizeNodeId && drag.resizeHandle) {
       const worldDx = dx / viewport.zoom;
       const worldDy = dy / viewport.zoom;
       // Every node, including images, resizes freely by default. Holding
       // Shift temporarily preserves the frame's current aspect ratio.
       const keepAspect = e.shiftKey;
-      const resized = resizeNode(drag.resizeStartNode, drag.resizeHandle, worldDx, worldDy, keepAspect);
+      const snapped = arrange.snapResizeDelta(drag.resizeStartNode, drag.resizeHandle, worldDx, worldDy, keepAspect);
+      const resized = resizeNode(drag.resizeStartNode, drag.resizeHandle, snapped.dx, snapped.dy, keepAspect);
       const nextNodes = present.nodes.map((n) => (n.id === drag.resizeNodeId ? resized : n));
       setPreview({ ...present, nodes: nextNodes });
       return;
@@ -855,22 +924,36 @@ export const CanvasSurface = forwardRef
             w: Math.abs(w2.x - w1.x),
             h: Math.abs(w2.y - w1.y),
           };
-          const hits = marqueeHits(present, rect);
+          const hits = arrange.marqueeSelection(present, rect, drag.precise);
           if (hits.length) setSelection(Array.from(new Set([...selection, ...hits])));
         }
       }
+      arrange.endMarquee();
       setMarqueeScreen(null);
       return;
     }
 
+    if (drag.kind === "lasso") {
+      arrange.endLasso(drag);
+      return;
+    }
+
+    if (drag.kind === "layout") {
+      arrange.endLayout(drag);
+      return;
+    }
+
     if (drag.kind === "move") {
+      arrange.clearGuides();
       // The preview state already holds the fully-moved nodes (computed via
       // the pure moveNodesBy on every pointermove); diff the selection's
       // anchor node against its pre-drag position to get the exact total
       // delta and commit it as a single gesture-end call.
       if (preview) {
-        const movedNode = preview.nodes.find((n) => n.id === selection[0]);
-        const originalNode = present.nodes.find((n) => n.id === selection[0]);
+        // Measured on a selected object that moves: locked ones stay put.
+        const anchorId = selection.find((id) => !lockedIds.has(id)) ?? selection[0];
+        const movedNode = preview.nodes.find((n) => n.id === anchorId);
+        const originalNode = present.nodes.find((n) => n.id === anchorId);
         if (movedNode && originalNode && drag.moved) {
           moveSelectionBy(movedNode.x - originalNode.x, movedNode.y - originalNode.y);
         }
@@ -963,13 +1046,21 @@ export const CanvasSurface = forwardRef
       }
       if (!drag) return;
     }
+    if (drag?.kind === "rotate") {
+      if (drag.moved) useCanvasStore.getState().rotateSelectionBy(rotateDeltaAt(drag, e), drag.rotateCenter);
+      setPreview(null);
+      dragRef.current = null;
+      onTransientChange?.(false);
+      return;
+    }
     if (drag?.kind === "resize" && drag.resizeStartNode && drag.resizeHandle && drag.resizeNodeId) {
       const screen = toScreenLocal(e.clientX, e.clientY);
       const worldDx = (screen.x - drag.startScreen.x) / viewport.zoom;
       const worldDy = (screen.y - drag.startScreen.y) / viewport.zoom;
       const keepAspect = e.shiftKey;
       if (drag.moved) {
-        resizeSelected(drag.resizeHandle, worldDx, worldDy, keepAspect);
+        const snapped = arrange.snapResizeDelta(drag.resizeStartNode, drag.resizeHandle, worldDx, worldDy, keepAspect);
+        resizeSelected(drag.resizeHandle, snapped.dx, snapped.dy, keepAspect);
       }
       setPreview(null);
       dragRef.current = null;
@@ -1072,7 +1163,7 @@ export const CanvasSurface = forwardRef
     ? "cursor-copy" // C1: the standard, universally-recognized "you are duplicating" affordance
     : dragRef.current?.kind === "connector-endpoint"
     ? "cursor-grabbing"
-    : isCreateTool(tool) || tool === "connector"
+    : isCreateTool(tool) || tool === "connector" || tool === "lasso"
     ? "cursor-crosshair"
     : "cursor-default";
 
@@ -1084,7 +1175,6 @@ export const CanvasSurface = forwardRef
       role="application"
       aria-label="Board canvas"
       tabIndex={0}
-      onWheel={onWheel}
       onPointerDownCapture={onPointerDownCapture}
       onPointerDown={onPointerDownBackground}
       onPointerMove={onPointerMove}
@@ -1099,11 +1189,7 @@ export const CanvasSurface = forwardRef
         "absolute inset-0 touch-none select-none overflow-hidden bg-ink-900 outline-none [-webkit-touch-callout:none]",
         cursorClass
       )}
-      style={{
-        backgroundImage: "radial-gradient(rgba(255,255,255,0.06) 1px, transparent 1px)",
-        backgroundSize: `${24 * viewport.zoom}px ${24 * viewport.zoom}px`,
-        backgroundPosition: `${-viewport.x * viewport.zoom}px ${-viewport.y * viewport.zoom}px`,
-      }}
+      style={surfaceBackground(gridStyle, viewport, present.settings)}
     >
       <div className="absolute left-0 top-0 origin-top-left" style={{ transform: worldTransform }}>
         {renderedNodes.map((n) => (
@@ -1112,7 +1198,9 @@ export const CanvasSurface = forwardRef
             node={n}
             tool={tool}
             showRing={selection.length === 1 && selection[0] === n.id}
-            showHandles={!readOnly && !touchViewOnly && selection.length === 1 && selection[0] === n.id && n.type !== "frame"}
+            showHandles={!readOnly && !touchViewOnly && selection.length === 1 && selection[0] === n.id && n.type !== "frame" && !lockedIds.has(n.id)}
+            locked={lockedIds.has(n.id)}
+            selected={selectedIds.has(n.id)}
             readOnly={readOnly}
             viewOnly={touchViewOnly}
             editingTextId={editingTextId}
@@ -1124,6 +1212,7 @@ export const CanvasSurface = forwardRef
             onCommitText={onCommitText}
             onCancelEdit={onCancelEdit}
             onPointerDownHandle={onPointerDownHandle}
+            onPointerDownRotate={rotatableSelection.has(n.id) ? onPointerDownRotate : undefined}
             onConnectorHandlePointerDown={onConnectorHandlePointerDown}
             connectorHoverTarget={connectorHoverTargetId === n.id}
             cropMode={croppingImageId === n.id}
@@ -1136,7 +1225,13 @@ export const CanvasSurface = forwardRef
         ))}
 
         {selection.length > 1 && (
-          <MultiSelectBox nodes={selectedNodes} />
+          <MultiSelectBox
+            nodes={selectedNodes}
+            onPointerDownRotate={rotatableSelection.size ? (e) => onPointerDownRotate(e) : undefined}
+          />
+        )}
+        {selection.length > 1 && !readOnly && !touchViewOnly && (
+          <AutoLayoutHandle state={displayState} ids={selection} zoom={viewport.zoom} onPointerDown={arrange.beginLayout} />
         )}
 
         <ConnectorLayer
@@ -1148,7 +1243,7 @@ export const CanvasSurface = forwardRef
             if (additive) toggleSelect(id);
             else useCanvasStore.setState({ selectedConnectorIds: [id], selection: [] });
           }}
-          marqueeWorldRect={marqueeWorldRect}
+          marqueeWorldRect={arrange.preciseMarquee ? null : marqueeWorldRect}
           draftConnector={draftConnector}
           onEndpointPointerDown={readOnly || touchViewOnly ? undefined : onEndpointPointerDown}
           onConnectorContextMenu={onConnectorContextMenu}
@@ -1161,6 +1256,17 @@ export const CanvasSurface = forwardRef
           />
         )}
       </div>
+
+      <ArrangeOverlay
+        containerRef={containerRef}
+        view={present}
+        viewport={viewport}
+        lassoPoints={arrange.lassoPoints}
+        guides={arrange.guides}
+        marqueeScreen={marqueeScreen}
+        preciseMarquee={arrange.preciseMarquee}
+        disabled={touchViewOnly}
+      />
 
       {contextMenu && (
         <CanvasContextMenu
@@ -1196,7 +1302,7 @@ export const CanvasSurface = forwardRef
   );
 });
 
-function MultiSelectBox({ nodes }) {
+function MultiSelectBox({ nodes, onPointerDownRotate }) {
   if (!nodes.length) return null;
   const bounds = nodes.map(nodeBounds);
   const x0 = Math.min(...bounds.map((b) => b.x));
@@ -1207,7 +1313,9 @@ function MultiSelectBox({ nodes }) {
     <div
       className="pointer-events-none absolute ring-1 ring-brand"
       style={{ left: x0, top: y0, width: x1 - x0, height: y1 - y0 }}
-    />
+    >
+      {onPointerDownRotate && <RotateHandle label="Rotate selection" onPointerDown={onPointerDownRotate} />}
+    </div>
   );
 }
 

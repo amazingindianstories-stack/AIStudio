@@ -10,8 +10,8 @@ import { fixtureDatabase } from './fixture-db.mjs';
 // Gestures are real touch events dispatched through CDP, so the pointer-event
 // handling in CanvasSurface is exercised the way a phone drives it.
 
-const OWNER = { id: 'b0a2d000-0000-4000-8000-000000000011', name: 'Touch owner', email: 'touch-owner@example.test' };
-const VIEWER = { id: 'b0a2d000-0000-4000-8000-000000000012', name: 'Touch viewer', email: 'touch-viewer@example.test' };
+const OWNER = { id: 'b0a2d000-0000-4000-8000-000000000015', name: 'Touch owner', email: 'touch-owner@example.test' };
+const VIEWER = { id: 'b0a2d000-0000-4000-8000-000000000016', name: 'Touch viewer', email: 'touch-viewer@example.test' };
 const PHONE = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true };
 const TABLET = { viewport: { width: 768, height: 1024 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true };
 

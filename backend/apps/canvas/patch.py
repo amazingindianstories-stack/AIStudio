@@ -70,6 +70,12 @@ def apply_patch(stored, patch):
         graph[kind] = _applied(stored[kind], items, added, deleted, patch.get(ORDER_KEYS[kind]))
     if 'viewport' in patch:
         graph['viewport'] = patch['viewport']
+    # Board settings come whole when they changed; null clears them.
+    if 'settings' in patch:
+        if patch['settings'] is None:
+            graph.pop('settings', None)
+        else:
+            graph['settings'] = patch['settings']
     return graph
 
 
@@ -108,6 +114,8 @@ def changes_since(graph, records):
         items = [item for item in graph[kind] if item['id'] in ids]
         present = {item['id'] for item in items}
         result[kind] = {'upsert': items, 'delete': sorted(ids - present)}
+    # The board settings are small and recorded by no id, so every reply carries them (null when none).
+    result['settings'] = graph.get('settings')
     result['nodeOrderHash'] = order_hash(item['id'] for item in graph['nodes'])
     result['connectorOrderHash'] = order_hash(item['id'] for item in graph['connectors'])
     return result

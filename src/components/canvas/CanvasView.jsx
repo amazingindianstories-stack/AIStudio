@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, Loader2, AlertTriangle, AlertCircle, Eye, MessageSquare, Lock, Share2, History, Pencil } from "lucide-react";
+import { Check, Loader2, AlertTriangle, AlertCircle, Eye, MessageSquare, Lock, Share2, History, Pencil, Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import { useMediaQuery } from "@/lib/use-media-query";
@@ -23,7 +23,14 @@ import { BoardShareDialog } from "./BoardShareDialog";
 import { CanvasAiPanel } from "./CanvasAiPanel";
 import { useBoardAi } from "@/lib/board-ai";
 import { BoardHistoryPanel } from "./BoardHistoryPanel";
+import { LayersPanel } from "./LayersPanel";
+import { useLockShortcut } from "./use-lock-shortcut";
+import { useArrangeShortcuts } from "./use-arrange-shortcuts";
+import { layeredView } from "@/lib/canvas/layers";
 import { ObjectInfo } from "./ObjectInfo";
+import { BoardViewOverlays } from "./BoardViewOverlays";
+import { useBoardView } from "./use-board-view";
+import { zoomToLevel } from "@/lib/canvas/viewport-nav";
 
 // Miro's keys: N sticky note, T text, F frame; S opens the shapes panel.
 const TOOL_SHORTCUTS = {
@@ -47,6 +54,8 @@ export function CanvasView() {
   const [shareOpen, setShareOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const closeHistory = useCallback(() => setHistoryOpen(false), []);
+  const [layersOpen, setLayersOpen] = useState(false);
+  const closeLayers = useCallback(() => setLayersOpen(false), []);
   const [shapesOpen, setShapesOpen] = useState(false);
   const [boardsReload, setBoardsReload] = useState(0);
   const [noBoards, setNoBoards] = useState(false);
@@ -106,6 +115,7 @@ export function CanvasView() {
 
   // other people's saves appear within seconds while this tab is visible
   useBoardPolling(boardId, pollRemote);
+  useBoardView();
 
   // reset canvas-store when leaving the board view entirely (unmount)
   useEffect(() => {
@@ -149,6 +159,8 @@ export function CanvasView() {
   const narrow = useMediaQuery("(max-width: 767px)");
   const coarsePointer = useMediaQuery("(pointer: coarse)");
   const touchViewOnly = coarsePointer && !touchEditMode;
+  useLockShortcut(touchViewOnly);
+  useArrangeShortcuts(touchViewOnly);
 
   // Explicit board-project switch (BoardProjectSelector) — distinct from
   // CanvasAssetPanel's `scope`, which only filters displayed assets and must
@@ -258,7 +270,7 @@ export function CanvasView() {
       if (mod && e.key === "0") {
         e.preventDefault();
         const vp = useCanvasStore.getState().history.present.viewport;
-        setViewport({ ...vp, zoom: 1 });
+        setViewport(zoomToLevel(vp, 1, useCanvasStore.getState().viewportSize()));
         return;
       }
       if (mod && e.key.toLowerCase() === "g") {
@@ -327,7 +339,7 @@ export function CanvasView() {
       }
       if (e.key === "Tab") {
         const s = useCanvasStore.getState();
-        const nodes = s.history.present.nodes;
+        const nodes = layeredView(s.history.present, s.hiddenLayerIds).nodes;
         if (!nodes.length) return;
         e.preventDefault();
         const curIdx = s.selection.length ? nodes.findIndex((n) => n.id === s.selection[0]) : -1;
@@ -422,6 +434,7 @@ export function CanvasView() {
         onImportFiles={importImageFiles}
         touchViewOnly={touchViewOnly}
       />
+      <BoardViewOverlays insetLeft={narrow ? 0 : assetPanelWidth} gestureActive={transientActive} />
 
       {noBoards && (
         <div
@@ -481,11 +494,31 @@ export function CanvasView() {
               Share
             </button>
           )}
+          {boardId && loaded && (
+            <button
+              type="button"
+              aria-expanded={layersOpen}
+              onClick={() => {
+                setLayersOpen((open) => !open);
+                setHistoryOpen(false);
+              }}
+              className={cn(
+                "flex items-center gap-1.5 rounded-full border border-line bg-ink-700 px-3 py-1.5 text-sm text-white/85 outline-none transition hover:text-white focus-visible:ring-2 focus-visible:ring-brand",
+                layersOpen && "bg-ink-600 text-white"
+              )}
+            >
+              <Layers className="h-3.5 w-3.5" />
+              Layers
+            </button>
+          )}
           {boardId && loaded && !readOnly && (
             <button
               type="button"
               aria-expanded={historyOpen}
-              onClick={() => setHistoryOpen((open) => !open)}
+              onClick={() => {
+                setHistoryOpen((open) => !open);
+                setLayersOpen(false);
+              }}
               className={cn(
                 "flex items-center gap-1.5 rounded-full border border-line bg-ink-700 px-3 py-1.5 text-sm text-white/85 outline-none transition hover:text-white focus-visible:ring-2 focus-visible:ring-brand",
                 historyOpen && "bg-ink-600 text-white"
@@ -569,11 +602,12 @@ export function CanvasView() {
 
       {importNotice && <div role="status" className="absolute bottom-20 left-1/2 z-40 -translate-x-1/2 rounded-lg border border-line bg-ink-750/95 px-3 py-2 text-xs text-white/80 shadow-pop">{importNotice}</div>}
 
-      <StyleInspector hidden={transientActive || readOnly || touchViewOnly || noBoards} />
+      <StyleInspector hidden={transientActive || readOnly || touchViewOnly || noBoards} insetLeft={narrow ? 0 : assetPanelWidth} />
       {!noBoards && !transientActive && <ObjectInfo style={{ left: assetPanelWidth + 16 }} />}
       {historyOpen && boardId && loaded && !readOnly && (
         <BoardHistoryPanel key={boardId} boardId={boardId} onClose={closeHistory} />
       )}
+      {layersOpen && boardId && loaded && !historyOpen && <LayersPanel key={boardId} onClose={closeLayers} />}
 
       {loadError && (
         <div className="absolute inset-0 z-40 grid place-items-center bg-ink-900/90">

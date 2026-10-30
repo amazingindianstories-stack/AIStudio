@@ -24,6 +24,8 @@ async function freshProject(context, page) {
   await page.addInitScript(projectId => {
     const key = 'veevee-draft-settings-v1';
     if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify({ activeProjectId: projectId }));
+    // Scripted wheels read as a mouse wheel (which zooms in auto mode); this person scrolls like a trackpad.
+    localStorage.setItem('veevee.board.viewPrefs', JSON.stringify({ navigationMode: 'trackpad' }));
   }, project.id);
   return project.id;
 }

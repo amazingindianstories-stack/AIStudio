@@ -14,6 +14,8 @@
  * endpoints of every mounted connector.
  */
 
+import { nodeBounds } from "./geometry";
+
 /** Screen pixels mounted beyond each edge of the viewport. */
 export const CULL_OVERSCAN_PX = 900;
 /** How far a connector's curve can bow outside the box of its two ends (see connectorPath). */
@@ -37,7 +39,8 @@ function meets(rect, left, top, right, bottom) {
 /** The world box an endpoint can attach anywhere in: its node's bounds, or its free point. */
 function endpointBox(ep, nodesById) {
   if (!("nodeId" in ep)) return { x: ep.x, y: ep.y, w: 0, h: 0 };
-  return nodesById[ep.nodeId] ?? null;
+  const node = nodesById[ep.nodeId];
+  return node ? (node.rotation ? nodeBounds(node) : node) : null;
 }
 
 function connectorMeets(rect, connector, nodesById) {
@@ -68,6 +71,11 @@ export function cullBoard(graph, nodesById, viewport, size, keep = {}) {
     if ("nodeId" in connector.to) keptNodes.add(connector.to.nodeId);
     return true;
   });
-  const nodes = graph.nodes.filter((node) => keptNodes.has(node.id) || meets(rect, node.x, node.y, node.x + node.w, node.y + node.h));
+  const nodes = graph.nodes.filter((node) => {
+    if (keptNodes.has(node.id)) return true;
+    // A rotated node reaches past its unrotated box; cull by what it covers.
+    const b = node.rotation ? nodeBounds(node) : node;
+    return meets(rect, b.x, b.y, b.x + b.w, b.y + b.h);
+  });
   return { nodes, connectors };
 }

@@ -16,6 +16,8 @@ import { MAINTENANCE_MESSAGE } from "@/lib/maintenance";
 import { cn } from "@/lib/utils";
 
 const PANEL_MARGIN = 8;
+// Every kind of menu item the arrow keys move between.
+const MENU_ITEMS = '[role="menuitem"]:not(:disabled), [role="menuitemcheckbox"]:not(:disabled), [role="menuitemradio"]:not(:disabled)';
 const PANEL_GAP = 8;
 
 // Opens on the preferred side, flips when only the other side fits, and when
@@ -95,9 +97,7 @@ export function Dropdown({
     const frame = requestAnimationFrame(() => {
       if (!keyboardFocusRef.current) return;
       const { fromEnd } = keyboardFocusRef.current;
-      const items = panelRef.current?.querySelectorAll(
-        '[role="menuitem"]:not(:disabled)'
-      );
+      const items = panelRef.current?.querySelectorAll(MENU_ITEMS);
       const target = fromEnd ? items?.[items.length - 1] : items?.[0];
       target?.focus();
       keyboardFocusRef.current = null;
@@ -115,7 +115,7 @@ export function Dropdown({
   }, [closeAndRestore]);
 
   // Arrow-key roving focus among menuitem children once the panel is open.
-  // Scoped to [role="menuitem"] specifically (not every focusable element in
+  // Scoped to menu items specifically (not every focusable element in
   // the panel) so this never hijacks arrow keys inside a non-menu panel —
   // e.g. the composer settings panel's duration slider, which relies on
   // ArrowLeft/Right to adjust its own value.
@@ -125,7 +125,7 @@ export function Dropdown({
       return;
     }
     const items = Array.from(
-      panelRef.current?.querySelectorAll('[role="menuitem"]:not(:disabled)') ?? []
+      panelRef.current?.querySelectorAll(MENU_ITEMS) ?? []
     );
     if (!items.length) return;
     e.preventDefault();
@@ -273,6 +273,11 @@ export function MenuItem({
   maintenanceWrite = false,
   onClick,
   children,
+  // "menuitemcheckbox" or "menuitemradio" with `checked` for toggles and choices.
+  role = "menuitem",
+  checked,
+  label,
+  title,
 }
 
 ) {
@@ -281,7 +286,10 @@ export function MenuItem({
   return (
     <button
       type="button"
-      role="menuitem"
+      role={role}
+      aria-checked={role === "menuitem" ? undefined : Boolean(checked)}
+      aria-label={label}
+      title={title}
       disabled={disabled}
       onClick={onClick}
       className={cn(
