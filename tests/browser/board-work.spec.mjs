@@ -43,17 +43,58 @@ test('Board work: create cards, edit details, arrange columns, reload persisted 
   await panel.getByRole('combobox', { name: 'Assignee', exact: true }).selectOption(USER);
   await panel.getByRole('button', { name: 'Add columns', exact: true }).click();
   await panel.getByLabel('lanes name 1', { exact: true }).fill('Backlog');
+  await panel.getByLabel('lanes color 1', { exact: true }).fill('#ff8800');
+  await panel.getByRole('button', { name: 'Add column', exact: true }).click();
+  await panel.getByLabel('lanes name 4', { exact: true }).fill('Review');
+  await panel.getByRole('button', { name: 'Move Review up', exact: true }).click();
+  await panel.getByRole('button', { name: 'Add swimlane', exact: true }).click();
+  await panel.getByLabel('swimlanes name 2', { exact: true }).fill('Design');
+  await panel.getByLabel('swimlanes color 2', { exact: true }).fill('#22aa66');
+  await panel.getByRole('button', { name: 'Move Design up', exact: true }).click();
   await panel.getByRole('button', { name: 'Add card to columns', exact: true }).click();
   await panel.getByLabel('title', { exact: true }).fill('Lane task');
+  await panel.getByRole('combobox', { name: 'lane', exact: true }).selectOption({ label: 'Review' });
+  await panel.getByRole('combobox', { name: 'swimlane', exact: true }).selectOption({ label: 'Team' });
   const boards = await (await context.request.get(`/api/canvas-boards?projectId=${project.id}`)).json();
   const boardId = boards.boards[0].id;
   await expect.poll(async () => {
     const board = await (await context.request.get(`/api/canvas-boards/${boardId}`)).json();
     return board.data.nodes.filter(n => n.type === 'card').map(n => n.record.title).sort();
   }).toEqual(['Lane task', 'Ship milestone']);
+  // Assert placement from persisted data, independently of rendered node visibility.
+  await expect.poll(async () => {
+    const board = await (await context.request.get(`/api/canvas-boards/${boardId}`)).json();
+    const columns = board.data.nodes.find(n => n.kind === 'columns');
+    const task = board.data.nodes.find(n => n.record?.title === 'Lane task');
+    return {
+      lanes: columns.lanes.map(l => l.name), swimlanes: columns.swimlanes.map(l => l.name),
+      colors: [columns.lanes[0].color, columns.swimlanes[0].color],
+      parent: task.parentId === columns.id,
+      lane: task.record.lane === columns.lanes[2].id,
+      swimlane: task.record.swimlane === columns.swimlanes[1].id,
+    };
+  }).toMatchObject({
+    lanes: ['Backlog', 'In progress', 'Review', 'Done'], swimlanes: ['Design', 'Team'],
+    colors: ['#ff8800', '#22aa66'], parent: true, lane: true, swimlane: true,
+  });
+  const placed = await (await context.request.get(`/api/canvas-boards/${boardId}`)).json();
+  const columns = placed.data.nodes.find(n => n.kind === 'columns');
+  const task = placed.data.nodes.find(n => n.record?.title === 'Lane task');
+  expect(task.x).toBe(columns.x + 16 + 2 * (columns.w - 20) / 4);
+  expect(task.y).toBe(columns.y + 84 + (columns.h - 72) / 2);
+  expect(task.x + task.w).toBeLessThanOrEqual(columns.x + columns.w);
+  expect(task.y + task.h).toBeLessThanOrEqual(columns.y + columns.h);
   await page.reload();
   await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Board', exact: true }).click();
   await page.getByRole('button', { name: 'Cards and work', exact: true }).click();
+  await panel.getByRole('combobox', { name: 'Selected widget', exact: true }).selectOption({ label: 'Team board' });
+  await expect(panel.getByLabel('lanes name 3', { exact: true })).toHaveValue('Review');
+  await expect(panel.getByLabel('lanes color 1', { exact: true })).toHaveValue('#ff8800');
+  await expect(panel.getByLabel('swimlanes name 1', { exact: true })).toHaveValue('Design');
+  await expect(panel.getByLabel('swimlanes color 1', { exact: true })).toHaveValue('#22aa66');
+  await panel.getByRole('combobox', { name: 'Selected widget', exact: true }).selectOption({ label: 'Lane task' });
+  await expect(panel.getByRole('combobox', { name: 'lane', exact: true })).toHaveValue(task.record.lane);
+  await expect(panel.getByRole('combobox', { name: 'swimlane', exact: true })).toHaveValue(task.record.swimlane);
   await panel.getByRole('combobox', { name: 'Selected widget', exact: true }).selectOption({ label: 'Ship milestone' });
   await expect(panel.getByRole('textbox', { name: 'description', exact: true })).toHaveValue('Review the release checklist');
   await expect(panel.getByRole('combobox', { name: 'Assignee', exact: true })).toHaveValue(USER);
