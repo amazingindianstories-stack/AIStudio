@@ -53,6 +53,36 @@ function connectorMeets(rect, connector, nodesById) {
   );
 }
 
+export function hiddenDiagramLayerNodeIds(nodes = []) {
+  const hiddenLayersByDiagram = new Map();
+  const globalHiddenLayers = new Set();
+  for (const node of nodes) {
+    if (node.type === "diagram" && Array.isArray(node.layers)) {
+      const set = new Set();
+      for (const layer of node.layers) {
+        if (layer && layer.visible === false && typeof layer.id === "string") {
+          set.add(layer.id);
+          globalHiddenLayers.add(layer.id);
+        }
+      }
+      if (set.size > 0) hiddenLayersByDiagram.set(node.id, set);
+    }
+  }
+  const hiddenNodeIds = new Set();
+  if (globalHiddenLayers.size === 0) return hiddenNodeIds;
+  for (const node of nodes) {
+    if (!node.diagramLayerId) continue;
+    if (node.parentId && hiddenLayersByDiagram.has(node.parentId)) {
+      if (hiddenLayersByDiagram.get(node.parentId).has(node.diagramLayerId)) {
+        hiddenNodeIds.add(node.id);
+      }
+    } else if (globalHiddenLayers.has(node.diagramLayerId)) {
+      hiddenNodeIds.add(node.id);
+    }
+  }
+  return hiddenNodeIds;
+}
+
 /**
  * The nodes and connectors to mount, each in board (z-)order.
  * `keep` holds the always-mounted ids: `nodeIds` (an iterable) and
@@ -60,14 +90,21 @@ function connectorMeets(rect, connector, nodesById) {
  */
 export function cullBoard(graph, nodesById, viewport, size, keep = {}) {
   const rect = cullRect(viewport, size);
+  const hiddenNodes = hiddenDiagramLayerNodeIds(graph.nodes);
   const keptNodes = new Set(keep.nodeIds ?? []);
   const keptConnectors = new Set(keep.connectorIds ?? []);
   const connectors = graph.connectors.filter((connector) => {
+    if ("nodeId" in connector.from && hiddenNodes.has(connector.from.nodeId)) return false;
+    if ("nodeId" in connector.to && hiddenNodes.has(connector.to.nodeId)) return false;
     if (!keptConnectors.has(connector.id) && !connectorMeets(rect, connector, nodesById)) return false;
     if ("nodeId" in connector.from) keptNodes.add(connector.from.nodeId);
     if ("nodeId" in connector.to) keptNodes.add(connector.to.nodeId);
     return true;
   });
-  const nodes = graph.nodes.filter((node) => keptNodes.has(node.id) || meets(rect, node.x, node.y, node.x + node.w, node.y + node.h));
+  const nodes = graph.nodes.filter(
+    (node) =>
+      !hiddenNodes.has(node.id) &&
+      (keptNodes.has(node.id) || meets(rect, node.x, node.y, node.x + node.w, node.y + node.h))
+  );
   return { nodes, connectors };
 }

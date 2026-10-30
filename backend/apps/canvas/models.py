@@ -111,3 +111,22 @@ class BoardActivity(models.Model):
         indexes = [models.Index(fields=['board_id', '-created_at', '-ordinal'], name='board_activity_board_idx'),
                    models.Index(fields=['created_at'], name='board_activity_created_idx')]
         constraints = [models.CheckConstraint(condition=models.Q(action__in=ACTIVITY_ACTIONS), name='board_activity_action_check')]
+
+
+class CustomShapePack(models.Model):
+    """User-uploaded custom SVG shape pack, optionally shared with the organisation."""
+    id = models.UUIDField(primary_key=True, db_default=RandomUUID())
+    name = models.TextField()
+    created_by = models.UUIDField()
+    shared = models.BooleanField(db_default=False)
+    show_names = models.BooleanField(db_default=True)
+    shapes = models.JSONField()
+    created_at = models.BigIntegerField()
+    updated_at = models.BigIntegerField()
+
+    class Meta:
+        managed = True
+        db_table = 'canvas_custom_shape_packs'
+        indexes = [models.Index(fields=['created_by'], name='canvas_shape_packs_creator_idx'),
+                   models.Index(fields=['shared', 'updated_at'], name='canvas_shape_packs_shared_idx')]
+

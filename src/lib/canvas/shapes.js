@@ -183,6 +183,59 @@ export const BASIC_SHAPES = [
 ];
 
 const LEGACY_SHAPE_TYPES = new Set(["rect", "ellipse", "triangle", "diamond"]);
+const STRUCTURED_CREATE_TOOLS = new Set(["erd", "swimlane", "swimlane-vertical", "diagram"]);
+const DETAILS = {};
+const CUSTOM_SHAPES_BY_TOOL = new Map();
+let packsPromise = null;
+
+/** Registers custom shape pack items so placement tools can look up SVG & viewBox. */
+export function registerCustomShapes(packs = []) {
+  for (const pack of packs) {
+    if (!pack || !Array.isArray(pack.shapes)) continue;
+    for (const s of pack.shapes) {
+      if (!s || !s.id || !s.svg) continue;
+      const tool = `custom-shape:${pack.id}:${s.id}`;
+      CUSTOM_SHAPES_BY_TOOL.set(tool, {
+        packId: pack.id,
+        shapeId: s.id,
+        name: s.name || "Custom Shape",
+        svg: s.svg,
+        viewBox: s.viewBox || "0 0 100 100",
+      });
+    }
+  }
+}
+
+export function getCustomShapeByTool(tool) {
+  return CUSTOM_SHAPES_BY_TOOL.get(tool) ?? null;
+}
+
+/** Registers extended shape pack outlines and interior detail strokes. */
+export function registerShapePack(outlines = {}, details = {}) {
+  Object.assign(OUTLINES, outlines);
+  Object.assign(DETAILS, details);
+}
+
+/** Lazily loads the extended diagramming shape packs when needed. */
+export function ensureShapePacksLoaded() {
+  if (!packsPromise) {
+    packsPromise = import("./shape-packs").then((mod) => {
+      registerShapePack(mod.PACK_OUTLINES, mod.PACK_DETAILS);
+      return mod;
+    });
+  }
+  return packsPromise;
+}
+
+/** True when `kind` is already in the loaded outline catalogue. */
+export function isKnownShapeKind(kind) {
+  return typeof kind === "string" && kind in OUTLINES;
+}
+
+/** True for callout shapes that carry a movable/attachable tail tip. */
+export function isCalloutKind(kind) {
+  return kind === "callout" || kind === "callout-rect" || kind === "callout-oval" || kind === "callout-bracket";
+}
 
 /** Every node type that renders as a shape and can hold text. */
 export function isShapeNode(node) {
@@ -197,12 +250,19 @@ export function isCreateTool(tool) {
     tool === "text" ||
     tool === "sticky" ||
     tool === "frame" ||
+    STRUCTURED_CREATE_TOOLS.has(tool) ||
+    (typeof tool === "string" && tool.startsWith("custom-shape:")) ||
     (typeof tool === "string" && tool.startsWith("shape:") && shapeKindOfTool(tool) in OUTLINES)
   );
 }
 
 export function isShapeTool(tool) {
-  return LEGACY_SHAPE_TYPES.has(tool) || tool === "rect-rounded" || (typeof tool === "string" && tool.startsWith("shape:"));
+  return (
+    LEGACY_SHAPE_TYPES.has(tool) ||
+    tool === "rect-rounded" ||
+    STRUCTURED_CREATE_TOOLS.has(tool) ||
+    (typeof tool === "string" && (tool.startsWith("shape:") || tool.startsWith("custom-shape:")))
+  );
 }
 
 export function shapeKindOfTool(tool) {
@@ -215,11 +275,53 @@ export function shapeOutline(kind, w, h) {
   return build(Math.max(w, 0), Math.max(h, 0));
 }
 
-/** Extra open strokes drawn over the fill (the cylinder's front rim). */
+/**
+ * Callout outline whose tail tip points to `tailLocal` (`{x, y}` in box-local
+ * pixels), so an attached or dragged callout tail tracks its target object.
+ */
+export function calloutOutlineWithTail(kind, w, h, tailLocal) {
+  if (!tailLocal || !Number.isFinite(tailLocal.x) || !Number.isFinite(tailLocal.y)) {
+    return shapeOutline(kind, w, h);
+  }
+  const bw = Math.max(w, 1);
+  const bh = Math.max(h, 1);
+  const cx = bw / 2;
+  const cy = bh / 2;
+  const dx = tailLocal.x - cx;
+  const dy = tailLocal.y - cy;
+  const baseHalf = Math.min(bw, bh) * 0.12;
+  // Determine which edge of the box faces the tail tip
+  if (Math.abs(dx) / bw > Math.abs(dy) / bh) {
+    const midY = Math.max(baseHalf, Math.min(bh - baseHalf, cy + (dy / (Math.abs(dx) || 1)) * (bw / 2) * 0.35));
+    if (dx >= 0) {
+      return [[0, 0], [bw, 0], [bw, midY - baseHalf], [tailLocal.x, tailLocal.y], [bw, midY + baseHalf], [bw, bh], [0, bh]];
+    }
+    return [[0, 0], [bw, 0], [bw, bh], [0, bh], [0, midY + baseHalf], [tailLocal.x, tailLocal.y], [0, midY - baseHalf]];
+  }
+  const midX = Math.max(baseHalf, Math.min(bw - baseHalf, cx + (dx / (Math.abs(dy) || 1)) * (bh / 2) * 0.35));
+  if (dy < 0) {
+    return [[0, 0], [midX - baseHalf, 0], [tailLocal.x, tailLocal.y], [midX + baseHalf, 0], [bw, 0], [bw, bh], [0, bh]];
+  }
+  return [[0, 0], [bw, 0], [bw, bh], [midX + baseHalf, bh], [tailLocal.x, tailLocal.y], [midX - baseHalf, bh], [0, bh]];
+}
+
+/** Extra open strokes drawn over the fill (the cylinder's front rim, or pack details). */
 export function shapeDetail(kind, w, h) {
-  if (kind !== "cylinder") return null;
-  const ry = cylinderRim(w, h);
-  return [[0, ry], ...arc(w / 2, ry, w / 2, ry, Math.PI, 0)];
+  if (kind === "cylinder") {
+    const ry = cylinderRim(w, h);
+    return [[0, ry], ...arc(w / 2, ry, w / 2, ry, Math.PI, 0)];
+  }
+  const details = DETAILS[kind]?.(Math.max(w, 0), Math.max(h, 0));
+  return details?.[0] ?? null;
+}
+
+/** All interior detail stroke polylines for `kind`. */
+export function shapeDetails(kind, w, h) {
+  if (kind === "cylinder") {
+    const single = shapeDetail(kind, w, h);
+    return single ? [single] : [];
+  }
+  return DETAILS[kind]?.(Math.max(w, 0), Math.max(h, 0)) ?? [];
 }
 
 /**

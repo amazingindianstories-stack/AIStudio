@@ -4,8 +4,9 @@ import logging
 import time
 import uuid
 from django.db import connection, models, transaction
-from .models import BoardActivity, CanvasBoard, CanvasBoardSave
-from .serialization import MAX_BOARD_JSON_UNITS, content_length, empty_state, validate_state
+from .models import BoardActivity, CanvasBoard, CanvasBoardSave, CustomShapePack
+from .serialization import JS_WHITESPACE, MAX_BOARD_JSON_UNITS, content_length, empty_state, validate_state
+from .svg_sanitize import MAX_SHAPES_PER_PACK, sanitize_svg
 
 META_FIELDS = ('id', 'project_id', 'name', 'created_by', 'created_at', 'updated_at', 'team_role')
 # Applied save ids are kept this long; the editor treats older drafts as having no usable base.
@@ -181,3 +182,124 @@ def prune_board_activity(now=None):
     deleted = BoardActivity.objects.filter(created_at__lte=now - ACTIVITY_RETENTION_MS).delete()[0]
     logger.info(json.dumps({'event': 'maintenance_cleanup', 'target': 'board_activity', 'deleted': deleted}))
     return {'ok': True, 'deleted': deleted}
+
+
+def _pack_dict(row, user):
+    is_owner = str(row.created_by) == str(user.id) or getattr(user, 'role', None) == 'admin'
+    return {
+        'id': str(row.id),
+        'name': row.name,
+        'createdBy': str(row.created_by),
+        'isOwner': is_owner,
+        'shared': bool(row.shared),
+        'showNames': bool(row.show_names),
+        'shapes': row.shapes if isinstance(row.shapes, list) else [],
+        'createdAt': row.created_at,
+        'updatedAt': row.updated_at,
+    }
+
+
+def normalize_pack_shapes(raw_shapes):
+    if not isinstance(raw_shapes, list):
+        raise ValueError('shapes must be a list.')
+    if len(raw_shapes) > MAX_SHAPES_PER_PACK:
+        raise ValueError(f'A custom shape pack can contain at most {MAX_SHAPES_PER_PACK} shapes.')
+    normalized = []
+    seen_ids = set()
+    for index, item in enumerate(raw_shapes):
+        if not isinstance(item, dict):
+            raise ValueError('Each shape must be an object.')
+        raw_id = item.get('id')
+        shape_id = raw_id.strip(JS_WHITESPACE)[:80] if isinstance(raw_id, str) and raw_id.strip(JS_WHITESPACE) else f'shape-{uuid.uuid4().hex[:10]}'
+        if shape_id in seen_ids:
+            shape_id = f'{shape_id}-{index + 1}'
+        seen_ids.add(shape_id)
+        raw_name = item.get('name')
+        shape_name = raw_name.strip(JS_WHITESPACE)[:120] if isinstance(raw_name, str) and raw_name.strip(JS_WHITESPACE) else f'Shape {index + 1}'
+        inner_svg, view_box = sanitize_svg(item.get('svg'))
+        if isinstance(item.get('viewBox'), str) and item['viewBox'].strip(JS_WHITESPACE) and '<svg' not in str(item.get('svg', '')).lower():
+            from .svg_sanitize import SAFE_VIEWBOX_RE
+            vb_candidate = item['viewBox'].strip(JS_WHITESPACE)
+            if SAFE_VIEWBOX_RE.match(vb_candidate):
+                view_box = ' '.join(vb_candidate.split())
+        normalized.append({
+            'id': shape_id,
+            'name': shape_name,
+            'svg': inner_svg,
+            'viewBox': view_box,
+        })
+    return normalized
+
+
+def list_shape_packs(user):
+    rows = CustomShapePack.objects.filter(
+        models.Q(created_by=user.id) | models.Q(shared=True)
+    ).order_by('-updated_at', 'name')
+    return [_pack_dict(row, user) for row in rows]
+
+
+def create_shape_pack(user, data):
+    raw_name = data.get('name') if isinstance(data, dict) else None
+    name = raw_name.strip(JS_WHITESPACE)[:120] if isinstance(raw_name, str) else ''
+    if not name:
+        raise ValueError('Pack name is required.')
+    raw_shapes = data.get('shapes', []) if isinstance(data, dict) else []
+    shapes = normalize_pack_shapes(raw_shapes if raw_shapes is not None else [])
+    shared = bool(data.get('shared', False)) if isinstance(data, dict) else False
+    show_names = bool(data.get('showNames', True)) if isinstance(data, dict) else True
+    now = now_ms()
+    row = CustomShapePack.objects.create(
+        id=uuid.uuid4(),
+        name=name,
+        created_by=user.id,
+        shared=shared,
+        show_names=show_names,
+        shapes=shapes,
+        created_at=now,
+        updated_at=now,
+    )
+    return _pack_dict(row, user)
+
+
+def update_shape_pack(user, identifier, data):
+    from . import access
+    row = CustomShapePack.objects.filter(pk=identifier).first()
+    if row is None:
+        return None
+    if str(row.created_by) != str(user.id) and getattr(user, 'role', None) != 'admin':
+        raise access.AccessError('Only the pack owner can edit this shape pack.', 403)
+    if not isinstance(data, dict):
+        raise ValueError('Invalid shape pack update.')
+    if 'name' in data:
+        raw_name = data.get('name')
+        name = raw_name.strip(JS_WHITESPACE)[:120] if isinstance(raw_name, str) else ''
+        if not name:
+            raise ValueError('Pack name is required.')
+        row.name = name
+    if 'shared' in data:
+        row.shared = bool(data.get('shared'))
+    if 'showNames' in data:
+        row.show_names = bool(data.get('showNames'))
+    if 'shapes' in data:
+        row.shapes = normalize_pack_shapes(data.get('shapes'))
+    elif 'addShapes' in data:
+        existing = row.shapes if isinstance(row.shapes, list) else []
+        added = data.get('addShapes')
+        if not isinstance(added, list):
+            raise ValueError('addShapes must be a list.')
+        row.shapes = normalize_pack_shapes([*existing, *added])
+    row.updated_at = now_ms()
+    row.save(update_fields=['name', 'shared', 'show_names', 'shapes', 'updated_at'])
+    return _pack_dict(row, user)
+
+
+def delete_shape_pack(user, identifier):
+    from . import access
+    row = CustomShapePack.objects.filter(pk=identifier).first()
+    if row is None:
+        return False
+    if str(row.created_by) != str(user.id) and getattr(user, 'role', None) != 'admin':
+        raise access.AccessError('Only the pack owner can delete this shape pack.', 403)
+    row.delete()
+    return True
+

@@ -7,7 +7,6 @@ import {
   Hand,
   StickyNote,
   Type,
-  MoveRight,
   Frame,
   Spline,
   ImagePlus,
@@ -22,8 +21,9 @@ import { cn } from "@/lib/utils";
 import { useCanvasStore, } from "@/lib/canvas-store";
 import { nodeBounds } from "@/lib/canvas/geometry";
 import { Dropdown, MenuItem } from "@/components/Dropdown";
-import { BASIC_SHAPES, isShapeTool } from "@/lib/canvas/shapes";
+import { isShapeTool } from "@/lib/canvas/shapes";
 import { ShapeGlyph } from "./ShapeGlyph";
+import { ShapesPanel } from "./ShapesPanel";
 import { StickyMenu } from "./StickyMenu";
 import { ACTIVE_STATUSES, useBoardAi } from "@/lib/board-ai";
 
@@ -148,52 +148,13 @@ export function CanvasToolbar({
             )}
           >
             {(close) => (
-              <div className="w-[212px] p-0.5">
-                <p className="px-1.5 pb-1.5 pt-0.5 text-[11px] font-medium uppercase tracking-wide text-white/40">Basic shapes</p>
-                <div role="group" aria-label="Basic shapes" className="grid grid-cols-5 gap-1">
-                  {BASIC_SHAPES.map((s) => (
-                    <button
-                      key={s.tool}
-                      type="button"
-                      role="menuitem"
-                      aria-label={s.label}
-                      title={s.tool === "rect" ? `${s.label} (R)` : s.label}
-                      onClick={(e) => {
-                        setLastShape(s.tool);
-                        setTool(s.tool);
-                        if (e.detail === 2) onToggleLock();
-                        close({ restoreFocus: false });
-                      }}
-                      className={cn(
-                        "grid h-9 w-9 place-items-center rounded-lg outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand",
-                        tool === s.tool
-                          ? "bg-ink-600 ring-1 ring-line text-white"
-                          : "text-white/60 hover:bg-white/[0.07] hover:text-white"
-                      )}
-                    >
-                      <ShapeGlyph tool={s.tool} className="h-[18px] w-[18px]" />
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    role="menuitem"
-                    aria-label="Line / arrow"
-                    title="Line / arrow (connector)"
-                    onClick={() => {
-                      setTool("connector");
-                      close({ restoreFocus: false });
-                    }}
-                    className={cn(
-                      "grid h-9 w-9 place-items-center rounded-lg outline-none transition-colors focus-visible:ring-2 focus-visible:ring-brand",
-                      tool === "connector"
-                        ? "bg-ink-600 ring-1 ring-line text-white"
-                        : "text-white/60 hover:bg-white/[0.07] hover:text-white"
-                    )}
-                  >
-                    <MoveRight className="h-4 w-4" />
-                  </button>
-                </div>
-              </div>
+              <ShapesPanel
+                tool={tool}
+                setTool={setTool}
+                setLastShape={setLastShape}
+                onToggleLock={onToggleLock}
+                close={close}
+              />
             )}
           </Dropdown>
 
