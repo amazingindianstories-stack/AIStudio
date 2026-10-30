@@ -53,3 +53,18 @@ it, then extend coverage to keyboard entry, all fields and read-only roles.
 Use disposable PostgreSQL and explicit mocks only. Keep later feature work in
 checklist order and do not mark these pending rows delivered based on source
 presence alone.
+
+## Iteration 2: inbox test contract
+
+Reproduced both BoardSwitcher failures by rendering CanvasView in its existing
+component integration tests. The harness returned `{}` for the inbox endpoint,
+while Django `work_views.py` returns `notifications` and
+`preferences`. Updated the fixture to match that contract and added an assertion
+that the loaded board renders `Inbox (0)`. Production behavior is unchanged.
+The inbox is briefly mounted while board access loads, then hidden in the
+empty-board state. No feature outcome has been promoted by this test repair.
+
+Validation: targeted BoardSwitcher suite passed (7 tests); `npm test` passed
+all 936 tests; `npm run lint` passed; `git diff --check` passed. No browser, backend, Docker
+stack or persistent server was started. Next increment remains cards/columns
+browser acceptance through the heavy lock.
