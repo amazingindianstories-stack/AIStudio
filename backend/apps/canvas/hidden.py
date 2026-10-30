@@ -7,7 +7,7 @@ connector touching that content, is removed from what they read (`view_of`). Whe
 they never saw is kept exactly as stored and the `hidden` flags cannot change (`preserve`), so a normal
 save from a person who cannot see it never deletes or exposes hidden work. People who manage hidden frames
 (`can_manage`) read and save the whole graph. Links from the board's visual notes to hidden objects are
-treated the same way.
+treated the same way, and a link to a deleted object reaches them without its label.
 """
 from . import access
 
@@ -51,29 +51,41 @@ def _touches(connector, ids):
     return any(isinstance(connector.get(end), dict) and connector[end].get('nodeId') in ids for end in ('from', 'to'))
 
 
+def _with_refs(notes, refs):
+    result = {key: value for key, value in notes.items() if key != 'refs'}
+    if refs:
+        result['refs'] = refs
+    return result
+
+
 def view_of(graph, level):
     """What a viewer at `level` may read of `graph`."""
-    if can_manage(level) or not has_hidden(graph):
+    if can_manage(level):
         return graph
     gone = hidden_ids(graph)
+    gone |= {item['id'] for item in graph['connectors'] if _touches(item, gone)}
     seen = {**graph,
             'nodes': [item for item in graph['nodes'] if item['id'] not in gone],
-            'connectors': [item for item in graph['connectors'] if not _touches(item, gone)]}
-    gone |= {item['id'] for item in graph['connectors'] if _touches(item, gone)}
+            'connectors': [item for item in graph['connectors'] if item['id'] not in gone]}
     notes = graph.get('notes')
-    if notes and any(ref['id'] in gone for ref in notes.get('refs', ())):
-        refs = [ref for ref in notes['refs'] if ref['id'] not in gone]
-        seen['notes'] = {**{key: value for key, value in notes.items() if key != 'refs'}, **({'refs': refs} if refs else {})}
+    if notes and notes.get('refs'):
+        # A link to an object no longer on the board keeps its place but not its label, which may describe
+        # something that was hidden from this viewer when it was deleted.
+        on_board = {item['id'] for item in graph['nodes'] + graph['connectors']}
+        seen['notes'] = _with_refs(notes, [ref if ref['id'] in on_board else {**ref, 'label': ''}
+                                           for ref in notes['refs'] if ref['id'] not in gone])
     return seen
 
 
 def visible_data(raw, level):
-    """A stored board's `data` as someone at `level` reads it: untouched unless it holds a hidden frame they may not see into."""
+    """A stored board's `data` as someone at `level` reads it: untouched unless it holds a hidden frame or notes links."""
     from .serialization import validate_state
     nodes = raw.get('nodes') if isinstance(raw, dict) else None
     if can_manage(level) or not isinstance(nodes, list):
         return raw
-    if not any(isinstance(item, dict) and item.get('type') == 'frame' and item.get('hidden') is True for item in nodes):
+    notes = raw.get('notes')
+    if not (isinstance(notes, dict) and notes.get('refs')) and not any(
+            isinstance(item, dict) and item.get('type') == 'frame' and item.get('hidden') is True for item in nodes):
         return raw
     return view_of(validate_state(raw), level)
 
@@ -97,34 +109,39 @@ def _merged(stored_items, kept_items, protected):
 
 def preserve(stored, incoming, level):
     """`incoming` (a normalized graph saved by someone at `level`) with the hidden content of `stored` kept."""
-    if can_manage(level) or not (has_hidden(stored) or any(item.get('hidden') for item in incoming['nodes'])):
+    if can_manage(level):
         return incoming
-    frames, inside = hidden_frame_ids(stored), hidden_ids(stored)
-    protected_ids = frames | inside
-    protected = {item['id']: item for item in stored['nodes'] if item['id'] in protected_ids}
-    stored_flags = {item['id']: item.get('hidden') is True for item in stored['nodes'] if item.get('type') == 'frame'}
-    nodes = []
-    for item in incoming['nodes']:
-        if item['id'] in protected_ids:
-            continue
-        item = dict(item)
-        # Nothing can be added into a hidden frame by someone who cannot see inside it.
-        if item.get('parentId') in protected_ids:
-            item['parentId'] = None
-        # Only people who manage hidden frames change the flag.
-        if item.get('type') == 'frame' and item.get('hidden') and not stored_flags.get(item['id']):
-            del item['hidden']
-        nodes.append(item)
-    nodes = _merged(stored['nodes'], nodes, protected)
-    connector_protected = {item['id']: item for item in stored['connectors'] if _touches(item, inside)}
-    connectors = [item for item in incoming['connectors'] if item['id'] not in connector_protected and not _touches(item, inside)]
-    connectors = _merged(stored['connectors'], connectors, connector_protected)
-    result = {**incoming, 'nodes': nodes, 'connectors': connectors}
-    unseen = inside | set(connector_protected)
+    result, unseen = incoming, set()
+    if has_hidden(stored) or any(item.get('hidden') for item in incoming['nodes']):
+        frames, inside = hidden_frame_ids(stored), hidden_ids(stored)
+        protected_ids = frames | inside
+        protected = {item['id']: item for item in stored['nodes'] if item['id'] in protected_ids}
+        stored_flags = {item['id']: item.get('hidden') is True for item in stored['nodes'] if item.get('type') == 'frame'}
+        nodes = []
+        for item in incoming['nodes']:
+            if item['id'] in protected_ids:
+                continue
+            item = dict(item)
+            # Nothing can be added into a hidden frame by someone who cannot see inside it.
+            if item.get('parentId') in protected_ids:
+                item['parentId'] = None
+            # Only people who manage hidden frames change the flag.
+            if item.get('type') == 'frame' and item.get('hidden') and not stored_flags.get(item['id']):
+                del item['hidden']
+            nodes.append(item)
+        nodes = _merged(stored['nodes'], nodes, protected)
+        connector_protected = {item['id']: item for item in stored['connectors'] if _touches(item, inside)}
+        connectors = [item for item in incoming['connectors'] if item['id'] not in connector_protected and not _touches(item, inside)]
+        connectors = _merged(stored['connectors'], connectors, connector_protected)
+        result = {**incoming, 'nodes': nodes, 'connectors': connectors}
+        unseen = inside | set(connector_protected)
+    # Links they never read (to hidden objects) stay, and links they read without a label keep the stored one.
+    notes = result.get('notes')
     stored_refs = (stored.get('notes') or {}).get('refs', [])
     ref_protected = {ref['id']: ref for ref in stored_refs if ref['id'] in unseen}
-    if ref_protected:
-        notes = incoming.get('notes') or {'text': ''}
-        refs = [ref for ref in notes.get('refs', []) if ref['id'] not in unseen]
-        result['notes'] = {**notes, 'refs': _merged(stored_refs, refs, ref_protected)}
+    if notes or ref_protected:
+        on_board = {item['id'] for item in stored['nodes'] + stored['connectors']}
+        unlabeled = {ref['id']: ref for ref in stored_refs if ref['id'] not in on_board}
+        refs = [unlabeled.get(ref['id'], ref) for ref in (notes or {}).get('refs', []) if ref['id'] not in unseen]
+        result = {**result, 'notes': _with_refs(notes or {'text': ''}, _merged(stored_refs, refs, ref_protected))}
     return result

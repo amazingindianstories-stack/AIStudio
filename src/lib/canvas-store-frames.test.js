@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { useCanvasStore } from "./canvas-store.js";
+import { asEdited, useCanvasStore } from "./canvas-store.js";
 import { emptyCanvasState } from "./canvas/serialization.js";
 import { frameSelection, setFrameHidden, setFramePreset } from "./frame-actions.js";
 
@@ -115,6 +115,15 @@ test("an editor cannot move, resize, delete, hide into or fill a hidden frame, a
   const copy = get(store, store.getState().selection[0]);
   assert.equal(copy.type, "frame");
   assert.equal("hidden" in copy, false);
+});
+
+test("a drag or resize preview shows an editor a hidden frame where the save will leave it, and a co-owner the change", async (t) => {
+  const store = await board(t, [{ ...frame("secret", 500, 0, 300, 300), hidden: true }, sticky("s", 900, 0)]);
+  const present = store.getState().history.present;
+  const dragged = { ...present, nodes: present.nodes.map((n) => (n.id === "secret" ? { ...n, x: 540, w: 600 } : { ...n, parentId: "secret" })) };
+  assert.deepEqual(asEdited(store.getState(), dragged), present);
+  store.setState({ boardRole: "co_owner" });
+  assert.equal(asEdited(store.getState(), dragged), dragged);
 });
 
 test("viewers cannot create frames", async (t) => {

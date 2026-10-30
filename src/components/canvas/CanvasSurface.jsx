@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
 import { uploadFileDirect } from "@/lib/client-reference-upload";
 import { useStore } from "@/lib/store";
-import { useCanvasStore, hasClipboard, selectReadOnly } from "@/lib/canvas-store";
+import { useCanvasStore, asEdited, hasClipboard, selectReadOnly } from "@/lib/canvas-store";
 import { getAssetDragData } from "@/lib/asset-drag-contract";
 
 import {
@@ -980,13 +980,15 @@ export const CanvasSurface = forwardRef
         if (Math.abs(worldDx) >= Math.abs(worldDy)) constrainedDy = 0;
         else constrainedDx = 0;
       }
-      const next = moveNodesBy(present, selection, constrainedDx, constrainedDy);
+      const editing = useCanvasStore.getState();
+      const next = asEdited(editing, moveNodesBy(present, selection, constrainedDx, constrainedDy));
       // container drop-highlight preview
       const movedNode = next.nodes.find((n) => n.id === selection[0]);
       if (movedNode && !isContainerNode(movedNode)) {
         const containers = next.nodes.filter((n) => isContainerNode(n));
         const targetFrame = computeFrameMembership(movedNode, containers);
-        setDropHighlightFrameId(targetFrame);
+        const dropped = asEdited(editing, { ...next, nodes: next.nodes.map((n) => (n.id === movedNode.id ? { ...n, parentId: targetFrame } : n)) });
+        setDropHighlightFrameId(dropped.nodes.find((n) => n.id === movedNode.id)?.parentId ?? null);
       }
       setPreview(next);
       return;
@@ -1000,7 +1002,7 @@ export const CanvasSurface = forwardRef
       const keepAspect = e.shiftKey;
       const resized = resizeNode(drag.resizeStartNode, drag.resizeHandle, worldDx, worldDy, keepAspect);
       const nextNodes = present.nodes.map((n) => (n.id === drag.resizeNodeId ? resized : n));
-      setPreview({ ...present, nodes: nextNodes });
+      setPreview(asEdited(useCanvasStore.getState(), { ...present, nodes: nextNodes }));
       return;
     }
 
