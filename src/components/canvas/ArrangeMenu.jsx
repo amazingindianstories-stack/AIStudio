@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { Dropdown, MenuItem } from "@/components/Dropdown";
 import { useCanvasStore, selectReadOnly } from "@/lib/canvas-store";
-import { arrangeUnits, holdsText, selectionKinds } from "@/lib/canvas/arrange";
+import { arrangeUnits, clearedNode, selectionKinds } from "@/lib/canvas/arrange";
 import { lockedIdSet } from "@/lib/canvas/locks";
 import { cn } from "@/lib/utils";
 
@@ -61,7 +61,7 @@ export function useArrangeOptions() {
   const wanted = new Set(selection);
   const locked = lockedIdSet(present);
   const canClear =
-    !readOnly && present.nodes.some((n) => wanted.has(n.id) && !locked.has(n.id) && holdsText(n) && (n.text || n.marks));
+    !readOnly && present.nodes.some((n) => wanted.has(n.id) && !locked.has(n.id) && clearedNode(n) !== n);
   return {
     canAlign: !readOnly && units >= 2,
     canDistribute: !readOnly && units >= 3,

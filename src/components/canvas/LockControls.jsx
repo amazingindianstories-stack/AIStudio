@@ -40,7 +40,7 @@ function HeldByNote({ heldBy }) {
 /**
  * Lock, Lock (protected) and Unlock rows for the selection, in the context
  * menu and the selection toolbar's More menu. A protected lock someone else
- * set names them and offers no Unlock.
+ * set names them and offers Unlock only to co-owners and the owner.
  */
 export function LockMenuItems({ onDone }) {
   const lock = useSelectionLock();
@@ -61,7 +61,7 @@ export function LockMenuItems({ onDone }) {
       {lock.canProtect && (
         <MenuItem
           label="Lock (protected)"
-          title="Only you can unlock, change or delete it"
+          title="Only you, co-owners and the owner can unlock, change or delete it"
           onClick={() => run((s) => s.lockSelection(lock.actorId, { protect: true }))}
         >
           <LockKeyhole className="h-4 w-4 text-white/50" />
@@ -89,7 +89,7 @@ export function LockMenuItems({ onDone }) {
 /** "Unlock all" on the board's background menu, when there is anything this person may unlock. */
 export function UnlockAllMenuItem({ onDone }) {
   const actorId = useActorId();
-  const any = useCanvasStore((s) => hasUnlockable(s.history.present, actorId));
+  const any = useCanvasStore((s) => hasUnlockable(s.history.present, actorId, s.boardRole));
   if (!any) return null;
   return (
     <MenuItem
@@ -139,7 +139,7 @@ export function LockedSelectionBar({ lock }) {
       {lock.canProtect && (
         <button
           type="button"
-          title="Only you can unlock, change or delete it"
+          title="Only you, co-owners and the owner can unlock, change or delete it"
           onClick={() => useCanvasStore.getState().lockSelection(lock.actorId, { protect: true })}
           className={button}
         >

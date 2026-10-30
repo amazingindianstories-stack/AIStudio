@@ -16,7 +16,7 @@ import { autoFitMax, useAutoFit } from "./use-auto-fit";
 const TEXT_CLASS = "h-full w-full overflow-hidden whitespace-pre-wrap break-words outline-none";
 
 /** FigJam-signature colored note block with editable text, its tags, votes and (when shown) author. */
-export function StickyNode({ node, editing, readOnly, onCommit, onCancel }) {
+export function StickyNode({ node, editing, readOnly, locked = false, onCommit, onCancel }) {
   const fitRef = useRef(null);
   const autoFit = Boolean(node.autoFit);
   const refit = useAutoFit(fitRef, autoFit, autoFitMax(node.w, node.h),
@@ -50,12 +50,13 @@ export function StickyNode({ node, editing, readOnly, onCommit, onCancel }) {
           </div>
         )}
       </div>
-      {hasFooter && <StickyFooter node={node} readOnly={readOnly} />}
+      {hasFooter && <StickyFooter node={node} readOnly={readOnly} locked={locked} />}
     </div>
   );
 }
 
-function StickyFooter({ node, readOnly }) {
+function StickyFooter({ node, readOnly, locked }) {
+  const fixed = readOnly || locked;
   const tags = useCanvasStore((s) => s.history.present.tags);
   const userId = useStore((s) => s.currentUser?.id ?? null);
   const shown = tagsOf(node, tags ?? []);
@@ -80,8 +81,8 @@ function StickyFooter({ node, readOnly }) {
             type="button"
             data-sticky-reaction={emoji}
             aria-pressed={mine}
-            aria-label={`${emoji} ${ids.length} ${ids.length === 1 ? "vote" : "votes"}${readOnly ? "" : mine ? ", remove your vote" : ", add your vote"}`}
-            disabled={readOnly}
+            aria-label={`${emoji} ${ids.length} ${ids.length === 1 ? "vote" : "votes"}${fixed ? "" : mine ? ", remove your vote" : ", add your vote"}`}
+            disabled={fixed}
             onPointerDown={(e) => e.stopPropagation()}
             onDoubleClick={(e) => e.stopPropagation()}
             onClick={(e) => {
@@ -91,7 +92,7 @@ function StickyFooter({ node, readOnly }) {
             className={cn(
               "flex items-center gap-0.5 rounded-full border px-1.5 tabular-nums transition-colors",
               mine ? "border-black/40 bg-black/15" : "border-black/15 bg-white/25",
-              readOnly ? "cursor-default" : "hover:bg-black/10"
+              fixed ? "cursor-default" : "hover:bg-black/10"
             )}
           >
             <span aria-hidden>{emoji}</span>

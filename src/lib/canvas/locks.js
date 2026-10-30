@@ -2,13 +2,15 @@
  * Locked objects (Miro's lock and protected lock). A locked object can still
  * be selected, copied and unlocked, but not moved, resized, rotated, edited or
  * deleted; objects on a locked layer behave the same. A protected lock names
- * who set it, and only that person can lift it: the server puts back any other
- * change to a protected object (backend/apps/canvas/locks.py), so the editor
- * checks the same rule up front instead of losing the edit after a save.
+ * who set it, and only that person and the board's co-owners and owner can
+ * lift it: the server puts back any other change to a protected object
+ * (backend/apps/canvas/locks.py), so the editor checks the same rule up front
+ * instead of losing the edit after a save.
  *
  * Every rule here reads the board data, never the DOM, so it holds for
  * objects culled off-screen too.
  */
+import { canShareRole } from "../board-access";
 
 function layerLocked(state, layerId) {
   if (!layerId) return false;
@@ -48,10 +50,10 @@ export function unlockedIds(state, ids) {
   return ids.filter((id) => !locked.has(id));
 }
 
-/** Whether `actorId` may lift this node's own lock (a layer lock is lifted on the layer). */
-export function canUnlock(node, actorId) {
+/** Whether `actorId`, at board `role`, may lift this node's own lock (a layer lock is lifted on the layer). */
+export function canUnlock(node, actorId, role) {
   if (!node?.locked) return false;
-  return node.lockProtected !== true || (actorId != null && node.lockedBy === String(actorId));
+  return node.lockProtected !== true || canShareRole(role) || (actorId != null && node.lockedBy === String(actorId));
 }
 
 /**

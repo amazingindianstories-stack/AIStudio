@@ -245,14 +245,16 @@ export function idsOfKind(state, selection, kind) {
 // ---- clear content ----
 
 /** Objects whose text Clear content empties: sticky notes, text boxes and shapes. */
-export function holdsText(node) {
+function holdsText(node) {
   return node.type === "sticky" || node.type === "text" || isShapeNode(node);
 }
 
-/** The node with its text and formatting removed and its style kept (the same node when already empty). */
+/** The node with its text, formatting, tags and emoji votes removed and its style kept (the same node when already empty). */
 export function clearedNode(node) {
-  if (!holdsText(node) || (!node.text && !node.marks)) return node;
+  if (!holdsText(node) || (!node.text && !node.marks && !node.tagIds && !node.reactions)) return node;
   const next = { ...node, text: "" };
   delete next.marks;
+  delete next.tagIds;
+  delete next.reactions;
   return next;
 }

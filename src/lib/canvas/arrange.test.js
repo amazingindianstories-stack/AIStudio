@@ -136,3 +136,15 @@ test("clearing content empties text and formatting but keeps the style", () => {
   const image = n("i", 0, 0, 10, 10, { type: "image", text: "caption?" });
   assert.equal(clearedNode(image), image);
 });
+
+test("clearing content also removes tags and emoji votes, even from a sticky with no text", () => {
+  const voted = n("s", 0, 0, 10, 10, { type: "sticky", text: "Hi", tagIds: ["t"], reactions: { "👍": ["u1"] }, fill: "#fde68a" });
+  const out = clearedNode(voted);
+  assert.deepEqual([out.text, "tagIds" in out, "reactions" in out, out.fill], ["", false, false, "#fde68a"]);
+  for (const extra of [{ tagIds: ["t"] }, { reactions: { "🔥": ["u2"] } }]) {
+    const onlyThat = n("e", 0, 0, 10, 10, { type: "sticky", text: "", ...extra });
+    const cleared = clearedNode(onlyThat);
+    assert.notEqual(cleared, onlyThat, "a sticky holding only tags or votes is not empty");
+    assert.deepEqual([cleared.tagIds, cleared.reactions], [undefined, undefined]);
+  }
+});

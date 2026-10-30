@@ -178,21 +178,29 @@ export function layeredView(state, hiddenLayerIds) {
     previous = r;
   }
   if (sorted && !hidden?.size) return state;
+  const gone = hidden?.size ? hiddenNodeIds(state, [...hidden]) : null;
   let nodes = state.nodes;
-  if (hidden?.size) nodes = nodes.filter((n) => !n.layerId || !hidden.has(n.layerId));
+  if (gone) nodes = nodes.filter((n) => !gone.has(n.id));
   if (!sorted) {
     nodes = nodes
       .map((n, index) => ({ n, index, r: rankOf(n) }))
       .sort((a, b) => a.r - b.r || a.index - b.index)
       .map((entry) => entry.n);
   }
-  let connectors = state.connectors;
-  if (hidden?.size) {
-    const shown = new Set(nodes.map((n) => n.id));
-    const visible = (end) => !("nodeId" in end) || shown.has(end.nodeId);
-    connectors = connectors.filter((c) => visible(c.from) && visible(c.to));
-  }
+  const connectors = gone ? state.connectors.filter((c) => connectorShown(c, gone)) : state.connectors;
   return { ...state, nodes, connectors };
+}
+
+/** Whether connector `c` is attached to none of the `hiddenNodes` (a Set of ids), so it is drawn and selectable. */
+export function connectorShown(c, hiddenNodes) {
+  const shown = (end) => !("nodeId" in end) || !hiddenNodes.has(end.nodeId);
+  return shown(c.from) && shown(c.to);
+}
+
+/** New `nodes` placed on layer `layerId` when the board has it (a node that names its layer keeps it). */
+export function placeOnLayer(state, nodes, layerId) {
+  if (!layerId || !layersOf(state).some((layer) => layer.id === layerId)) return nodes;
+  return nodes.map((n) => (n.layerId ? n : { ...n, layerId }));
 }
 
 /** The ids of nodes on layers this person hides. */

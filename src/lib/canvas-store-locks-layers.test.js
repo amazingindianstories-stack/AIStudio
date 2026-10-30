@@ -126,12 +126,12 @@ test("only owners and co-owners set a protected lock; an editor's protect is a p
   assert.equal(state.heldBy, null, "my own protected lock names no one else");
 });
 
-test("someone else's protected lock cannot be lifted by unlock, toggle or Unlock all", async (t) => {
+test("an editor cannot lift someone else's protected lock by unlock, toggle or Unlock all", async (t) => {
   const held = rect("held", { locked: true, lockedBy: OTHER, lockProtected: true });
-  await open(t, graph([held, rect("plain", { locked: true, lockedBy: OTHER })]), { role: "co_owner" });
+  await open(t, graph([held, rect("plain", { locked: true, lockedBy: OTHER })]), { role: "edit" });
   const present = () => store.getState().history.present;
 
-  const lock = selectionLockState(present(), ["held"], ME, "co_owner");
+  const lock = selectionLockState(present(), ["held"], ME, "edit");
   assert.deepEqual([lock.canUnlock, lock.canProtect, lock.heldBy, lock.allLocked], [false, false, OTHER, true]);
 
   store.getState().setSelection(["held"]);
@@ -140,12 +140,33 @@ test("someone else's protected lock cannot be lifted by unlock, toggle or Unlock
   store.getState().lockSelection(ME, { protect: true });
   assert.deepEqual(nodeOf("held"), held, "no lock action changes it");
 
-  assert.equal(hasUnlockable(present(), ME), true);
+  assert.equal(hasUnlockable(present(), ME, "edit"), true);
   store.getState().unlockAll(ME);
   assert.equal(nodeOf("plain").locked, undefined, "Unlock all lifts plain locks, whoever set them");
   assert.deepEqual(nodeOf("held"), held);
-  assert.equal(hasUnlockable(present(), ME), false);
-  assert.equal(hasUnlockable(present(), OTHER), true, "the person who set it still can");
+  assert.equal(hasUnlockable(present(), ME, "edit"), false);
+  assert.equal(hasUnlockable(present(), OTHER, "edit"), true, "the person who set it still can, even as an editor");
+});
+
+test("co-owners and the owner lift or take over anyone's protected lock, so a departed setter's lock is never stuck", async (t) => {
+  // OTHER set these and has since left the board.
+  const held = rect("held", { locked: true, lockedBy: OTHER, lockProtected: true });
+  for (const role of ["co_owner", "owner"]) {
+    await open(t, graph([held, rect("held2", { locked: true, lockedBy: OTHER, lockProtected: true })]), { role });
+    const present = () => store.getState().history.present;
+    const lock = selectionLockState(present(), ["held"], ME, role);
+    assert.deepEqual([lock.canUnlock, lock.canProtect, lock.heldBy], [true, true, OTHER], role);
+
+    store.getState().setSelection(["held"]);
+    store.getState().lockSelection(ME, { protect: true });
+    assert.deepEqual([nodeOf("held").lockedBy, nodeOf("held").lockProtected], [ME, true], `${role} takes the protection over`);
+    store.getState().unlockSelection(ME);
+    assert.equal(isLocked(present(), "held"), false, role);
+
+    assert.equal(hasUnlockable(present(), ME, role), true);
+    store.getState().unlockAll(ME);
+    assert.equal(isLocked(present(), "held2"), false, `${role}: Unlock all lifts it`);
+  }
 });
 
 test("viewers and commenters cannot lock or change layers", async (t) => {
@@ -175,6 +196,11 @@ test("a new layer is active and new objects land on it; locked layers lock their
   assert.deepEqual(layersOf(store.getState().history.present).map((l) => l.name), ["Layer 2"]);
   store.getState().addNode(rect("new"));
   assert.equal(nodeOf("new").layerId, id);
+  store.getState().addImageBatch([{ url: "/i.png", naturalW: 20, naturalH: 10 }, { url: "/j.png", naturalW: 10, naturalH: 20 }], { x: 0, y: 0 });
+  const images = store.getState().history.present.nodes.filter((n) => n.type === "image");
+  assert.deepEqual(images.map((n) => n.layerId), [id, id], "dropped images land on it too");
+  store.getState().placeGeneratedNodes([rect("made")]);
+  assert.equal(nodeOf("made").layerId, id, "and so does a Create with AI result");
 
   store.getState().setLayerLocked(id, true);
   assert.equal(isLocked(store.getState().history.present, "new"), true);
@@ -185,20 +211,27 @@ test("a new layer is active and new objects land on it; locked layers lock their
   assert.deepEqual([lock.allLocked, lock.onLockedLayer, lock.canUnlock], [true, true, false]);
 });
 
-test("hiding a layer is personal: it drops hidden objects from the selection and Select all, and is remembered", async (t) => {
+test("hiding a layer is personal: it drops hidden objects and their connectors from the selection and Select all, and is remembered", async (t) => {
   const storage = stubStorage(t);
-  serve(t, graph([rect("a"), rect("b", { layerId: "L" })], { layers: [{ id: "L", name: "Top" }] }));
+  const line = (id, from, to) => ({ id, from: { nodeId: from, anchor: "auto" }, to: { nodeId: to, anchor: "auto" }, kind: "arrow", stroke: "#fff", strokeWidth: 2 });
+  const board = graph([rect("a"), rect("b", { layerId: "L" }), rect("c")], { layers: [{ id: "L", name: "Top" }] });
+  serve(t, { ...board, connectors: [line("ab", "a", "b"), line("ac", "a", "c")] });
   store.getState().reset();
   await store.getState().loadBoard("board-1");
   store.getState().setActiveLayer("L");
+  store.getState().selectAll();
+  assert.deepEqual(store.getState().selectedConnectorIds, ["ab", "ac"]);
   store.getState().setSelection(["a", "b"]);
+  store.setState({ selectedConnectorIds: ["ab", "ac"] });
   const before = store.getState().history.present;
   store.getState().setLayerHidden("L", true);
   assert.equal(store.getState().history.present, before, "hiding changes no board data");
   assert.deepEqual(store.getState().selection, ["a"]);
+  assert.deepEqual(store.getState().selectedConnectorIds, ["ac"], "a connector to a hidden object leaves the selection");
   assert.equal(store.getState().activeLayerId, null, "a hidden layer stops being the active one");
   store.getState().selectAll();
-  assert.deepEqual(store.getState().selection, ["a"]);
+  assert.deepEqual(store.getState().selection, ["a", "c"]);
+  assert.deepEqual(store.getState().selectedConnectorIds, ["ac"], "nor does Select all pick up a connector to a hidden object");
   assert.equal(store.getState().saveStatus === "dirty", false);
   assert.equal(storage.get("veevee.board.hiddenLayers.board-1"), JSON.stringify(["L"]));
 

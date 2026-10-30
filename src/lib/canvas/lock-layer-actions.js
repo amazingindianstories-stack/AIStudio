@@ -9,6 +9,7 @@ import { canUnlock, isLocked, lockNode, unlockNode } from "./locks";
 import {
   addLayer as addLayerTo,
   assignLayer,
+  connectorShown,
   deleteLayer as deleteLayerFrom,
   duplicateLayer as duplicateLayerIn,
   hiddenNodeIds,
@@ -39,9 +40,14 @@ export function lockLayerActions(set, get, { mutateGraph }) {
   };
   const hiddenOf = () => get().hiddenLayerIds;
   const keepVisibleSelection = (hidden) => {
-    const gone = hiddenNodeIds(get().history.present, hidden);
+    const present = get().history.present;
+    const gone = hiddenNodeIds(present, hidden);
     if (!gone.size) return;
-    set((s) => ({ selection: s.selection.filter((id) => !gone.has(id)) }));
+    const shown = new Set(present.connectors.filter((c) => connectorShown(c, gone)).map((c) => c.id));
+    set((s) => ({
+      selection: s.selection.filter((id) => !gone.has(id)),
+      selectedConnectorIds: s.selectedConnectorIds.filter((id) => shown.has(id)),
+    }));
   };
 
   return {
@@ -56,7 +62,7 @@ export function lockLayerActions(set, get, { mutateGraph }) {
       edit((present) =>
         mapNodes(present, selection, (n) => {
           if (n.locked && (!protectedLock || (n.lockProtected && n.lockedBy === String(actorId)))) return n;
-          if (n.locked && !canUnlock(n, actorId)) return n;
+          if (n.locked && !canUnlock(n, actorId, boardRole)) return n;
           return lockNode(n, actorId, protectedLock);
         })
       );
@@ -64,8 +70,8 @@ export function lockLayerActions(set, get, { mutateGraph }) {
 
     /** Unlocks the selected objects this person may unlock. */
     unlockSelection: (actorId) => {
-      const { selection } = get();
-      edit((present) => mapNodes(present, selection, (n) => (canUnlock(n, actorId) ? unlockNode(n) : n)));
+      const { selection, boardRole } = get();
+      edit((present) => mapNodes(present, selection, (n) => (canUnlock(n, actorId, boardRole) ? unlockNode(n) : n)));
     },
 
     /** Cmd+Shift+L: locks the selection, or unlocks it when every selected object is already locked. */
@@ -80,8 +86,9 @@ export function lockLayerActions(set, get, { mutateGraph }) {
 
     /** Unlocks every object on the board this person may unlock (layer locks are lifted on the layer). */
     unlockAll: (actorId) => {
+      const { boardRole } = get();
       edit((present) => {
-        const ids = present.nodes.filter((n) => canUnlock(n, actorId)).map((n) => n.id);
+        const ids = present.nodes.filter((n) => canUnlock(n, actorId, boardRole)).map((n) => n.id);
         return mapNodes(present, ids, unlockNode);
       });
     },

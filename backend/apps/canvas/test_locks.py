@@ -46,19 +46,32 @@ class EnforceTests(SimpleTestCase):
     def enforce(self, stored, data, actor=OTHER, level=access.EDIT):
         return locks.enforce(validate_state(stored), validate_state(data), actor, level)
 
-    def test_a_protected_object_is_put_back_for_anyone_but_its_setter_and_other_changes_land(self):
+    changes = {'move': graph(held('p', x=50), rect('a', x=5)),
+               'edit': graph(held('p', fill='#ff0000'), rect('a', x=5)),
+               'unlock': graph(rect('p'), rect('a', x=5)),
+               'delete': graph(rect('a', x=5))}
+
+    def test_a_protected_object_is_put_back_below_co_owner_unless_set_by_the_saver_and_other_changes_land(self):
         stored = graph(held('p'), rect('a'))
-        for name, data in {'move': graph(held('p', x=50), rect('a', x=5)),
-                           'edit': graph(held('p', fill='#ff0000'), rect('a', x=5)),
-                           'unlock': graph(rect('p'), rect('a', x=5)),
-                           'delete': graph(rect('a', x=5))}.items():
-            with self.subTest(change=name):
-                result, corrected = self.enforce(stored, data, level=access.OWNER)
-                self.assertTrue(corrected)
-                self.assertEqual(result['nodes'], validate_state(graph(held('p'), rect('a', x=5)))['nodes'])
-        result, corrected = self.enforce(stored, graph(rect('p', x=50), rect('a')), actor=SETTER, level=access.CO_OWNER)
+        for level in (None, access.VIEW, access.COMMENT, access.EDIT):
+            for name, data in self.changes.items():
+                with self.subTest(level=level, change=name):
+                    result, corrected = self.enforce(stored, data, level=level)
+                    self.assertTrue(corrected)
+                    self.assertEqual(result['nodes'], validate_state(graph(held('p'), rect('a', x=5)))['nodes'])
+        # The setter keeps the right, even after losing co-owner access.
+        result, corrected = self.enforce(stored, graph(rect('p', x=50), rect('a')), actor=SETTER, level=access.EDIT)
         self.assertFalse(corrected)
         self.assertEqual(result['nodes'][0], validate_state(graph(rect('p', x=50)))['nodes'][0])
+
+    def test_co_owners_and_the_owner_change_unlock_or_delete_anyones_protected_object(self):
+        stored = graph(held('p'), rect('a'))
+        for level in (access.CO_OWNER, access.OWNER):
+            for name, data in self.changes.items():
+                with self.subTest(level=level, change=name):
+                    result, corrected = self.enforce(stored, data, level=level)
+                    self.assertFalse(corrected)
+                    self.assertEqual(result, validate_state(data))
 
     def test_a_deleted_protected_object_goes_back_where_it_was(self):
         result, corrected = self.enforce(graph(rect('a'), held('p'), rect('b')), graph(rect('a'), rect('b')))
@@ -191,12 +204,32 @@ class LockSaveTests(TransactionTestCase):
                 self.assertEqual(unstamped(saved['board']), unstamped(self.stored().data))
                 self.assertEqual(self.nodes()['p'], {k: v for k, v in validate_state(graph(held('p', by=cara)))['nodes'][0].items()})
                 self.assertEqual(self.nodes()['a']['x'], data['nodes'][-1]['x'], 'the allowed change lands')
-        # Even the owner cannot lift a co-owner's protected lock.
-        self.assertIn('board', self.put(self.ana, graph(rect('p'), rect('a'))))
-        self.assertTrue(self.nodes()['p']['lockProtected'])
-        # The setter can.
+        # The owner may change a co-owner's protected object, keeping the protection.
+        self.assertNotIn('board', self.put(self.ana, graph(held('p', by=cara, x=4), rect('a'))))
+        self.assertEqual(self.nodes()['p'], validate_state(graph(held('p', by=cara, x=4)))['nodes'][0])
+        # So may the setter, here lifting it.
         self.assertNotIn('board', self.put(self.cara, graph(rect('p', x=3), rect('a'))))
         self.assertEqual(self.nodes()['p'], validate_state(graph(rect('p', x=3)))['nodes'][0])
+
+    def test_a_removed_co_owners_protected_lock_stays_put_for_editors_and_the_owner_lifts_it(self):
+        self.protect(self.cara, rect('a'))
+        ProjectMember.objects.filter(project_id=PROJECT, user_id=self.cara.id).delete()
+        self.send(self.cara, 'put', {'data': graph(rect('a'))}, expect=403)
+        self.assertIn('board', self.put(self.ben, graph(rect('a'))))
+        self.assertTrue(self.nodes()['p']['lockProtected'])
+        self.assertNotIn('board', self.put(self.ana, graph(rect('p'), rect('a'))))
+        self.assertEqual(self.nodes()['p'], validate_state(graph(rect('p')))['nodes'][0])
+
+    def test_a_demoted_co_owners_protected_lock_is_still_theirs_and_another_co_owner_may_lift_it(self):
+        self.protect(self.cara, rect('a'))
+        cara = str(self.cara.id)
+        dora = make_user('dora')
+        ProjectMember.objects.create(project_id=PROJECT, user_id=dora.id, role='co_owner', created_at=1, updated_at=1)
+        ProjectMember.objects.filter(project_id=PROJECT, user_id=self.cara.id).update(role='editor')
+        self.assertNotIn('board', self.put(self.cara, graph(held('p', by=cara, x=2), rect('a'))))
+        self.assertEqual(self.nodes()['p']['x'], 2)
+        self.assertNotIn('board', self.put(dora, graph(rect('a'))))
+        self.assertNotIn('p', self.nodes())
 
     def test_patch_saves_are_held_to_the_same_rules(self):
         self.protect(self.ana, rect('a'))

@@ -62,7 +62,7 @@ export function arrangeActions(set, get, { mutateGraph, buildClones, readOnly })
       if (ids.length) set({ selection: ids, selectedConnectorIds: [] });
     },
 
-    /** Empties the text of the selected sticky notes, text boxes and shapes, keeping their style. */
+    /** Empties the text, tags and emoji votes of the selected sticky notes, text boxes and shapes, keeping their style. */
     clearSelectedContent: () => {
       const { selection, history } = get();
       if (readOnly(get()) || !selection.length) return;

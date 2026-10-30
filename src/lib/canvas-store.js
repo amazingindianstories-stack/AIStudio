@@ -10,7 +10,7 @@ import { mergeCanvasStates, rebaseHistory, sameValue } from "./canvas/merge";
 import { boardFromChanges, buildBoardPatch } from "./canvas/patch";
 import { unstamped, withServerStamps } from "./canvas/stamps";
 import { isLocked, unlockedIds, withoutLock } from "./canvas/locks";
-import { hiddenNodeIds } from "./canvas/layers";
+import { connectorShown, hiddenNodeIds, placeOnLayer } from "./canvas/layers";
 import { lockLayerActions } from "./canvas/lock-layer-actions";
 import { arrangeActions } from "./canvas/arrange-actions";
 import { transformActions } from "./canvas/transform-actions";
@@ -1068,11 +1068,12 @@ export const useCanvasStore = create((set, get) => ({
    * such as ./canvas/sticky-actions.js. Read-only boards ignore it, like every edit. */
   editBoard: (compute, opts) => mutateGraph(set, get, compute, opts),
 
+  /** Adds new objects as one edit, on the layer this person picked in the Layers panel. */
+  addNodes: (nodes, opts) =>
+    mutateGraph(set, get, (present) => ({ ...present, nodes: [...present.nodes, ...placeOnLayer(present, nodes, get().activeLayerId)] }), opts),
+
   addNode: (node) => {
-    // New objects go on the layer this person picked in the Layers panel.
-    const layerId = get().activeLayerId;
-    const placed = layerId && !node.layerId && get().history.present.settings?.layers?.some((l) => l.id === layerId) ? { ...node, layerId } : node;
-    mutateGraph(set, get, (present) => ({ ...present, nodes: [...present.nodes, placed] }));
+    get().addNodes([node]);
     set({ selection: [node.id], selectedConnectorIds: [] });
   },
 
@@ -1097,7 +1098,7 @@ export const useCanvasStore = create((set, get) => ({
         aspectLocked: false, parentId: null, groupId: null,
       };
     });
-    mutateGraph(set, get, (present) => ({ ...present, nodes: [...present.nodes, ...nodes] }));
+    get().addNodes(nodes);
     set({ selection: nodes.map((node) => node.id), selectedConnectorIds: [] });
   },
 
@@ -1119,7 +1120,7 @@ export const useCanvasStore = create((set, get) => ({
         .map((n) => (n.parentId && replaced.has(n.parentId) ? { ...n, parentId: null } : n));
       const connectors = present.connectors.filter((c) =>
         !("nodeId" in c.from && replaced.has(c.from.nodeId)) && !("nodeId" in c.to && replaced.has(c.to.nodeId)));
-      return { ...present, nodes: [...kept, ...nodes], connectors };
+      return { ...present, nodes: [...kept, ...placeOnLayer(present, nodes, get().activeLayerId)], connectors };
     });
     set({ selection: nodes.map((node) => node.id), selectedConnectorIds: [] });
   },
@@ -1792,7 +1793,7 @@ export const useCanvasStore = create((set, get) => ({
     const hidden = hiddenNodeIds(present, get().hiddenLayerIds);
     set(pruneSelection(present, {
       selection: present.nodes.filter((n) => !hidden.has(n.id)).map((n) => n.id),
-      selectedConnectorIds: present.connectors.map((c) => c.id),
+      selectedConnectorIds: present.connectors.filter((c) => connectorShown(c, hidden)).map((c) => c.id),
       focusedDiagramId: get().focusedDiagramId,
     }));
   },

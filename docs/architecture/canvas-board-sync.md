@@ -32,7 +32,7 @@ merge per node on the client and poll for other people's saves.
   `version`. A save that only changes the viewport (each person's own) keeps the version, so open boards do
   not refetch the graph.
 - Changes the saver may not make (`backend/apps/canvas/locks.py`: editing or deleting an object under someone
-  else's protected lock, or setting a protected lock or changing the start view below co-owner,
+  else's protected lock below co-owner, or setting a protected lock or changing the start view below co-owner,
   `../features/board-roles.md`) are put back on the stored copy while the rest of the save is written. Such a save bumps `version` and its
   reply carries the saved graph as `board`, which the editor merges like someone else's save.
 - A graph-changing save records `(board_id, save_id, version, applied_at)` in `canvas_board_saves` in the

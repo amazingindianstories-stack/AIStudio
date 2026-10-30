@@ -167,6 +167,7 @@ export function NodeView({
                 node={node}
                 editing={editing}
                 readOnly={readOnly}
+                locked={locked}
                 onCommit={(text, marks, height, from) => onCommitText(node.id, text, marks, height, from)}
                 onCancel={() => onCancelEdit(node.id)}
               />

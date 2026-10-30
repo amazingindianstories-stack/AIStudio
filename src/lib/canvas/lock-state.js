@@ -28,15 +28,15 @@ export function selectionLockState(state, selection, actorId, role) {
     count: nodes.length,
     allLocked: nodes.length > 0 && nodes.every((n) => isLocked(state, n)),
     canLock: nodes.some((n) => !n.locked),
-    canProtect: mayProtect && nodes.some((n) => !n.locked || (!ownProtected(n) && canUnlock(n, actor))),
-    canUnlock: nodes.some((n) => canUnlock(n, actor)),
+    canProtect: mayProtect && nodes.some((n) => !n.locked || (!ownProtected(n) && canUnlock(n, actor, role))),
+    canUnlock: nodes.some((n) => canUnlock(n, actor, role)),
     heldBy: nodes.find((n) => n.locked && n.lockProtected === true && n.lockedBy !== actor)?.lockedBy ?? null,
     onLockedLayer: nodes.some((n) => !n.locked && isLocked(state, n)),
   };
 }
 
-/** Whether "Unlock all" would unlock anything for this person. */
-export function hasUnlockable(state, actorId) {
+/** Whether "Unlock all" would unlock anything for this person, at board `role`. */
+export function hasUnlockable(state, actorId, role) {
   const actor = actorId == null ? null : String(actorId);
-  return (state?.nodes ?? []).some((n) => canUnlock(n, actor));
+  return (state?.nodes ?? []).some((n) => canUnlock(n, actor, role));
 }
