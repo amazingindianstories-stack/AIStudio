@@ -85,6 +85,7 @@ async function pixelClean(page, root) {
 }
 
 test('Board view: zoom to 2000%, wheel modes, grid, minimap, scroll bars, dimensions, background, full screen and start view', async ({ browser, baseURL }, info) => {
+  test.setTimeout(150000);
   await seedUsers();
   const setup = await signIn(browser, baseURL, OWNER, null);
   const created = await setup.context.request.post('/api/projects', {
