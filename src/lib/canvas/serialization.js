@@ -39,6 +39,8 @@ const NODE_TYPES = new Set([
   "frame",
   "image",
 ]);
+const TEXT_ALIGNS = ["left", "center", "right"];
+
 const ANCHORS = new Set([
   "auto",
   "top",
@@ -162,6 +164,8 @@ function validateNodeContent(raw) {
       }
       if (isFiniteNumber(r.fontSize)) node.fontSize = r.fontSize;
       if (typeof r.color === "string") node.color = r.color;
+      // Shape text is centered unless aligned otherwise.
+      if (TEXT_ALIGNS.includes(r.align)) node.align = r.align;
       withFont(node, r);
       return node;
     }

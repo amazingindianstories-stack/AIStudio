@@ -246,6 +246,7 @@ export function pasteSelectionStyle() {
         delete patch.color;
         delete patch.fontSize;
         delete patch.fontFamily;
+        delete patch.align;
       }
       if (style.fontSize !== undefined && style.autoFit === undefined) patch.autoFit = false;
       return applyStylePatchToNode(node, patch) ?? node;

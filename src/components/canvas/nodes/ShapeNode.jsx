@@ -1,23 +1,25 @@
 "use client";
 
 import { fontFamilyCss } from "@/lib/canvas/fonts";
-import { pointsToPath, shapeDetail, shapeRenderPoints } from "@/lib/canvas/shapes";
+import { MAX_SHAPE_TEXT, pointsToPath, shapeDetail, shapeRenderPoints } from "@/lib/canvas/shapes";
 import { RichTextContent, RichTextEditor } from "./RichText";
 
-const SHAPE_TEXT_CLASS = "max-h-full w-full overflow-hidden whitespace-pre-wrap break-words text-center outline-none";
+const SHAPE_TEXT_CLASS = "max-h-full w-full overflow-hidden whitespace-pre-wrap break-words outline-none";
 
 /**
  * Every shape renders as one inline SVG sized to the node's box so
  * fill/stroke/corner-radius restyle live without any raster step. Path
  * shapes (`type: "shape"`) draw their catalogue outline, and only that
  * outline takes pointer events, so clicks in the empty corners of a star
- * fall through to whatever is behind it. Any shape may hold centered text.
+ * fall through to whatever is behind it. Any shape may hold text, centered
+ * unless aligned otherwise.
  */
 export function ShapeNode({ node, editing, readOnly, onCommit, onCancel }) {
   const { w, h, fill, stroke, strokeWidth, type } = node;
   const inset = strokeWidth / 2;
   const paint = { fill, stroke, strokeWidth, vectorEffect: "non-scaling-stroke" };
-  const textStyle = { fontSize: node.fontSize ?? 16, color: node.color ?? "#ffffff", fontFamily: fontFamilyCss(node.fontFamily) };
+  const textStyle = { fontSize: node.fontSize ?? 16, color: node.color ?? "#ffffff", fontFamily: fontFamilyCss(node.fontFamily),
+    textAlign: node.align ?? "center" };
 
   return (
     <>
@@ -71,6 +73,7 @@ export function ShapeNode({ node, editing, readOnly, onCommit, onCancel }) {
               marks={node.marks}
               onCommit={onCommit}
               onCancel={onCancel}
+              maxLength={MAX_SHAPE_TEXT}
               className={`${SHAPE_TEXT_CLASS} pointer-events-auto min-h-[1.25em]`}
               style={{ ...textStyle, cursor: "text" }}
             />

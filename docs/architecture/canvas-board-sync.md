@@ -12,7 +12,8 @@ merge per node on the client and poll for other people's saves.
   `baseVersion`, or a missing `saveId`, gets `409 {error: "VERSION_CONFLICT", board}` with the current
   board (graph and version), and nothing is written. A malformed `baseVersion` or `saveId` gets 400.
 - `PATCH` sends `patch` in place of `data`: for `nodes` and for `connectors` the whole items added or changed
-  (`upsert`), the ids of the upserted items that are new (`add`) and the ids deleted (`delete`), the `viewport`, and `nodeOrder`/`connectorOrder` (every id) only
+  (`upsert`), the ids of the upserted items that are new (`add`) and the ids deleted (`delete`), the whole tag
+  table `tags` only when it changed, the `viewport`, and `nodeOrder`/`connectorOrder` (every id) only
   when the order is not "kept items in their old order, then added ones in patch order"
   (`backend/apps/canvas/patch.py`, mirrored by `src/lib/canvas/patch.js`). Under the same lock and version check
   the server applies it to the stored graph and saves the result exactly as a full save, so roles, stamps,
@@ -59,6 +60,9 @@ merge per node on the client and poll for other people's saves.
 - A 409 or a newer polled version merges the other person's graph three-way, per node and connector id,
   against the graph this tab last synced: one-sided changes apply; when both sides changed an item the
   local unsaved edit wins. The viewport stays local. The result is saved again on the new version.
+- The board's tag table merges the same way, per tag id. Sticky emoji votes merge per person: when both
+  sides changed a sticky, the local copy wins but its votes are each side's own additions and removals over
+  the base, so two people voting at once both count (`src/lib/canvas/reactions.js`).
 - The same merge is applied to every undo and redo snapshot, so undo only reverts this person's own steps.
 - Server stamps are not edits: an item whose local copy differs from the base only in its stamps counts as
   unchanged locally and takes the remote copy, stamps included.

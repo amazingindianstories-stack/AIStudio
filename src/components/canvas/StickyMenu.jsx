@@ -59,9 +59,13 @@ function BulkStickiesDialog({ onClose, viewCenter }) {
   const areaRef = useRef(null);
   const count = Math.min(text.split(/\r\n?|\n/).filter((line) => line.trim()).length, MAX_BULK_STICKIES);
   useEffect(() => {
-    const previous = document.activeElement;
-    areaRef.current?.focus();
-    return () => previous?.focus?.();
+    // The menu that opened this hands focus back to its trigger as it closes,
+    // so the text area takes focus a frame later, and returns it on close.
+    const frame = requestAnimationFrame(() => areaRef.current?.focus());
+    return () => {
+      cancelAnimationFrame(frame);
+      document.querySelector('[aria-label="Sticky options"][aria-haspopup]')?.focus?.();
+    };
   }, []);
   const add = () => {
     if (!count) return;
@@ -83,6 +87,18 @@ function BulkStickiesDialog({ onClose, viewCenter }) {
           } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
             e.preventDefault();
             add();
+          } else if (e.key === "Tab") {
+            // Focus stays inside the dialog.
+            const focusable = [...e.currentTarget.querySelectorAll("textarea, button:not(:disabled)")];
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (e.shiftKey && document.activeElement === first) {
+              e.preventDefault();
+              last.focus();
+            } else if (!e.shiftKey && document.activeElement === last) {
+              e.preventDefault();
+              first.focus();
+            }
           }
         }}
       >

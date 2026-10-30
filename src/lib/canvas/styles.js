@@ -90,7 +90,7 @@ export function removeCustomColor(userId, hex) {
 const STYLE_KEYS = {
   sticky: ["fill", "color", "fontSize", "autoFit", "fontFamily"],
   text: ["color", "fontSize", "align", "fontFamily"],
-  shape: ["fill", "stroke", "strokeWidth", "color", "fontSize", "fontFamily"],
+  shape: ["fill", "stroke", "strokeWidth", "color", "fontSize", "align", "fontFamily"],
   frame: ["fill", "stroke"],
 };
 
@@ -196,17 +196,19 @@ export function switchType(node, to) {
     return next;
   }
   if (to === "text") {
-    return { ...base, type: "text", text: "", ...text, fontSize, align: node.align ?? "left",
+    return { ...base, type: "text", text: "", ...text, fontSize, align: node.align ?? (isShapeNode(node) ? "center" : "left"),
       color: node.type === "sticky" ? "#ffffff" : node.color ?? "#ffffff" };
   }
   const shape = { ...base, type: to, ...text, fill: fill ?? "rgba(255,255,255,0.06)",
     stroke: node.stroke ?? "rgba(255,255,255,0.55)", strokeWidth: node.strokeWidth ?? 2 };
   if (node.fontSize !== undefined) shape.fontSize = node.fontSize;
   if (node.color !== undefined) shape.color = node.color;
+  if (node.align !== undefined && node.align !== "left") shape.align = node.align;
   if (to === "rect" && node.type === "rect" && node.cornerRadius !== undefined) shape.cornerRadius = node.cornerRadius;
   if (!shape.text) {
     delete shape.text;
     delete shape.marks;
+    delete shape.align;
   }
   return shape;
 }

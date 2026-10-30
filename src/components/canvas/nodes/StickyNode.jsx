@@ -29,7 +29,7 @@ export function StickyNode({ node, editing, readOnly, onCommit, onCancel }) {
       className="flex h-full w-full flex-col overflow-hidden rounded-md p-3 shadow-[0_6px_16px_rgba(0,0,0,0.35)]"
       style={{ background: node.fill }}
     >
-      <div ref={fitRef} className="min-h-0 w-full flex-1 overflow-hidden" style={style}>
+      <div ref={fitRef} data-sticky-text="" className="min-h-0 w-full flex-1 overflow-hidden" style={style}>
         {editing ? (
           <RichTextEditor
             text={node.text}

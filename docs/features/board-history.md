@@ -9,15 +9,16 @@ Each graph save is diffed against the stored graph per node and connector id, in
 after any 409 merge on the client, so the record reflects what was actually written:
 
 - a new id is an `add`, a missing one a `delete`, and a changed one an `edit`;
-- moves are not changes (as in Miro): a node whose only difference is `x`, `y`, `parentId` or `groupId`, or a
-  connector whose only difference is where a free end sits, records nothing and keeps its stamps;
+- moves and votes are not changes (as in Miro): a node whose only difference is `x`, `y`, `parentId`, `groupId`
+  or its emoji `reactions`, or a connector whose only difference is where a free end sits, records nothing and keeps its stamps;
 - the stored graph is normalized first, so serializer defaults added since it was written are not edits;
 - matching is by id alone, and a deleted object's stamps are not kept: restoring one (undo of a delete, or a
   merge or draft restore that brings it back) records an `add` by the restoring person, who becomes its
   creator. Keeping the original creator belongs with the later versions and restore work.
 
 Added and edited objects get `createdBy`, `createdAt`, `updatedBy` and `updatedAt` (user id, epoch ms); an
-edit keeps the creation stamps. Both serializers (`serialization.py`, `src/lib/canvas/serialization.js`)
+edit keeps the creation stamps. A sticky whose text someone replaces also gets `textBy`, the author its
+label shows ([board-stickies-text.md](board-stickies-text.md)). Both serializers (`serialization.py`, `src/lib/canvas/serialization.js`)
 carry the fields, and objects saved before stamping have none until they next change. The stamps do not
 count toward the board size limit (`content_length` in `serialization.py`).
 

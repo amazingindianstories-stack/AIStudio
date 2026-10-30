@@ -920,6 +920,143 @@
     ],
     "connectors": []
    }
+  },
+  "shape_text_alignment": {
+   "input": {
+    "nodes": [
+     {
+      "id": "a",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 60,
+      "text": "hi",
+      "align": "left"
+     },
+     {
+      "id": "b",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 60,
+      "text": "hi",
+      "align": "right"
+     },
+     {
+      "id": "c",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 60,
+      "text": "hi",
+      "align": "center"
+     },
+     {
+      "id": "d",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 60,
+      "text": "hi",
+      "align": "justify"
+     },
+     {
+      "id": "e",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 60
+     }
+    ]
+   },
+   "expected": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [
+     {
+      "id": "a",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 60,
+      "parentId": null,
+      "groupId": null,
+      "type": "rect",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1,
+      "text": "hi",
+      "align": "left"
+     },
+     {
+      "id": "b",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 60,
+      "parentId": null,
+      "groupId": null,
+      "type": "rect",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1,
+      "text": "hi",
+      "align": "right"
+     },
+     {
+      "id": "c",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 60,
+      "parentId": null,
+      "groupId": null,
+      "type": "rect",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1,
+      "text": "hi",
+      "align": "center"
+     },
+     {
+      "id": "d",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 60,
+      "parentId": null,
+      "groupId": null,
+      "type": "rect",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1,
+      "text": "hi"
+     },
+     {
+      "id": "e",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 60,
+      "parentId": null,
+      "groupId": null,
+      "type": "rect",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1
+     }
+    ],
+    "connectors": []
+   }
   }
  }
 }

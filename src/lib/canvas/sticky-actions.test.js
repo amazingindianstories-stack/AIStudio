@@ -104,12 +104,29 @@ test("votes, shape, author label, tags and type switching edit stickies, includi
 });
 
 test("copy and paste style carry one object's style onto the selection", async (t) => {
-  const store = await openBoard(t, "edit", [sticky("a", { fill: "#3a3a3a", color: "#f5f5f5", fontSize: 24 }), sticky("b")]);
+  const store = await openBoard(t, "edit", [sticky("a", { fill: "#3a3a3a", color: "#f5f5f5", fontSize: 24, fontFamily: "caveat" }), sticky("b", { autoFit: true })]);
   store.getState().setSelection(["a"]);
   assert.equal(copySelectionStyle(), true);
   store.getState().setSelection(["b"]);
   assert.equal(pasteSelectionStyle(), true);
-  assert.deepEqual([nodes()[1].fill, nodes()[1].color, nodes()[1].fontSize], ["#3a3a3a", "#f5f5f5", 24]);
+  assert.deepEqual([nodes()[1].fill, nodes()[1].color, nodes()[1].fontSize, nodes()[1].fontFamily, nodes()[1].autoFit],
+    ["#3a3a3a", "#f5f5f5", 24, "caveat", undefined]);
+});
+
+test("pasting a text style aligns shape text but leaves a shape without text unstyled", async (t) => {
+  const rect = (id, extra) => ({ id, type: "rect", x: 0, y: 0, w: 100, h: 60, fill: "#fff", stroke: "#000", strokeWidth: 1, ...extra });
+  const store = await openBoard(t, "edit", [
+    { id: "t", type: "text", x: 0, y: 0, w: 100, h: 32, text: "x", fontSize: 20, align: "right", color: "#123abc" },
+    rect("withText", { text: "y" }),
+    rect("plain"),
+  ]);
+  store.getState().setSelection(["t"]);
+  copySelectionStyle();
+  store.getState().setSelection(["withText", "plain"]);
+  pasteSelectionStyle();
+  const [, withText, plain] = nodes();
+  assert.deepEqual([withText.align, withText.color, withText.fontSize], ["right", "#123abc", 20]);
+  assert.deepEqual([plain.align, plain.color, plain.fontSize], [undefined, undefined, undefined]);
 });
 
 test("clustering lays the selection out in titled groups by color", async (t) => {

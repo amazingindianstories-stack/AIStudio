@@ -121,6 +121,7 @@ export function applyStylePatchToNode(n, patch) {
       // Text styling inside a shape is only stored once it is set.
       if (patch.fontSize !== undefined) next.fontSize = patch.fontSize;
       if (patch.color !== undefined) next.color = patch.color;
+      if (patch.align !== undefined) next.align = patch.align;
       return withFontPatch(next, patch);
     }
     case "text":

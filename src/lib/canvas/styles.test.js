@@ -74,3 +74,16 @@ test("switching type keeps id, place, text and colors and drops what the type la
   const empty = switchType({ id: "r", type: "rect", x: 0, y: 0, w: 1, h: 1, fill: "#fff", stroke: "#000", strokeWidth: 1 }, "diamond");
   assert.equal("text" in empty, false);
 });
+
+test("shape text alignment: centered by default, carried by switch type only where it means something", () => {
+  const right = { id: "s", type: "rect", x: 0, y: 0, w: 100, h: 60, fill: "#fff", stroke: "#000", strokeWidth: 1, text: "x", align: "right" };
+  assert.equal(switchType(right, "ellipse").align, "right");
+  assert.equal(switchType(right, "text").align, "right");
+  const centered = { ...right, align: undefined };
+  assert.equal(switchType(centered, "text").align, "center");
+  const leftText = { id: "t", type: "text", x: 0, y: 0, w: 100, h: 32, text: "x", fontSize: 16, align: "left", color: "#fff" };
+  assert.equal("align" in switchType(leftText, "rect"), false);
+  assert.equal(switchType({ ...leftText, align: "center" }, "rect").align, "center");
+  assert.equal("align" in switchType({ ...right, text: "" }, "diamond"), false);
+  assert.deepEqual(styleOf(right), { fill: "#fff", stroke: "#000", strokeWidth: 1, align: "right" });
+});

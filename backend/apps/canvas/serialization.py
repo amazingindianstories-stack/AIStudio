@@ -206,6 +206,9 @@ def node(raw):
             result['fontSize'] = r['fontSize']
         if isinstance(r.get('color'), str):
             result['color'] = r['color']
+        # Shape text is centered unless aligned otherwise.
+        if r.get('align') in ('left', 'center', 'right'):
+            result['align'] = r['align']
         with_font(result, r)
     elif kind == 'text':
         result.update(text=string(r.get('text'), ''), fontSize=num(r.get('fontSize'), 16),

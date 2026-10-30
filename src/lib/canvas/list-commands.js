@@ -20,19 +20,20 @@ function textAndCaret(root) {
   return { text: readRichDom(root).text, caret: readRichDom(before).text.length };
 }
 
-/** The DOM position of text offset `offset` in `root`, counting a <br> as one character. */
+/**
+ * The DOM position of text offset `offset` in `root`, counted exactly as
+ * `readRichDom` reads the text (block elements and <br> both make lines).
+ */
 function domPoint(root, offset) {
-  const walker = root.ownerDocument.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
-  let remaining = offset;
+  const points = [];
+  readRichDom(root, (node, start) => points.push({ node, start }));
   let last = null;
-  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+  for (const { node, start } of points) {
     if (node.nodeType === 3) {
-      if (remaining <= node.data.length) return { node, offset: remaining };
-      remaining -= node.data.length;
+      if (offset <= start + node.data.length) return { node, offset: Math.max(0, offset - start) };
       last = node;
-    } else if (node.tagName === "BR") {
-      if (remaining === 0) return { node: node.parentNode, offset: [...node.parentNode.childNodes].indexOf(node) };
-      remaining -= 1;
+    } else if (offset <= start) {
+      return { node: node.parentNode, offset: [...node.parentNode.childNodes].indexOf(node) };
     }
   }
   return last ? { node: last, offset: last.data.length } : { node: root, offset: root.childNodes.length };

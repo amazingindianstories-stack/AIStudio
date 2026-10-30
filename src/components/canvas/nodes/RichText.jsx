@@ -2,6 +2,7 @@
 
 import { Fragment, useLayoutEffect, useRef } from "react";
 import {
+  clipRichText,
   highlightBackground,
   isHighlightColor,
   isSafeHref,
@@ -101,20 +102,23 @@ function renderSegments(segments, openLinks) {
  * (React renders no children into it), seeded once from `text`/`marks` and
  * read back through `readRichDom` on commit, with its content height. It commits on blur, on
  * Cmd/Ctrl+Enter, and when it closes for any other reason (for example the
- * selection moving on); Escape discards the edit.
+ * selection moving on); Escape discards the edit. With `maxLength`, typing and
+ * pasting stop at that many characters.
  */
-export function RichTextEditor({ text, marks, onCommit, onCancel, onInput, className, style }) {
+export function RichTextEditor({ text, marks, onCommit, onCancel, onInput, className, style, maxLength }) {
   const ref = useRef(null);
   const settled = useRef(false);
   // What this edit opened with, so a commit that typed nothing keeps another person's newer text.
   const seeded = useRef({ text, marks });
   const callbacks = useRef({ onCommit, onCancel });
   callbacks.current = { onCommit, onCancel };
+  const limit = useRef(maxLength);
+  limit.current = maxLength;
 
   const commit = () => {
     if (settled.current || !ref.current) return;
     settled.current = true;
-    const value = readEditor(ref.current);
+    const value = readEditor(ref.current, limit.current);
     // The laid-out content height lets a text box grow to fit what was typed.
     callbacks.current.onCommit(value.text, value.marks, ref.current.scrollHeight, seeded.current);
   };
@@ -130,13 +134,21 @@ export function RichTextEditor({ text, marks, onCommit, onCancel, onInput, class
     const selection = window.getSelection();
     selection?.removeAllRanges();
     selection?.addRange(range);
+    // Typed text (execCommand insertions are checked where they are made).
+    const onBeforeInput = (e) => {
+      if (e.inputType.startsWith("insert") && e.inputType !== "insertCompositionText" && room(el, limit.current) < (e.data?.length || 1)) {
+        e.preventDefault();
+      }
+    };
+    el.addEventListener("beforeinput", onBeforeInput);
     return () => {
+      el.removeEventListener("beforeinput", onBeforeInput);
       // React's StrictMode re-runs this effect without unmounting; only an
       // editor that has really left the page commits here.
       queueMicrotask(() => {
         if (settled.current || el.isConnected) return;
         settled.current = true;
-        const value = readEditor(el);
+        const value = readEditor(el, limit.current);
         callbacks.current.onCommit(value.text, value.marks, undefined, opened);
       });
     };
@@ -162,7 +174,9 @@ export function RichTextEditor({ text, marks, onCommit, onCancel, onInput, class
       }}
       onPaste={(e) => {
         e.preventDefault();
-        document.execCommand("insertText", false, plainTextFromClipboard(e.clipboardData));
+        const pasted = plainTextFromClipboard(e.clipboardData);
+        const fits = clipRichText(pasted, null, room(e.currentTarget, maxLength)).text;
+        if (fits) document.execCommand("insertText", false, fits);
       }}
       onDrop={(e) => e.preventDefault()}
       onInput={onInput}
@@ -176,6 +190,8 @@ export function RichTextEditor({ text, marks, onCommit, onCancel, onInput, class
         } else if (mod && e.key === "Enter") {
           e.preventDefault();
           e.currentTarget.blur();
+        } else if (e.key === "Enter" && !e.nativeEvent.isComposing && room(e.currentTarget, maxLength) < 1) {
+          e.preventDefault();
         } else if (handleListKey(e.currentTarget, e.nativeEvent)) {
           e.preventDefault();
         } else if (e.key === "Enter" && !e.nativeEvent.isComposing) {
@@ -199,8 +215,17 @@ export function RichTextEditor({ text, marks, onCommit, onCancel, onInput, class
   );
 }
 
-/** The editor's value, with numbered lists counting from 1 again. */
-function readEditor(el) {
+/** The editor's value, with numbered lists counting from 1 again, within `maxLength`. */
+function readEditor(el, maxLength) {
   const value = readRichDom(el);
-  return renumberLists(value.text, value.marks);
+  const renumbered = renumberLists(value.text, value.marks);
+  return maxLength ? clipRichText(renumbered.text, renumbered.marks, maxLength) : renumbered;
+}
+
+/** How many characters the editor can still take in place of its selection. */
+function room(el, maxLength) {
+  if (!maxLength) return Infinity;
+  const selection = window.getSelection();
+  const selected = selection?.rangeCount && el.contains(selection.anchorNode) ? selection.toString().length : 0;
+  return maxLength - readRichDom(el).text.length + selected;
 }

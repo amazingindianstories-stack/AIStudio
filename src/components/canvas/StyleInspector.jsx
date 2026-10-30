@@ -132,7 +132,7 @@ export function StyleInspector({ hidden }) {
   const shapeText = isShape && selectedNodes.every((n) => n.text || n.id === editingTextId);
   const showTextColor = shapeText || (homogeneous && (soleType === "text" || soleType === "sticky"));
   const showFontSize = showTextColor;
-  const showTextAlign = homogeneous && soleType === "text";
+  const showTextAlign = shapeText || (homogeneous && soleType === "text");
   const showFrameLabel = homogeneous && soleType === "frame";
 
   // `updateSelectedStyle` patches BOTH the node `selection` and
@@ -231,7 +231,7 @@ export function StyleInspector({ hidden }) {
 
         {showTextAlign && (
           <TextAlignControl
-            value={(selectedNodes[0] ).align ?? "left"}
+            value={selectedNodes[0].align ?? (isShape ? "center" : "left")}
             onChange={(v) => patch({ align: v })}
           />
         )}

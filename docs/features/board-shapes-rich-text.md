@@ -28,8 +28,8 @@ A path shape takes pointer events, hit-tests (`geometry.hitTest`) and attaches c
 that side leaves the outline, and `auto` is where the ray towards the other end does. Marquee
 selection and resize use the bounding box. The four original shape types keep their box anchors.
 
-Any shape may hold text: optional `text`, `marks`, `fontSize` and `color`, present only once set.
-Double-click a shape to type into it.
+Any shape may hold text: optional `text`, `marks`, `fontSize`, `color` and `align`, present only once
+set. Double-click a shape to type into it, up to 6,000 characters.
 
 Sticky notes moved from **S** to **N**, Miro's key; **R** still places a rectangle.
 
