@@ -2,6 +2,7 @@
 import contextlib
 import functools
 import json
+import threading
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
@@ -93,6 +94,18 @@ class VideoGalleryTests(GalleryBase):
         self.assertEqual((card['state'], card['posterUrl']), ('ready', '/api/media/thumbs/poster/' + item['videoUrl'][len('/api/media/'):] + '.webp'))
         response = self.client.get(card['posterUrl'] + '?inline=1')
         self.assertEqual((response.status_code, response['Content-Type']), (200, 'image/webp'))
+
+    def test_a_poster_already_being_made_elsewhere_in_the_process_delays_the_clip_and_does_not_condemn_it(self):
+        self.add_video()
+        frame = functools.partial(posters.bounded_poster, frame=lambda source, protocols, timeout: landscape(1))
+        posters._GATE.acquire()
+        threading.Timer(0.3, posters._GATE.release).start()
+        with patch.object(video_limits, 'probe_stored', return_value=GOOD), patch.object(posters, '_source', return_value=('clip', 'file')), \
+                patch.object(posters, 'bounded_poster', frame):
+            self.settle_uploads()
+        card = self.listing()['portraits'][0]
+        self.assertEqual(card['state'], 'ready')
+        self.assertTrue(card['posterUrl'])
 
     def test_a_clip_whose_first_frame_cannot_be_read_is_unusable_and_never_registered(self):
         self.add_video()

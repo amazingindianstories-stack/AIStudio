@@ -779,7 +779,7 @@ def _check_video(asset, storage):
     from apps.media import posters
     from . import video_limits
     found = video_limits.problem(video_limits.probe_stored(storage, asset.source_key))
-    if not found and posters.bounded_poster(storage, asset.source_key, video=True) is None:
+    if not found and posters.bounded_poster(storage, asset.source_key, video=True, wait=posters.DEADLINE_SECONDS) is None:
         found = video_limits.problem(None)
     with transaction.atomic():
         _locked()
