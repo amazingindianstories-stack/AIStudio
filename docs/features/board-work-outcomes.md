@@ -13,7 +13,7 @@ No feature is skipped or needs a product decision at this point.
 | Line | Feature | Size | Outcome | Evidence and remaining acceptance work |
 | --- | --- | --- | --- | --- |
 | 216 | Cards | M | Built | `WorkTools` implements structured fields, existing-user assignees, D and Cmd/Ctrl+Shift+Enter; `WorkNode` renders cards. Existing browser spec covers details and reload. Browser verified D creation, Ctrl+Shift+Enter details, all fields and reload persistence in iteration 3. Iteration 4 verified viewer/commenter inspection, disabled fields, blocked D creation, no browser board saves, and direct API save rejection (403), with unchanged persisted data. Iteration 5 verified Meta/Cmd details and editing through the widget selector after the card DOM node is culled, with API persistence and reload acceptance. Cards acceptance is complete. |
-| 217 | Columns | M | Pending verification | `work-records.layoutColumns` uses board data; `WorkTools` adds, renames, recolors and moves lanes upward. Verify swimlanes, reorder, containment and persistence end to end. |
+| 217 | Columns | M | Pending verification | `work-records.layoutColumns` uses board data; `WorkTools` adds, renames, recolors and moves lanes upward. Iteration 6 browser verified adding, renaming, recoloring and reordering columns and swimlanes, selecting both for a child card, saved cell geometry/containment and reload persistence. Remaining: reorder with existing children, offscreen operations and read-only Columns controls. |
 | 218 | Tables | XL | Pending verification | Django `WorkTable`/`WorkRecord` and `work_tables` own data; board widgets hold dataset IDs. `WorkDataPanel` has fields, card/sticky copying, CSV/Excel and owner-only editing. Verify schema migrations, indexed queries, roles and file round trips. |
 | 219 | Filter, sort, search, grouping | M | Pending completion | SQL search/filter/sort and SQL group counts exist. Panel never sends `groupBy`; rendering groups only its current page. Complete grouping across pagination and add browser coverage. |
 | 220 | Formulas and calculations | L | Pending verification | `work_formulas` uses an AST allowlist and SQL expressions; `work_tables.query` computes sums/averages across the query. Verify invalid expressions, nulls, numeric sorting and UI flows. |
@@ -130,3 +130,23 @@ and its disposable database was removed. All 936 unit tests and lint passed;
 
 Next increment: Columns acceptance for swimlanes, lane reorder/recolor,
 containment and reload persistence. Later feature rows remain pending.
+
+
+## Iteration 6: Columns lane and swimlane acceptance
+
+Extended the permanent browser flow to add, rename, recolor and reorder columns
+and swimlanes, assign a child card to a non-default cell, and verify persisted
+parent/lane/swimlane IDs, coordinates and containment. Reload checks preserve
+the lane order, colors and card assignments. No production change was needed.
+Columns remains pending existing-child reorder, culling and role acceptance.
+
+Validation: browser acceptance passed (1 test, 25.3 seconds) through the shared
+heavy lock and disposable PostgreSQL harness with mock providers. All 936 unit
+tests and lint passed; git diff checks passed. Harness-owned servers, workers,
+browser and database were cleaned up on exit. No commit, push or deployment.
+
+The first browser attempt used system Python without Django; use
+`/Users/rohit/Projects/firstmate/data/veevee-board-1b-shapes/venv/bin/python`.
+A subsequent selector failure established that CSS-capitalized lane labels
+retain lowercase accessible names (`lane`, `swimlane`); corrected selectors
+then passed. Next increment: finish Columns acceptance before Tables.
