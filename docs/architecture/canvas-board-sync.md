@@ -13,9 +13,9 @@ merge per node on the client and poll for other people's saves.
   board (graph and version), and nothing is written. A malformed `baseVersion` or `saveId` gets 400.
 - `PATCH` sends `patch` in place of `data`: for `nodes` and for `connectors` the whole items added or changed
   (`upsert`), the ids of the upserted items that are new (`add`) and the ids deleted (`delete`), the whole tag
-  table `tags` only when it changed, the `viewport`, and `nodeOrder`/`connectorOrder` (every id) only
-  when the order is not "kept items in their old order, then added ones in patch order"
-  (`backend/apps/canvas/patch.py`, mirrored by `src/lib/canvas/patch.js`). Under the same lock and version check
+  table `tags` and the whole visual notes `notes` (null removes them) only when they changed, the `viewport`,
+  and `nodeOrder`/`connectorOrder` (every id) only when the order is not "kept items in their old order, then
+  added ones in patch order" (`backend/apps/canvas/patch.py`, mirrored by `src/lib/canvas/patch.js`). Under the same lock and version check
   the server applies it to the stored graph and saves the result exactly as a full save, so roles, stamps,
   History, normalization and the size limit all see the resulting whole board. A patch that does not describe
   a graph (a duplicate id, an order that does not name every item once) or was built over a different one
@@ -54,6 +54,10 @@ merge per node on the client and poll for other people's saves.
   behind, or a save in between recorded no ids or was pruned. A poll that saw a newer version asks it first,
   rebuilds the graph over the one it synced and checks both hashes; a mismatch (a reorder records no ids) or
   an image crop in progress reads the whole board instead, as does a server without the endpoint.
+- Hidden frames (`backend/apps/canvas/hidden.py`): for someone below co-owner, every graph the board routes
+  return (open, 409 and `changes`) leaves out what is inside a hidden frame, and their saves keep that content
+  as stored and cannot change the `hidden` flag. While the board has a hidden frame, `changes` returns them the
+  whole graph instead of the changed ids.
 
 ## Client merge (`src/lib/canvas/merge.js`, `src/lib/canvas-store.js`)
 

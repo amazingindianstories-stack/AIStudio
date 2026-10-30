@@ -9,7 +9,7 @@ import { listCopies } from "@/lib/synced-frames";
 import { requestOpenBoard } from "@/lib/open-board";
 
 /**
- * The strip above a selected frame: its size preset, hide or reveal for people who manage hidden frames, and
+ * The strip below a selected frame: its size preset, hide or reveal for people who manage hidden frames, and
  * the boards that hold a synced copy of it. Placed in screen space from the board data, so it works whatever
  * the viewport culling has mounted.
  */

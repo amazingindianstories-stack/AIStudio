@@ -33,7 +33,9 @@ board deletes its rows. Versions, restore and content backups are not part of th
 `GET /api/canvas-boards/<id>/activity[?before=<createdAt>.<ordinal>]` returns
 `{activity: [{actorId, action, nodeId, nodeType, snippet, at}], next}`, newest first in pages of 100, with
 `next` as the cursor for older entries. It needs edit access: commenters and viewers get 403, a board the
-caller cannot see 404, and no session 401. Names come from `GET /api/users` on the client.
+caller cannot see 404, and no session 401. Below co-owner, rows for objects inside a hidden frame (and connectors
+touching them) are left out, and a row's `snippet` is null unless that object is on the board and visible to
+the caller (`backend/apps/canvas/hidden.py`). Names come from `GET /api/users` on the client.
 
 ## Interface
 
