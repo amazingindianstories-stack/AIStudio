@@ -61,8 +61,9 @@ merge per node on the client and poll for other people's saves.
   against the graph this tab last synced: one-sided changes apply; when both sides changed an item the
   local unsaved edit wins. The viewport stays local. The result is saved again on the new version.
 - The board's tag table merges the same way, per tag id. Sticky emoji votes merge per person: when both
-  sides changed a sticky, the local copy wins but its votes are each side's own additions and removals over
-  the base, so two people voting at once both count (`src/lib/canvas/reactions.js`).
+  sides changed a sticky, its votes are each side's own additions and removals over the base, so two people
+  voting at once both count (`src/lib/canvas/reactions.js`). A vote is not an edit: a sticky whose local copy
+  differs from the base only in its votes takes the remote copy, with the local votes added.
 - The same merge is applied to every undo and redo snapshot, so undo only reverts this person's own steps.
 - Server stamps are not edits: an item whose local copy differs from the base only in its stamps counts as
   unchanged locally and takes the remote copy, stamps included.

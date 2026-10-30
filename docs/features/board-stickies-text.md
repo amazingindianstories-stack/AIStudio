@@ -70,8 +70,7 @@ Personal preferences (custom colors, remembered styles) use `localStorage` under
 
 ## Collaboration and roles
 
-Tags merge per tag id like nodes, and emoji votes merge per person even when both sides changed
-the same sticky, so two people voting at once both count (`src/lib/canvas/merge.js`). A sticky this
-person only voted on takes the other person's newer content, with the vote added. View and comment
+Tags merge per tag id like nodes and emoji votes merge per person, so two people voting at once both
+count; [canvas-board-sync.md](../architecture/canvas-board-sync.md) owns the merge rules. View and comment
 access see tags, votes and authors but get no inspector, sticky menu or vote buttons, and the server
 refuses their saves.
