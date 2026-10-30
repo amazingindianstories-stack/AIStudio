@@ -30,6 +30,9 @@ test('Board work: create cards, edit details, arrange columns, reload persisted 
   await panel.getByRole('button', { name: 'Close cards and work' }).click();
   await page.keyboard.press('Control+Shift+Enter');
   await expect(panel).toBeVisible();
+  await panel.getByRole('button', { name: 'Close cards and work' }).click();
+  await page.keyboard.press('Meta+Shift+Enter');
+  await expect(panel).toBeVisible();
   await panel.getByLabel('title', { exact: true }).fill('Ship milestone');
   await panel.getByRole('textbox', { name: 'description', exact: true }).fill('Review the release checklist');
   await panel.getByLabel('start', { exact: true }).fill('2026-12-01');
@@ -58,6 +61,28 @@ test('Board work: create cards, edit details, arrange columns, reload persisted 
     await expect(panel.getByRole('textbox', { name: field, exact: true })).toHaveValue(value);
   }
   await expect(panel.getByRole('combobox', { name: 'Status', exact: true })).toHaveValue('In progress');
+  // Pan far enough to unmount the card, then edit through the model-backed selector.
+  const saved = await (await context.request.get(`/api/canvas-boards/${boardId}`)).json();
+  const cardId = saved.data.nodes.find(node => node.record?.title === 'Ship milestone').id;
+  await panel.getByRole('button', { name: 'Close cards and work' }).click();
+  const renderedCard = page.locator(`[data-node-id="${cardId}"]`);
+  await expect(renderedCard).toBeVisible();
+  await page.getByLabel('Board canvas', { exact: true }).hover({ position: { x: 700, y: 500 } });
+  await page.mouse.wheel(10000, 10000);
+  await expect(renderedCard).toHaveCount(0);
+  await page.getByRole('button', { name: 'Cards and work', exact: true }).click();
+  await panel.getByRole('combobox', { name: 'Selected widget', exact: true }).selectOption({ label: 'Ship milestone' });
+  await panel.getByRole('textbox', { name: 'description', exact: true }).fill('Edited while offscreen');
+  await expect(renderedCard).toHaveCount(0);
+  await expect.poll(async () => {
+    const board = await (await context.request.get(`/api/canvas-boards/${boardId}`)).json();
+    return board.data.nodes.find(node => node.id === cardId)?.record.description;
+  }).toBe('Edited while offscreen');
+  await page.reload();
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Board', exact: true }).click();
+  await page.getByRole('button', { name: 'Cards and work', exact: true }).click();
+  await panel.getByRole('combobox', { name: 'Selected widget', exact: true }).selectOption({ label: 'Ship milestone' });
+  await expect(panel.getByRole('textbox', { name: 'description', exact: true })).toHaveValue('Edited while offscreen');
   // Both read-only roles can inspect all fields but cannot mutate board content.
   const readerId = 'b0a2d000-0000-4000-8000-000000000042';
   await db`INSERT INTO users (id,email,password_hash,password_salt,created_at,name,role,is_active,auth_version)
