@@ -241,6 +241,45 @@ test('Board stickies: bulk mode, colors, shape, auto size, tags, reactions, auth
   await context.close();
 });
 
+test('Board stickies: auto size keeps a word that nearly fills the note whole', async ({ browser, baseURL }, info) => {
+  const db = fixtureDatabase(process.env.E2E_DATABASE_URL);
+  await db.transaction([db.statement`
+    INSERT INTO users (id, email, password_hash, password_salt, created_at, name, role, is_active, auth_version)
+    VALUES (${OWNER.id}, ${OWNER.email}, 'unused', 'unused', 1, ${OWNER.name}, 'user', true, 0)
+    ON CONFLICT (id) DO UPDATE SET role = 'user', is_active = true, auth_version = 0`]);
+  const setup = await signIn(browser, baseURL, OWNER, null);
+  const created = await setup.context.request.post('/api/projects', {
+    data: { op: 'createProject', name: `Board auto size ${randomUUID()}` }, headers: { Origin: baseURL } });
+  expect(created.ok()).toBeTruthy();
+  const { project } = await created.json();
+  await setup.context.close();
+
+  const { context, page } = await signIn(browser, baseURL, OWNER, project.id);
+  await openBoard(page);
+  await page.getByRole('button', { name: 'Sticky options' }).click();
+  await page.getByRole('menuitem', { name: 'Bulk mode' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add stickies in bulk' });
+  await dialog.getByRole('textbox').fill('Draft roadmap');
+  const firstSave = page.waitForResponse(isSave);
+  await dialog.getByRole('button', { name: 'Add 1 sticky' }).click();
+  const boardId = new URL((await firstSave).url()).pathname.split('/').pop();
+  const board = await storedBoard(context, boardId, (b) => stickies(b).length === 1);
+  const text = page.locator(`[data-node-id="${stickies(board)[0].id}"] [data-sticky-text] > *`);
+  // At the largest size, "roadmap" is a fraction of a pixel narrower than
+  // the note or the size drops; it must never break as "roadma / p".
+  const layout = await text.evaluate((el) => {
+    const node = document.createTreeWalker(el, NodeFilter.SHOW_TEXT).nextNode();
+    const range = document.createRange();
+    range.setStart(node, node.data.indexOf('roadmap'));
+    range.setEnd(node, node.data.indexOf('roadmap') + 'roadmap'.length);
+    return { roadmapLines: new Set([...range.getClientRects()].map((rect) => Math.round(rect.top))).size,
+      overflows: el.scrollHeight > el.clientHeight + 1 };
+  });
+  await info.attach('auto-size-word', { body: await text.screenshot(), contentType: 'image/png' });
+  expect(layout).toEqual({ roadmapLines: 1, overflows: false });
+  await context.close();
+});
+
 test('Board text: lists, custom colors, fonts and the remembered style', async ({ browser, baseURL }, info) => {
   const db = fixtureDatabase(process.env.E2E_DATABASE_URL);
   await db.transaction([db.statement`

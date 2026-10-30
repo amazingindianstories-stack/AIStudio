@@ -21,6 +21,22 @@ export function autoFitMax(w, h) {
   return Math.max(AUTO_FIT_MIN, Math.floor(Math.min(w, h) / 3));
 }
 
+/** Whether every word in `el` lies inside its box, to a fraction of a pixel (scrollWidth rounds to whole pixels). */
+function wordsInside(el) {
+  const box = el.getBoundingClientRect();
+  const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  const range = document.createRange();
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    for (const word of node.data.matchAll(/\S+/g)) {
+      range.setStart(node, word.index);
+      range.setEnd(node, word.index + word[0].length);
+      const rect = range.getBoundingClientRect();
+      if (rect.left < box.left || rect.right > box.right) return false;
+    }
+  }
+  return true;
+}
+
 /**
  * Auto font size: while `enabled`, sets the font size of the element in
  * `ref` to the largest that keeps its text inside it, whenever `deps`
@@ -38,8 +54,8 @@ export function useAutoFit(ref, enabled, max, deps) {
     const text = el.firstElementChild ?? el;
     const fits = (px) => {
       el.style.fontSize = `${px}px`;
-      // Strict on width: a word even a pixel too wide would wrap mid-word.
-      return text.scrollHeight <= text.clientHeight + 1 && text.scrollWidth <= text.clientWidth;
+      // Strict on width: a word even a fraction of a pixel too wide would wrap mid-word.
+      return text.scrollHeight <= text.clientHeight + 1 && wordsInside(text);
     };
     text.style.overflowWrap = "normal";
     const size = largestFitting(fits, AUTO_FIT_MIN, max);
