@@ -278,6 +278,12 @@ function scheduleGestureEnd(set, get) {
   }, GESTURE_IDLE_MS);
 }
 
+/** `next`, an edit of the live graph, as the server will keep it from this person: below co-owner, hidden frames
+ * stay exactly as they are (apps.canvas.hidden.preserve). Previews of a gesture go through it too. */
+export function asEdited(state, next) {
+  return canShareRole(state.boardRole) ? next : keepHiddenFrames(state.history.present, next);
+}
+
 /** Applies `compute` to the live graph. Coalesced gestures (drag/resize)
  * freeze past/future at the pre-gesture baseline and only push ONE history
  * step once the gesture goes idle (design.md: "commit once on pointer-up",
@@ -291,8 +297,7 @@ function mutateGraph(
 ) {
   const state = get();
   if (!state.boardId || selectReadOnly(state)) return;
-  const computed = compute(state.history.present);
-  const nextPresent = canShareRole(state.boardRole) ? computed : keepHiddenFrames(state.history.present, computed);
+  const nextPresent = asEdited(state, compute(state.history.present));
   // An edit that changes nothing is no undo step and no save.
   if (sameValue(nextPresent, state.history.present)) return;
   if (opts?.coalesce) {

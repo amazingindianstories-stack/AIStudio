@@ -141,10 +141,12 @@ def board_changes(identifier, since, level=None):
     if row is None:
         return None
     reply = {'version': row['version'], 'updatedAt': row['updated_at']}
-    graph = validate_state(row['data'])
-    if level is not None and not hidden.can_manage(level) and hidden.has_hidden(graph):
-        # What changed inside a hidden frame is not theirs to read; they get the whole board as they may see it.
-        return {**reply, 'data': hidden.view_of(graph, level)}
+    graph, data = validate_state(row['data']), row['data']
+    if level is not None and not hidden.can_manage(level):
+        graph = data = hidden.view_of(graph, level)
+        if hidden.has_hidden(graph):
+            # What changed inside a hidden frame is not theirs to read; they get the whole board as they may see it.
+            return {**reply, 'data': graph}
     behind = row['version'] - since
     changes = None
     if 0 <= behind <= board_patch.MAX_CHANGE_VERSIONS:
@@ -152,7 +154,7 @@ def board_changes(identifier, since, level=None):
                                                       version__lte=row['version']).values_list('version', 'changes'))
         if len(records) == behind:
             changes = board_patch.changes_since(graph, list(records.values()))
-    return {**reply, 'changes': changes} if changes is not None else {**reply, 'data': row['data']}
+    return {**reply, 'changes': changes} if changes is not None else {**reply, 'data': data}
 
 
 def prune_board_saves(now=None):

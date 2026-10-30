@@ -197,6 +197,40 @@ class FrameRoutesTests(TransactionTestCase):
         copies = self.client.get(f'/api/canvas-boards/{SOURCE}/frames/open/copies').json()['copies']
         self.assertEqual(sorted((c['boardId'], c['projectId']) for c in copies), sorted([(OTHER, PROJECT), (str(far.id), elsewhere)]))
 
+    def test_a_notes_link_to_hidden_work_deleted_later_reaches_an_editor_without_its_label(self):
+        editor = make_user('editor')
+        BoardMember.objects.create(board_id=SOURCE, user_id=editor.id, role='edit', created_at=1, updated_at=1)
+        stored = CanvasBoard.objects.get(pk=SOURCE).data
+        CanvasBoard.objects.filter(pk=SOURCE).update(data={**stored, 'notes': {'text': 'Plan', 'refs': [
+            {'id': 'a', 'type': 'sticky', 'label': 'Open work'}, {'id': 'b', 'type': 'sticky', 'label': 'Secret plan'}]}})
+
+        def save(data, base):
+            response = self.client.put(f'/api/canvas-boards/{SOURCE}', content_type='application/json',
+                                       data=json.dumps({'data': data, 'baseVersion': base, 'saveId': str(uuid4())}))
+            self.assertEqual(response.status_code, 200, response.content)
+            return response.json()['version']
+
+        self.as_user(self.owner)
+        owned = self.client.get(f'/api/canvas-boards/{SOURCE}').json()
+        last = owned['data']
+        last['nodes'] = [item for item in last['nodes'] if item['id'] not in ('secret', 'b')]
+        last['notes'] = {**last['notes'], 'text': 'Plan two'}
+        version = save(last, owned['version'])
+
+        unlabeled = [{'id': 'a', 'type': 'sticky', 'label': 'Open work'}, {'id': 'b', 'type': 'sticky', 'label': ''}]
+        self.as_user(editor)
+        read = self.client.get(f'/api/canvas-boards/{SOURCE}').json()
+        self.assertEqual(read['data']['notes']['refs'], unlabeled)
+        polled = self.client.get(f'/api/canvas-boards/{SOURCE}/changes', {'since': version - 1}).json()
+        self.assertEqual(polled['changes']['notes']['refs'], unlabeled)
+        edited = read['data']
+        edited['notes'] = {**edited['notes'], 'text': 'Plan three'}
+        save(edited, version)
+
+        self.as_user(self.owner)
+        notes = self.client.get(f'/api/canvas-boards/{SOURCE}').json()['data']['notes']
+        self.assertEqual((notes['text'], [ref['label'] for ref in notes['refs']]), ('Plan three', ['Open work', 'Secret plan']))
+
     def test_history_hides_hidden_work_from_a_viewer_who_cannot_manage_it(self):
         CanvasBoard.objects.filter(pk=SOURCE).update(data=graph(
             [frame('open'), node('a', parentId='open', text='Visible'), frame('secret', hidden=True), node('b', parentId='secret', text='Secret')],
