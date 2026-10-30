@@ -75,13 +75,20 @@ function stopIndex(stops, selection) {
   return stops.findIndex((stop) => stop.ids.some((id) => selected.has(id)));
 }
 
-/** The selection after Tab (`step` 1) or Shift+Tab (-1); wraps at the ends. Null on an empty level. */
+/**
+ * The selection after Tab (`step` 1) or Shift+Tab (-1). Inside a frame it
+ * wraps at the ends; at the top level it stops, returning null past the last
+ * or before the first stop so focus can leave the board. Null on an empty level.
+ */
 export function stepStop(present, selection, step) {
-  const stops = navigationStops(present, currentLevel(present, selection));
+  const level = currentLevel(present, selection);
+  const stops = navigationStops(present, level);
   if (!stops.length) return null;
   const index = stopIndex(stops, selection);
-  const next = index < 0 ? (step > 0 ? 0 : stops.length - 1) : (index + step + stops.length) % stops.length;
-  return stops[next].ids;
+  if (index < 0) return stops[step > 0 ? 0 : stops.length - 1].ids;
+  const next = index + step;
+  if (level === null && (next < 0 || next >= stops.length)) return null;
+  return stops[(next + stops.length) % stops.length].ids;
 }
 
 /** The first or last stop at the selection's level (Home / End). */

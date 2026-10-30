@@ -5,7 +5,7 @@ import { ChevronDown, ChevronUp, ChevronRight, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/lib/canvas-store";
 import { useBoardUi } from "@/lib/canvas/board-ui";
-import { FIND_TYPES, findOnBoard, matchCount, replaceMatches } from "@/lib/canvas/find";
+import { FIND_TYPES, findOnBoard, matchCount, replaceMatches, replaceOneMatch } from "@/lib/canvas/find";
 import { nodeBounds, worldToScreen } from "@/lib/canvas/geometry";
 
 const ICON_BUTTON =
@@ -28,12 +28,14 @@ export function BoardFind({ canEdit, onClose }) {
   const [replaceOpen, setReplaceOpen] = useState(false);
   const [replacement, setReplacement] = useState("");
   const [current, setCurrent] = useState(0);
+  const [currentRange, setCurrentRange] = useState(0);
   const inputRef = useRef(null);
   const replaceRef = useRef(null);
 
   const hits = useMemo(() => findOnBoard(present, query, { types, matchCase }), [present, query, types, matchCase]);
   const index = hits.length ? Math.min(current, hits.length - 1) : -1;
   const currentId = index >= 0 ? hits[index].id : null;
+  const rangeIndex = index >= 0 ? Math.min(currentRange, hits[index].ranges.length - 1) : 0;
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -45,12 +47,16 @@ export function BoardFind({ canEdit, onClose }) {
   }, [hits, currentId]);
 
   // A new search starts again from the first hit.
-  useEffect(() => setCurrent(0), [query, types, matchCase]);
+  useEffect(() => {
+    setCurrent(0);
+    setCurrentRange(0);
+  }, [query, types, matchCase]);
 
   const jump = (next) => {
     if (!hits.length) return;
     const at = (next + hits.length) % hits.length;
     setCurrent(at);
+    setCurrentRange(0);
     useCanvasStore.getState().focusObject(hits[at].id);
   };
 
@@ -64,7 +70,11 @@ export function BoardFind({ canEdit, onClose }) {
   const replaceOne = () => {
     if (index < 0) return;
     const store = useCanvasStore.getState();
-    store.replaceNodes(replaceMatches(store.history.present, hits, replacement, { id: hits[index].id, index: 0 }));
+    const done = replaceOneMatch(store.history.present, hits, { hit: index, range: rangeIndex }, replacement, query, { types, matchCase });
+    store.replaceNodes(done.edits);
+    setCurrent(done.at?.hit ?? 0);
+    setCurrentRange(done.at?.range ?? 0);
+    if (done.at && done.hits[done.at.hit].id !== currentId) store.focusObject(done.hits[done.at.hit].id);
     // The button disables once no match is left; keep focus (and Escape) in find.
     replaceRef.current?.focus();
   };

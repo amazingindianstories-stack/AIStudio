@@ -136,6 +136,17 @@ test('Board find, frames, presenting, links, keyboard and shortcuts work from th
   await expect(announcer).toHaveText('Frame: Intro, 1 object');
   await page.keyboard.press('End');
   await expect(announcer).toHaveText('Sticky note: Loose idea');
+  // At the top level the ends do not wrap: Tab and Shift+Tab move on to the page's other controls.
+  await page.keyboard.press('Tab');
+  await expect(canvas).not.toBeFocused();
+  await expect(announcer).toHaveText('Sticky note: Loose idea');
+  await canvas.focus();
+  await page.keyboard.press('Home');
+  await expect(announcer).toHaveText('Frame: Intro, 1 object');
+  await page.keyboard.press('Shift+Tab');
+  await expect(canvas).not.toBeFocused();
+  await expect(announcer).toHaveText('Frame: Intro, 1 object');
+  await canvas.focus();
 
   // The skip link selects the first object.
   await page.keyboard.press('Escape');

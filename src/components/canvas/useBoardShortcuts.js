@@ -56,7 +56,7 @@ export function startPresentation() {
   }
   ui.setFindOpen(false);
   ui.setPaletteOpen(false);
-  ui.setPresenting({ index: 0, grid: false, notes: false, returnViewport: store.history.present.viewport });
+  ui.setPresenting({ index: 0, grid: false, notes: false, returnViewport: ui.presenting?.returnViewport ?? store.history.present.viewport });
 }
 
 /** Copies the selection: board objects for pasting here, and their text for other apps. */

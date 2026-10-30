@@ -29,8 +29,8 @@ both test suites. Boards saved before these fields load and save unchanged.
 Cmd/Ctrl+F searches sticky notes, text boxes and shapes (their text), frame titles and image
 descriptions, with an optional match-case switch and type filters (`src/lib/canvas/find.js`). Hits
 come in reading order; each jump selects the hit and brings it into view while the overlay dims
-the rest. Editors can replace one match or all of them as one undo step; formatting ranges around
-replaced text stretch or shift with it.
+the rest. Editors can replace one match (then move to the next match after the new text) or all
+of them as one undo step; formatting ranges around replaced text stretch or shift with it.
 
 ## Frames panel and presenting
 
@@ -62,8 +62,9 @@ Number keys 1 to 9 pick dock tools in dock order; **Customize toolbar** pins, un
 the creation tools (`src/lib/canvas/toolbar-tools.js`).
 
 Keyboard navigation (`src/lib/canvas/keyboard-nav.js`) reads the board like a page: B focuses the
-board, Tab walks one level in reading order, Enter goes into a frame or group (or edits text),
-Escape comes back out, and Cmd/Ctrl+arrows jump to the nearest object in that direction. Screen
+board, Tab walks one level in reading order (wrapping inside a frame; at the top level, Tab past
+the last object or Shift+Tab before the first leaves the board for the next page control), Enter
+goes into a frame or group (or edits text), Escape comes back out, and Cmd/Ctrl+arrows jump to the nearest object in that direction. Screen
 readers hear what is selected through a polite live region.
 
 ## Accessibility tools

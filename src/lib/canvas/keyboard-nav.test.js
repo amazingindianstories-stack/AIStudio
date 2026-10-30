@@ -29,13 +29,19 @@ test("a group is one stop and frame contents are their own level", () => {
   assert.deepEqual(navigationStops(board, "frame").map((s) => s.ids), [["in1"], ["in2"]]);
 });
 
-test("Tab steps through the selection's level and wraps", () => {
+test("Tab steps through the selection's level, wrapping inside a frame", () => {
   assert.deepEqual(stepStop(board, [], 1), ["a"]);
   assert.deepEqual(stepStop(board, [], -1), ["g1", "g2"]);
   assert.deepEqual(stepStop(board, ["a"], 1), ["b"]);
-  assert.deepEqual(stepStop(board, ["g1", "g2"], 1), ["a"]);
+  assert.deepEqual(stepStop(board, ["b"], -1), ["a"]);
   assert.deepEqual(stepStop(board, ["in1"], 1), ["in2"]);
   assert.deepEqual(stepStop(board, ["in2"], 1), ["in1"]);
+  assert.deepEqual(stepStop(board, ["in1"], -1), ["in2"]);
+});
+
+test("at the top level Tab past the last stop and Shift+Tab before the first leave the board", () => {
+  assert.equal(stepStop(board, ["g1", "g2"], 1), null);
+  assert.equal(stepStop(board, ["a"], -1), null);
 });
 
 test("Home and End pick the first and last stop at the level", () => {

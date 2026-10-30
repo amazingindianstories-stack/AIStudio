@@ -123,6 +123,26 @@ test("touch view-only mode keeps only the entries marked for it", () => {
   assert.equal(dispatchShortcut(keydown("f", { meta: true }), ctx), true);
 });
 
+test("Tab leaves the board past its last top-level object, and Shift+Tab before its first", () => {
+  const note = (id, x) => ({ id, type: "sticky", x, y: 0, w: 100, h: 100, parentId: null, groupId: null });
+  const board = (selection) => {
+    const ctx = context({ store: { ...context().store, selection, history: { present: { nodes: [note("a", 0), note("b", 200)], connectors: [] } } } });
+    return Object.assign(ctx, { select: (ids) => ctx.calls.push(["select", ids]) });
+  };
+  const step = keydown("Tab");
+  const fromFirst = board(["a"]);
+  assert.equal(dispatchShortcut(step, fromFirst), true);
+  assert.equal(step.defaultPrevented, true);
+  assert.deepEqual(fromFirst.calls, [["select", ["b"]]]);
+  for (const [selection, shift] of [[["b"], false], [["a"], true]]) {
+    const out = keydown("Tab", { shift });
+    const ctx = board(selection);
+    assert.equal(dispatchShortcut(out, ctx), false);
+    assert.equal(out.defaultPrevented, false);
+    assert.deepEqual(ctx.calls, []);
+  }
+});
+
 test("Cmd+C copies a selection, letting the browser's copy event follow, and otherwise leaves the key to the browser", () => {
   const empty = context();
   const event = keydown("c", { meta: true });

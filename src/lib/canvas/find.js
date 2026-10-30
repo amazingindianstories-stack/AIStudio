@@ -136,6 +136,27 @@ export function replaceMatches(present, hits, replacement, target) {
   return edits;
 }
 
+/**
+ * Replaces the one match `at` ({hit, range}: indexes into `hits`) and picks
+ * the match to go to next: the first one after the new text in the same
+ * object, else the next object's first, wrapping like the finder's Next. So
+ * replacing with text that contains the query moves on instead of replacing
+ * the new text again. Returns the edits, the hits after them, and the next
+ * match in those hits (null when none is left).
+ */
+export function replaceOneMatch(present, hits, at, replacement, query, options) {
+  const hit = hits[at.hit];
+  const [start] = hit.ranges[at.range];
+  const edits = replaceMatches(present, hits, replacement, { id: hit.id, index: at.range });
+  const after = findOnBoard({ ...present, nodes: present.nodes.map((n) => edits.get(n.id) ?? n) }, query, options);
+  if (!after.length) return { edits, hits: after, at: null };
+  const same = after.findIndex((h) => h.id === hit.id);
+  const range = same < 0 ? -1 : after[same].ranges.findIndex(([from]) => from >= start + replacement.length);
+  if (range >= 0) return { edits, hits: after, at: { hit: same, range } };
+  // Text edits never reorder objects, so the next object follows this one, or takes its place when it no longer matches.
+  return { edits, hits: after, at: { hit: (same < 0 ? at.hit : same + 1) % after.length, range: 0 } };
+}
+
 /** The total number of matches across hits. */
 export function matchCount(hits) {
   return hits.reduce((sum, hit) => sum + hit.ranges.length, 0);
