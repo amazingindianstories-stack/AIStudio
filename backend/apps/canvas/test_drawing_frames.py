@@ -183,6 +183,19 @@ class FrameRoutesTests(TransactionTestCase):
         copies = self.client.get(f'/api/canvas-boards/{SOURCE}/frames/open/copies').json()['copies']
         self.assertEqual([(c['boardId'], c['nodeId'], c['projectId']) for c in copies], [(OTHER, 's1', PROJECT)])
 
+    def test_a_copy_inside_a_hidden_frame_is_listed_only_for_those_who_can_see_into_it(self):
+        editor = make_user('editor')
+        BoardMember.objects.create(board_id=OTHER, user_id=editor.id, role='edit', created_at=1, updated_at=1)
+        CanvasBoard.objects.filter(pk=OTHER).update(data=graph([
+            node('s1', 'synced', sourceBoardId=SOURCE, sourceNodeId='open'), frame('vault', hidden=True),
+            node('s3', 'synced', sourceBoardId=SOURCE, sourceNodeId='open', parentId='vault')]))
+        self.as_user(editor)
+        copies = self.client.get(f'/api/canvas-boards/{SOURCE}/frames/open/copies').json()['copies']
+        self.assertEqual([c['nodeId'] for c in copies], ['s1'])
+        self.as_user(self.owner)
+        copies = self.client.get(f'/api/canvas-boards/{SOURCE}/frames/open/copies').json()['copies']
+        self.assertEqual([c['nodeId'] for c in copies], ['s1', 's3'])
+
     def test_copies_come_only_from_boards_the_caller_can_open_and_carry_their_project(self):
         elsewhere = 'abababab-abab-4bab-8bab-abababababab'
         Project.objects.create(id=elsewhere, name='Elsewhere', created_at=1, updated_at=1)
