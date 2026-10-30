@@ -127,15 +127,17 @@ export const PortraitCard = memo(function PortraitCard({ portrait, selected, tab
         )}
       >
         <div style={{ paddingBottom: "125%" }} className="media-card-body relative w-full">
-          <ProgressiveImage
-            src={video ? portraitPosterUrl(portrait) : thumbUrl(portrait.imageUrl, CARD_THUMB_WIDTH)}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            draggable={false}
-            className={cn("absolute inset-0 h-full w-full", unusable && "opacity-40")}
-            imageClassName="object-cover transition-transform duration-500 group-hover:scale-[1.04]"
-          />
+          {(!video || portraitPosterUrl(portrait) || !unusable) && (
+            <ProgressiveImage
+              src={video ? portraitPosterUrl(portrait) : thumbUrl(portrait.imageUrl, CARD_THUMB_WIDTH)}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              draggable={false}
+              className={cn("absolute inset-0 h-full w-full", unusable && "opacity-40")}
+              imageClassName="object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+            />
+          )}
 
           {video && !unusable && !label && (
             <span data-portrait-video-badge aria-label="Video" className="pointer-events-none absolute right-[var(--face-inset)] top-[var(--face-inset)] z-10 grid h-6 w-6 place-items-center rounded-full bg-black/60 text-white/90 backdrop-blur-sm">

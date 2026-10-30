@@ -19,7 +19,6 @@ MAX_BYTES = 200 * 1024 * 1024
 CONTAINERS = ('mp4', 'mov')
 CONTENT_TYPES = ('video/mp4', 'video/quicktime')
 PROBE_SECONDS = 20
-SOURCE_URL_SECONDS = 120
 
 
 def _fps(stream):

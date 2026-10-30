@@ -271,7 +271,7 @@ def submit_video(item, *, signal, on_task, count=1, dependencies=None, env=None)
     inlined = deps.inline([ref['imageUrl'] for ref in combined], signal, **managed)
     references = [{**ref, 'index': index + 1, 'dataUrl': inlined[index]} for index, ref in enumerate(combined)]
     videos, audios = [], []
-    video_assets = video_assets_for(item.id) if managed else {}
+    video_assets = video_assets_for(item) if managed else {}
     for ref in resolve_references(item.prompt, item.reference_videos or [], 'vid'):
         signal.check()
         if video_assets.get(storage_key(ref)):       # a Gallery video portrait goes as its registered asset, never as a URL

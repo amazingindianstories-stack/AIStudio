@@ -4,7 +4,6 @@ Callers authorize first. The master is never rewritten: ffmpeg reads its first f
 short signed URL read with HTTP ranges) and the poster is written create-only under ``thumbs/poster/<key>.webp``.
 One ffmpeg runs per process at a time with a 15 s deadline; a busy gate, a failure or a timeout returns None.
 """
-import re
 import subprocess
 import tempfile
 import threading
@@ -30,17 +29,6 @@ def poster_key(key):
 
 def is_video_key(key):
     return isinstance(key, str) and not key.startswith('thumbs/') and key.rsplit('.', 1)[-1].lower() in VIDEO_EXTENSIONS
-
-
-def portrait_poster_source(key):
-    """The finished Gallery video upload whose poster ``key`` names, else None. Such an upload key has no extension,
-    so its upload row says whether it is a video."""
-    match = re.fullmatch(r'thumbs/poster/(uploads/portrait/[^/]+)\.webp', key or '')
-    if not match:
-        return None
-    from .models import UploadSession
-    row = UploadSession.objects.filter(key=match[1]).only('state', 'finalized_at', 'content_type').first()
-    return match[1] if row and row.state == 'ready' and row.finalized_at and (row.content_type or '').startswith('video/') else None
 
 
 def _source(storage, key):

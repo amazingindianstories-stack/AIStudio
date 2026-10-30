@@ -425,7 +425,7 @@ def claim_upload(asset_id, now=None):
             return slot, 'delete'
         asset.status, asset.updated_at, asset.last_used_at = 'REGISTERING', now, now
         asset.receipt = {'version': 1, 'state': 'CLAIMED', 'attempt': str(uuid.uuid4()), 'registered_at': now,
-                         **({'throttle': asset.receipt['throttle']} if (asset.receipt or {}).get('throttle') else {})}   # the processing clock starts here, not at upload
+                         **{key: asset.receipt[key] for key in ('throttle', 'probed') if (asset.receipt or {}).get(key)}}   # the processing clock starts here, not at upload
         asset.save(update_fields=['status', 'updated_at', 'last_used_at', 'receipt'])
         pin(asset.id, asset)
         return asset, 'register'
@@ -789,6 +789,29 @@ def process_uploads(*, client=None, storage=None, now=None, limit=UPLOADS_PER_PA
             return report
 
 
+def _check_video(asset, storage):
+    """Once, while a Gallery clip is QUEUED and before it can take a slot (and so evict a portrait): check it against
+    the video limits and make its poster. Never in the Gallery request: ffprobe and ffmpeg may take seconds per clip.
+    Returns True unless the clip is still QUEUED and may be claimed."""
+    from apps.media import posters
+    from . import video_limits
+    found = video_limits.problem(video_limits.probe_stored(storage, asset.source_key))
+    if not found and posters.bounded_poster(storage, asset.source_key, video=True) is None:
+        found = video_limits.problem(None)
+    with transaction.atomic():
+        _locked()
+        row = ManagedPortraitAsset.objects.select_for_update().filter(pk=asset.pk, status='QUEUED').first()
+        if row is None:
+            return True
+        if found:
+            row.status, row.error_code, row.receipt = 'FAILED', found[0], {**(row.receipt or {}), 'problem': found[1]}
+        else:
+            row.receipt = {**(row.receipt or {}), 'probed': True}
+        row.updated_at = now_ms()
+        row.save(update_fields=['status', 'error_code', 'receipt', 'updated_at'])
+    return bool(found)
+
+
 def _process_upload_once(*, client, storage=None, now=None):
     report = {'registered': 0, 'polled': 0, 'deleted': 0}
     report['deleted'] = recover_deletes(client, now=now, stale_ms=DELETING_STALE_MS, limit=5)
@@ -802,6 +825,10 @@ def _process_upload_once(*, client, storage=None, now=None):
     first = ManagedPortraitAsset.objects.filter(status='QUEUED').order_by('created_at', 'id').first()
     if first is None:
         return report
+    from apps.media.storage import get_storage
+    storage = storage or get_storage()
+    if first.media_kind == 'video' and not (first.receipt or {}).get('probed') and _check_video(first, storage):
+        return report
     claimed = claim_upload(first.id, now)
     if claimed is None:
         return report
@@ -810,21 +837,12 @@ def _process_upload_once(*, client, storage=None, now=None):
         remote_delete(asset, client)
         report['deleted'] += 1
         return report
-    from apps.media.storage import get_storage
-    storage = storage or get_storage()
     try:
         data = b'' if asset.media_kind == 'video' else storage.read(asset.source_key)
     except Exception:
         _finish(asset, status='FAILED', error_code='source_unreadable')
         release_upload_pins()
         return report
-    if asset.media_kind == 'video':      # probed here, never in the Gallery request: ffprobe may take seconds per clip
-        from . import video_limits
-        found = video_limits.problem(video_limits.probe_stored(storage, asset.source_key))
-        if found:
-            _finish(asset, status='FAILED', error_code=found[0], receipt={**(asset.receipt or {}), 'problem': found[1]})
-            release_upload_pins()
-            return report
     outcome = _register(asset, data, storage, client, asset.created_by_id, requeue=True)
     report['registered'] = 1
     if outcome.kind == 'wait' and outcome.reason in ('portrait_pool_full', 'portrait_paused'):

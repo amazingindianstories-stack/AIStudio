@@ -103,6 +103,12 @@ def display_name(asset, creator):
     return f'Face from {first or "prompt"} {day:%b} {day.day}'
 
 
+def has_poster(asset):
+    """The scheduler makes a clip's poster before the clip leaves QUEUED; a refused clip has none."""
+    return (asset.media_kind == 'video' and bool(asset.source_key) and asset.status != 'FAILED'
+            and (asset.status != 'QUEUED' or bool((asset.receipt or {}).get('probed'))))
+
+
 def serialize(asset, pins, creators, room=True):
     creator = creators.get(asset.created_by_id)
     if asset.status == 'ACTIVE':
@@ -116,7 +122,7 @@ def serialize(asset, pins, creators, room=True):
     return {'id': str(asset.id), 'name': display_name(asset, creator), 'origin': asset.origin,
             'kind': asset.media_kind, 'imageUrl': '/api/media/' + asset.source_key if asset.source_key and asset.media_kind != 'video' else None,
             'videoUrl': '/api/media/' + asset.source_key if asset.source_key and asset.media_kind == 'video' else None,
-            'posterUrl': '/api/media/' + poster_key(asset.source_key) if asset.source_key and asset.media_kind == 'video' else None, 'state': state, 'message': message,
+            'posterUrl': '/api/media/' + poster_key(asset.source_key) if has_poster(asset) else None, 'state': state, 'message': message,
             'createdBy': {'id': str(creator.id), 'name': creator.name, 'email': creator.email, 'avatarUrl': creator.avatar_url} if creator else None,
             'createdAt': asset.created_at, 'inUse': pins.get(asset.id, 0) > 0}
 

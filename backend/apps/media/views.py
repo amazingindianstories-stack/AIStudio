@@ -18,7 +18,6 @@ from .uploads import (create_upload_presign, verify_upload, initialize_upload,
     upload_status, finalize_upload, stream_local_chunk, cancel_upload, UploadError)
 from .images import is_thumbnailable, thumb_key
 from .derivatives import bounded_derivative, ready_upload_is_image
-from .posters import bounded_poster, portrait_poster_source
 
 
 def _body(request):
@@ -108,8 +107,6 @@ def media(request, path):
         step = next((step for step in (512,1280) if width and step >= width), None) if eligible else None
         if step and settings.LOCAL_DATA_MODE != 'read_only_viewer':
             target, fresh = bounded_derivative(storage, key, step)
-        elif settings.LOCAL_DATA_MODE != 'read_only_viewer' and (source := portrait_poster_source(key)):
-            target, fresh = bounded_poster(storage, source, video=True) or (key, None)      # made on first read, tried again on the next
         direct = storage.browser_url(target) if request.GET.get('inline') != '1' else None
         if direct:
             return _redirect(direct)

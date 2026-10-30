@@ -22,13 +22,15 @@ Nothing is deployed. Every production step below needs explicit owner approval.
 - Gallery video portraits (`media_kind = 'video'`, migration `assets.0007`, additive, defaults to `image`): MP4 or MOV,
   2-30 s, 24-60 fps, each side 300-6000 px, aspect 0.4-2.5, 407,696-8,295,044 pixels, at most 200 MB (BytePlus
   "Add real-human assets to asset library"; `apps/assets/video_limits.py`). The browser checks duration and size
-  before uploading; the scheduler's upload pass probes the stored clip with ffprobe before registering it (a clip
-  that breaks a limit becomes an unusable card with the reason), never the `POST /api/portraits` request. The
-  stored master is registered as an `AssetType: Video` asset without being read or re-encoded; processing may take
-  longer (`VIDEO_PROCESSING_LIMIT_MS`, 15 min). The card's first frame (`thumbs/poster/<key>.webp`) is made by the
-  media route on first read and tried again on a later read if ffmpeg was busy or failed. A reference video that is
-  a Gallery video portrait is sent to Seedance as `asset://<id>` (registered again if it expired), never as a URL;
-  it is refused as an image reference, a frame or an upscale source.
+  before uploading. Once a queued clip is first in line, and before it can take a slot (or evict a portrait), the
+  scheduler's upload pass probes the stored clip with ffprobe and makes its card frame (`thumbs/poster/<key>.webp`)
+  with ffmpeg, never in the `POST /api/portraits` request. A clip that breaks a limit, or whose first frame cannot be
+  read, becomes an unusable card with the reason; the card shows a frame only once it exists. The stored master is
+  registered as an `AssetType: Video` asset without being read or re-encoded; processing may take longer
+  (`VIDEO_PROCESSING_LIMIT_MS`, 15 min). A reference video that is a Gallery video portrait is sent to Seedance as
+  `asset://<id>` (registered again if it expired, matched by content to the asset the job pinned), never as a URL;
+  a job that references a clip the Gallery marked unusable fails before admission and is not charged. A Gallery clip
+  is refused as an image reference, a frame or an upscale source.
   `assets.0007` brings `django_migrations` to 80 rows (`MIGRATION_ROWS` accepts 79 and 80). A pre-0007 build does
   **not** understand video rows: it would show them as broken image cards, let them be added to a prompt as image
   references (the generation then fails) and its scheduler would read a queued clip into memory and register it as an

@@ -2194,7 +2194,7 @@ export const useStore = create((set, get) => ({
           body: JSON.stringify({ uploads: batch.map(({ referenceId, name }) => ({ referenceId, name })) }),
         });
         const json = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(apiErrorMessage(json, res.status, "Could not add these images to the gallery."));
+        if (!res.ok) throw new Error(apiErrorMessage(json, res.status, "Could not add these files to the gallery."));
         const results = Array.isArray(json.results) ? json.results : [];
         const accepted = [];
         batch.forEach((item, position) => {
@@ -2202,7 +2202,7 @@ export const useStore = create((set, get) => ({
           if (result?.ok && result.portrait) {
             accepted.push(result.portrait);
             drop(entries[item.index].key);
-          } else fail(entries[item.index].key, result?.message || "This image couldn't be added.");
+          } else fail(entries[item.index].key, result?.message || "This file couldn't be added.");
         });
         added += accepted.length;
         if (accepted.length) {
@@ -2214,7 +2214,7 @@ export const useStore = create((set, get) => ({
           });
         }
       } catch (error) {
-        for (const item of batch) fail(entries[item.index].key, error?.message || "Could not add this image. Try again.");
+        for (const item of batch) fail(entries[item.index].key, error?.message || "Could not add this file. Try again.");
       }
       schedulePortraitPoll(get);
     }, portraitRuntime.registrationTail);

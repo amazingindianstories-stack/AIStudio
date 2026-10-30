@@ -1,4 +1,5 @@
 """Gallery video portraits: the documented video limits, registration as a BytePlus Video asset, delete and consumer guards."""
+import contextlib
 import functools
 import json
 from unittest.mock import patch
@@ -6,8 +7,8 @@ from unittest.mock import patch
 from django.test import SimpleTestCase
 
 from apps.generation.references import resolve_submission_references
+from apps.admin_dashboard.models import AppSetting
 from apps.media import posters
-from apps.media import views as media_views
 from apps.media.uploads import UploadError
 
 from . import managed_pool, video_limits
@@ -18,8 +19,12 @@ GOOD = {'containers': ['mov', 'mp4', 'm4a'], 'width': 1080, 'height': 1920, 'sec
 MP4 = b'\x00\x00\x00\x18ftypmp42' + b'0' * 64
 
 
+@contextlib.contextmanager
 def probe(**changes):
-    return patch.object(video_limits, 'probe_stored', return_value={**GOOD, **changes})
+    """The scheduler's check of a clip: ffprobe reads GOOD with ``changes`` and ffmpeg makes its poster."""
+    with patch.object(video_limits, 'probe_stored', return_value={**GOOD, **changes}) as probed, \
+            patch.object(posters, 'bounded_poster', return_value=('poster', b'webp')):
+        yield probed
 
 
 class VideoLimitsTests(SimpleTestCase):
@@ -64,30 +69,39 @@ class VideoGalleryTests(GalleryBase):
         self.assertEqual(response.status_code, 200, response.content)
         return response.json()['results'][0]
 
-    def test_a_video_upload_is_queued_as_a_video_portrait_with_a_poster(self):
-        result = self.add_video()
+    def test_a_video_upload_is_queued_as_a_video_portrait_without_a_poster_yet(self):
+        with patch.object(video_limits, 'probe_stored', side_effect=AssertionError('the Gallery request never probes')), \
+                patch.object(posters, 'bounded_poster', side_effect=AssertionError('the Gallery request never runs ffmpeg')):
+            result = self.add_video()
         self.assertTrue(result['ok'], result)
         item = result['portrait']
         self.assertEqual(item['kind'], 'video')
         self.assertIsNone(item['imageUrl'])
         self.assertTrue(item['videoUrl'].startswith('/api/media/uploads/portrait/'))
-        self.assertEqual(item['posterUrl'], '/api/media/thumbs/poster/' + item['videoUrl'][len('/api/media/'):] + '.webp')
+        self.assertIsNone(item['posterUrl'], 'the card shows its placeholder until the scheduler made the frame')
         self.assertEqual(ManagedPortraitAsset.objects.get().media_kind, 'video')
         self.assertFalse(ReferenceFaceScan.objects.exists(), 'a video is never scanned as an image')
         self.assertEqual(self.fake.calls, [])
 
-    def test_the_poster_is_made_on_first_read_and_a_busy_read_is_tried_again(self):
-        poster = self.add_video()['portrait']['posterUrl']
+    def test_the_scheduler_makes_the_poster_before_the_clip_is_registered_and_the_card_serves_it(self):
+        item = self.add_video()['portrait']
         frame = functools.partial(posters.bounded_poster, frame=lambda source, protocols, timeout: landscape(1))
-        with patch.object(posters, '_source', return_value=('clip', 'file')), patch.object(media_views, 'bounded_poster', frame):
-            posters._GATE.acquire()
-            try:
-                self.assertEqual(self.client.get(poster + '?inline=1').status_code, 404)
-            finally:
-                posters._GATE.release()
-            response = self.client.get(poster + '?inline=1')
+        with patch.object(video_limits, 'probe_stored', return_value=GOOD), patch.object(posters, '_source', return_value=('clip', 'file')), \
+                patch.object(posters, 'bounded_poster', frame):
+            self.settle_uploads()
+        card = self.listing()['portraits'][0]
+        self.assertEqual((card['state'], card['posterUrl']), ('ready', '/api/media/thumbs/poster/' + item['videoUrl'][len('/api/media/'):] + '.webp'))
+        response = self.client.get(card['posterUrl'] + '?inline=1')
         self.assertEqual((response.status_code, response['Content-Type']), (200, 'image/webp'))
-        self.assertEqual(self.client.get(poster + '?inline=1').status_code, 200, 'the stored poster is served without ffmpeg')
+
+    def test_a_clip_whose_first_frame_cannot_be_read_is_unusable_and_never_registered(self):
+        self.add_video()
+        with patch.object(video_limits, 'probe_stored', return_value=GOOD), patch.object(posters, 'bounded_poster', return_value=None):
+            self.settle_uploads()
+        self.assertEqual(ManagedPortraitAsset.objects.get().error_code, 'PORTRAIT_VIDEO_UNREADABLE')
+        card = self.listing()['portraits'][0]
+        self.assertEqual((card['state'], card['posterUrl']), ('unusable', None))
+        self.assertEqual(self.fake.calls, [])
 
     def test_images_still_report_the_image_kind(self):
         item = self.add(landscape(1))['results'][0]['portrait']
@@ -112,8 +126,33 @@ class VideoGalleryTests(GalleryBase):
             asset = ManagedPortraitAsset.objects.get(id=result['portrait']['id'])
             self.assertEqual((asset.status, asset.error_code), ('FAILED', code))
             card = next(item for item in self.listing()['portraits'] if item['id'] == str(asset.id))
-            self.assertEqual((card['state'], card['message']), ('unusable', video_limits.problem(facts)[1]))
+            self.assertEqual((card['state'], card['message'], card['posterUrl']), ('unusable', video_limits.problem(facts)[1], None))
         self.assertEqual((self.fake.assets, self.fake.calls), ({}, []))
+
+    def test_a_clip_that_breaks_a_limit_never_evicts_a_portrait_to_make_room(self):
+        AppSetting.objects.create(key='portraitPoolCapacity', value='1', updated_at=0)
+        self.add(landscape(1))
+        self.settle_uploads()
+        image = ManagedPortraitAsset.objects.get()
+        self.assertEqual(image.status, 'ACTIVE')
+        self.add_video()
+        with probe(seconds=45.0):
+            self.settle_uploads()
+        image.refresh_from_db()
+        self.assertEqual(image.status, 'ACTIVE', 'the ready portrait is not evicted for a clip that is refused')
+        self.assertEqual(ManagedPortraitAsset.objects.get(media_kind='video').error_code, 'PORTRAIT_VIDEO_DURATION')
+        self.assertEqual(self.fake.live_asset_count(), 1)
+
+    def test_a_clip_waiting_for_space_is_checked_once_and_shows_its_poster_while_it_waits(self):
+        self.add_video()
+        self.fake.asset_capacity = 0
+        with probe() as probed:
+            for _ in range(3):
+                managed_pool.process_uploads()
+        self.assertEqual((ManagedPortraitAsset.objects.get().status, probed.call_count), ('QUEUED', 1))
+        card = self.listing()['portraits'][0]
+        self.assertEqual(card['state'], 'waiting')
+        self.assertTrue(card['posterUrl'])
 
     def test_the_scheduler_registers_a_video_asset_without_reading_the_file_and_it_becomes_ready(self):
         with probe():
@@ -177,3 +216,31 @@ class VideoGalleryTests(GalleryBase):
         self.assertEqual((fresh.media_kind, fresh.origin), ('video', 'reference'))
         self.assertEqual([part['video_url']['url'] for part in self.fake.seedance_payloads[-1]['content'] if part.get('type') == 'video_url'],
                          ['asset://' + fresh.byteplus_asset_id])
+
+    def test_a_clip_registered_again_from_another_upload_of_it_is_still_sent_as_an_asset(self):
+        with probe():
+            first = self.upload(MP4, mime='video/mp4', purpose='portrait')
+            self.client.post('/api/portraits', {'uploads': [{**first, 'name': 'Clip'}]}, content_type='application/json')
+            self.settle_uploads()
+            old = ManagedPortraitAsset.objects.get()
+            managed_pool._mark_deleting(old, 'expired', 1)
+            managed_pool.janitor()
+            self.add_video()        # the same clip added again: a new upload key and a new row
+            self.settle_uploads()
+        again = ManagedPortraitAsset.objects.get(status='ACTIVE')
+        self.assertNotEqual(again.source_key, old.source_key)
+        job = self.enqueue_with_clip(first)
+        self.assertEqual(self.run_worker(job).status, 'succeeded')
+        self.assertEqual([part['video_url']['url'] for part in self.fake.seedance_payloads[-1]['content'] if part.get('type') == 'video_url'],
+                         ['asset://' + again.byteplus_asset_id])
+
+    def test_a_generation_with_a_clip_the_gallery_refused_fails_before_admission_without_a_charge(self):
+        ref = self.upload(MP4, mime='video/mp4', purpose='portrait')
+        self.client.post('/api/portraits', {'uploads': [{**ref, 'name': 'Clip'}]}, content_type='application/json')
+        job = self.enqueue_with_clip(ref)       # attached while its card still said Preparing
+        with probe(seconds=45.0):
+            self.settle_uploads()
+        row = self.run_worker(job)
+        self.assertEqual(row.status, 'failed')
+        self.assertIn('not charged', row.error)
+        self.assertEqual(self.fake.seedance_payloads, [])
