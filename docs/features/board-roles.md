@@ -20,9 +20,11 @@ ranks as co-owner.
 | Action | Needs | Route |
 |---|---|---|
 | List the board, open it, see who has access | view | `GET /api/canvas-boards`, `GET /api/canvas-boards/<id>`, `GET /api/canvas-boards/<id>/version`, `GET /api/canvas-boards/<id>/changes`, `GET /api/canvas-boards/<id>/access` |
+| List its frames, read a frame for a synced copy, list the copies of a frame (only on boards the caller can open) | view (of the source board) | `GET /api/canvas-boards/<id>/frames`, `GET /api/canvas-boards/<id>/frames/<nodeId>`, `GET /api/canvas-boards/<id>/frames/<nodeId>/copies` (`backend/apps/canvas/synced.py`) |
 | Save the graph, upload media, read the board history | edit | `PUT` and `PATCH /api/canvas-boards/<id>`, `POST /api/canvas-boards/<id>/upload`, `GET /api/canvas-boards/<id>/activity` (`board-history.md`) |
 | Create with AI: quote, run, list and place jobs | edit | `/api/canvas-boards/<id>/ai-jobs` and its `quote` and `<jobId>` routes |
 | Rename, add/change/remove board members | co-owner | `renameBoard`; `setMember`, `removeMember` on `/access` |
+| Hide and reveal frames, see and edit what is inside a hidden frame | co-owner | the frame's `hidden` flag in a save (`backend/apps/canvas/hidden.py`) |
 | Delete, set team access, transfer ownership | owner | `deleteBoard`; `setTeamRole`, `transferOwner` on `/access` |
 
 A user below view gets 404 for the board; a user below the needed role gets 403 `FORBIDDEN`.
