@@ -169,7 +169,7 @@ export function StyleInspector({ hidden, insetLeft = 0 }) {
   const editingRichText =
     selection.length === 1 && editingTextId === selection[0] && (RICH_TEXT_TYPES.has(soleType) || isShape);
 
-  // Locked objects take no style changes: the bar says so and offers what this person may do.
+  // Locked objects take no style changes, only votes: the bar says so and offers what this person may do.
   if (lock.allLocked && !hasConnectors) {
     return (
       <div
@@ -179,6 +179,7 @@ export function StyleInspector({ hidden, insetLeft = 0 }) {
         style={{ left: centerX, top, transform: "translateX(-50%)" }}
       >
         <LockedSelectionBar lock={lock} />
+        {stickies.length > 0 && <ReactionPicker stickies={stickies} />}
       </div>
     );
   }

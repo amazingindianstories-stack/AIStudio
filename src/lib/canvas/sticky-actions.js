@@ -51,8 +51,8 @@ function changeableNodes(state = canvas()) {
 }
 
 /** Whether this person's vote on `node` would stand: the server turns away votes only under a protected lock they may not lift. */
-function votable(node, userId) {
-  return node?.type === "sticky" && !heldByOther(node, userId, canvas().boardRole);
+export function votable(node, userId, role = canvas().boardRole) {
+  return node?.type === "sticky" && !heldByOther(node, userId, role);
 }
 
 function select(ids) {
