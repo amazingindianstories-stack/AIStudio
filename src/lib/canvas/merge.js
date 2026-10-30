@@ -126,11 +126,15 @@ export function mergeCanvasStates(base, local, remote) {
   const connectors = mergeItems(base.connectors, local.connectors, remote.connectors)
     .filter((connector) => attachedTo(connector.from, nodeIds) && attachedTo(connector.to, nodeIds));
   const tags = mergeItems(base.tags ?? [], local.tags ?? [], remote.tags ?? []);
+  // The visual notes are one small object: whoever changed them last wins, this editor's change over theirs.
+  const notes = sameValue(base.notes ?? null, local.notes ?? null) ? remote.notes : local.notes;
   const unchanged = (next, prev) => next.length === prev.length && next.every((item, index) => item === prev[index]);
-  if (unchanged(nodes, local.nodes) && unchanged(connectors, local.connectors) && unchanged(tags, local.tags ?? [])) return local;
+  if (unchanged(nodes, local.nodes) && unchanged(connectors, local.connectors) && unchanged(tags, local.tags ?? []) && sameValue(notes ?? null, local.notes ?? null)) return local;
   const state = { ...local, nodes, connectors };
   if (tags.length) state.tags = tags;
   else delete state.tags;
+  if (notes) state.notes = notes;
+  else delete state.notes;
   return state;
 }
 

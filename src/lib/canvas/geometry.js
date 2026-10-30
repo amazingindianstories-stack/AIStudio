@@ -57,20 +57,37 @@ export function moveNodesBy(
   dy
 ) {
   const idSet = new Set(ids);
-  for (const node of state.nodes) {
-    if (node.type === "frame" && idSet.has(node.id)) {
-      for (const child of state.nodes) {
-        if (child.parentId === node.id) idSet.add(child.id);
-      }
-    }
-  }
+  // Frames carry everything inside them, however deeply frames are nested.
+  for (const id of descendantIds(state.nodes, ids)) idSet.add(id);
   const nodes = state.nodes.map((n) =>
     idSet.has(n.id) ? { ...n, x: n.x + dx, y: n.y + dy } : n
   );
   return { ...state, nodes };
 }
 
-/** Shifts a frame AND every direct descendant (parentId === frameId) by the
+/** Ids of everything inside the frames among `ids`, at any depth (`ids` themselves excluded unless nested). */
+export function descendantIds(nodes, ids) {
+  const frames = new Set(ids.filter((id) => nodes.some((n) => n.id === id && n.type === "frame")));
+  const out = new Set();
+  const childrenOf = new Map();
+  for (const n of nodes) {
+    if (!n.parentId) continue;
+    if (!childrenOf.has(n.parentId)) childrenOf.set(n.parentId, []);
+    childrenOf.get(n.parentId).push(n);
+  }
+  const queue = [...frames];
+  while (queue.length) {
+    const parent = queue.pop();
+    for (const child of childrenOf.get(parent) ?? []) {
+      if (out.has(child.id)) continue;
+      out.add(child.id);
+      if (child.type === "frame") queue.push(child.id);
+    }
+  }
+  return out;
+}
+
+/** Shifts a frame AND everything inside it (nested frames included) by the
  * same delta — the pure fn moving a frame's contents together (AC #6). */
 export function applyFrameMove(
   state,
@@ -78,8 +95,10 @@ export function applyFrameMove(
   dx,
   dy
 ) {
+  const moving = descendantIds(state.nodes, [frameId]);
+  moving.add(frameId);
   const nodes = state.nodes.map((n) =>
-    n.id === frameId || n.parentId === frameId
+    moving.has(n.id)
       ? { ...n, x: n.x + dx, y: n.y + dy }
       : n
   );

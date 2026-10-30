@@ -85,7 +85,7 @@ def _graph(data):
     return {key: value for key, value in data.items() if key != 'viewport'} if isinstance(data, dict) else data
 
 
-def save_board(identifier, data, base_version, save_id, actor, patch=None):
+def save_board(identifier, data, base_version, save_id, actor, patch=None, level=None):
     """Write the graph only over the version the editor loaded, so concurrent editors never overwrite
     each other. A save without a base version or a save id is refused like a stale one. The board row is
     locked while the save is compared with the graph it replaces (apps.canvas.activity): changed objects
@@ -96,8 +96,10 @@ def save_board(identifier, data, base_version, save_id, actor, patch=None):
     nothing, and open boards polling for changes do not refetch the graph.
     With a `patch` (apps.canvas.patch) instead of `data`, the graph saved is the patch applied to the stored
     one; everything above then runs on that whole graph, so a patch and the full graph it stands for save alike.
-    The save id row also records which objects the save changed, for `board_changes`."""
-    from . import activity, patch as board_patch
+    The save id row also records which objects the save changed, for `board_changes`.
+    `level` is the saver's board access level: below co-owner, content inside hidden frames, which they never
+    read, is kept as stored and the hidden flags cannot change (apps.canvas.hidden). None means everything."""
+    from . import activity, extras, hidden, patch as board_patch
     now = now_ms()
     actor = str(actor)
     if base_version is not None and save_id is not None:
@@ -107,7 +109,10 @@ def save_board(identifier, data, base_version, save_id, actor, patch=None):
                 stored = validate_state(row['data'])
                 if patch is not None:
                     data = validate_state(board_patch.apply_patch(stored, patch))
+                if level is not None:
+                    data = hidden.preserve(stored, data, level)
                 stamped, changes = activity.stamp(stored, data, actor, now)
+                stamped = extras.stamp_notes(stored, stamped, actor, now)
                 if content_length(stamped) > MAX_BOARD_JSON_UNITS:
                     raise BoardTooLarge()
                 version = base_version + 1 if _graph(stamped) != _graph(row['data']) else base_version
@@ -127,16 +132,19 @@ def save_board(identifier, data, base_version, save_id, actor, patch=None):
     raise VersionConflict(current)
 
 
-def board_changes(identifier, since):
+def board_changes(identifier, since, level=None):
     """What an editor holding version `since` needs to reach the current version: the objects changed since
     then (apps.canvas.patch.changes_since), or the whole graph when a version in between recorded no ids,
     has been pruned, or is too far back. None when the board does not exist."""
-    from . import patch as board_patch
+    from . import hidden, patch as board_patch
     row = CanvasBoard.objects.filter(pk=identifier).values('version', 'updated_at', 'data').first()
     if row is None:
         return None
     reply = {'version': row['version'], 'updatedAt': row['updated_at']}
     graph = validate_state(row['data'])
+    if level is not None and not hidden.can_manage(level) and hidden.has_hidden(graph):
+        # What changed inside a hidden frame is not theirs to read; they get the whole board as they may see it.
+        return {**reply, 'data': hidden.view_of(graph, level)}
     behind = row['version'] - since
     changes = None
     if 0 <= behind <= board_patch.MAX_CHANGE_VERSIONS:
@@ -158,9 +166,14 @@ def prune_board_saves(now=None):
 ACTIVITY_PAGE = 100
 
 
-def board_activity(identifier, before=None):
+def board_activity(identifier, before=None, level=None):
     """The board's History, newest first, one page at a time; `before` is the previous page's `next`."""
+    from . import hidden
     rows = BoardActivity.objects.filter(board_id=identifier)
+    if level is not None and not hidden.can_manage(level):
+        # History of work inside hidden frames stays with the people who can see it.
+        graph = validate_state(CanvasBoard.objects.filter(pk=identifier).values_list('data', flat=True).first())
+        rows = rows.exclude(node_id__in=hidden.hidden_ids(graph))
     if before is not None:
         created_at, ordinal = before
         rows = rows.filter(models.Q(created_at__lt=created_at) | models.Q(created_at=created_at, ordinal__lt=ordinal))
