@@ -131,7 +131,51 @@ function validateBase(
   if (typeof r.diagramLayerId === "string" && r.diagramLayerId && r.diagramLayerId.length <= 64) {
     base.diagramLayerId = r.diagramLayerId;
   }
+  // Degrees clockwise about the center, stored only when not zero.
+  if (isFiniteNumber(r.rotation) && r.rotation > 0 && r.rotation < 360) base.rotation = r.rotation;
+  // A lock names who set it; only a named lock can be protected (backend/apps/canvas/locks.py).
+  if (r.locked === true) {
+    base.locked = true;
+    if (typeof r.lockedBy === "string" && r.lockedBy) {
+      base.lockedBy = r.lockedBy;
+      if (r.lockProtected === true) base.lockProtected = true;
+    }
+  }
+  // Checked against the board's layers once they are known (validateCanvasState).
+  if (typeof r.layerId === "string" && r.layerId) base.layerId = r.layerId;
   return base;
+}
+
+export const MAX_LAYERS = 100;
+export const MAX_LAYER_NAME = 100;
+const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
+
+/**
+ * Board-wide settings everyone sees: the background color, the start view
+ * newly invited people open at, and the layers above the default one (bottom
+ * to top). Omitted when empty, so boards without settings keep their shape.
+ */
+function validateSettings(raw) {
+  if (raw == null || typeof raw !== "object") return null;
+  const settings = {};
+  if (typeof raw.background === "string" && HEX_COLOR.test(raw.background)) settings.background = raw.background;
+  const view = raw.startView;
+  if (view != null && typeof view === "object" && isFiniteNumber(view.x) && isFiniteNumber(view.y) && isFiniteNumber(view.zoom) && view.zoom > 0) {
+    settings.startView = { x: view.x, y: view.y, zoom: view.zoom };
+  }
+  if (Array.isArray(raw.layers)) {
+    const layers = [];
+    const seen = new Set();
+    for (const entry of raw.layers.slice(0, MAX_LAYERS)) {
+      if (entry == null || typeof entry !== "object" || typeof entry.id !== "string" || !entry.id || seen.has(entry.id)) continue;
+      seen.add(entry.id);
+      const layer = { id: entry.id, name: typeof entry.name === "string" && entry.name.length <= MAX_LAYER_NAME ? entry.name : "Layer" };
+      if (entry.locked === true) layer.locked = true;
+      layers.push(layer);
+    }
+    if (layers.length) settings.layers = layers;
+  }
+  return Object.keys(settings).length ? settings : null;
 }
 
 /**
@@ -478,6 +522,8 @@ export function validateCanvasState(raw) {
   const tags = validateTags(obj.tags);
   const tagIds = new Set(tags.map((tag) => tag.id));
   const nodeIds = new Set(nodes.map((n) => n.id));
+  const settings = validateSettings(obj.settings);
+  const layerIds = new Set((settings?.layers ?? []).map((layer) => layer.id));
   for (const n of nodes) {
     if (n.parentId && !nodeIds.has(n.parentId)) n.parentId = null;
     // A tag deleted board-wide leaves no reference behind.
@@ -488,6 +534,7 @@ export function validateCanvasState(raw) {
     if (n.type === "shape" && n.tail && "nodeId" in n.tail && !nodeIds.has(n.tail.nodeId)) {
       delete n.tail;
     }
+    if (n.layerId && !layerIds.has(n.layerId)) delete n.layerId;
   }
 
   const connectors = Array.isArray(obj.connectors)
@@ -499,5 +546,6 @@ export function validateCanvasState(raw) {
   const state = { version: CANVAS_STATE_VERSION, viewport, nodes, connectors };
   // Present only once the board has a tag, so boards without tags keep their shape.
   if (tags.length) state.tags = tags;
+  if (settings) state.settings = settings;
   return state;
 }

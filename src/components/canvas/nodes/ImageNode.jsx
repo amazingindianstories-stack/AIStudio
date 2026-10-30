@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ImageOff, Loader2, Check, RotateCcw, X } from "lucide-react";
 
 import { thumbUrl } from "@/lib/utils";
+import { nodeRotation, rotatePoint } from "@/lib/canvas/geometry";
 
 const RETRY_DELAYS_MS = [750, 2_000, 5_000];
 const LOAD_ATTEMPT_TIMEOUT_MS = 15_000;
@@ -169,9 +170,15 @@ export function ImageNode({ node, cropMode = false, cropDraft, onCropChange, onA
         if (!cropDrag.current) return;
         const overflowX = Math.max(1, renderedW - node.w);
         const overflowY = Math.max(1, renderedH - node.h);
+        // On a rotated image the drag is read along the image's own axes.
+        const moved = rotatePoint(
+          { x: event.clientX - cropDrag.current.x, y: event.clientY - cropDrag.current.y },
+          { x: 0, y: 0 },
+          -nodeRotation(node)
+        );
         onCropChange?.({
-          x: cropDrag.current.crop.x - (event.clientX - cropDrag.current.x) / overflowX,
-          y: cropDrag.current.crop.y - (event.clientY - cropDrag.current.y) / overflowY,
+          x: cropDrag.current.crop.x - moved.x / overflowX,
+          y: cropDrag.current.crop.y - moved.y / overflowY,
         });
       } : undefined}
       onPointerUp={cropMode ? (event) => { event.stopPropagation(); cropDrag.current = null; } : undefined}

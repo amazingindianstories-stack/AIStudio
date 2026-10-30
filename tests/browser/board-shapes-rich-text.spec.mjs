@@ -2,8 +2,8 @@ import { test, expect } from '@playwright/test';
 import { createHmac, randomUUID } from 'node:crypto';
 import { fixtureDatabase } from './fixture-db.mjs';
 
-const OWNER = { id: 'b0a2d000-0000-4000-8000-000000000011', name: 'Shapes owner', email: 'shapes-owner@example.test' };
-const VIEWER = { id: 'b0a2d000-0000-4000-8000-000000000012', name: 'Shapes viewer', email: 'shapes-viewer@example.test' };
+const OWNER = { id: 'b0a2d000-0000-4000-8000-000000000013', name: 'Shapes owner', email: 'shapes-owner@example.test' };
+const VIEWER = { id: 'b0a2d000-0000-4000-8000-000000000014', name: 'Shapes viewer', email: 'shapes-viewer@example.test' };
 
 // The basic shapes panel, in order, with the node each entry creates.
 const SHAPES = [
