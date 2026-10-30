@@ -13,6 +13,8 @@
  * - `touch` entries also work while a touch device has the board view-only.
  * - `board` entries (Tab, arrows, Enter, Delete) act only while focus is on
  *   the board itself, so buttons and panels keep their own keyboard use.
+ * - `native` entries leave the browser's default action to follow (copy and
+ *   cut need the browser's copy or cut event).
  *
  * Keys typed into a text field or editor never reach the registry, and
  * single-character keys (no Cmd, Ctrl or Alt) are skipped when the person
@@ -160,9 +162,11 @@ const SHORTCUTS = [
   // ── edit ──
   { id: "edit.undo", group: "Edit", label: "Undo", keys: ["Mod+Z"], edits: true, run: (ctx) => ctx.store.undo() },
   { id: "edit.redo", group: "Edit", label: "Redo", keys: ["Mod+Shift+Z", "Mod+Y"], edits: true, run: (ctx) => ctx.store.redo() },
-  { id: "edit.copy", group: "Edit", label: "Copy (also as text for other apps)", keys: ["Mod+C"], touch: true, run: (ctx) => (ctx.store.selection.length ? ctx.copy() : false) },
+  { id: "edit.copy", group: "Edit", label: "Copy (also as text for other apps)", keys: ["Mod+C"], touch: true, native: true, run: (ctx) => (ctx.store.selection.length ? ctx.copy() : false) },
   { id: "edit.copyImage", group: "Edit", label: "Copy as image", keys: ["Mod+Shift+C"], touch: true, run: (ctx) => ctx.copyImage() },
-  { id: "edit.cut", group: "Edit", label: "Cut", keys: ["Mod+X"], edits: true, run: (ctx) => ctx.store.cut() },
+  { id: "edit.cut", group: "Edit", label: "Cut", keys: ["Mod+X"], edits: true, native: true, run: (ctx) => ctx.cut() },
+  { id: "edit.copyStyle", group: "Edit", label: "Copy style", keys: ["Mod+Alt+C"], run: (ctx) => ctx.copyStyle() },
+  { id: "edit.pasteStyle", group: "Edit", label: "Paste style", keys: ["Mod+Alt+V"], edits: true, run: (ctx) => ctx.pasteStyle() },
   { id: "edit.paste", group: "Edit", label: "Paste", keys: ["Mod+V"] },
   { id: "edit.duplicate", group: "Edit", label: "Duplicate", keys: ["Mod+D"], edits: true, run: (ctx) => ctx.store.duplicateSelected() },
   { id: "edit.delete", board: true, group: "Edit", label: "Delete", keys: ["Delete", "Backspace"], edits: true, run: (ctx) => ctx.store.deleteSelected() },
@@ -309,7 +313,7 @@ export function shortcutEntries() {
 
 /**
  * Runs the first registry entry the keydown matches and is allowed for
- * `ctx`; true (and the browser default prevented) when one ran.
+ * `ctx`; true (and, unless `native`, the browser default prevented) when one ran.
  *
  * `ctx` carries `store` (the canvas store's state), `ui` (board UI
  * actions), `canEdit`, `viewOnly` (touch view-only), `singleKeys` (the
@@ -328,7 +332,7 @@ export function dispatchShortcut(event, ctx, entries = SHORTCUTS) {
       if (entry.edits && !ctx.canEdit) continue;
       if (entry.board && !onBoard) continue;
       if (entry.run(ctx, event) === false) continue;
-      event.preventDefault();
+      if (!entry.native) event.preventDefault();
       return true;
     }
   }

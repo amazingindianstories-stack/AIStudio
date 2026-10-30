@@ -11,6 +11,8 @@ import { dockTools } from "@/lib/canvas/toolbar-tools";
 import { describeObject } from "@/lib/canvas/a11y-check";
 import { selectionText, writeClipboardImage, writeClipboardText } from "@/lib/canvas/clipboard-export";
 import { orderedFrames } from "@/lib/canvas/frames";
+import { noteKeyboardCopy, pageTextSelected } from "@/lib/canvas/use-board-clipboard";
+import { copySelectionStyle, pasteSelectionStyle } from "@/lib/canvas/sticky-actions";
 import { buildDefaultNode } from "./CanvasSurface";
 
 /** Whether the node's box is inside the visible part of the board. */
@@ -64,6 +66,17 @@ export async function copySelection() {
   store.copy();
   const text = selectionText(store.history.present, store.selection);
   if (text && (await writeClipboardText(text))) useBoardUi.getState().notify("Copied");
+}
+
+/**
+ * The copy and cut shortcuts copy (or cut) the selected objects; the browser's
+ * copy or cut event that follows puts them on the system clipboard
+ * (useBoardClipboard). False when page text is selected, which the browser copies instead.
+ */
+function copyFromKeyboard(cut) {
+  const store = useCanvasStore.getState();
+  if (pageTextSelected() || !(cut ? store.cut() : store.copy())) return false;
+  noteKeyboardCopy();
 }
 
 export async function copySelectionAsImage() {
@@ -123,8 +136,11 @@ export function useBoardShortcuts({ surfaceRef, toolLocked, touchViewOnly, openS
         select: (ids, focusId) => selectFromKeyboard(ids, focusId),
         focusBoard: () => view.surfaceRef.current?.focusBoard(),
         openContextMenu: () => view.surfaceRef.current?.openContextMenuAtSelection() ?? false,
-        copy: () => void copySelection(),
+        copy: () => copyFromKeyboard(false),
+        cut: () => copyFromKeyboard(true),
         copyImage: () => void copySelectionAsImage(),
+        copyStyle: copySelectionStyle,
+        pasteStyle: pasteSelectionStyle,
         present: startPresentation,
         placeArmedTool: () => {
           if (!isCreateTool(store.tool)) return false;

@@ -5,6 +5,7 @@
  * clipboard) or cells from a spreadsheet (pasted as one sticky per cell).
  */
 import { parseTsv } from "./stickies";
+import { selectionText } from "./clipboard-export";
 
 export const BOARD_COPY_ATTRIBUTE = "data-veevee-board-copy";
 
@@ -12,9 +13,14 @@ function escapeHtml(text) {
   return text.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 }
 
-/** What a board copy of `nodes` puts on the system clipboard: their text, and HTML with the board marker. */
-export function boardClipboardData(nodes) {
-  const text = nodes.map((node) => node.text ?? node.name ?? "").filter(Boolean).join("\n");
+/**
+ * What a board copy of `nodes` puts on the system clipboard: their text in
+ * reading order (a copied frame's title, then its contents in `present`), and
+ * HTML with the board marker.
+ */
+export function boardClipboardData(nodes, present = { nodes: [] }) {
+  const ids = new Set(nodes.map((node) => node.id));
+  const text = selectionText({ nodes: [...nodes, ...present.nodes.filter((node) => !ids.has(node.id))] }, [...ids]);
   return {
     "text/plain": text,
     "text/html": `<div ${BOARD_COPY_ATTRIBUTE}="">${escapeHtml(text).replace(/\n/g, "<br>")}</div>`,

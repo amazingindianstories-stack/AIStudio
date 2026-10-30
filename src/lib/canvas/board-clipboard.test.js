@@ -11,13 +11,23 @@ function fakeParseHtml(html) {
   return { querySelector: () => (/<table/i.test(html) ? { querySelectorAll: () => rows } : null) };
 }
 
+const at = (id, x, y, fields) => ({ id, x, y, w: 100, h: 100, ...fields });
+
 test("a board copy puts its text and the board marker on the clipboard", () => {
-  const data = boardClipboardData([{ text: "One <b>" }, { type: "image" }, { name: "Frame" }]);
+  const data = boardClipboardData([at("frame", 0, 200, { type: "frame", name: "Frame" }), at("img", 200, 0, { type: "image" }), at("one", 0, 0, { type: "sticky", text: "One <b>" })]);
   assert.equal(data["text/plain"], "One <b>\nFrame");
   assert.equal(data["text/html"], `<div ${BOARD_COPY_ATTRIBUTE}="">One &lt;b&gt;<br>Frame</div>`);
   assert.ok(isBoardCopy(data["text/html"]));
   assert.ok(!isBoardCopy("<table><tr><td>a</td></tr></table>"));
   assert.ok(!isBoardCopy(""));
+});
+
+test("a copied frame's text is followed by its contents on the board", () => {
+  const frame = at("frame", 0, 0, { type: "frame", name: "Plan", w: 400, h: 400 });
+  const present = { nodes: [frame, at("b", 200, 50, { type: "sticky", text: "Second", parentId: "frame" }), at("a", 20, 50, { type: "sticky", text: "First", parentId: "frame" }), at("out", 900, 0, { type: "sticky", text: "Elsewhere" })] };
+  assert.equal(boardClipboardData([frame], present)["text/plain"], "Plan\nFirst\nSecond");
+  // A cut frame's contents left with it: only what was copied is written.
+  assert.equal(boardClipboardData([frame])["text/plain"], "Plan");
 });
 
 test("spreadsheet cells come from an HTML table, keeping line breaks inside a cell", () => {

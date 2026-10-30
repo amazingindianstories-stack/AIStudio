@@ -67,7 +67,6 @@ export function CanvasView() {
   const setTool = useCanvasStore((s) => s.setTool);
   const addImageFromAsset = useCanvasStore((s) => s.addImageFromAsset);
   const addImageBatch = useCanvasStore((s) => s.addImageBatch);
-  const paste = useCanvasStore((s) => s.paste);
 
   const imageFileInputRef = useRef(null);
 

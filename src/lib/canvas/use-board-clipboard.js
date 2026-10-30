@@ -61,7 +61,8 @@ export function useBoardClipboard({ importImageFiles, touchViewOnly, viewCenter,
         else state.copy();
       }
       keyboardCopyAt = -Infinity;
-      for (const [type, value] of Object.entries(boardClipboardData(clipboardNodes()))) event.clipboardData.setData(type, value);
+      const data = boardClipboardData(clipboardNodes(), useCanvasStore.getState().history.present);
+      for (const [type, value] of Object.entries(data)) event.clipboardData.setData(type, value);
       event.preventDefault();
     };
     const onPaste = (event) => {

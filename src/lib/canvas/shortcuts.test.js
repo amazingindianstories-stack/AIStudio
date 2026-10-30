@@ -47,7 +47,10 @@ function context(overrides = {}) {
     openShapes: record("shapes"),
     openImagePicker: record("image"),
     copy: record("copy"),
+    cut: record("cut"),
     copyImage: record("copyImage"),
+    copyStyle: record("copyStyle"),
+    pasteStyle: record("pasteStyle"),
     present: record("present"),
     toolbarTools: ["select", "hand", "sticky"],
     runToolbarTool: record("dock"),
@@ -120,14 +123,28 @@ test("touch view-only mode keeps only the entries marked for it", () => {
   assert.equal(dispatchShortcut(keydown("f", { meta: true }), ctx), true);
 });
 
-test("Cmd+C copies a selection and otherwise leaves the key to the browser", () => {
+test("Cmd+C copies a selection, letting the browser's copy event follow, and otherwise leaves the key to the browser", () => {
   const empty = context();
   const event = keydown("c", { meta: true });
   assert.equal(dispatchShortcut(event, empty), false);
   assert.equal(event.defaultPrevented, false);
   const selected = context({ store: { ...context().store, selection: ["n1"] } });
-  assert.equal(dispatchShortcut(keydown("c", { meta: true }), selected), true);
+  const copy = keydown("c", { meta: true });
+  assert.equal(dispatchShortcut(copy, selected), true);
+  assert.equal(copy.defaultPrevented, false);
   assert.deepEqual(selected.calls, [["copy"]]);
+  const cut = keydown("x", { meta: true });
+  assert.equal(dispatchShortcut(cut, selected), true);
+  assert.equal(cut.defaultPrevented, false);
+  assert.deepEqual(selected.calls.at(-1), ["cut"]);
+  // Cmd+Alt+C and Cmd+Alt+V copy and paste style, not objects; pasting style needs edit access.
+  dispatchShortcut(keydown("ç", { code: "KeyC", meta: true, alt: true }), selected);
+  assert.deepEqual(selected.calls.at(-1), ["copyStyle"]);
+  const pasteStyle = keydown("√", { code: "KeyV", meta: true, alt: true });
+  assert.equal(dispatchShortcut(pasteStyle, context({ canEdit: false, pasteStyle: () => assert.fail("pasted style without edit access") })), false);
+  dispatchShortcut(pasteStyle, selected);
+  assert.deepEqual(selected.calls.at(-1), ["pasteStyle"]);
+  assert.equal(pasteStyle.defaultPrevented, true);
   dispatchShortcut(keydown("c", { meta: true, shift: true }), selected);
   assert.deepEqual(selected.calls.at(-1), ["copyImage"]);
 });
