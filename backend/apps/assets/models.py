@@ -89,6 +89,7 @@ class ManagedPortraitAsset(models.Model):
     name = models.TextField(null=True)               # Gallery name (null for automatic faces)
     origin = models.TextField(default='reference', db_default='reference')    # reference | upload
     hidden_at = models.BigIntegerField(null=True)    # deleted from the Gallery while a generation still holds it
+    media_kind = models.TextField(default='image', db_default='image')   # image | video (a Gallery video is registered as a BytePlus Video asset)
     class Meta:
         managed = True
         db_table = 'managed_portrait_assets'

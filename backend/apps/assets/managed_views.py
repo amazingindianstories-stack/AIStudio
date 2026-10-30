@@ -18,10 +18,11 @@ from apps.authentication.session import lookup
 from apps.canvas.views import body, failure, node_route, reply
 from apps.common.responses import log_activity
 from apps.generation import image_limits
+from apps.media.posters import bounded_poster, poster_key
 from apps.media.storage import get_storage
 from apps.media.uploads import UploadError, resolve_owned_ready_upload
 
-from . import managed_pool
+from . import managed_pool, video_limits
 from .models import ManagedPortraitAsset, ManagedPortraitPin
 
 SHOWN = ('QUEUED', 'REGISTERING', 'PROCESSING', 'ACTIVE', 'UNCERTAIN', 'FAILED')
@@ -29,13 +30,14 @@ PREPARING = ('REGISTERING', 'PROCESSING', 'UNCERTAIN')
 PAGE_MAX, BATCH_MAX, DELETE_MAX, NAME_MAX = 100, 50, 200, 120
 MAX_IMAGE_BYTES = 30 * 1024 * 1024          # the provider's own limit for a registered image
 UNUSABLE = "This image can't be used as a portrait."
+UNUSABLE_VIDEO = "This video can't be used as a portrait."
 WAITING = 'Waiting for space - other generations are using it.'
 UPLOAD_ERRORS = {
-    'UPLOAD_NOT_FOUND': 'This upload was not found. Add the image again.',
+    'UPLOAD_NOT_FOUND': 'This upload was not found. Add the file again.',
     'UPLOAD_NOT_READY': 'This upload has not finished. Wait for it to complete.',
     'UPLOAD_PURPOSE_MISMATCH': 'This file was not uploaded as a portrait.',
     'UPLOAD_CANCELLED': 'This upload was cancelled.',
-    'UPLOAD_EXPIRED': 'This upload expired. Add the image again.',
+    'UPLOAD_EXPIRED': 'This upload expired. Add the file again.',
 }
 
 
@@ -106,13 +108,15 @@ def serialize(asset, pins, creators, room=True):
     if asset.status == 'ACTIVE':
         state, message = 'ready', None
     elif asset.status == 'FAILED':
-        state, message = 'unusable', UNUSABLE
+        state, message = 'unusable', UNUSABLE_VIDEO if asset.media_kind == 'video' else UNUSABLE
     elif asset.status == 'QUEUED' and (not room or asset.error_code == 'QuotaSharedPoolExceeded'):   # with room, simply next in line
         state, message = 'waiting', WAITING
     else:
         state, message = 'preparing', 'Preparing...'
     return {'id': str(asset.id), 'name': display_name(asset, creator), 'origin': asset.origin,
-            'imageUrl': '/api/media/' + asset.source_key if asset.source_key else None, 'state': state, 'message': message,
+            'kind': asset.media_kind, 'imageUrl': '/api/media/' + asset.source_key if asset.source_key and asset.media_kind != 'video' else None,
+            'videoUrl': '/api/media/' + asset.source_key if asset.source_key and asset.media_kind == 'video' else None,
+            'posterUrl': '/api/media/' + poster_key(asset.source_key) if asset.source_key and asset.media_kind == 'video' else None, 'state': state, 'message': message,
             'createdBy': {'id': str(creator.id), 'name': creator.name, 'email': creator.email, 'avatarUrl': creator.avatar_url} if creator else None,
             'createdAt': asset.created_at, 'inUse': pins.get(asset.id, 0) > 0}
 
@@ -185,19 +189,27 @@ def register_one(user, item, created_at):
     if isinstance(name, str) and len(name.strip()) > NAME_MAX:
         return refuse('INVALID_NAME', f'Names can be up to {NAME_MAX} characters.')
     name = clean_name(name) or clean_name(row.filename.rsplit('.', 1)[0] if row.filename else '') or 'Portrait'
-    if not (row.content_type or '').startswith('image/') or not row.sha256:
+    video = (row.content_type or '') in video_limits.CONTENT_TYPES
+    if not video and not (row.content_type or '').startswith('image/') or not row.sha256:
         return refuse('PORTRAIT_NOT_IMAGE', UNUSABLE)
-    if row.byte_size > MAX_IMAGE_BYTES:
-        return refuse('PORTRAIT_TOO_LARGE', 'This image is larger than 30 MB. Use a smaller file.')
-    dimensions = image_limits.stored_dimensions(get_storage(), row.key)      # the header only (at most the first few MB are read), pixels are never decoded
-    problem_kind = image_limits.side_problem(*dimensions) if dimensions else None
-    if problem_kind:       # short copy: the card shows it under the file name (same wording as src/lib/portraits.js)
-        return refuse('PORTRAIT_IMAGE_SIZE' if problem_kind == 'size' else 'PORTRAIT_IMAGE_RATIO', dimension_problem(*dimensions))
+    if video:
+        found = video_limits.problem(video_limits.probe_stored(get_storage(), row.key), row.byte_size)
+        if found:       # short copy: the card shows it under the file name (same wording as src/lib/portraits.js)
+            return refuse(*found)
+        bounded_poster(get_storage(), row.key, video=True)      # best effort: the card's first frame, made once here so the gallery never waits on it
+    else:
+        if row.byte_size > MAX_IMAGE_BYTES:
+            return refuse('PORTRAIT_TOO_LARGE', 'This image is larger than 30 MB. Use a smaller file.')
+        dimensions = image_limits.stored_dimensions(get_storage(), row.key)      # the header only (at most the first few MB are read), pixels are never decoded
+        problem_kind = image_limits.side_problem(*dimensions) if dimensions else None
+        if problem_kind:       # short copy: the card shows it under the file name (same wording as src/lib/portraits.js)
+            return refuse('PORTRAIT_IMAGE_SIZE' if problem_kind == 'size' else 'PORTRAIT_IMAGE_RATIO', dimension_problem(*dimensions))
     now = managed_pool.now_ms()
     values = managed_pool.setting_values()
     with transaction.atomic():
         managed_pool._locked()
-        managed_pool.force_face(row.sha256, 'upload', now)      # always a face, so prompts that use this image share the asset
+        if not video:
+            managed_pool.force_face(row.sha256, 'upload', now)      # always a face, so prompts that use this image share the asset
         existing = ManagedPortraitAsset.objects.select_for_update().exclude(status__in=('DELETED', 'FAILED')).filter(content_sha256=row.sha256).first()
         if existing is not None and existing.status == 'DELETING':
             return refuse('PORTRAIT_REMOVING', 'This image is being removed. Try again in a moment.')
@@ -213,7 +225,7 @@ def register_one(user, item, created_at):
             return {'referenceId': reference_id, 'ok': True, 'portrait': existing, 'existing': True}
         created = ManagedPortraitAsset.objects.create(id=uuid.uuid4(), content_sha256=row.sha256, source_key=row.key, status='QUEUED',
             receipt={'version': 1, 'state': 'QUEUED'}, created_by_id=user.id, created_at=created_at, updated_at=now, last_used_at=now,
-            name=name, origin='upload')
+            name=name, origin='upload', media_kind='video' if video else 'image')
     return {'referenceId': reference_id, 'ok': True, 'portrait': created, 'existing': False}
 
 

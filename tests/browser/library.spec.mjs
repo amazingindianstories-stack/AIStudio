@@ -666,12 +666,12 @@ test("Portrait Gallery refuses oversized and non-image drops per file and keeps 
     // A real 1x1 PNG: decodable, but far below the 300 px minimum.
     const tiny = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aH2kAAAAASUVORK5CYII="), (c) => c.charCodeAt(0));
     data.items.add(new File([tiny], "tiny.png", { type: "image/png" }));
-    data.items.add(new File([new Uint8Array(10)], "clip.mp4", { type: "video/mp4" }));
+    data.items.add(new File([new Uint8Array(10)], "clip.webm", { type: "video/webm" }));
     return data;
   }, { good, bytes });
   await gallery.dispatchEvent("drop", { dataTransfer: transfer });
   await expect(gallery.getByText(/larger than 30 MB/)).toBeVisible();
-  await expect(gallery.getByText("Only image files can be portraits.")).toBeVisible();
+  await expect(gallery.getByText("Only MP4 and MOV videos can be portraits.")).toBeVisible();
   await expect(gallery.getByText("Too small (1 x 1 px). Use at least 300 px on each side.")).toBeVisible();
   await expect(gallery.getByRole("article", { name: good, exact: true })).toBeVisible({ timeout: 60000 });
   await gallery.getByRole("button", { name: "Dismiss" }).first().click();

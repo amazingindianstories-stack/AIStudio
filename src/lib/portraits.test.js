@@ -8,6 +8,12 @@ import {
   portraitDimensionProblem,
   portraitDropImages,
   portraitFileProblem,
+  PORTRAIT_VIDEO_MAX_BYTES,
+  portraitVideoProblem,
+  isVideoPortrait,
+  portraitMediaUrl,
+  portraitPosterUrl,
+  portraitAttachable,
   portraitNameFromFile,
   portraitPollDelay,
   runPool,
@@ -111,7 +117,12 @@ test("files over 30 MB, empty files and non-images are refused before any upload
   assert.equal(portraitFileProblem({ name: "a.jpg", type: "", size: 10 }), null, "extension fallback when the browser gives no type");
   assert.match(portraitFileProblem({ name: "big.png", type: "image/png", size: PORTRAIT_MAX_BYTES + 1 }), /larger than 30 MB/);
   assert.equal(portraitFileProblem({ name: "exact.png", type: "image/png", size: PORTRAIT_MAX_BYTES }), null);
-  assert.match(portraitFileProblem({ name: "a.mp4", type: "video/mp4", size: 10 }), /Only image files/);
+  assert.equal(portraitFileProblem({ name: "a.mp4", type: "video/mp4", size: 10 }), null);
+  assert.equal(portraitFileProblem({ name: "a.mov", type: "", size: 10 }), null, "extension fallback for a clip");
+  assert.match(portraitFileProblem({ name: "a.webm", type: "video/webm", size: 10 }), /Only MP4 and MOV videos/);
+  assert.match(portraitFileProblem({ name: "a.pdf", type: "application/pdf", size: 10 }), /Only images and MP4 or MOV videos/);
+  assert.match(portraitFileProblem({ name: "big.mp4", type: "video/mp4", size: PORTRAIT_VIDEO_MAX_BYTES + 1 }), /larger than 200 MB/);
+  assert.equal(portraitFileProblem({ name: "ok.mov", type: "video/quicktime", size: PORTRAIT_VIDEO_MAX_BYTES }), null, "clips may exceed the 30 MB image limit");
   assert.match(portraitFileProblem({ name: "a.png", type: "image/png", size: 0 }), /empty/);
 });
 
@@ -140,4 +151,30 @@ test("images outside 300-6000 px per side or a 0.4-2.5 ratio are refused with th
   assert.equal(portraitDimensionProblem(6001, 4000), "Too large (6001 x 4000 px). Use at most 6000 px on each side.");
   assert.match(portraitDimensionProblem(3000, 1000), /^Too wide/);
   assert.match(portraitDimensionProblem(1000, 3000), /^Too tall/);
+});
+
+test("clips are checked against the documented duration, size and shape before upload", () => {
+  const ok = { seconds: 8, width: 1080, height: 1920 };
+  assert.equal(portraitVideoProblem(ok), null);
+  assert.equal(portraitVideoProblem(null), null, "unreadable here: the server decides");
+  assert.match(portraitVideoProblem({ ...ok, seconds: 1.2 }), /Too short \(1\.2 s\)\. Use a clip of 2 to 30 seconds\./);
+  assert.match(portraitVideoProblem({ ...ok, seconds: 45 }), /Too long \(45 s\)/);
+  assert.match(portraitVideoProblem({ ...ok, width: 200, height: 400 }), /Too small \(200 x 400 px\)/);
+  assert.match(portraitVideoProblem({ ...ok, width: 7000, height: 4000 }), /Too large/);
+  assert.match(portraitVideoProblem({ ...ok, width: 3000, height: 1000 }), /Too wide/);
+  assert.match(portraitVideoProblem({ ...ok, width: 600, height: 3000 }), /Too tall/);
+  for (const info of [{ ...ok, seconds: 1 }, { ...ok, width: 200, height: 100 }]) assert.ok(!portraitVideoProblem(info).includes("\u2014"));
+});
+
+test("a video portrait uses its clip and poster; an image portrait its image", () => {
+  const clip = { kind: "video", videoUrl: "/api/media/v.mp4", posterUrl: "/api/media/thumbs/poster/v.mp4.webp", imageUrl: null, state: "ready" };
+  const still = { kind: "image", imageUrl: "/api/media/i.png", state: "ready" };
+  assert.equal(isVideoPortrait(clip), true);
+  assert.equal(isVideoPortrait(still), false);
+  assert.equal(portraitMediaUrl(clip), clip.videoUrl);
+  assert.equal(portraitPosterUrl(clip), clip.posterUrl);
+  assert.equal(portraitMediaUrl(still), still.imageUrl);
+  assert.equal(portraitPosterUrl(still), still.imageUrl);
+  assert.equal(portraitAttachable(clip), true);
+  assert.equal(portraitAttachable({ ...clip, state: "unusable" }), false);
 });

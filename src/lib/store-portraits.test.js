@@ -223,3 +223,22 @@ test("the status poll runs only while something is preparing, backs off, pauses 
     globalThis.document = documentBefore;
   }
 });
+
+test("attachPortraitsToComposer sends a video portrait to the reference clips and refuses it on a model without clip references", async () => {
+  await withStore(async () => {
+    const clip = p("c", 3, { name: "Walk", kind: "video", imageUrl: null, videoUrl: "/api/media/uploads/portrait/c", posterUrl: "/api/media/thumbs/poster/uploads/portrait/c.webp" });
+    useStore.setState({ model: "Seedance 2.0", portraitGalleryOpen: true, referenceImages: [], referenceKinds: [], referenceLabels: [], referenceTags: [], referenceIds: [], referenceVideos: [], videoNotes: [], referenceAudios: [] });
+    assert.deepEqual(useStore.getState().attachPortraitsToComposer([clip]), { ok: true, count: 1 });
+    const state = useStore.getState();
+    assert.deepEqual(state.referenceVideos, [clip.videoUrl]);
+    assert.equal(state.videoNotes[0].name, "Walk");
+    assert.deepEqual(state.referenceImages, []);
+    assert.equal(state.portraitGalleryOpen, false);
+    useStore.setState({ model: "Nano Banana 2", portraitGalleryOpen: true, referenceVideos: [], videoNotes: [] });
+    const refused = useStore.getState().attachPortraitsToComposer([clip]);
+    assert.equal(refused.ok, false);
+    assert.match(refused.error, /Seedance/);
+    assert.ok(!refused.error.includes("—"));
+    assert.deepEqual(useStore.getState().referenceVideos, []);
+  });
+});

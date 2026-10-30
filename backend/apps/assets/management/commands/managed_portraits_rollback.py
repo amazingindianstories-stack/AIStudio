@@ -1,4 +1,4 @@
-"""Undo assets.0005_managed_portraits and 0006_portrait_gallery so a pre-portrait launcher (which asserts 60 migration rows) can start again.
+"""Undo assets.0005_managed_portraits, 0006_portrait_gallery and 0007_portrait_media_kind so a pre-portrait launcher (which asserts 60 migration rows) can start again.
 
     python manage.py managed_portraits_rollback                    report only (default)
     python manage.py managed_portraits_rollback --delete-remote --confirm
@@ -61,7 +61,7 @@ class Command(BaseCommand):
             rows = cursor.fetchone()[0]
             cursor.execute('SELECT count(*) FROM pg_tables WHERE schemaname = current_schema() AND tablename = ANY(%s)', [list(TABLES)])
             remaining = cursor.fetchone()[0]
-        if remaining or MigrationRecorder(connection).migration_qs.filter(app=MIGRATION[0], name__in=(MIGRATION[1], '0006_portrait_gallery')).exists():
+        if remaining or MigrationRecorder(connection).migration_qs.filter(app=MIGRATION[0], name__in=(MIGRATION[1], '0006_portrait_gallery', '0007_portrait_media_kind')).exists():
             raise CommandError('rollback incomplete: managed portrait tables or migration row remain')
         self.stdout.write(f'rolled back: django_migrations rows={rows}')
 

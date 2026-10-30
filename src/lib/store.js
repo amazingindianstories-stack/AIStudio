@@ -90,7 +90,12 @@ import {
   portraitAttachable,
   portraitDimensionProblem,
   portraitFileProblem,
+  portraitVideoProblem,
+  isPortraitVideoFile,
+  isVideoPortrait,
+  portraitMediaUrl,
   readPortraitDimensions,
+  readPortraitVideoInfo,
   portraitNameFromFile,
   portraitPollDelay,
   runPool,
@@ -2216,7 +2221,9 @@ export const useStore = create((set, get) => ({
     await runPool(list, PORTRAIT_UPLOAD_CONCURRENCY, async (file, index) => {
       const { key, name } = entries[index];
       let problem = portraitFileProblem(file);
-      if (!problem) {
+      if (!problem && isPortraitVideoFile(file)) {
+        problem = portraitVideoProblem(await readPortraitVideoInfo(file));
+      } else if (!problem) {
         const size = await readPortraitDimensions(file);
         if (size) problem = portraitDimensionProblem(size.width, size.height);
       }
@@ -2313,7 +2320,12 @@ export const useStore = create((set, get) => ({
       return { ok: false, error: "Stage at most 50 references; remove some attachments first." };
     }
     // A portrait already in the prompt can be added again: each occurrence keeps its own reference id.
-    for (const p of unique) get().addReference(p.imageUrl, "portrait", p.name || "Portrait");
+    const clips = unique.filter(isVideoPortrait);
+    if (clips.length && !supportsVideoReference(state.model)) return { ok: false, error: "Video portraits work with Seedance models. Switch the model to add them." };
+    for (const p of unique) {
+      if (isVideoPortrait(p)) get().addReferenceVideo(portraitMediaUrl(p), { name: p.name || "Portrait", ref: portraitMediaUrl(p), portrait: true });
+      else get().addReference(p.imageUrl, "portrait", p.name || "Portrait");
+    }
     set({ portraitGalleryOpen: false });
     return { ok: true, count: unique.length };
   },

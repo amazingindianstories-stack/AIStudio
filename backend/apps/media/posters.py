@@ -55,13 +55,14 @@ def first_frame(source, protocols, *, timeout=DEADLINE_SECONDS):
     return data
 
 
-def bounded_poster(storage, key, *, frame=first_frame, gate=_GATE, seconds=DEADLINE_SECONDS):
+def bounded_poster(storage, key, *, frame=first_frame, gate=_GATE, seconds=DEADLINE_SECONDS, video=False):
     """Return ``(poster_key, fresh_bytes_or_None)`` when a poster exists or was just made, else None; never raises.
 
-    ``seconds`` bounds ffmpeg; at 0 an existing poster is used and none is made."""
+    ``seconds`` bounds ffmpeg; at 0 an existing poster is used and none is made. ``video`` is for callers that know the
+    object is a video although its key has no extension (staged uploads)."""
     try:
         validate_key(key)
-        if not is_video_key(key) or is_export_key(key):
+        if not (video or is_video_key(key)) or is_export_key(key):
             return None
         target = poster_key(key)
         if storage.exists(target):

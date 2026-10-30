@@ -10,7 +10,7 @@ import { askText } from "@/lib/ask-text";
 import { notify } from "@/lib/notify";
 import { getNextGridFocus } from "@/lib/grid-navigation";
 import { droppedLibraryItems, validatePortraitDrop } from "@/lib/asset-drag-contract";
-import { downloadPortrait, portraitAttachable, portraitDropImages } from "@/lib/portraits";
+import { downloadPortrait, isVideoPortrait, portraitAttachable, portraitDropImages } from "@/lib/portraits";
 import { useDropzoneGuard } from "@/lib/use-dropzone-guard";
 import { useMarqueeSelection } from "@/lib/use-marquee-selection";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
@@ -134,7 +134,7 @@ function PortraitGalleryDialog() {
   const addToPrompt = useCallback((targets) => {
     const state = useStore.getState();
     const room = Math.max(0, capability(state.model, "maxReferenceImages", 50) - (state.referenceKinds || []).filter((kind) => kind !== "video").length);
-    if (targets.length > room) {
+    if (targets.filter((target) => !isVideoPortrait(target)).length > room) {
       setError(`This model has room for ${room} more image ${room === 1 ? "reference" : "references"}. Select fewer portraits or change model.`);
       return;
     }
@@ -281,7 +281,7 @@ function PortraitGalleryDialog() {
             disabled={maintenance}
             type="file"
             multiple
-            accept="image/*"
+            accept="image/*,video/mp4,video/quicktime,.mp4,.mov"
             aria-label="Upload portraits"
             className="hidden"
             onChange={(e) => { const files = Array.from(e.target.files || []); e.target.value = ""; void uploadFiles(files); }}

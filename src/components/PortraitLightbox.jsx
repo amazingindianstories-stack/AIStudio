@@ -15,7 +15,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { downloadPortrait, portraitAttachable, portraitStateLabel } from "@/lib/portraits";
+import { downloadPortrait, isVideoPortrait, portraitAttachable, portraitMediaUrl, portraitPosterUrl, portraitStateLabel } from "@/lib/portraits";
 
 export function PortraitLightbox({
   asset,
@@ -31,6 +31,7 @@ export function PortraitLightbox({
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState(asset?.name || "");
   const [isZoomed, setIsZoomed] = useState(false);
+  const video = isVideoPortrait(asset);
 
   const currentIndex = assets.findIndex((a) => a.id === asset?.id);
   const hasPrev = currentIndex > 0;
@@ -200,15 +201,17 @@ export function PortraitLightbox({
             )}
           </button>
 
-          {/* Zoom Toggle */}
-          <button
-            type="button"
-            onClick={() => setIsZoomed((v) => !v)}
-            title={isZoomed ? "Fit to screen" : "Zoom in 2x"}
-            className="grid h-8 w-8 place-items-center rounded-lg border border-white/15 bg-ink-800 text-white/80 transition hover:bg-white/10 hover:text-white"
-          >
-            {isZoomed ? <ZoomOut className="h-4 w-4" /> : <ZoomIn className="h-4 w-4" />}
-          </button>
+          {/* Zoom Toggle (a video has its own player controls) */}
+          {!video && (
+            <button
+              type="button"
+              onClick={() => setIsZoomed((v) => !v)}
+              title={isZoomed ? "Fit to screen" : "Zoom in 2x"}
+              className="grid h-8 w-8 place-items-center rounded-lg border border-white/15 bg-ink-800 text-white/80 transition hover:bg-white/10 hover:text-white"
+            >
+              {isZoomed ? <ZoomOut className="h-4 w-4" /> : <ZoomIn className="h-4 w-4" />}
+            </button>
+          )}
 
           {/* Download */}
           <button
@@ -221,9 +224,9 @@ export function PortraitLightbox({
           </button>
 
           {/* Open full raw in new tab */}
-          {!embedded && asset.imageUrl && (
+          {!embedded && portraitMediaUrl(asset) && (
             <a
-              href={asset.imageUrl}
+              href={portraitMediaUrl(asset)}
               target="_blank"
               rel="noreferrer"
               title="Open full raw URL in new tab"
@@ -269,20 +272,33 @@ export function PortraitLightbox({
         {/* Central High-Resolution Image with Zoom Support */}
         <div
           className={`relative flex h-full max-h-[78dvh] w-full items-center justify-center overflow-auto rounded-2xl border border-white/10 bg-ink-950 p-2 shadow-2xl ring-1 ring-white/10 scroll-thin ${
-            isZoomed ? "cursor-zoom-out" : "cursor-zoom-in"
+            video ? "" : isZoomed ? "cursor-zoom-out" : "cursor-zoom-in"
           }`}
-          onClick={() => setIsZoomed((v) => !v)}
+          onClick={video ? undefined : () => setIsZoomed((v) => !v)}
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={asset.imageUrl}
-            alt={asset.name || "Portrait"}
-            className={`select-none transition-all duration-200 ${
-              isZoomed
-                ? "max-w-none origin-center transform p-8 scale-150"
-                : "max-h-[76dvh] max-w-[85vw] object-contain"
-            }`}
-          />
+          {video ? (
+            <video
+              key={asset.id}
+              src={portraitMediaUrl(asset)}
+              poster={portraitPosterUrl(asset) || undefined}
+              aria-label={asset.name || "Portrait video"}
+              controls
+              playsInline
+              preload="metadata"
+              className="max-h-[76dvh] max-w-[85vw] rounded-lg object-contain"
+            />
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={asset.imageUrl}
+              alt={asset.name || "Portrait"}
+              className={`select-none transition-all duration-200 ${
+                isZoomed
+                  ? "max-w-none origin-center transform p-8 scale-150"
+                  : "max-h-[76dvh] max-w-[85vw] object-contain"
+              }`}
+            />
+          )}
 
           {/* Status Badge Over Image */}
           {!isZoomed && stateLabel && (

@@ -19,6 +19,13 @@ Nothing is deployed. Every production step below needs explicit owner approval.
   disappear when it expires or is deleted. Uploads are pool assets too: unused ones expire after the TTL.
   Users never see groups, asset ids, slots or the word BytePlus. The old manual portrait routes
   (`/api/assets/portraits*`) answer 410 `PORTRAITS_ARE_AUTOMATIC` on every method.
+- Gallery video portraits (`media_kind = 'video'`, migration `assets.0007`, additive, defaults to `image`): MP4 or MOV,
+  2-30 s, 24-60 fps, each side 300-6000 px, aspect 0.4-2.5, 407,696-8,295,044 pixels, at most 200 MB (BytePlus
+  "Add real-human assets to asset library"; probed with ffprobe in `apps/assets/video_limits.py`). The stored
+  master is registered as an `AssetType: Video` asset without being read or re-encoded; processing may take longer
+  (`VIDEO_PROCESSING_LIMIT_MS`, 15 min). A reference video that is a Gallery video portrait is sent to Seedance as
+  `asset://<id>` (registered again if it expired), never as a URL; it is refused as an image reference or frame.
+  A pre-0007 build ignores the column, so rolling back the code needs no data change.
 - Pool slots are handed out strictly first come first served: the oldest waiting generation or queued
   upload gets the next free (or evictable) slot; everyone else waits behind it.
 - A face the detector misses never traps an artist: when Seedance refuses an inline reference as a real

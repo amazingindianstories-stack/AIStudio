@@ -14,7 +14,7 @@ PURPOSES = {
     'audio-reference': ('uploads/audio-reference', r'audio/(mpeg|mp3|wav|x-wav|wave|ogg|webm|mp4|x-m4a|aac|flac)$'),
     'video-reference': ('uploads/video-reference', r'video/(mp4|quicktime|x-m4v|webm)$'),
     'depth-input': ('uploads/depth-input', r'video/(mp4|quicktime|x-m4v|webm)$'),
-    'portrait': ('uploads/portrait', r'image/(jpeg|png|webp|tiff|gif|heic|heif|avif|bmp)$'),
+    'portrait': ('uploads/portrait', r'(image/(jpeg|png|webp|tiff|gif|heic|heif|avif|bmp)|video/(mp4|quicktime))$'),
     'material': ('uploads/material', r'image/(jpeg|png|webp|tiff|gif|heic|heif|avif|bmp)$'),
     'canvas': ('uploads/canvas', r'image/(jpeg|png|webp|tiff|gif|heic|heif|avif|bmp)$'),
 }

@@ -82,7 +82,21 @@ def prepare(item, *, storage=None, client=None, now=None):
             return outcome
         if outcome.kind == 'wait' and worst.kind != 'wait':
             worst = outcome
+    for key, sha in video_portraits(item).items():
+        outcome = managed_pool.ensure_video(sha, key, item.id, item.user_id, storage=storage, client=client, now=now)
+        if outcome.kind == 'failed':
+            return outcome
+        if outcome.kind == 'wait' and worst.kind != 'wait':
+            worst = outcome
     return worst
+
+
+def video_portraits(item):
+    """{storage key: content sha} of the Gallery video portraits among this job's reference videos (sent as BytePlus assets)."""
+    from apps.generation.references import resolve_references
+    keys = {storage_key(ref) for ref in resolve_references(item.prompt, item.reference_videos or [], 'vid')}
+    rows = ManagedPortraitAsset.objects.filter(media_kind='video', source_key__in=[key for key in keys if key]).order_by('created_at')
+    return {row.source_key: row.content_sha256 for row in rows}
 
 
 INPUT_IMAGE_PRIVACY_CODE = 'InputImageSensitiveContentDetected.PrivacyInformation'
@@ -127,6 +141,13 @@ def assets_for(generation_id):
     """{content_sha256: byteplus_asset_id} for ACTIVE assets pinned by this generation."""
     rows = ManagedPortraitAsset.objects.filter(status='ACTIVE', id__in=ManagedPortraitPin.objects.filter(generation_id=generation_id)
                                                .values('asset_id')).values_list('content_sha256', 'byteplus_asset_id')
+    return dict(rows)
+
+
+def video_assets_for(generation_id):
+    """{source_key: byteplus_asset_id} for ACTIVE video portraits pinned by this generation."""
+    rows = ManagedPortraitAsset.objects.filter(status='ACTIVE', media_kind='video', id__in=ManagedPortraitPin.objects.filter(generation_id=generation_id)
+                                               .values('asset_id')).values_list('source_key', 'byteplus_asset_id')
     return dict(rows)
 
 

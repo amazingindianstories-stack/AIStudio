@@ -41,11 +41,19 @@ def resolve_submission_references(body, actor_id):
     from django.conf import settings
     purposes = {'referenceImages': ('image-reference', 'portrait', 'material', 'canvas'),
         'image': ('image-reference', 'portrait', 'material', 'canvas'),
-        'referenceVideos': ('video-reference',), 'referenceAudios': ('audio-reference',),
-        'video': ('video-reference',),
+        'referenceVideos': ('video-reference', 'portrait'), 'referenceAudios': ('audio-reference',),
+        'video': ('video-reference', 'portrait'),
         'firstFrame': ('image-reference', 'portrait', 'material', 'canvas'),
         'lastFrame': ('image-reference', 'portrait', 'material', 'canvas'),
         'continuationFrame': ('image-reference', 'portrait', 'material', 'canvas')}
+
+    def check_kind(row, allowed):
+        # A Gallery portrait can be an image or a video: it only goes where its media type is accepted.
+        if row.purpose == 'portrait':
+            video = (row.content_type or '').startswith('video/')
+            if video != ('video-reference' in allowed):
+                from apps.media.uploads import UploadError
+                raise UploadError('UPLOAD_PURPOSE_MISMATCH', 403)
 
     def resolve(value, allowed):
         if isinstance(value, dict):
@@ -58,6 +66,7 @@ def resolve_submission_references(body, actor_id):
             except ValueError:
                 raise InvalidReference('Invalid uploaded referenceId.') from None
             row = resolve_ready_upload(actor_id, identifier, purposes=allowed)
+            check_kind(row, allowed)
             return '/api/media/' + row.key
         if isinstance(value, str):
             key = media_key_from_ref(value, getattr(settings, 'GCP_MEDIA_CDN_URL', ''))
@@ -75,6 +84,7 @@ def resolve_submission_references(body, actor_id):
                             raise UploadError('UPLOAD_PURPOSE_MISMATCH', 403)
                         return canonical
                 row = resolve_ready_upload(actor_id, str(row.id), purposes=allowed)
+                check_kind(row, allowed)
                 return '/api/media/' + row.key
         return value
 
