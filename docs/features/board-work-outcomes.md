@@ -12,7 +12,7 @@ No feature is skipped or needs a product decision at this point.
 
 | Line | Feature | Size | Outcome | Evidence and remaining acceptance work |
 | --- | --- | --- | --- | --- |
-| 216 | Cards | M | Pending verification | `WorkTools` implements structured fields, existing-user assignees, D and Cmd/Ctrl+Shift+Enter; `WorkNode` renders cards. Existing browser spec covers details and reload. Verify keyboard, roles, offscreen edits and all fields end to end. |
+| 216 | Cards | M | Pending verification | `WorkTools` implements structured fields, existing-user assignees, D and Cmd/Ctrl+Shift+Enter; `WorkNode` renders cards. Existing browser spec covers details and reload. Browser verified D creation, Ctrl+Shift+Enter details, all fields and reload persistence in iteration 3. Remaining: Cmd variant, roles and offscreen edits. |
 | 217 | Columns | M | Pending verification | `work-records.layoutColumns` uses board data; `WorkTools` adds, renames, recolors and moves lanes upward. Verify swimlanes, reorder, containment and persistence end to end. |
 | 218 | Tables | XL | Pending verification | Django `WorkTable`/`WorkRecord` and `work_tables` own data; board widgets hold dataset IDs. `WorkDataPanel` has fields, card/sticky copying, CSV/Excel and owner-only editing. Verify schema migrations, indexed queries, roles and file round trips. |
 | 219 | Filter, sort, search, grouping | M | Pending completion | SQL search/filter/sort and SQL group counts exist. Panel never sends `groupBy`; rendering groups only its current page. Complete grouping across pagination and add browser coverage. |
@@ -68,3 +68,26 @@ Validation: targeted BoardSwitcher suite passed (7 tests); `npm test` passed
 all 936 tests; `npm run lint` passed; `git diff --check` passed. No browser, backend, Docker
 stack or persistent server was started. Next increment remains cards/columns
 browser acceptance through the heavy lock.
+
+## Iteration 3: card keyboard and field persistence acceptance
+
+Extended the permanent CI browser spec to create a card with D, reopen details
+with Ctrl+Shift+Enter, populate title, description, start/end dates, tags, links,
+assignee and status, then verify every value after reload. Kept its columns/card
+creation and saved-record assertions. Corrected the existing reload flow to
+reopen Board, because app navigation returns to Image on reload. Use accessible
+roles for dropdowns and populated textareas: exact `getByLabel` queries include
+option/textarea text and failed despite the correctly labelled controls being
+present. No production code changed and no feature row is promoted yet.
+
+Validation: permanent `Board work:` browser spec passed (1 test, 14.8 seconds)
+through the shared heavy lock and `scripts/dev/test-db.sh`, with disposable
+PostgreSQL, mock providers and harness-owned Django/workers/Next. The harness
+stopped its processes and removed its database on exit. Evidence:
+`/var/folders/wk/zf7bhzvs7fs230wlhb95b2900000gn/T/veevee-test.KWiP/browser-qualification`
+(ephemeral). `npm test` passed all 936 tests; `npm run lint` passed;
+`git diff --check` passed. No commit, push or deployment.
+
+Next smallest increment: finish Cards role and offscreen-edit browser acceptance,
+then verify the remaining Columns operations in checklist order. Cmd shortcut
+acceptance is also outstanding; this run exercised the supported Ctrl variant.
