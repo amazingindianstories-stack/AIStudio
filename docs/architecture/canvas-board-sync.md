@@ -12,7 +12,8 @@ merge per node on the client and poll for other people's saves.
   `baseVersion`, or a missing `saveId`, gets `409 {error: "VERSION_CONFLICT", board}` with the current
   board (graph and version), and nothing is written. A malformed `baseVersion` or `saveId` gets 400.
 - `PATCH` sends `patch` in place of `data`: for `nodes` and for `connectors` the whole items added or changed
-  (`upsert`), the ids of the upserted items that are new (`add`) and the ids deleted (`delete`), the `viewport`, and `nodeOrder`/`connectorOrder` (every id) only
+  (`upsert`), the ids of the upserted items that are new (`add`) and the ids deleted (`delete`), the `viewport`, the board
+  `settings` whole when they changed (null clears them), and `nodeOrder`/`connectorOrder` (every id) only
   when the order is not "kept items in their old order, then added ones in patch order"
   (`backend/apps/canvas/patch.py`, mirrored by `src/lib/canvas/patch.js`). Under the same lock and version check
   the server applies it to the stored graph and saves the result exactly as a full save, so roles, stamps,
@@ -26,8 +27,13 @@ merge per node on the client and poll for other people's saves.
   server answers 405. On unload the keepalive request carries the whole graph when that fits the keepalive
   limit, otherwise the patch, so an edit on a large board still saves; the local draft always holds the whole
   graph.
-- A save that changes nodes or connectors bumps `version`. A save that only changes the viewport (each
-  person's own) keeps the version, so open boards do not refetch the graph.
+- A save that changes nodes, connectors or the board `settings` (background, start view, layers) bumps
+  `version`. A save that only changes the viewport (each person's own) keeps the version, so open boards do
+  not refetch the graph.
+- Changes the saver may not make (`backend/apps/canvas/locks.py`: editing or deleting an object under someone
+  else's protected lock, or setting a protected lock or changing the start view below co-owner,
+  `../features/board-roles.md`) are put back on the stored copy while the rest of the save is written. Such a save bumps `version` and its
+  reply carries the saved graph as `board`, which the editor merges like someone else's save.
 - A graph-changing save records `(board_id, save_id, version, applied_at)` in `canvas_board_saves` in the
   same transaction, unique per board and save id, with `changes`: the ids of the nodes and connectors it
   added, edited, moved or deleted (null when more than 2,000). `run_scheduler` prunes rows older than 30 days daily
@@ -48,9 +54,9 @@ merge per node on the client and poll for other people's saves.
   (`src/lib/canvas/use-board-polling.js`); the graph is fetched only when the version moved.
 - `GET /api/canvas-boards/<id>/changes?since=<version>` (read role) returns `{version, updatedAt, changes}`
   with, per kind, the current items whose ids the saves after `since` recorded (`upsert`) and those ids no
-  longer on the board (`delete`), plus `nodeOrderHash`/`connectorOrderHash` (FNV-1a over the ids). It returns
-  `{version, updatedAt, data}`, the whole graph, when `since` is ahead of the board or more than 200 versions
-  behind, or a save in between recorded no ids or was pruned. A poll that saw a newer version asks it first,
+  longer on the board (`delete`), the board `settings` (null when none), plus `nodeOrderHash`/`connectorOrderHash`
+  (FNV-1a over the ids). It returns `{version, updatedAt, data}`, the whole graph, when `since` is ahead of the
+  board or more than 200 versions behind, or a save in between recorded no ids or was pruned. A poll that saw a newer version asks it first,
   rebuilds the graph over the one it synced and checks both hashes; a mismatch (a reorder records no ids) or
   an image crop in progress reads the whole board instead, as does a server without the endpoint.
 
@@ -59,6 +65,10 @@ merge per node on the client and poll for other people's saves.
 - A 409 or a newer polled version merges the other person's graph three-way, per node and connector id,
   against the graph this tab last synced: one-sided changes apply; when both sides changed an item the
   local unsaved edit wins. The viewport stays local. The result is saved again on the new version.
+- Board settings merge per setting (background, start view) with the same rule. Layers merge per layer id: a
+  layer added on either side stays, one deleted on one side goes only when the other left it unchanged, a layer
+  both changed merges per field, and their order merges like the z-order. Which layers are hidden is each
+  person's own and stays in the browser (`src/lib/canvas/layer-visibility.js`).
 - The same merge is applied to every undo and redo snapshot, so undo only reverts this person's own steps.
 - Server stamps are not edits: an item whose local copy differs from the base only in its stamps counts as
   unchanged locally and takes the remote copy, stamps included.
