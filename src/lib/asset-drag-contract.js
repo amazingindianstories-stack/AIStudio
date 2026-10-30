@@ -422,7 +422,7 @@ export function droppedLibraryItems(e, storeState = null) {
 
 /**
  * Validates drop compatibility for Portrait Gallery.
- * Accepts image files and image generations. Rejects videos.
+ * Accepts image and MP4/MOV video files, and image generations. Rejects library videos.
  *
  * @param {DragEvent} e
  * @param {Object} [storeState]
@@ -437,7 +437,7 @@ export function validatePortraitDrop(e, storeState = null) {
       if (!hasImage) {
         return {
           valid: false,
-          reason: "Portrait Gallery only accepts images — videos cannot be added",
+          reason: "Portrait Gallery only accepts images from the library - upload MP4 or MOV files to add videos",
         };
       }
       return { valid: true, reason: "Drop images into Portrait Gallery" };
@@ -446,7 +446,7 @@ export function validatePortraitDrop(e, storeState = null) {
 
   const isFiles = isExternalFileDrag(e) || Array.from(e.dataTransfer?.types ?? []).includes("Files");
   if (isFiles) {
-    return { valid: true, reason: "Drop image files" };
+    return { valid: true, reason: "Drop images or MP4 and MOV videos" };
   }
 
   return { valid: false, reason: "Unsupported drag type" };

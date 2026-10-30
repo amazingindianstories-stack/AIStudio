@@ -167,7 +167,7 @@ test("uploads show a tile with progress, errors can be dismissed", async () => {
 
 test("an empty gallery invites drag and drop; search with no matches says so", async () => {
   await mount(gallery([]), async () => {
-    assert.match(document.body.textContent, /Drop images here/);
+    assert.match(document.body.textContent, /Drop images or videos here/);
     assert.equal(document.querySelectorAll("article").length, 0);
   });
 });

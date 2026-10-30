@@ -68,10 +68,8 @@ def probe_stored(storage, key):
     return probe(source, protocols) if source else None
 
 
-def problem(info, byte_size=None):
+def problem(info):
     """(code, short user copy) for the first rule a video breaks, else None. The copy fits under a card's file name."""
-    if byte_size is not None and byte_size > MAX_BYTES:
-        return 'PORTRAIT_TOO_LARGE', 'This video is larger than 200 MB. Use a smaller file.'
     if info is None:
         return 'PORTRAIT_VIDEO_UNREADABLE', 'This video could not be read. Use an MP4 or MOV file.'
     if not set(info['containers']) & set(CONTAINERS):

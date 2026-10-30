@@ -1,8 +1,10 @@
-"""Portrait Gallery routes pass the gateway; the migration count the launchers accept includes 0006."""
+"""Portrait Gallery routes pass the gateway; the migration count the launchers accept includes 0007."""
 import importlib.util
 from pathlib import Path
 
-from django.test import SimpleTestCase
+from django.db import connection
+from django.db.migrations.recorder import MigrationRecorder
+from django.test import SimpleTestCase, TestCase
 
 spec = importlib.util.spec_from_file_location('veevee_gateway_portraits', Path(__file__).with_name('gateway.py'))
 gateway = importlib.util.module_from_spec(spec)
@@ -23,4 +25,12 @@ class PortraitGalleryRouteTests(SimpleTestCase):
 
     def test_launchers_accept_the_migration_counts_before_and_after_each_portrait_migration(self):
         from deploy import legacy_config
-        self.assertEqual(legacy_config.MIGRATION_ROWS, (60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80))
+        self.assertEqual(legacy_config.MIGRATION_ROWS, (60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81))
+
+
+class AppliedMigrationRowsTests(TestCase):
+    def test_the_launchers_accept_production_once_every_migration_is_applied(self):
+        """Production held 60 rows when the graph was its 26 baseline files (docs/operations/status.md P0.2, P1.1); each later
+        migration adds one row."""
+        from deploy import legacy_config
+        self.assertEqual(max(legacy_config.MIGRATION_ROWS), 60 + MigrationRecorder(connection).migration_qs.count() - 26)

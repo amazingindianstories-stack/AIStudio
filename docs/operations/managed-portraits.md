@@ -21,11 +21,21 @@ Nothing is deployed. Every production step below needs explicit owner approval.
   (`/api/assets/portraits*`) answer 410 `PORTRAITS_ARE_AUTOMATIC` on every method.
 - Gallery video portraits (`media_kind = 'video'`, migration `assets.0007`, additive, defaults to `image`): MP4 or MOV,
   2-30 s, 24-60 fps, each side 300-6000 px, aspect 0.4-2.5, 407,696-8,295,044 pixels, at most 200 MB (BytePlus
-  "Add real-human assets to asset library"; probed with ffprobe in `apps/assets/video_limits.py`). The stored
-  master is registered as an `AssetType: Video` asset without being read or re-encoded; processing may take longer
-  (`VIDEO_PROCESSING_LIMIT_MS`, 15 min). A reference video that is a Gallery video portrait is sent to Seedance as
-  `asset://<id>` (registered again if it expired), never as a URL; it is refused as an image reference or frame.
-  A pre-0007 build ignores the column, so rolling back the code needs no data change.
+  "Add real-human assets to asset library"; `apps/assets/video_limits.py`). The browser checks duration and size
+  before uploading; the scheduler's upload pass probes the stored clip with ffprobe before registering it (a clip
+  that breaks a limit becomes an unusable card with the reason), never the `POST /api/portraits` request. The
+  stored master is registered as an `AssetType: Video` asset without being read or re-encoded; processing may take
+  longer (`VIDEO_PROCESSING_LIMIT_MS`, 15 min). The card's first frame (`thumbs/poster/<key>.webp`) is made by the
+  media route on first read and tried again on a later read if ffmpeg was busy or failed. A reference video that is
+  a Gallery video portrait is sent to Seedance as `asset://<id>` (registered again if it expired), never as a URL;
+  it is refused as an image reference, a frame or an upscale source.
+  `assets.0007` brings `django_migrations` to 80 rows (`MIGRATION_ROWS` accepts 79 and 80). A pre-0007 build does
+  **not** understand video rows: it would show them as broken image cards, let them be added to a prompt as image
+  references (the generation then fails) and its scheduler would read a queued clip into memory and register it as an
+  Image asset. Its launcher also refuses 80 rows. Before rolling the code back past this change: with this build
+  still running, delete every video portrait from the Gallery and wait until none is left outside `DELETED`
+  (`ManagedPortraitAsset.objects.filter(media_kind='video').exclude(status='DELETED')` is empty; a held one goes once
+  its generation finishes), then `python manage.py migrate assets 0006` (owner DSN; 80 → 79 rows).
 - Pool slots are handed out strictly first come first served: the oldest waiting generation or queued
   upload gets the next free (or evictable) slot; everyone else waits behind it.
 - A face the detector misses never traps an artist: when Seedance refuses an inline reference as a real
@@ -114,14 +124,15 @@ Nothing is deployed. Every production step below needs explicit owner approval.
   three services and redeploy. Face references go inline again as before, and the composer's attachment
   menu hides Portrait Gallery (it follows `enabled` from `GET /api/portraits`). The old portraits **cannot
   come back**: the cutover deleted them at BytePlus (their rows stay as `Retired`).
-- **To an old launcher** (needs the 60-row history):
+- **To an old launcher** (needs a history without the portrait migrations):
   1. Flag off on every service (above); wait until no queued/running generation holds a pin (the command
      itself releases pins of finished or deleted generations and uploads' own pins, and reports them).
   2. Report: `python manage.py managed_portraits_rollback` (owner DSN, flag off in that process).
   3. `python manage.py managed_portraits_rollback --delete-remote --confirm` - deletes every asset in
      Veevee's own pool group at BytePlus **and then the pool group** (irreversible; owner approval), then
-     migrates `assets` back to `0004` (reverses 0006 and 0005; drops only the five pool tables) and
-     verifies both migration rows are gone (62 → 60).
+     migrates `assets` back to `0004` (reverses 0007, 0006 and 0005; drops only the five pool tables) and
+     verifies the three migration rows are gone (`django_migrations` drops by 3, 80 → 77 on this release). The
+     launcher you roll back to must accept the remaining count (`MIGRATION_ROWS`).
   4. Roll the services back per `release-runbook.md`.
   Generations, media, ledger rows and all other tables are untouched.
 

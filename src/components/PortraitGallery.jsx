@@ -388,9 +388,9 @@ function PortraitGalleryDialog() {
                   ) : (
                     <div className="max-w-xs">
                       <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl border border-dashed border-white/25 text-white/55"><ImagePlus className="h-5 w-5" /></div>
-                      <p className="mt-3 text-sm font-medium text-white/85">Drop images here</p>
-                      <p className="mt-1 text-xs leading-5 text-white/45">Add one or many portraits by dragging them in. Faces in your prompt references appear here automatically.</p>
-                      <button disabled={maintenance} type="button" onClick={() => input.current?.click()} className="mt-4 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-medium text-white hover:bg-white/15">Choose images</button>
+                      <p className="mt-3 text-sm font-medium text-white/85">Drop images or videos here</p>
+                      <p className="mt-1 text-xs leading-5 text-white/45">Add one or many portraits (images, or MP4 and MOV clips) by dragging them in. Faces in your prompt references appear here automatically.</p>
+                      <button disabled={maintenance} type="button" onClick={() => input.current?.click()} className="mt-4 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-medium text-white hover:bg-white/15">Choose files</button>
                     </div>
                   )}
                 </div>
@@ -439,7 +439,7 @@ function PortraitGalleryDialog() {
           <div data-testid="portrait-drop-overlay" className="pointer-events-none absolute inset-2 z-30 grid place-items-center rounded-xl border-2 border-dashed border-white/40 bg-ink-900/95 text-center backdrop-blur-[2px]">
             <div>
               <ImagePlus className="mx-auto h-8 w-8 text-white/80" />
-              <p className="mt-3 text-sm font-semibold">{drop.isValid ? "Drop images to add them" : "Only images can be added"}</p>
+              <p className="mt-3 text-sm font-semibold">{drop.isValid ? "Drop images or videos to add them" : "Only images and MP4 or MOV videos can be added"}</p>
               <p className="mt-1 text-xs text-white/55">{drop.isValid ? "Release to upload them as portraits" : drop.validationReason}</p>
             </div>
           </div>

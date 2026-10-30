@@ -1,10 +1,13 @@
 """Gallery video portraits: the documented video limits, registration as a BytePlus Video asset, delete and consumer guards."""
+import functools
 import json
 from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
 from apps.generation.references import resolve_submission_references
+from apps.media import posters
+from apps.media import views as media_views
 from apps.media.uploads import UploadError
 
 from . import managed_pool, video_limits
@@ -21,7 +24,7 @@ def probe(**changes):
 
 class VideoLimitsTests(SimpleTestCase):
     def test_a_clip_inside_every_documented_limit_passes(self):
-        self.assertIsNone(video_limits.problem(GOOD, 10 * 1024 * 1024))
+        self.assertIsNone(video_limits.problem(GOOD))
 
     def test_each_rule_has_a_short_message_without_an_em_dash(self):
         cases = {
@@ -36,13 +39,11 @@ class VideoLimitsTests(SimpleTestCase):
                 found = video_limits.problem({**GOOD, **change})
                 self.assertEqual(found[0], code, change)
                 self.assertTrue(found[1] and '—' not in found[1])
-        self.assertEqual(video_limits.problem(GOOD, 201 * 1024 * 1024)[0], 'PORTRAIT_TOO_LARGE')
         self.assertEqual(video_limits.problem(None)[0], 'PORTRAIT_VIDEO_UNREADABLE')
 
     def test_boundaries_are_inclusive(self):
         self.assertIsNone(video_limits.problem({**GOOD, 'seconds': 2, 'fps': 24, 'width': 640, 'height': 640}))
         self.assertIsNone(video_limits.problem({**GOOD, 'seconds': 30, 'fps': 60}))
-        self.assertIsNone(video_limits.problem(GOOD, 200 * 1024 * 1024))
 
     def test_parse_reads_ffprobe_json_and_swaps_sides_for_rotation(self):
         raw = json.dumps({'format': {'format_name': 'mov,mp4,m4a,3gp,3g2,mj2', 'duration': '8.5'},
@@ -64,8 +65,7 @@ class VideoGalleryTests(GalleryBase):
         return response.json()['results'][0]
 
     def test_a_video_upload_is_queued_as_a_video_portrait_with_a_poster(self):
-        with probe():
-            result = self.add_video()
+        result = self.add_video()
         self.assertTrue(result['ok'], result)
         item = result['portrait']
         self.assertEqual(item['kind'], 'video')
@@ -76,35 +76,50 @@ class VideoGalleryTests(GalleryBase):
         self.assertFalse(ReferenceFaceScan.objects.exists(), 'a video is never scanned as an image')
         self.assertEqual(self.fake.calls, [])
 
-    def test_the_poster_is_requested_for_the_extensionless_upload_key(self):
-        with probe(), patch('apps.assets.managed_views.bounded_poster') as make:
-            self.add_video()
-        self.assertEqual(make.call_count, 1)
-        self.assertTrue(make.call_args.kwargs['video'])
-        self.assertTrue(make.call_args.args[1].startswith('uploads/portrait/'))
+    def test_the_poster_is_made_on_first_read_and_a_busy_read_is_tried_again(self):
+        poster = self.add_video()['portrait']['posterUrl']
+        frame = functools.partial(posters.bounded_poster, frame=lambda source, protocols, timeout: landscape(1))
+        with patch.object(posters, '_source', return_value=('clip', 'file')), patch.object(media_views, 'bounded_poster', frame):
+            posters._GATE.acquire()
+            try:
+                self.assertEqual(self.client.get(poster + '?inline=1').status_code, 404)
+            finally:
+                posters._GATE.release()
+            response = self.client.get(poster + '?inline=1')
+        self.assertEqual((response.status_code, response['Content-Type']), (200, 'image/webp'))
+        self.assertEqual(self.client.get(poster + '?inline=1').status_code, 200, 'the stored poster is served without ffmpeg')
 
     def test_images_still_report_the_image_kind(self):
         item = self.add(landscape(1))['results'][0]['portrait']
         self.assertEqual((item['kind'], item['videoUrl'], item['posterUrl']), ('image', None, None))
 
-    def test_a_clip_that_breaks_a_limit_is_refused_with_its_message_and_nothing_is_queued(self):
-        for change, code in (({'seconds': 45.0}, 'PORTRAIT_VIDEO_DURATION'), ({'fps': 120.0}, 'PORTRAIT_VIDEO_FPS'),
-                             ({'width': 100, 'height': 100}, 'PORTRAIT_VIDEO_SIZE'), ({'containers': ['webm']}, 'PORTRAIT_VIDEO_FORMAT')):
-            with probe(**change):
-                result = self.add_video()
-            self.assertEqual((result['ok'], result['error']), (False, code))
-            self.assertTrue(result['message'])
-        with patch.object(video_limits, 'probe_stored', return_value=None):
-            self.assertEqual(self.add_video()['error'], 'PORTRAIT_VIDEO_UNREADABLE')
-        with probe():
-            self.assertEqual(self.add_video(size=201 * 1024 * 1024)['error'], 'PORTRAIT_TOO_LARGE')
+    def test_a_clip_over_200_mb_is_refused_before_it_is_queued(self):
+        with patch.object(video_limits, 'probe_stored', side_effect=AssertionError('the Gallery request never probes')):
+            result = self.add_video(size=201 * 1024 * 1024)
+        self.assertEqual((result['ok'], result['error']), (False, 'PORTRAIT_TOO_LARGE'))
         self.assertFalse(ManagedPortraitAsset.objects.exists())
+
+    def test_the_scheduler_marks_a_clip_that_breaks_a_limit_unusable_with_its_message_and_never_registers_it(self):
+        cases = (({'seconds': 45.0}, 'PORTRAIT_VIDEO_DURATION'), ({'fps': 120.0}, 'PORTRAIT_VIDEO_FPS'),
+                 ({'width': 100, 'height': 100}, 'PORTRAIT_VIDEO_SIZE'), ({'containers': ['webm']}, 'PORTRAIT_VIDEO_FORMAT'), (None, 'PORTRAIT_VIDEO_UNREADABLE'))
+        for change, code in cases:
+            with patch.object(video_limits, 'probe_stored', side_effect=AssertionError('the Gallery request never probes')):
+                result = self.add_video(name=code)
+            self.assertTrue(result['ok'], result)
+            facts = None if change is None else {**GOOD, **change}
+            with patch.object(video_limits, 'probe_stored', return_value=facts):
+                self.settle_uploads()
+            asset = ManagedPortraitAsset.objects.get(id=result['portrait']['id'])
+            self.assertEqual((asset.status, asset.error_code), ('FAILED', code))
+            card = next(item for item in self.listing()['portraits'] if item['id'] == str(asset.id))
+            self.assertEqual((card['state'], card['message']), ('unusable', video_limits.problem(facts)[1]))
+        self.assertEqual((self.fake.assets, self.fake.calls), ({}, []))
 
     def test_the_scheduler_registers_a_video_asset_without_reading_the_file_and_it_becomes_ready(self):
         with probe():
             self.add_video()
-        with patch.object(self.storage, 'read', side_effect=AssertionError('the master is never read into memory')):
-            self.settle_uploads()
+            with patch.object(self.storage, 'read', side_effect=AssertionError('the master is never read into memory')):
+                self.settle_uploads()
         asset = ManagedPortraitAsset.objects.get()
         self.assertEqual(asset.status, 'ACTIVE')
         self.assertEqual([item['AssetType'] for item in self.fake.assets.values()], ['Video'])
@@ -115,7 +130,7 @@ class VideoGalleryTests(GalleryBase):
     def test_a_video_portrait_is_deleted_remotely_like_an_image(self):
         with probe():
             self.add_video()
-        self.settle_uploads()
+            self.settle_uploads()
         asset = ManagedPortraitAsset.objects.get()
         result = self.client.post('/api/portraits/delete', {'ids': [str(asset.id)]}, content_type='application/json').json()['results']
         self.assertTrue(result[0]['ok'])
@@ -124,12 +139,11 @@ class VideoGalleryTests(GalleryBase):
         self.assertEqual((ManagedPortraitAsset.objects.get().status, self.fake.live_asset_count()), ('DELETED', 0))
 
     def test_a_video_portrait_only_goes_where_a_video_is_accepted(self):
-        with probe():
-            ref = self.upload(MP4, mime='video/mp4', purpose='portrait')
+        ref = self.upload(MP4, mime='video/mp4', purpose='portrait')
         image = self.upload(b'\x89PNG' + b'0' * 32, mime='image/png', purpose='portrait')
         videos = resolve_submission_references({'referenceVideos': [ref]}, session_fixtures.UID)
         self.assertTrue(videos['referenceVideos'][0].startswith('/api/media/uploads/portrait/'))
-        for field in ('referenceImages', 'firstFrame', 'lastFrame', 'continuationFrame', 'image'):
+        for field in ('referenceImages', 'firstFrame', 'lastFrame', 'continuationFrame', 'image', 'video'):
             with self.assertRaises(UploadError, msg=field):
                 resolve_submission_references({field: [ref] if field == 'referenceImages' else ref}, session_fixtures.UID)
         with self.assertRaises(UploadError):
@@ -146,7 +160,7 @@ class VideoGalleryTests(GalleryBase):
         with probe():
             ref = {**self.upload(MP4, mime='video/mp4', purpose='portrait')}
             self.client.post('/api/portraits', {'uploads': [{**ref, 'name': 'Clip'}]}, content_type='application/json')
-        self.settle_uploads()
+            self.settle_uploads()
         asset = ManagedPortraitAsset.objects.get()
         job = self.enqueue_with_clip(ref)
         self.assertEqual(self.run_worker(job).status, 'succeeded')

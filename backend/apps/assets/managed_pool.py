@@ -818,6 +818,13 @@ def _process_upload_once(*, client, storage=None, now=None):
         _finish(asset, status='FAILED', error_code='source_unreadable')
         release_upload_pins()
         return report
+    if asset.media_kind == 'video':      # probed here, never in the Gallery request: ffprobe may take seconds per clip
+        from . import video_limits
+        found = video_limits.problem(video_limits.probe_stored(storage, asset.source_key))
+        if found:
+            _finish(asset, status='FAILED', error_code=found[0], receipt={**(asset.receipt or {}), 'problem': found[1]})
+            release_upload_pins()
+            return report
     outcome = _register(asset, data, storage, client, asset.created_by_id, requeue=True)
     report['registered'] = 1
     if outcome.kind == 'wait' and outcome.reason in ('portrait_pool_full', 'portrait_paused'):

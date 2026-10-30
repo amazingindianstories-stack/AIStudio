@@ -95,7 +95,7 @@ def video_portraits(item):
     """{storage key: content sha} of the Gallery video portraits among this job's reference videos (sent as BytePlus assets)."""
     from apps.generation.references import resolve_references
     keys = {storage_key(ref) for ref in resolve_references(item.prompt, item.reference_videos or [], 'vid')}
-    rows = ManagedPortraitAsset.objects.filter(media_kind='video', source_key__in=[key for key in keys if key]).order_by('created_at')
+    rows = ManagedPortraitAsset.objects.filter(media_kind='video', source_key__in=[key for key in keys if key]).exclude(status='FAILED').order_by('created_at')
     return {row.source_key: row.content_sha256 for row in rows}
 
 

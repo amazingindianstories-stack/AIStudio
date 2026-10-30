@@ -30,6 +30,8 @@ import {
   supportsFirstLastFrame,
   supportsVideoReference,
   supportsVideoEditExtend,
+  maxReferenceVideosForVideoModel,
+  MAX_REFERENCE_VIDEOS,
   VIDEO_TASK_MODES,
 } from "./config";
 import { encodeBlobWithBudget } from "./client-image-budget";
@@ -2319,15 +2321,21 @@ export const useStore = create((set, get) => ({
     if (state.referenceImages.length + state.referenceVideos.length + state.referenceAudios.length + unique.length > 50) {
       return { ok: false, error: "Stage at most 50 references; remove some attachments first." };
     }
-    // A portrait already in the prompt can be added again: each occurrence keeps its own reference id.
+    // An image portrait already in the prompt can be added again (each occurrence keeps its own reference id);
+    // a clip is attached once.
     const clips = unique.filter(isVideoPortrait);
     if (clips.length && !supportsVideoReference(state.model)) return { ok: false, error: "Video portraits work with Seedance models. Switch the model to add them." };
-    for (const p of unique) {
-      if (isVideoPortrait(p)) get().addReferenceVideo(portraitMediaUrl(p), { name: p.name || "Portrait", ref: portraitMediaUrl(p), portrait: true });
-      else get().addReference(p.imageUrl, "portrait", p.name || "Portrait");
+    const newClips = clips.filter((p) => !state.referenceVideos.includes(portraitMediaUrl(p)));
+    const clipRoom = Math.max(0, (maxReferenceVideosForVideoModel(state.model) ?? MAX_REFERENCE_VIDEOS) - state.referenceVideos.length);
+    if (newClips.length > clipRoom) {
+      return { ok: false, error: `This model has room for ${clipRoom} more reference ${clipRoom === 1 ? "clip" : "clips"}. Select fewer video portraits or change model.` };
     }
+    for (const p of unique) {
+      if (!isVideoPortrait(p)) get().addReference(p.imageUrl, "portrait", p.name || "Portrait");
+    }
+    for (const p of newClips) get().addReferenceVideo(portraitMediaUrl(p), { name: p.name || "Portrait", ref: portraitMediaUrl(p) });
     set({ portraitGalleryOpen: false });
-    return { ok: true, count: unique.length };
+    return { ok: true, count: unique.length - clips.length + newClips.length };
   },
   loadProjects: async () => {
     try {

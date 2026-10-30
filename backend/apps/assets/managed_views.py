@@ -18,7 +18,7 @@ from apps.authentication.session import lookup
 from apps.canvas.views import body, failure, node_route, reply
 from apps.common.responses import log_activity
 from apps.generation import image_limits
-from apps.media.posters import bounded_poster, poster_key
+from apps.media.posters import poster_key
 from apps.media.storage import get_storage
 from apps.media.uploads import UploadError, resolve_owned_ready_upload
 
@@ -108,7 +108,7 @@ def serialize(asset, pins, creators, room=True):
     if asset.status == 'ACTIVE':
         state, message = 'ready', None
     elif asset.status == 'FAILED':
-        state, message = 'unusable', UNUSABLE_VIDEO if asset.media_kind == 'video' else UNUSABLE
+        state, message = 'unusable', (asset.receipt or {}).get('problem') or (UNUSABLE_VIDEO if asset.media_kind == 'video' else UNUSABLE)
     elif asset.status == 'QUEUED' and (not room or asset.error_code == 'QuotaSharedPoolExceeded'):   # with room, simply next in line
         state, message = 'waiting', WAITING
     else:
@@ -192,11 +192,9 @@ def register_one(user, item, created_at):
     video = (row.content_type or '') in video_limits.CONTENT_TYPES
     if not video and not (row.content_type or '').startswith('image/') or not row.sha256:
         return refuse('PORTRAIT_NOT_IMAGE', UNUSABLE)
-    if video:
-        found = video_limits.problem(video_limits.probe_stored(get_storage(), row.key), row.byte_size)
-        if found:       # short copy: the card shows it under the file name (same wording as src/lib/portraits.js)
-            return refuse(*found)
-        bounded_poster(get_storage(), row.key, video=True)      # best effort: the card's first frame, made once here so the gallery never waits on it
+    if video:       # the clip's duration, size and frame rate are probed by the scheduler before it is registered
+        if row.byte_size > video_limits.MAX_BYTES:
+            return refuse('PORTRAIT_TOO_LARGE', 'This video is larger than 200 MB. Use a smaller file.')
     else:
         if row.byte_size > MAX_IMAGE_BYTES:
             return refuse('PORTRAIT_TOO_LARGE', 'This image is larger than 30 MB. Use a smaller file.')
@@ -212,7 +210,7 @@ def register_one(user, item, created_at):
             managed_pool.force_face(row.sha256, 'upload', now)      # always a face, so prompts that use this image share the asset
         existing = ManagedPortraitAsset.objects.select_for_update().exclude(status__in=('DELETED', 'FAILED')).filter(content_sha256=row.sha256).first()
         if existing is not None and existing.status == 'DELETING':
-            return refuse('PORTRAIT_REMOVING', 'This image is being removed. Try again in a moment.')
+            return refuse('PORTRAIT_REMOVING', f'This {"video" if video else "image"} is being removed. Try again in a moment.')
         if existing is not None:
             existing.hidden_at = None
             existing.name = existing.name or name
