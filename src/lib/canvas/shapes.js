@@ -81,6 +81,20 @@ function arrowHead(w, h, share) {
   return Math.min(w * share, h * 0.9);
 }
 
+/** Each callout kind's body without its tail, the top part of the box. */
+const CALLOUT_BODIES = {
+  callout: (w, h) => {
+    const body = h * 0.78;
+    return roundedRect(0, 0, w, body, Math.min(w, body) * 0.14);
+  },
+  "callout-rect": (w, h) => [[0, 0], [w, 0], [w, h * 0.78], [0, h * 0.78]],
+  "callout-oval": (w, h) => {
+    const ry = (h * 0.8) / 2;
+    return arc(w / 2, ry, w / 2, ry, -Math.PI / 2, Math.PI * 1.5, 28);
+  },
+  "callout-bracket": (w, h) => [[0, 0], [w, 0], [w, h * 0.82], [0, h * 0.82]],
+};
+
 const OUTLINES = {
   rectangle: (w, h) => [[0, 0], [w, 0], [w, h], [0, h]],
   parallelogram: (w, h) => {
@@ -137,7 +151,7 @@ const OUTLINES = {
   callout: (w, h) => {
     const body = h * 0.78;
     const r = Math.min(w, body) * 0.14;
-    const points = roundedRect(0, 0, w, body, r);
+    const points = CALLOUT_BODIES.callout(w, h);
     // Splice the tail into the bottom edge, which runs right to left from
     // the bottom-right corner arc to the bottom-left one.
     const bottomLeft = points.findIndex(([x, y]) => y === body && x === r);
@@ -278,31 +292,51 @@ export function shapeOutline(kind, w, h) {
 /**
  * Callout outline whose tail tip points to `tailLocal` (`{x, y}` in box-local
  * pixels), so an attached or dragged callout tail tracks its target object.
+ * The kind's body keeps its shape; the tail leaves it where the ray from the
+ * body's center towards the tip crosses its outline.
  */
 export function calloutOutlineWithTail(kind, w, h, tailLocal) {
-  if (!tailLocal || !Number.isFinite(tailLocal.x) || !Number.isFinite(tailLocal.y)) {
+  const buildBody = CALLOUT_BODIES[kind];
+  if (!buildBody || !tailLocal || !Number.isFinite(tailLocal.x) || !Number.isFinite(tailLocal.y)) {
     return shapeOutline(kind, w, h);
   }
   const bw = Math.max(w, 1);
   const bh = Math.max(h, 1);
-  const cx = bw / 2;
-  const cy = bh / 2;
-  const dx = tailLocal.x - cx;
-  const dy = tailLocal.y - cy;
-  const baseHalf = Math.min(bw, bh) * 0.12;
-  // Determine which edge of the box faces the tail tip
-  if (Math.abs(dx) / bw > Math.abs(dy) / bh) {
-    const midY = Math.max(baseHalf, Math.min(bh - baseHalf, cy + (dy / (Math.abs(dx) || 1)) * (bw / 2) * 0.35));
-    if (dx >= 0) {
-      return [[0, 0], [bw, 0], [bw, midY - baseHalf], [tailLocal.x, tailLocal.y], [bw, midY + baseHalf], [bw, bh], [0, bh]];
-    }
-    return [[0, 0], [bw, 0], [bw, bh], [0, bh], [0, midY + baseHalf], [tailLocal.x, tailLocal.y], [0, midY - baseHalf]];
+  const body = buildBody(bw, bh);
+  const ys = body.map(([, y]) => y);
+  const center = { x: bw / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 };
+  const hit = rayHit(body, center, tailLocal);
+  if (!hit) return shapeOutline(kind, w, h);
+
+  const n = body.length;
+  const along = [0];
+  for (let i = 0; i < n; i++) {
+    const [ax, ay] = body[i];
+    const [bx, by] = body[(i + 1) % n];
+    along.push(along[i] + Math.hypot(bx - ax, by - ay));
   }
-  const midX = Math.max(baseHalf, Math.min(bw - baseHalf, cx + (dx / (Math.abs(dy) || 1)) * (bh / 2) * 0.35));
-  if (dy < 0) {
-    return [[0, 0], [midX - baseHalf, 0], [tailLocal.x, tailLocal.y], [midX + baseHalf, 0], [bw, 0], [bw, bh], [0, bh]];
+  const perimeter = along[n];
+  const pointAt = (s) => {
+    const d = ((s % perimeter) + perimeter) % perimeter;
+    let i = 0;
+    while (i < n - 1 && along[i + 1] <= d) i++;
+    const [ax, ay] = body[i];
+    const [bx, by] = body[(i + 1) % n];
+    const t = (d - along[i]) / (along[i + 1] - along[i] || 1);
+    return [ax + (bx - ax) * t, ay + (by - ay) * t];
+  };
+
+  const at = along[hit.edge] + hit.u * (along[hit.edge + 1] - along[hit.edge]);
+  const baseHalf = Math.min(Math.min(bw, bh) * 0.12, perimeter / 4);
+  const from = at + baseHalf;
+  const to = at - baseHalf + perimeter;
+  const points = [pointAt(from)];
+  for (let k = 0; k < n * 2; k++) {
+    const s = along[k % n] + (k >= n ? perimeter : 0);
+    if (s > from && s < to) points.push(body[k % n]);
   }
-  return [[0, 0], [bw, 0], [bw, bh], [midX + baseHalf, bh], [tailLocal.x, tailLocal.y], [midX - baseHalf, bh], [0, bh]];
+  points.push(pointAt(to), [tailLocal.x, tailLocal.y]);
+  return points;
 }
 
 /** Extra open strokes drawn over the fill (the cylinder's front rim, or pack details). */
@@ -369,6 +403,12 @@ export function pointInPolygon(point, polygon) {
  * not the notch nearest the center). Returns null for a degenerate ray.
  */
 export function rayExit(polygon, origin, towards) {
+  const hit = rayHit(polygon, origin, towards);
+  return hit && { x: hit.x, y: hit.y };
+}
+
+/** The farthest crossing of the ray with the polygon, with the edge it lies on (from vertex `edge`, at fraction `u`). */
+function rayHit(polygon, origin, towards) {
   const dx = towards.x - origin.x;
   const dy = towards.y - origin.y;
   if (Math.abs(dx) < 1e-9 && Math.abs(dy) < 1e-9) return null;
@@ -382,7 +422,9 @@ export function rayExit(polygon, origin, towards) {
     if (Math.abs(denom) < 1e-12) continue;
     const t = ((ax - origin.x) * ey - (ay - origin.y) * ex) / denom;
     const u = ((ax - origin.x) * dy - (ay - origin.y) * dx) / denom;
-    if (t >= 0 && u >= -1e-9 && u <= 1 + 1e-9 && (best === null || t > best)) best = t;
+    if (t >= 0 && u >= -1e-9 && u <= 1 + 1e-9 && (best === null || t > best.t)) {
+      best = { t, edge: j, u: Math.min(Math.max(u, 0), 1) };
+    }
   }
-  return best === null ? null : { x: origin.x + dx * best, y: origin.y + dy * best };
+  return best && { x: origin.x + dx * best.t, y: origin.y + dy * best.t, edge: best.edge, u: best.u };
 }

@@ -238,8 +238,8 @@ const ANCHOR_DIRECTIONS = {
   left: { x: -1, y: 0 },
 };
 
-const ERD_HEADER_HEIGHT = 36;
-const ERD_FOOTER_HEIGHT = 28;
+export const ERD_HEADER_HEIGHT = 36;
+export const ERD_ROW_HEIGHT = 28;
 
 function erdRowAnchorPoint(node, anchor) {
   if (typeof anchor !== "string" || !anchor.startsWith("row:")) return null;
@@ -250,9 +250,7 @@ function erdRowAnchorPoint(node, anchor) {
   const rows = Array.isArray(node.rows) ? node.rows : [];
   const idx = rows.findIndex((r) => r.id === rowId);
   if (idx === -1) return null;
-  const bodyH = Math.max(node.h - ERD_HEADER_HEIGHT - ERD_FOOTER_HEIGHT, rows.length * 28);
-  const rowH = rows.length > 0 ? bodyH / rows.length : 28;
-  const y = node.y + ERD_HEADER_HEIGHT + (idx + 0.5) * rowH;
+  const y = node.y + (node.strokeWidth ?? 2) + ERD_HEADER_HEIGHT + (idx + 0.5) * ERD_ROW_HEIGHT;
   const x = side === "left" ? node.x : node.x + node.w;
   return { x, y: clamp(y, node.y, node.y + node.h) };
 }

@@ -97,6 +97,26 @@ test("Callouts: dynamic tail outline tracks external world point", () => {
   assert.ok(pts.some(([x, y]) => x === 240 && y === 60), "Tail tip should reach (240, 60)");
 });
 
+test("Callouts: a moved tail keeps each kind's body shape and height", () => {
+  const tip = { x: 300, y: 50 };
+  const bodyOf = (kind) => {
+    const pts = calloutOutlineWithTail(kind, 200, 100, tip);
+    assert.deepEqual(pts.at(-1), [tip.x, tip.y]);
+    return pts.slice(0, -1);
+  };
+  for (const [kind, bodyH] of [["callout", 78], ["callout-rect", 78], ["callout-oval", 80], ["callout-bracket", 82]]) {
+    const ys = bodyOf(kind).map(([, y]) => y);
+    assert.ok(Math.abs(Math.max(...ys) - bodyH) < 1e-6, `${kind} body ends at ${bodyH}`);
+  }
+  const oval = bodyOf("callout-oval");
+  for (const [x, y] of oval) {
+    const r = ((x - 100) / 100) ** 2 + ((y - 40) / 40) ** 2;
+    assert.ok(r <= 1 + 1e-6, `oval point (${x}, ${y}) lies on or inside the ellipse`);
+  }
+  assert.ok(!bodyOf("callout").some(([x, y]) => x === 0 && y === 0), "rounded callout keeps rounded corners");
+  assert.ok(bodyOf("callout-rect").some(([x, y]) => x === 0 && y === 0), "standard callout keeps its sharp corner");
+});
+
 test("Custom shape registry: registers and resolves custom SVG tools", () => {
   registerCustomShapes([
     {
@@ -147,6 +167,13 @@ test("ERD row-level anchors and container movement", () => {
   const nodesById = { "erd-1": erd };
   const resolved = resolveEndpoint({ nodeId: "erd-1", anchor: "row:r2:right" }, nodesById);
   assert.deepEqual(resolved, rightPt);
+
+  // Rows are drawn 28px tall under the 2px border and 36px header, whatever the box height.
+  assert.equal(leftPt.y, 200 + 2 + 36 + 14);
+  assert.equal(rightPt.y, 200 + 2 + 36 + 28 + 14);
+  const taller = { ...erd, h: 400, rows: [...erd.rows, { id: "r3", cells: ["", "name", "text"] }] };
+  assert.equal(nodeAnchorPoint(taller, "row:r3:left").y, 200 + 2 + 36 + 56 + 14);
+  assert.equal(nodeAnchorPoint({ ...taller, strokeWidth: 4 }, "row:r1:left").y, 200 + 4 + 36 + 14);
 });
 
 test("Swimlanes and Diagrams move their child nodes when moved", () => {

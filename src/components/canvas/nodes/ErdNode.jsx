@@ -2,10 +2,8 @@
 
 import { Plus, Trash2 } from "lucide-react";
 import { useCanvasStore } from "@/lib/canvas-store";
+import { ERD_HEADER_HEIGHT, ERD_ROW_HEIGHT } from "@/lib/canvas/geometry";
 import { strokeDasharrayFor } from "./ShapeNode";
-
-const HEADER_H = 36;
-const ROW_H = 28;
 
 export function ErdNode({ node, selected, hovered, readOnly, onAnchorDown }) {
   const updateNodeFields = useCanvasStore((s) => s.updateNodeFields);
@@ -33,7 +31,7 @@ export function ErdNode({ node, selected, hovered, readOnly, onAnchorDown }) {
       cells: columns === 1 ? ["field_name"] : columns === 2 ? ["field_name", "varchar"] : ["", "field_name", "varchar"],
     };
     const nextRows = [...rows, newRow];
-    const minH = HEADER_H + nextRows.length * ROW_H + 34;
+    const minH = ERD_HEADER_HEIGHT + nextRows.length * ERD_ROW_HEIGHT + 34;
     updateNodeFields(node.id, {
       rows: nextRows,
       h: Math.max(node.h, minH),
@@ -69,8 +67,8 @@ export function ErdNode({ node, selected, hovered, readOnly, onAnchorDown }) {
       <div
         className="flex items-center justify-between px-3 font-semibold text-xs tracking-wide border-b"
         style={{
-          height: HEADER_H,
-          minHeight: HEADER_H,
+          height: ERD_HEADER_HEIGHT,
+          minHeight: ERD_HEADER_HEIGHT,
           backgroundColor: node.headerFill || "rgba(99, 102, 241, 0.28)",
           borderColor: node.stroke || "#6366f1",
         }}
@@ -111,7 +109,7 @@ export function ErdNode({ node, selected, hovered, readOnly, onAnchorDown }) {
               key={row.id || rowIdx}
               data-erd-row={row.id}
               className="group relative flex items-center text-[11px]"
-              style={{ height: ROW_H, minHeight: ROW_H }}
+              style={{ height: ERD_ROW_HEIGHT, minHeight: ERD_ROW_HEIGHT }}
             >
               {showHandles && onAnchorDown && (
                 <button
