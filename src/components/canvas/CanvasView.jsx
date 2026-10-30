@@ -26,6 +26,7 @@ import { BoardShareDialog } from "./BoardShareDialog";
 import { CanvasAiPanel } from "./CanvasAiPanel";
 import { useBoardAi } from "@/lib/board-ai";
 import { BoardHistoryPanel } from "./BoardHistoryPanel";
+import { WorkTools } from "./WorkTools";
 import { ObjectInfo } from "./ObjectInfo";
 
 // Miro's keys: N sticky note, T text, F frame; S opens the shapes panel.
@@ -529,6 +530,7 @@ export function CanvasView() {
             </span>
           )}
         </div>
+        {!noBoards && <WorkTools viewCenter={viewCenter} viewOnly={touchViewOnly} />}
         {!noBoards && (
           <CanvasToolbar
             readOnly={readOnly}

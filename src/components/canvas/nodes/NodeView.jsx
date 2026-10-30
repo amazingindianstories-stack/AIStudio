@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { isContainerNode, nodeAnchorPoint, resolveEndpoint } from "@/lib/canvas/geometry";
 import { isCalloutKind } from "@/lib/canvas/shapes";
 
+import { WorkNode } from "./WorkNode";
 import { ShapeNode } from "./ShapeNode";
 import { TextNode } from "./TextNode";
 import { StickyNode } from "./StickyNode";
@@ -122,6 +123,9 @@ export function NodeView({
         // checks) is what TypeScript narrows reliably across every branch,
         // including the final one.
         switch (node.type) {
+          case "card":
+          case "work":
+            return <WorkNode node={node} />;
           case "rect":
           case "ellipse":
           case "triangle":

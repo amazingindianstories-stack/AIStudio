@@ -5,7 +5,7 @@ import re
 
 from .svg_sanitize import sanitize_svg
 
-NODE_TYPES = {'rect', 'ellipse', 'triangle', 'diamond', 'shape', 'text', 'sticky', 'stack', 'frame', 'image', 'erd', 'swimlane', 'diagram'}
+NODE_TYPES = {'card', 'work', 'rect', 'ellipse', 'triangle', 'diamond', 'shape', 'text', 'sticky', 'stack', 'frame', 'image', 'erd', 'swimlane', 'diagram'}
 SHAPE_TYPES = ('rect', 'ellipse', 'triangle', 'diamond', 'shape')
 # Mirrors src/lib/canvas/shapes.js and src/lib/canvas/rich-text.js.
 SHAPE_KIND = re.compile(r'[a-z][a-z0-9-]{0,39}')
@@ -222,7 +222,10 @@ def node(raw):
     if isinstance(r.get('diagramLayerId'), str) and 0 < len(r['diagramLayerId']) <= 64:
         result['diagramLayerId'] = r['diagramLayerId']
     result['type'] = kind
-    if kind in SHAPE_TYPES:
+    if kind in ('card', 'work'):
+        from .work_schema import clean_work_node
+        result.update(clean_work_node(r))
+    elif kind in SHAPE_TYPES:
         # Path shapes name a catalogue outline; unknown well-formed kinds are kept.
         if kind == 'shape':
             if not isinstance(r.get('shape'), str) or not SHAPE_KIND.fullmatch(r['shape']):
