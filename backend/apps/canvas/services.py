@@ -170,10 +170,15 @@ def board_activity(identifier, before=None, level=None):
     """The board's History, newest first, one page at a time; `before` is the previous page's `next`."""
     from . import hidden
     rows = BoardActivity.objects.filter(board_id=identifier)
+    visible = None
     if level is not None and not hidden.can_manage(level):
-        # History of work inside hidden frames stays with the people who can see it.
+        # History of work inside hidden frames stays with the people who can see it, and an object's text is
+        # shown only while that viewer can see the object itself.
         graph = validate_state(CanvasBoard.objects.filter(pk=identifier).values_list('data', flat=True).first())
-        rows = rows.exclude(node_id__in=hidden.hidden_ids(graph))
+        seen = hidden.view_of(graph, level)
+        visible = {item['id'] for item in seen['nodes']}
+        unseen = {item['id'] for item in graph['nodes'] + graph['connectors']} - {item['id'] for item in seen['nodes'] + seen['connectors']}
+        rows = rows.exclude(node_id__in=unseen)
     if before is not None:
         created_at, ordinal = before
         rows = rows.filter(models.Q(created_at__lt=created_at) | models.Q(created_at=created_at, ordinal__lt=ordinal))
@@ -182,7 +187,8 @@ def board_activity(identifier, before=None, level=None):
     more = len(page) > ACTIVITY_PAGE
     page = page[:ACTIVITY_PAGE]
     return {'activity': [{'actorId': str(row['actor_id']) if row['actor_id'] else None, 'action': row['action'],
-                          'nodeId': row['node_id'], 'nodeType': row['node_type'], 'snippet': row['snippet'],
+                          'nodeId': row['node_id'], 'nodeType': row['node_type'],
+                          'snippet': row['snippet'] if visible is None or row['node_id'] in visible else None,
                           'at': row['created_at']} for row in page],
             'next': f"{page[-1]['created_at']}.{page[-1]['ordinal']}" if more else None}
 

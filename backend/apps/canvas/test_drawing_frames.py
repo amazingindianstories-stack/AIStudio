@@ -11,7 +11,8 @@ from apps.authentication.models import User
 from apps.authentication.session import sign_session
 from apps.projects.models import Project
 from . import access, extras, hidden
-from .models import BoardMember, CanvasBoard
+from . import services
+from .models import BoardActivity, BoardMember, CanvasBoard
 from .serialization import validate_state
 
 FIXTURE = json.loads((Path(__file__).with_name('fixtures') / 'format_v1_drawing_frames.json').read_text())
@@ -90,6 +91,22 @@ class HiddenFramesTests(SimpleTestCase):
         self.assertFalse(flags['open'])
         self.assertIsNone(next(item for item in saved['nodes'] if item['id'] == 'planted')['parentId'])
 
+    def test_notes_links_to_hidden_objects_are_not_read_and_survive_a_save(self):
+        board = graph(self.board['nodes'], self.board['connectors'])
+        board['notes'] = {'text': 'Plan', 'refs': [{'id': 'outside', 'type': 'sticky', 'label': 'Out'},
+                                                    {'id': 'deep', 'type': 'sticky', 'label': 'Secret plan'},
+                                                    {'id': 'c1', 'type': 'connector', 'label': 'Secret link'}]}
+        board = validate_state(board)
+        seen = hidden.view_of(board, access.EDIT)
+        self.assertEqual(seen['notes'], {'text': 'Plan', 'refs': [{'id': 'outside', 'type': 'sticky', 'label': 'Out'}]})
+        self.assertEqual(hidden.view_of(board, access.CO_OWNER)['notes'], board['notes'])
+        edited = copy.deepcopy(seen)
+        edited['notes'] = {'text': 'Plan two', 'refs': [{'id': 'deep', 'type': 'sticky', 'label': 'Forged'}]}
+        saved = hidden.preserve(board, edited, access.EDIT)
+        self.assertEqual(saved['notes'], {'text': 'Plan two', 'refs': board['notes']['refs'][1:]})
+        del edited['notes']
+        self.assertEqual(hidden.preserve(board, edited, access.EDIT)['notes']['refs'], board['notes']['refs'][1:])
+
     def test_a_co_owner_save_is_taken_as_sent(self):
         edited = copy.deepcopy(self.board)
         for item in edited['nodes']:
@@ -164,4 +181,34 @@ class FrameRoutesTests(TransactionTestCase):
     def test_a_frame_lists_the_boards_holding_a_synced_copy_of_it(self):
         self.as_user(self.owner)
         copies = self.client.get(f'/api/canvas-boards/{SOURCE}/frames/open/copies').json()['copies']
-        self.assertEqual([(c['boardId'], c['nodeId']) for c in copies], [(OTHER, 's1')])
+        self.assertEqual([(c['boardId'], c['nodeId'], c['projectId']) for c in copies], [(OTHER, 's1', PROJECT)])
+
+    def test_copies_come_only_from_boards_the_caller_can_open_and_carry_their_project(self):
+        elsewhere = 'abababab-abab-4bab-8bab-abababababab'
+        Project.objects.create(id=elsewhere, name='Elsewhere', created_at=1, updated_at=1)
+        held = graph([node('s2', 'synced', sourceBoardId=SOURCE, sourceNodeId='open')])
+        far = CanvasBoard.objects.create(id=uuid4(), project_id=elsewhere, name='Far', created_by=self.owner.id, data=held,
+                                         team_role='view', created_at=1, updated_at=2)
+        stranger = make_user('stranger')
+        readable = set(CanvasBoard.objects.filter(access.readable(stranger)).values_list('id', flat=True))
+        levels = access.roles_for(stranger, list(CanvasBoard.objects.values('id', 'project_id', 'created_by', 'team_role')))
+        self.assertEqual({str(identifier) for identifier in readable}, {key for key, level in levels.items() if level >= access.READ})
+        self.as_user(stranger)
+        copies = self.client.get(f'/api/canvas-boards/{SOURCE}/frames/open/copies').json()['copies']
+        self.assertEqual(sorted((c['boardId'], c['projectId']) for c in copies), sorted([(OTHER, PROJECT), (str(far.id), elsewhere)]))
+
+    def test_history_hides_hidden_work_from_a_viewer_who_cannot_manage_it(self):
+        CanvasBoard.objects.filter(pk=SOURCE).update(data=graph(
+            [frame('open'), node('a', parentId='open', text='Visible'), frame('secret', hidden=True), node('b', parentId='secret', text='Secret')],
+            [{'id': 'c1', 'from': {'nodeId': 'a'}, 'to': {'nodeId': 'b'}}, {'id': 'c2', 'from': {'nodeId': 'a'}, 'to': {'nodeId': 'open'}}]))
+        rows = [('add', 'a', 'sticky', 'Visible'), ('edit', 'b', 'sticky', 'Secret'), ('add', 'c1', 'connector', None),
+                ('add', 'c2', 'connector', None), ('delete', 'gone', 'sticky', 'Moved out of a hidden frame and deleted')]
+        BoardActivity.objects.bulk_create([BoardActivity(board_id=SOURCE, actor_id=self.owner.id, action=action, node_id=node_id,
+                                                         node_type=kind, snippet=text, created_at=10, ordinal=position)
+                                           for position, (action, node_id, kind, text) in enumerate(rows)])
+        seen = {row['nodeId']: (row['action'], row['actorId'], row['snippet'])
+                for row in services.board_activity(SOURCE, level=access.EDIT)['activity']}
+        self.assertEqual(seen, {'a': ('add', str(self.owner.id), 'Visible'), 'c2': ('add', str(self.owner.id), None),
+                                'gone': ('delete', str(self.owner.id), None)})
+        managed = {row['nodeId']: row['snippet'] for row in services.board_activity(SOURCE, level=access.CO_OWNER)['activity']}
+        self.assertEqual(managed, {'a': 'Visible', 'b': 'Secret', 'c1': None, 'c2': None, 'gone': 'Moved out of a hidden frame and deleted'})

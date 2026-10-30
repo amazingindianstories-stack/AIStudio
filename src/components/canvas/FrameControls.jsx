@@ -30,12 +30,13 @@ export function FrameControls() {
     setOpen(false);
   }, [frameId]);
 
-  if (!frame || readOnly) return null;
+  const manage = canHideFrames(role);
+  // A hidden frame is a fixed placeholder for people who cannot manage it.
+  if (!frame || readOnly || (frame.hidden && !manage)) return null;
   const preset = presetOfFrame(frame);
   const left = (frame.x - viewport.x) * viewport.zoom;
   // Below the frame: the style bar of the selection sits above it.
   const top = (frame.y + frame.h - viewport.y) * viewport.zoom + 12;
-  const manage = canHideFrames(role);
 
   const showCopies = async () => {
     setOpen(true);
@@ -84,7 +85,7 @@ export function FrameControls() {
           {copies === null && <p className="px-1 py-0.5 text-white/50">Looking</p>}
           {copies && copies.length === 0 && <p className="px-1 py-0.5 text-white/50">No synced copies yet.</p>}
           {copies?.map((copy) => (
-            <button key={`${copy.boardId}/${copy.nodeId}`} type="button" onClick={() => requestOpenBoard(copy.boardId)} className="block w-full truncate rounded px-1.5 py-1 text-left hover:bg-white/10">
+            <button key={`${copy.boardId}/${copy.nodeId}`} type="button" onClick={() => requestOpenBoard(copy.boardId, copy.projectId)} className="block w-full truncate rounded px-1.5 py-1 text-left hover:bg-white/10">
               {copy.boardName}
             </button>
           ))}

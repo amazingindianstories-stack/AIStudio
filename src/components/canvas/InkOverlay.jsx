@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import { screenToWorld } from "@/lib/canvas/geometry";
 import { commitSmartStroke, commitStroke, eraseStep } from "@/lib/ink-actions";
@@ -15,6 +15,8 @@ import { HIGHLIGHTER_COLORS, HIGHLIGHTER_WIDTHS, PEN_COLORS, PEN_WIDTHS } from "
  */
 export function InkOverlay({ tool, viewport }) {
   const prefs = useInkPrefs();
+  const hydrate = useInkPrefs((s) => s.hydrate);
+  useEffect(() => hydrate(), [hydrate]);
   const [trail, setTrail] = useState(null);
   const strokeRef = useRef(null);
   const style = tool === "eraser" ? null : inkStyleFor(tool, prefs);

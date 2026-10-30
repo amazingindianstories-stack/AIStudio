@@ -4,12 +4,12 @@ import { create, } from "zustand";
 import { DRAFT_SYNC_MAX_AGE_MS, clearPendingDraft, readPendingDraft, savePendingDraft, shouldUseKeepalive } from "./canvas-pending-draft";
 
 import { apiFetch } from "./api";
-import { canEditRole } from "./board-access";
+import { canEditRole, canShareRole } from "./board-access";
 import { emptyCanvasState, validateCanvasState } from "./canvas/serialization";
 import { mergeCanvasStates, rebaseHistory, sameValue } from "./canvas/merge";
 import { boardFromChanges, buildBoardPatch } from "./canvas/patch";
 import { unstamped, withServerStamps } from "./canvas/stamps";
-import { copyOrigin, pasteDestinations, renameDuplicatedFrames, renestFrames } from "./canvas/frames";
+import { copyOrigin, holdsCopied, keepHiddenFrames, pasteDestinations, renameDuplicatedFrames, renestFrames } from "./canvas/frames";
 import {
   MAX_ZOOM,
   MIN_ZOOM,
@@ -291,7 +291,8 @@ function mutateGraph(
 ) {
   const state = get();
   if (!state.boardId || selectReadOnly(state)) return;
-  const nextPresent = compute(state.history.present);
+  const computed = compute(state.history.present);
+  const nextPresent = canShareRole(state.boardRole) ? computed : keepHiddenFrames(state.history.present, computed);
   // An edit that changes nothing is no undo step and no save.
   if (sameValue(nextPresent, state.history.present)) return;
   if (opts?.coalesce) {
@@ -1320,7 +1321,8 @@ export const useCanvasStore = create((set, get) => ({
     mutateGraph(set, get, (present) => {
       // With frames selected, one copy goes into each of them at the same offsets from the frame's corner.
       const targets = present.nodes.filter((n) => selection.includes(n.id));
-      if (targets.length && targets.every((n) => n.type === "frame")) {
+      // A frame that was itself copied, or holds what was, takes an ordinary offset paste instead.
+      if (targets.length && targets.every((n) => n.type === "frame" && !holdsCopied(n, clipboard, present.nodes))) {
         const ids = clipboard.map((n) => n.id);
         const all = [];
         for (const where of pasteDestinations(targets, clipboardOrigin)) {

@@ -6,7 +6,8 @@ frame itself stays on the board as an empty placeholder while everything inside 
 connector touching that content, is removed from what they read (`view_of`). When that viewer saves, what
 they never saw is kept exactly as stored and the `hidden` flags cannot change (`preserve`), so a normal
 save from a person who cannot see it never deletes or exposes hidden work. People who manage hidden frames
-(`can_manage`) read and save the whole graph.
+(`can_manage`) read and save the whole graph. Links from the board's visual notes to hidden objects are
+treated the same way.
 """
 from . import access
 
@@ -55,9 +56,15 @@ def view_of(graph, level):
     if can_manage(level) or not has_hidden(graph):
         return graph
     gone = hidden_ids(graph)
-    return {**graph,
+    seen = {**graph,
             'nodes': [item for item in graph['nodes'] if item['id'] not in gone],
             'connectors': [item for item in graph['connectors'] if not _touches(item, gone)]}
+    gone |= {item['id'] for item in graph['connectors'] if _touches(item, gone)}
+    notes = graph.get('notes')
+    if notes and any(ref['id'] in gone for ref in notes.get('refs', ())):
+        refs = [ref for ref in notes['refs'] if ref['id'] not in gone]
+        seen['notes'] = {**{key: value for key, value in notes.items() if key != 'refs'}, **({'refs': refs} if refs else {})}
+    return seen
 
 
 def visible_data(raw, level):
@@ -112,4 +119,12 @@ def preserve(stored, incoming, level):
     connector_protected = {item['id']: item for item in stored['connectors'] if _touches(item, inside)}
     connectors = [item for item in incoming['connectors'] if item['id'] not in connector_protected and not _touches(item, inside)]
     connectors = _merged(stored['connectors'], connectors, connector_protected)
-    return {**incoming, 'nodes': nodes, 'connectors': connectors}
+    result = {**incoming, 'nodes': nodes, 'connectors': connectors}
+    unseen = inside | set(connector_protected)
+    stored_refs = (stored.get('notes') or {}).get('refs', [])
+    ref_protected = {ref['id']: ref for ref in stored_refs if ref['id'] in unseen}
+    if ref_protected:
+        notes = incoming.get('notes') or {'text': ''}
+        refs = [ref for ref in notes.get('refs', []) if ref['id'] not in unseen]
+        result['notes'] = {**notes, 'refs': _merged(stored_refs, refs, ref_protected)}
+    return result
