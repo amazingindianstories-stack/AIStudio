@@ -2,17 +2,14 @@
  * Extended diagramming shape packs and pack metadata.
  *
  * Licences and provenance:
- * - Flowchart, Callouts, UML, BPMN, DFD, VSM, Electrical Engineering and
- *   Process Engineering symbols are standard notation geometry authored in
- *   this repository under the project's licence.
- * - Cloud and Infrastructure icons combine CNCF Kubernetes community icon
- *   geometry (https://github.com/kubernetes/community/tree/master/icons,
- *   licensed under CC-BY-4.0 / Apache-2.0, attribution: The Kubernetes
- *   Authors / Linux Foundation) with generic infrastructure architecture
- *   symbols modeled on Lucide (https://lucide.dev, ISC License).
- *   Proprietary vendor logos whose brand terms restrict redistribution
- *   are intentionally omitted; users can upload custom SVGs via Custom
- *   shape packs.
+ * - Every shape in every pack is geometry authored in this repository
+ *   (standard notation shapes: ISO 5807 flowchart, OMG UML and BPMN, DFD,
+ *   VSM, IEC 60617 and ISO 10628 symbols; plus simple original silhouettes
+ *   for the cloud and infrastructure pack). No third-party artwork, icon set
+ *   or vendor logo is copied, so no attribution is required.
+ * - Vendor logo sets (AWS, Azure, Google Cloud, Cisco, Cloudflare, VMware,
+ *   Salesforce and similar) are intentionally not shipped: their brand terms
+ *   restrict redistribution. Users add them through custom shape packs.
  */
 
 const STEPS = 18;
@@ -801,7 +798,7 @@ export const SHAPE_PACKS = [
     id: "cloud",
     name: "Cloud and Infrastructure",
     defaultEnabled: true,
-    license: "CNCF Kubernetes icons (CC-BY-4.0 / Apache-2.0, The Kubernetes Authors) and Lucide-derived infrastructure geometry (ISC)",
+    license: "Original Kubernetes-style and generic infrastructure silhouettes authored in this repository (no vendor artwork)",
     shapes: [
       { tool: "shape:k8s-wheel", label: "Kubernetes Cluster", keywords: ["k8s", "cncf", "control-plane"] },
       { tool: "shape:k8s-pod", label: "Kubernetes Pod", keywords: ["k8s", "workload", "container"] },

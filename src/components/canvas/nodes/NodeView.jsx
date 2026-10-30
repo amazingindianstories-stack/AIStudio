@@ -248,7 +248,7 @@ export function NodeView({
               onConnectorHandlePointerDown(e, node, a.anchor);
             }}
             className={cn(
-              "pointer-events-auto absolute z-20 h-2.5 w-2.5 animate-[floatUp_0.15s_ease-both] rounded-full border transition-transform hover:scale-125",
+              "pointer-events-auto absolute z-20 h-2 w-2 animate-[floatUp_0.15s_ease-both] rounded-full border transition-transform hover:scale-125",
               showHandles && quickDiagramEligible
                 ? "border-white bg-sky-500 shadow"
                 : "border-ink-900 bg-white",

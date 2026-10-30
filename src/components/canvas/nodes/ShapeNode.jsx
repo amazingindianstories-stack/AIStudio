@@ -110,7 +110,7 @@ export function ShapeNode({ node, tailPoint, editing, readOnly, onCommit, onCanc
 
 function PathShape({ node, tailPoint, inset, paint }) {
   const { w, h, shape, svg, svgViewBox } = node;
-  if (svg && typeof shape === "string" && shape.startsWith("custom:")) {
+  if (svg && shape === "custom") {
     return (
       <>
         <rect

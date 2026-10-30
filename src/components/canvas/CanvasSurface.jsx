@@ -104,7 +104,7 @@ function buildBaseNode(tool, center) {
     return {
       ...base,
       type: "shape",
-      shape: `custom:${custom?.packId || "pack"}:${custom?.shapeId || id.slice(0, 8)}`,
+      shape: "custom",
       shapeName: custom?.name || "Custom Shape",
       svg: custom?.svg || '<rect x="10" y="10" width="80" height="80"/>',
       svgViewBox: custom?.viewBox || "0 0 100 100",
