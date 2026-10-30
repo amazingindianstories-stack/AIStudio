@@ -307,16 +307,16 @@ function buildClones(
   return { clones, idMap };
 }
 
-function pruneSelection(
-  present,
-  selection,
-  selectedConnectorIds
-) {
-  const nodeIds = new Set(present.nodes.map((n) => n.id));
-  const connIds = new Set(present.connectors.map((c) => c.id));
+/** The selection of `state` limited to the objects `present` has and the board shows. */
+function pruneSelection(present, { selection, selectedConnectorIds, focusedDiagramId }) {
+  const hidden = hiddenBoardIds(present, focusedDiagramId);
+  const nodeIds = new Set(present.nodes.filter((n) => !hidden.nodes.has(n.id)).map((n) => n.id));
+  const connIds = new Set(present.connectors.filter((c) => !hidden.connectors.has(c.id)).map((c) => c.id));
+  const keptNodes = selection.filter((id) => nodeIds.has(id));
+  const keptConnectors = selectedConnectorIds.filter((id) => connIds.has(id));
   return {
-    selection: selection.filter((id) => nodeIds.has(id)),
-    selectedConnectorIds: selectedConnectorIds.filter((id) => connIds.has(id)),
+    selection: keptNodes.length === selection.length ? selection : keptNodes,
+    selectedConnectorIds: keptConnectors.length === selectedConnectorIds.length ? selectedConnectorIds : keptConnectors,
   };
 }
 
@@ -366,7 +366,7 @@ function mutateGraph(
     scheduleGestureEnd(set, get);
   } else {
     finalizePendingGesture(set, get);
-    set({ history: commitHistory(get().history, nextPresent) });
+    set({ history: commitHistory(get().history, nextPresent), ...pruneSelection(nextPresent, get()) });
   }
   markDirty(set, get);
 }
@@ -405,7 +405,7 @@ function applyRemoteBoard(set, get, board, base = get().serverState) {
     history,
     serverVersion: version,
     serverState: adopted,
-    ...pruneSelection(history.present, state.selection, state.selectedConnectorIds),
+    ...pruneSelection(history.present, state),
   });
   return true;
 }
@@ -463,7 +463,7 @@ function reconcileCrop() {
   useCanvasStore.setState({
     history,
     serverState: server,
-    ...pruneSelection(history.present, state.selection, state.selectedConnectorIds),
+    ...pruneSelection(history.present, state),
   });
   const { present } = history;
   if (!sameValue(present.nodes, server.nodes) || !sameValue(present.connectors, server.connectors)) {
@@ -984,8 +984,13 @@ export const useCanvasStore = create((set, get) => ({
     const cx = bounds.x + bounds.w / 2;
     const cy = bounds.y + bounds.h / 2;
     get().setViewport({ x: cx - viewportPx.w / 2 / zoom, y: cy - viewportPx.h / 2 / zoom, zoom });
-    if (node) get().setSelection([id]);
-    else set({ selection: [], selectedConnectorIds: [id], editingTextId: null });
+    const { selection, selectedConnectorIds } = pruneSelection(present, {
+      selection: node ? [id] : [],
+      selectedConnectorIds: node ? [] : [id],
+      focusedDiagramId: get().focusedDiagramId,
+    });
+    get().setSelection(selection);
+    set({ selectedConnectorIds });
     return true;
   },
 
@@ -1704,8 +1709,7 @@ export const useCanvasStore = create((set, get) => ({
     if (selectReadOnly(get())) return;
     finalizePendingGesture(set, get);
     const history = undoHistory(get().history);
-    const { selection, selectedConnectorIds } = get();
-    set({ history, ...pruneSelection(history.present, selection, selectedConnectorIds) });
+    set({ history, ...pruneSelection(history.present, get()) });
     markDirty(set, get);
   },
 
@@ -1713,8 +1717,7 @@ export const useCanvasStore = create((set, get) => ({
     if (selectReadOnly(get())) return;
     finalizePendingGesture(set, get);
     const history = redoHistory(get().history);
-    const { selection, selectedConnectorIds } = get();
-    set({ history, ...pruneSelection(history.present, selection, selectedConnectorIds) });
+    set({ history, ...pruneSelection(history.present, get()) });
     markDirty(set, get);
   },
 
@@ -1747,11 +1750,11 @@ export const useCanvasStore = create((set, get) => ({
 
   selectAll: () => {
     const { present } = get().history;
-    const hidden = hiddenBoardIds(present, get().focusedDiagramId);
-    set({
-      selection: present.nodes.filter((n) => !hidden.nodes.has(n.id)).map((n) => n.id),
-      selectedConnectorIds: present.connectors.filter((c) => !hidden.connectors.has(c.id)).map((c) => c.id),
-    });
+    set(pruneSelection(present, {
+      selection: present.nodes.map((n) => n.id),
+      selectedConnectorIds: present.connectors.map((c) => c.id),
+      focusedDiagramId: get().focusedDiagramId,
+    }));
   },
 
   clearSelection: () => set({ selection: [], selectedConnectorIds: [], editingTextId: null }),

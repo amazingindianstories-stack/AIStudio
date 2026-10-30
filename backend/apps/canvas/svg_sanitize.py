@@ -81,8 +81,11 @@ def _extract_viewbox(root):
     return '0 0 100 100'
 
 
-def sanitize_svg(raw_svg):
-    """Validate and sanitize an SVG string. Returns (inner_svg, view_box) or raises ValueError."""
+def sanitize_svg(raw_svg, fragment=False):
+    """Validate and sanitize an SVG string. Returns (inner_svg, view_box) or raises ValueError.
+
+    A `fragment` is the children of an implied root <svg>, as `inner_svg` returns them.
+    """
     if not isinstance(raw_svg, str):
         raise ValueError('SVG content must be a string.')
     trimmed = raw_svg.strip()
@@ -93,7 +96,7 @@ def sanitize_svg(raw_svg):
         raise ValueError('SVG exceeds the 50 KB limit.')
     if FORBIDDEN_XML_RE.search(trimmed):
         raise ValueError('SVG may not contain DOCTYPE or ENTITY declarations.')
-    source = trimmed if '<svg' in trimmed.lower() else f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">{trimmed}</svg>'
+    source = trimmed if not fragment and '<svg' in trimmed.lower() else f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">{trimmed}</svg>'
     try:
         root = ET.fromstring(source)
     except ET.ParseError as exc:

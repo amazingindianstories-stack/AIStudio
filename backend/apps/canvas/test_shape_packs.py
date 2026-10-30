@@ -53,7 +53,8 @@ class BoardCustomShapeTests(SimpleTestCase):
         return validate_state({'nodes': [node], 'connectors': [], 'viewport': {'x': 0, 'y': 0, 'zoom': 1}})['nodes'][0].get('svg')
 
     def test_a_saved_board_stores_the_sanitized_markup(self):
-        self.assertEqual(self.saved_svg(VALVE), sanitize_svg(VALVE)[0])
+        inner = sanitize_svg(VALVE)[0]
+        self.assertEqual(self.saved_svg(inner), inner)
         dirty = ('<p><base href="https://x.invalid/"/></p><rect width="5" height="5" onload="alert(1)"/>'
                  '<use href="#a"/><SCRIPT>alert(1)</SCRIPT>')
         clean = self.saved_svg(dirty)
@@ -61,6 +62,15 @@ class BoardCustomShapeTests(SimpleTestCase):
         for bad in ('base', 'x.invalid', 'onload', 'alert', 'use', 'SCRIPT', '<p'):
             self.assertNotIn(bad, clean)
         self.assertEqual(self.saved_svg(clean), clean)
+
+    def test_a_placed_pack_shape_keeps_its_nested_svg(self):
+        for upload in ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M0 0L5 5"/>'
+                       '<svg x="12" width="12" viewBox="0 0 10 10"><rect width="5" height="5"/></svg></svg>',
+                       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
+                       '<svg x="12" width="12" viewBox="0 0 10 10"><rect width="5" height="5"/></svg></svg>'):
+            inner = sanitize_svg(upload)[0]
+            self.assertIn('<svg x="12"', inner)
+            self.assertEqual(self.saved_svg(inner), inner)
 
     def test_markup_with_nothing_drawable_is_dropped(self):
         for raw in ('<script>alert(1)</script>', '<!DOCTYPE x [<!ENTITY a "b">]><rect/>', ''):

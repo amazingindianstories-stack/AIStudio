@@ -42,8 +42,9 @@ scripts or loads subresources.
 - `swimlane`: a pool with named lanes, horizontal or vertical. Moving the pool moves its children.
 - `diagram`: a container with named layers and named sub-containers. `diagramLayerId` on a node
   assigns it to a layer of its nearest enclosing diagram; when that diagram hides the layer, the
-  node and its connectors are not shown or hit-tested. Focus mode hides everything outside one
-  diagram until its banner's Exit; it is local view state and never saved.
+  node and its connectors are not shown, hit-tested or kept selected. Focus mode hides everything
+  outside one diagram (anything nested in it or centered on it stays) until its banner's Exit; it
+  is local view state and never saved.
 - `erd`, `swimlane` and `diagram` keep a diagram theme's `headerFill` and text `color`.
 - A callout shape's `tail` is a world point or a node anchor and follows its target.
 

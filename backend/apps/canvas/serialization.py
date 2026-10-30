@@ -44,7 +44,7 @@ def sanitized_custom_svg(svg):
     if not isinstance(svg, str) or not 0 < len(svg) <= MAX_CUSTOM_SVG_UNITS:
         return None
     try:
-        return sanitize_svg(svg)[0]
+        return sanitize_svg(svg, fragment=True)[0]
     except ValueError:
         return None
 

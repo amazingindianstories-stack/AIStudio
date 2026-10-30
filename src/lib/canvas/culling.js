@@ -89,17 +89,19 @@ export function hiddenDiagramLayerNodeIds(nodes = []) {
 
 /**
  * The node and connector ids the board hides: nodes on a hidden diagram layer and, in Focus mode
- * (`focusDiagramId`, local view state), everything outside the focused diagram. A connector hides
- * with either end; in Focus mode a free end hides it when it lies outside the diagram.
+ * (`focusDiagramId`, local view state), everything outside the focused diagram. A node is inside
+ * when the diagram is one of its ancestors or its center lies within the diagram's bounds. A
+ * connector hides with either end; in Focus mode a free end hides it when it lies outside the diagram.
  */
 export function hiddenBoardIds(graph, focusDiagramId = null) {
   const nodes = hiddenDiagramLayerNodeIds(graph.nodes);
   const connectors = new Set();
   const focus = focusDiagramId ? graph.nodes.find((node) => node.id === focusDiagramId && node.type === "diagram") : null;
+  const inFocus = (x, y) => x >= focus.x && x <= focus.x + focus.w && y >= focus.y && y <= focus.y + focus.h;
   if (focus) {
     const byId = new Map(graph.nodes.map((node) => [node.id, node]));
     for (const node of graph.nodes) {
-      let inside = false;
+      let inside = inFocus(node.x + node.w / 2, node.y + node.h / 2);
       for (const ancestor of selfAndAncestors(node, byId)) {
         if (ancestor.id === focus.id) {
           inside = true;
@@ -114,7 +116,7 @@ export function hiddenBoardIds(graph, focusDiagramId = null) {
   const endHidden = (ep) =>
     "nodeId" in ep
       ? nodes.has(ep.nodeId)
-      : !!focus && !(ep.x >= focus.x && ep.x <= focus.x + focus.w && ep.y >= focus.y && ep.y <= focus.y + focus.h);
+      : !!focus && !inFocus(ep.x, ep.y);
   for (const connector of graph.connectors) {
     if (endHidden(connector.from) || endHidden(connector.to)) connectors.add(connector.id);
   }

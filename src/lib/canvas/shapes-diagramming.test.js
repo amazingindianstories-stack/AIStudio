@@ -284,6 +284,7 @@ test("Focus mode hides every node and connector outside the focused diagram", ()
       diagram("diag-a", 0, []),
       box("in-a", { x: 20, y: 20, parentId: "diag-a" }),
       box("in-a-2", { x: 200, y: 200, parentId: "diag-a" }),
+      box("placed-in-a", { x: 100, y: 300 }),
       diagram("diag-b", 500, []),
       box("in-b", { x: 520, parentId: "diag-b" }),
       box("loose", { x: 950 }),
@@ -300,7 +301,7 @@ test("Focus mode hides every node and connector outside the focused diagram", ()
   assert.deepEqual([...focused.connectors].sort(), ["across", "free-out"]);
 
   const culled = cullBoard(graph, Object.fromEntries(graph.nodes.map((n) => [n.id, n])), { x: 0, y: 0, zoom: 1 }, { w: 2000, h: 1000 }, {}, focused);
-  assert.deepEqual(culled.nodes.map((n) => n.id), ["diag-a", "in-a", "in-a-2"]);
+  assert.deepEqual(culled.nodes.map((n) => n.id), ["diag-a", "in-a", "in-a-2", "placed-in-a"]);
   assert.deepEqual(culled.connectors.map((c) => c.id), ["inside", "free-in"]);
 
   for (const missing of [null, "in-a", "nope"]) {
