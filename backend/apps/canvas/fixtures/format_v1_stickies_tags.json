@@ -1,0 +1,925 @@
+{
+ "description": "Format v1 sticky, tag, reaction and font fields: the frontend (src/lib/canvas/serialization.js) and backend (serialization.py) serializers must both turn each input into its expected board.",
+ "cases": {
+  "legacy_board_keeps_its_shape": {
+   "input": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [
+     {
+      "id": "s1",
+      "type": "sticky",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "text": "hi",
+      "fill": "#e3c56a",
+      "fontSize": 16,
+      "color": "#1c1a12",
+      "parentId": null,
+      "groupId": null
+     }
+    ],
+    "connectors": []
+   },
+   "expected": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [
+     {
+      "id": "s1",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "parentId": null,
+      "groupId": null,
+      "type": "sticky",
+      "text": "hi",
+      "fill": "#e3c56a",
+      "fontSize": 16,
+      "color": "#1c1a12"
+     }
+    ],
+    "connectors": []
+   }
+  },
+  "sticky_options": {
+   "input": {
+    "nodes": [
+     {
+      "id": "s1",
+      "type": "sticky",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "text": "hi",
+      "autoFit": true,
+      "showAuthor": true,
+      "fontFamily": "caveat"
+     },
+     {
+      "id": "s2",
+      "type": "sticky",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "autoFit": "yes",
+      "showAuthor": false,
+      "fontFamily": "Bad Font"
+     }
+    ]
+   },
+   "expected": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [
+     {
+      "id": "s1",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "parentId": null,
+      "groupId": null,
+      "type": "sticky",
+      "text": "hi",
+      "fill": "#fff59d",
+      "fontSize": 16,
+      "color": "#000000",
+      "fontFamily": "caveat",
+      "autoFit": true,
+      "showAuthor": true
+     },
+     {
+      "id": "s2",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "parentId": null,
+      "groupId": null,
+      "type": "sticky",
+      "text": "",
+      "fill": "#fff59d",
+      "fontSize": 16,
+      "color": "#000000"
+     }
+    ],
+    "connectors": []
+   }
+  },
+  "font_family_on_text_and_shapes": {
+   "input": {
+    "nodes": [
+     {
+      "id": "t",
+      "type": "text",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "fontFamily": "noto-sans-jp"
+     },
+     {
+      "id": "r",
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "fontFamily": "future-font-9"
+     },
+     {
+      "id": "f",
+      "type": "frame",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "fontFamily": "lora"
+     },
+     {
+      "id": "i",
+      "type": "text",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "fontFamily": "-x"
+     }
+    ]
+   },
+   "expected": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [
+     {
+      "id": "t",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "parentId": null,
+      "groupId": null,
+      "type": "text",
+      "text": "",
+      "fontSize": 16,
+      "align": "left",
+      "color": "#000000",
+      "fontFamily": "noto-sans-jp"
+     },
+     {
+      "id": "r",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "parentId": null,
+      "groupId": null,
+      "type": "rect",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1,
+      "fontFamily": "future-font-9"
+     },
+     {
+      "id": "f",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "parentId": null,
+      "groupId": null,
+      "type": "frame",
+      "name": "Frame",
+      "fill": "transparent",
+      "stroke": "#000000"
+     },
+     {
+      "id": "i",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "parentId": null,
+      "groupId": null,
+      "type": "text",
+      "text": "",
+      "fontSize": 16,
+      "align": "left",
+      "color": "#000000"
+     }
+    ],
+    "connectors": []
+   }
+  },
+  "tag_table_and_sticky_tags": {
+   "input": {
+    "tags": [
+     {
+      "id": "t1",
+      "name": "Idea",
+      "color": "#ef4444"
+     },
+     {
+      "id": "t1",
+      "name": "Dup"
+     },
+     {
+      "id": "t2",
+      "name": "  ",
+      "color": "#000000"
+     },
+     {
+      "id": "t3",
+      "name": "Risk",
+      "color": "red"
+     },
+     {
+      "id": "",
+      "name": "x"
+     },
+     {
+      "id": "t4",
+      "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+     },
+     "junk"
+    ],
+    "nodes": [
+     {
+      "id": "s1",
+      "type": "sticky",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "tagIds": [
+       "t1",
+       "t3",
+       "gone",
+       "t1",
+       7
+      ]
+     },
+     {
+      "id": "s2",
+      "type": "sticky",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "tagIds": [
+       "gone"
+      ]
+     },
+     {
+      "id": "s3",
+      "type": "sticky",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "tagIds": [
+       "a",
+       "b",
+       "c",
+       "d",
+       "e",
+       "f",
+       "g",
+       "h",
+       "t1"
+      ]
+     },
+     {
+      "id": "x",
+      "type": "text",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "tagIds": [
+       "t1"
+      ]
+     }
+    ]
+   },
+   "expected": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [
+     {
+      "id": "s1",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "parentId": null,
+      "groupId": null,
+      "type": "sticky",
+      "text": "",
+      "fill": "#fff59d",
+      "fontSize": 16,
+      "color": "#000000",
+      "tagIds": [
+       "t1",
+       "t3"
+      ]
+     },
+     {
+      "id": "s2",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "parentId": null,
+      "groupId": null,
+      "type": "sticky",
+      "text": "",
+      "fill": "#fff59d",
+      "fontSize": 16,
+      "color": "#000000"
+     },
+     {
+      "id": "s3",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "parentId": null,
+      "groupId": null,
+      "type": "sticky",
+      "text": "",
+      "fill": "#fff59d",
+      "fontSize": 16,
+      "color": "#000000"
+     },
+     {
+      "id": "x",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "parentId": null,
+      "groupId": null,
+      "type": "text",
+      "text": "",
+      "fontSize": 16,
+      "align": "left",
+      "color": "#000000"
+     }
+    ],
+    "connectors": [],
+    "tags": [
+     {
+      "id": "t1",
+      "name": "Idea",
+      "color": "#ef4444"
+     },
+     {
+      "id": "t3",
+      "name": "Risk",
+      "color": "#9ca3af"
+     }
+    ]
+   }
+  },
+  "sticky_tags_cap_at_eight_before_the_table_filter": {
+   "input": {
+    "tags": [
+     {
+      "id": "a",
+      "name": "a"
+     },
+     {
+      "id": "b",
+      "name": "b"
+     },
+     {
+      "id": "c",
+      "name": "c"
+     },
+     {
+      "id": "d",
+      "name": "d"
+     },
+     {
+      "id": "e",
+      "name": "e"
+     },
+     {
+      "id": "f",
+      "name": "f"
+     },
+     {
+      "id": "g",
+      "name": "g"
+     },
+     {
+      "id": "h",
+      "name": "h"
+     },
+     {
+      "id": "i",
+      "name": "i"
+     }
+    ],
+    "nodes": [
+     {
+      "id": "s",
+      "type": "sticky",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "tagIds": [
+       "a",
+       "b",
+       "c",
+       "d",
+       "e",
+       "f",
+       "g",
+       "h",
+       "i"
+      ]
+     }
+    ]
+   },
+   "expected": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [
+     {
+      "id": "s",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "parentId": null,
+      "groupId": null,
+      "type": "sticky",
+      "text": "",
+      "fill": "#fff59d",
+      "fontSize": 16,
+      "color": "#000000",
+      "tagIds": [
+       "a",
+       "b",
+       "c",
+       "d",
+       "e",
+       "f",
+       "g",
+       "h"
+      ]
+     }
+    ],
+    "connectors": [],
+    "tags": [
+     {
+      "id": "a",
+      "name": "a",
+      "color": "#9ca3af"
+     },
+     {
+      "id": "b",
+      "name": "b",
+      "color": "#9ca3af"
+     },
+     {
+      "id": "c",
+      "name": "c",
+      "color": "#9ca3af"
+     },
+     {
+      "id": "d",
+      "name": "d",
+      "color": "#9ca3af"
+     },
+     {
+      "id": "e",
+      "name": "e",
+      "color": "#9ca3af"
+     },
+     {
+      "id": "f",
+      "name": "f",
+      "color": "#9ca3af"
+     },
+     {
+      "id": "g",
+      "name": "g",
+      "color": "#9ca3af"
+     },
+     {
+      "id": "h",
+      "name": "h",
+      "color": "#9ca3af"
+     },
+     {
+      "id": "i",
+      "name": "i",
+      "color": "#9ca3af"
+     }
+    ]
+   }
+  },
+  "no_tags_key_without_tags": {
+   "input": {
+    "tags": [],
+    "nodes": []
+   },
+   "expected": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [],
+    "connectors": []
+   }
+  },
+  "reactions": {
+   "input": {
+    "nodes": [
+     {
+      "id": "s1",
+      "type": "sticky",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "reactions": {
+       "👍": [
+        "u1",
+        "u2",
+        "u1",
+        ""
+       ],
+       "🎉": [],
+       "1": [
+        "u1"
+       ],
+       "xxxxxxxxxxxxxxxxx": [
+        "u1"
+       ],
+       "❤️": "u1",
+       "👀": [
+        "u3",
+        5
+       ]
+      }
+     },
+     {
+      "id": "s2",
+      "type": "sticky",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "reactions": {}
+     },
+     {
+      "id": "s3",
+      "type": "sticky",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "reactions": [
+       [
+        "👍",
+        [
+         "u1"
+        ]
+       ]
+      ]
+     },
+     {
+      "id": "s4",
+      "type": "sticky",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "reactions": {
+       "0a": [
+        "u"
+       ],
+       "1a": [
+        "u"
+       ],
+       "2a": [
+        "u"
+       ],
+       "3a": [
+        "u"
+       ],
+       "4a": [
+        "u"
+       ],
+       "5a": [
+        "u"
+       ],
+       "6a": [
+        "u"
+       ],
+       "7a": [
+        "u"
+       ],
+       "8a": [
+        "u"
+       ],
+       "9a": [
+        "u"
+       ],
+       "10a": [
+        "u"
+       ],
+       "11a": [
+        "u"
+       ],
+       "12a": [
+        "u"
+       ],
+       "13a": [
+        "u"
+       ]
+      }
+     }
+    ]
+   },
+   "expected": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [
+     {
+      "id": "s1",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "parentId": null,
+      "groupId": null,
+      "type": "sticky",
+      "text": "",
+      "fill": "#fff59d",
+      "fontSize": 16,
+      "color": "#000000",
+      "reactions": {
+       "👍": [
+        "u1",
+        "u2"
+       ],
+       "👀": [
+        "u3"
+       ]
+      }
+     },
+     {
+      "id": "s2",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "parentId": null,
+      "groupId": null,
+      "type": "sticky",
+      "text": "",
+      "fill": "#fff59d",
+      "fontSize": 16,
+      "color": "#000000"
+     },
+     {
+      "id": "s3",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "parentId": null,
+      "groupId": null,
+      "type": "sticky",
+      "text": "",
+      "fill": "#fff59d",
+      "fontSize": 16,
+      "color": "#000000"
+     },
+     {
+      "id": "s4",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "parentId": null,
+      "groupId": null,
+      "type": "sticky",
+      "text": "",
+      "fill": "#fff59d",
+      "fontSize": 16,
+      "color": "#000000",
+      "reactions": {
+       "0a": [
+        "u"
+       ],
+       "1a": [
+        "u"
+       ],
+       "2a": [
+        "u"
+       ],
+       "3a": [
+        "u"
+       ],
+       "4a": [
+        "u"
+       ],
+       "5a": [
+        "u"
+       ],
+       "6a": [
+        "u"
+       ],
+       "7a": [
+        "u"
+       ],
+       "8a": [
+        "u"
+       ],
+       "9a": [
+        "u"
+       ],
+       "10a": [
+        "u"
+       ],
+       "11a": [
+        "u"
+       ]
+      }
+     }
+    ],
+    "connectors": []
+   }
+  },
+  "sticky_stack": {
+   "input": {
+    "nodes": [
+     {
+      "id": "k",
+      "type": "stack",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "fill": "#a7f3d0",
+      "text": "ignored",
+      "opacity": 0.5
+     },
+     {
+      "id": "k2",
+      "type": "stack",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200
+     }
+    ]
+   },
+   "expected": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [
+     {
+      "id": "k",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "parentId": null,
+      "groupId": null,
+      "opacity": 0.5,
+      "type": "stack",
+      "fill": "#a7f3d0"
+     },
+     {
+      "id": "k2",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "parentId": null,
+      "groupId": null,
+      "type": "stack",
+      "fill": "#fff59d"
+     }
+    ],
+    "connectors": []
+   }
+  },
+  "text_by_stamp": {
+   "input": {
+    "nodes": [
+     {
+      "id": "s",
+      "type": "sticky",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "createdBy": "1",
+      "textBy": "2",
+      "createdAt": 5
+     },
+     {
+      "id": "t",
+      "type": "text",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "textBy": 3
+     }
+    ]
+   },
+   "expected": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [
+     {
+      "id": "s",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "parentId": null,
+      "groupId": null,
+      "type": "sticky",
+      "text": "",
+      "fill": "#fff59d",
+      "fontSize": 16,
+      "color": "#000000",
+      "createdBy": "1",
+      "textBy": "2",
+      "createdAt": 5
+     },
+     {
+      "id": "t",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 200,
+      "parentId": null,
+      "groupId": null,
+      "type": "text",
+      "text": "",
+      "fontSize": 16,
+      "align": "left",
+      "color": "#000000"
+     }
+    ],
+    "connectors": []
+   }
+  }
+ }
+}

@@ -16,7 +16,11 @@
  * re-renders what another person changed. Server stamps (who changed an item
  * and when) are not edits: an item whose local copy differs from base only in
  * them is unchanged locally and takes the remote copy, stamps included.
+ * Emoji votes merge per person even when both sides changed a sticky, so two
+ * people voting at once both count. The board's tag table merges per tag id
+ * like nodes.
  */
+import { mergeReactions } from "./reactions";
 import { unstamped } from "./stamps";
 
 export function sameValue(a, b) {
@@ -80,11 +84,22 @@ function mergeItems(baseItems, localItems, remoteItems) {
     const b = base.get(id);
     const localChanged = !sameValue(unstamped(b), unstamped(l));
     // Neither side changed it: keep the local object so nothing re-renders.
-    const item = localChanged || sameValue(l, r) ? l : r;
+    let item = localChanged || sameValue(l, r) ? l : r;
+    if (item === l && l && r && localChanged && !sameValue(l.reactions, r.reactions)) item = withVotes(l, b, r);
     if (item !== undefined) chosen.set(id, item);
   }
   const ids = (items) => items.map((item) => item.id);
   return mergeOrder(ids(baseItems), ids(localItems), ids(remoteItems), chosen).map((id) => chosen.get(id));
+}
+
+/** `local` keeping the other side's votes as well as its own. */
+function withVotes(local, base, remote) {
+  const reactions = mergeReactions(base?.reactions, local.reactions, remote.reactions);
+  if (sameValue(reactions, local.reactions)) return local;
+  const next = { ...local };
+  if (reactions) next.reactions = reactions;
+  else delete next.reactions;
+  return next;
 }
 
 function attachedTo(endpoint, nodeIds) {
@@ -100,9 +115,13 @@ export function mergeCanvasStates(base, local, remote) {
   // A node deleted on one side drops connectors attached to it on the other.
   const connectors = mergeItems(base.connectors, local.connectors, remote.connectors)
     .filter((connector) => attachedTo(connector.from, nodeIds) && attachedTo(connector.to, nodeIds));
+  const tags = mergeItems(base.tags ?? [], local.tags ?? [], remote.tags ?? []);
   const unchanged = (next, prev) => next.length === prev.length && next.every((item, index) => item === prev[index]);
-  if (unchanged(nodes, local.nodes) && unchanged(connectors, local.connectors)) return local;
-  return { ...local, nodes, connectors };
+  if (unchanged(nodes, local.nodes) && unchanged(connectors, local.connectors) && unchanged(tags, local.tags ?? [])) return local;
+  const state = { ...local, nodes, connectors };
+  if (tags.length) state.tags = tags;
+  else delete state.tags;
+  return state;
 }
 
 /**

@@ -10,6 +10,9 @@
  * saves it exactly as a full save, so an edit on a board of thousands of
  * objects sends only the objects it touched.
  *
+ * The board's tag table travels whole, only when it changed (an empty list
+ * removes it).
+ *
  * Open boards read the other direction the same way: the objects changed since
  * the version they hold, rebuilt over that version and checked against a hash
  * of the server's order before they are merged.
@@ -53,6 +56,7 @@ export function buildBoardPatch(base, next) {
     const order = next[kind].map((item) => item.id);
     if (!sameOrder(order, kept.concat(added))) patch[ORDER_KEYS[kind]] = order;
   }
+  if (!sameValue(base.tags ?? [], next.tags ?? [])) patch.tags = next.tags ?? [];
   return patch;
 }
 
@@ -92,6 +96,10 @@ export function applyBoardPatch(base, patch) {
     }
   }
   if (patch.viewport) graph.viewport = patch.viewport;
+  if (Array.isArray(patch.tags)) {
+    if (patch.tags.length) graph.tags = patch.tags;
+    else delete graph.tags;
+  }
   return graph;
 }
 
