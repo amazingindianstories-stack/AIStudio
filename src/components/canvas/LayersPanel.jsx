@@ -256,7 +256,10 @@ function deleteDescription(row) {
   const deleted = row.count - row.lockedCount;
   const parts = [];
   if (deleted) parts.push(`This also deletes the ${objectCountLabel(deleted).toLowerCase()} on it.`);
-  if (row.lockedCount) parts.push(`${objectCountLabel(row.lockedCount)} locked ${row.lockedCount === 1 ? "moves" : "move"} to the default layer.`);
+  if (row.lockedCount) {
+    const one = row.lockedCount === 1;
+    parts.push(`${row.lockedCount} locked object${one ? "" : "s"} ${one ? "moves" : "move"} to the default layer.`);
+  }
   parts.push("You can undo this.");
   return parts.join(" ");
 }

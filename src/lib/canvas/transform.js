@@ -13,6 +13,7 @@ import {
   normalizeRotation,
   resizeAnchored,
   rotatePoint,
+  unionBounds,
   withRotation,
 } from "./geometry";
 import { lockedIdSet } from "./locks";
@@ -38,18 +39,14 @@ export function sizeTargets(state, ids) {
   return state.nodes.filter((n) => wanted.has(n.id) && !locked.has(n.id));
 }
 
-/** The center of the box around `nodes` (as drawn, rotation included), or null for none. */
+/**
+ * The center of the box around `nodes` (as drawn, rotation included), or null
+ * for none. A single node's is its own center, so it turns in place exactly.
+ */
 export function groupCenter(nodes) {
-  if (!nodes.length) return null;
-  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-  for (const n of nodes) {
-    const b = nodeBounds(n);
-    x0 = Math.min(x0, b.x);
-    y0 = Math.min(y0, b.y);
-    x1 = Math.max(x1, b.x + b.w);
-    y1 = Math.max(y1, b.y + b.h);
-  }
-  return { x: (x0 + x1) / 2, y: (y0 + y1) / 2 };
+  if (nodes.length === 1) return nodeCenter(nodes[0]);
+  const box = unionBounds(nodes.map(nodeBounds));
+  return box && { x: box.x + box.w / 2, y: box.y + box.h / 2 };
 }
 
 /** Degrees clockwise from straight up of the direction from `center` to `p` (y points down). */
