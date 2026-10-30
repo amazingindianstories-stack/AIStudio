@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import {
   MousePointer2,
@@ -17,6 +17,11 @@ import {
   ZoomIn,
   ZoomOut,
   Sparkles,
+  Undo2,
+  Redo2,
+  SlidersHorizontal,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCanvasStore, } from "@/lib/canvas-store";
@@ -26,6 +31,8 @@ import { BASIC_SHAPES, isShapeTool } from "@/lib/canvas/shapes";
 import { ShapeGlyph } from "./ShapeGlyph";
 import { StickyMenu } from "./StickyMenu";
 import { ACTIVE_STATUSES, useBoardAi } from "@/lib/board-ai";
+import { useBoardPrefs } from "@/lib/canvas/board-prefs";
+import { CREATION_TOOLS, moveTool, orderedTools, pinnedTools, placeToolBefore, togglePinned, toolLabel } from "@/lib/canvas/toolbar-tools";
 
 /**
  * Bottom-center floating tool dock (ui-spec §3) + bottom-right zoom control
@@ -56,6 +63,13 @@ export function CanvasToolbar({
   const setTool = useCanvasStore((s) => s.setTool);
   const [lastShape, setLastShape] = useState("rect");
 
+  const prefs = useBoardPrefs();
+  useEffect(() => useBoardPrefs.getState().hydrate(), []);
+  const canUndo = useCanvasStore((s) => s.history.past.length > 0);
+  const canRedo = useCanvasStore((s) => s.history.future.length > 0);
+  const undo = useCanvasStore((s) => s.undo);
+  const redo = useCanvasStore((s) => s.redo);
+
   const shapeToolActive = isShapeTool(tool);
   const shapeButtonTool = shapeToolActive ? tool : lastShape;
 
@@ -64,55 +78,26 @@ export function CanvasToolbar({
     if (e?.detail === 2) onToggleLock();
   };
 
-  return (
-    <>
-      {/* The dock centres in the free strip between the asset panel and the
-          zoom control; below the desktop width it sits above the zoom control,
-          and on phones its buttons shrink so every tool fits the width. */}
-      {!viewOnly && (
-      <div
-        className="pointer-events-none absolute bottom-4 right-44 z-30 flex justify-center transition-[left] duration-200 max-lg:bottom-[4.25rem] max-lg:right-4"
-        style={{ left: insetLeft + 16 }}
-      >
-      <div
-        role="toolbar"
-        aria-label="Board tools"
-        className="pointer-events-auto flex max-w-full items-center gap-1 overflow-x-auto rounded-2xl border border-line bg-ink-750/95 p-1.5 shadow-pop backdrop-blur-xl max-sm:gap-0.5 max-sm:p-1"
-      >
-        <ToolGroup>
-          <ToolButton
-            id="select"
-            active={tool === "select"}
-            icon={MousePointer2}
-            label="Select"
-            shortcut="V"
-            onClick={(e) => arm("select", e)}
-          />
-          <ToolButton
-            id="hand"
-            active={tool === "hand"}
-            icon={Hand}
-            label="Hand"
-            shortcut="H"
-            onClick={(e) => arm("hand", e)}
-          />
-        </ToolGroup>
-
-        {/* View and comment access: navigation only, no creation tools. */}
-        {!readOnly && (<>
-        <Divider />
-
-        <ToolGroup>
-          <ToolButton
-            id="sticky"
-            active={tool === "sticky"}
-            icon={StickyNote}
-            label="Sticky note"
-            shortcut="N"
-            locked={toolLocked && tool === "sticky"}
-            onClick={(e) => arm("sticky", e)}
-          />
-          {viewCenter && <StickyMenu onStickyTool={() => setTool("sticky")} viewCenter={viewCenter} />}
+  // Each creation tool's dock button, in the order the person arranged them.
+  const renderCreationTool = (id) => {
+    switch (id) {
+      case "sticky":
+        return (
+          <>
+            <ToolButton
+              id="sticky"
+              active={tool === "sticky"}
+              icon={StickyNote}
+              label="Sticky note"
+              shortcut="N"
+              locked={toolLocked && tool === "sticky"}
+              onClick={(e) => arm("sticky", e)}
+            />
+            {viewCenter && <StickyMenu onStickyTool={() => setTool("sticky")} viewCenter={viewCenter} />}
+          </>
+        );
+      case "text":
+        return (
           <ToolButton
             id="text"
             active={tool === "text"}
@@ -122,7 +107,9 @@ export function CanvasToolbar({
             locked={toolLocked && tool === "text"}
             onClick={(e) => arm("text", e)}
           />
-
+        );
+      case "shapes":
+        return (
           <Dropdown
             side="top"
             label="Shapes"
@@ -196,7 +183,9 @@ export function CanvasToolbar({
               </div>
             )}
           </Dropdown>
-
+        );
+      case "frame":
+        return (
           <ToolButton
             id="frame"
             active={tool === "frame"}
@@ -206,6 +195,9 @@ export function CanvasToolbar({
             locked={toolLocked && tool === "frame"}
             onClick={(e) => arm("frame", e)}
           />
+        );
+      case "connector":
+        return (
           <ToolButton
             id="connector"
             active={tool === "connector"}
@@ -215,11 +207,9 @@ export function CanvasToolbar({
             locked={toolLocked && tool === "connector"}
             onClick={(e) => arm("connector", e)}
           />
-        </ToolGroup>
-
-        <Divider />
-
-        <ToolGroup>
+        );
+      case "image":
+        return (
           <button
             type="button"
             className="grid h-9 w-9 cursor-pointer place-items-center rounded-lg text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white max-sm:h-8 max-sm:w-8"
@@ -229,11 +219,9 @@ export function CanvasToolbar({
           >
             <ImagePlus className="h-4 w-4" />
           </button>
-        </ToolGroup>
-
-        <Divider />
-
-        <ToolGroup>
+        );
+      case "ai":
+        return (
           <button
             type="button"
             className={cn(
@@ -247,6 +235,80 @@ export function CanvasToolbar({
           >
             <Sparkles className="h-4 w-4" />
             {aiRunning && <span className="absolute right-1 top-1 h-1.5 w-1.5 animate-pulse rounded-full bg-brand" aria-hidden />}
+          </button>
+        );
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <>
+      {/* The dock centres in the free strip between the asset panel and the
+          zoom control; below the desktop width it sits above the zoom control,
+          and on phones its buttons shrink so every tool fits the width. */}
+      {!viewOnly && (
+      <div
+        className="pointer-events-none absolute bottom-4 right-44 z-30 flex justify-center transition-[left] duration-200 max-lg:bottom-[4.25rem] max-lg:right-4"
+        style={{ left: insetLeft + 16 }}
+      >
+      <div
+        role="toolbar"
+        aria-label="Board tools"
+        className="pointer-events-auto flex max-w-full items-center gap-1 overflow-x-auto rounded-2xl border border-line bg-ink-750/95 p-1.5 shadow-pop backdrop-blur-xl max-sm:gap-0.5 max-sm:p-1"
+      >
+        <ToolGroup>
+          <ToolButton
+            id="select"
+            active={tool === "select"}
+            icon={MousePointer2}
+            label="Select"
+            shortcut="V"
+            onClick={(e) => arm("select", e)}
+          />
+          <ToolButton
+            id="hand"
+            active={tool === "hand"}
+            icon={Hand}
+            label="Hand"
+            shortcut="H"
+            onClick={(e) => arm("hand", e)}
+          />
+        </ToolGroup>
+
+        {/* View and comment access: navigation only, no creation tools. */}
+        {!readOnly && (<>
+        <Divider />
+
+        <ToolGroup>
+          {pinnedTools(prefs).map((id) => (
+            <Fragment key={id}>{renderCreationTool(id)}</Fragment>
+          ))}
+          <ToolbarCustomizer prefs={prefs} />
+        </ToolGroup>
+
+        <Divider />
+
+        <ToolGroup>
+          <button
+            type="button"
+            disabled={!canUndo}
+            onClick={undo}
+            aria-label="Undo"
+            title="Undo (⌘Z)"
+            className="grid h-9 w-9 place-items-center rounded-lg text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white disabled:pointer-events-none disabled:opacity-30 max-sm:h-8 max-sm:w-8"
+          >
+            <Undo2 className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            disabled={!canRedo}
+            onClick={redo}
+            aria-label="Redo"
+            title="Redo (⇧⌘Z)"
+            className="grid h-9 w-9 place-items-center rounded-lg text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white disabled:pointer-events-none disabled:opacity-30 max-sm:h-8 max-sm:w-8"
+          >
+            <Redo2 className="h-4 w-4" />
           </button>
         </ToolGroup>
         </>)}
@@ -439,5 +501,102 @@ function ZoomControl() {
         <Plus className="h-3.5 w-3.5" />
       </button>
     </div>
+  );
+}
+
+/**
+ * "Customize toolbar": pin or unpin each creation tool and put them in the
+ * order this person likes, by dragging or with the move buttons. Saved on
+ * this device; number keys 1 to 9 follow the same order.
+ */
+function ToolbarCustomizer({ prefs }) {
+  const setPrefs = useBoardPrefs((s) => s.setPrefs);
+  const [dragging, setDragging] = useState(null);
+  const order = orderedTools(prefs);
+  const hidden = new Set(prefs.toolbarHidden);
+
+  return (
+    <Dropdown
+      side="top"
+      label="Customize toolbar"
+      panelClassName="min-w-0"
+      trigger={(open) => (
+        <span
+          className={cn(
+            "grid h-9 w-7 place-items-center rounded-lg text-white/40 transition-colors hover:bg-white/[0.07] hover:text-white max-sm:h-8",
+            open && "bg-white/[0.07] text-white"
+          )}
+          title="Customize toolbar"
+        >
+          <SlidersHorizontal className="h-3.5 w-3.5" />
+        </span>
+      )}
+    >
+      {() => (
+        <div className="w-64 p-0.5" data-board-keys="own">
+          <p className="px-1.5 pb-1.5 pt-0.5 text-[11px] font-medium uppercase tracking-wide text-white/40">Toolbar tools</p>
+          <ul aria-label="Toolbar tools" className="flex flex-col">
+            {order.map((id, i) => (
+              <li
+                key={id}
+                draggable
+                onDragStart={(e) => {
+                  setDragging(id);
+                  e.dataTransfer.effectAllowed = "move";
+                  e.dataTransfer.setData("text/plain", id);
+                }}
+                onDragEnd={() => setDragging(null)}
+                onDragOver={(e) => {
+                  if (dragging && dragging !== id) e.preventDefault();
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (dragging && dragging !== id) setPrefs(placeToolBefore(prefs, dragging, id));
+                  setDragging(null);
+                }}
+                className={cn("flex cursor-grab items-center gap-2 rounded-lg px-1.5 py-1 hover:bg-white/[0.05]", dragging === id && "opacity-40")}
+              >
+                <label className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-sm text-white/80">
+                  <input
+                    type="checkbox"
+                    checked={!hidden.has(id)}
+                    onChange={() => setPrefs(togglePinned(prefs, id))}
+                    className="h-3.5 w-3.5 accent-white"
+                  />
+                  <span className="truncate">{toolLabel(id)}</span>
+                </label>
+                <button
+                  type="button"
+                  aria-label={`Move ${toolLabel(id)} earlier`}
+                  disabled={i === 0}
+                  onClick={() => setPrefs(moveTool(prefs, id, -1))}
+                  className="grid h-6 w-6 place-items-center rounded-md text-white/45 outline-none hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-25"
+                >
+                  <ArrowUp className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  aria-label={`Move ${toolLabel(id)} later`}
+                  disabled={i === order.length - 1}
+                  onClick={() => setPrefs(moveTool(prefs, id, 1))}
+                  className="grid h-6 w-6 place-items-center rounded-md text-white/45 outline-none hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-25"
+                >
+                  <ArrowDown className="h-3.5 w-3.5" />
+                </button>
+              </li>
+            ))}
+          </ul>
+          {order.length !== CREATION_TOOLS.length || prefs.toolbarOrder.length || prefs.toolbarHidden.length ? (
+            <button
+              type="button"
+              onClick={() => setPrefs({ toolbarOrder: [], toolbarHidden: [] })}
+              className="mt-1 w-full rounded-lg py-1.5 text-xs font-semibold text-white/60 outline-none hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-brand"
+            >
+              Reset to default
+            </button>
+          ) : null}
+        </div>
+      )}
+    </Dropdown>
   );
 }
