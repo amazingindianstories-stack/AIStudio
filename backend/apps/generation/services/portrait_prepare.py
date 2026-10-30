@@ -86,7 +86,7 @@ def prepare(item, *, storage=None, client=None, now=None):
         if outcome.kind == 'wait' and worst.kind != 'wait':
             worst = outcome
     for key, row in videos.items():
-        outcome = managed_pool.ensure_video(row.content_sha256, key, item.id, item.user_id, storage=storage, client=client, now=now)
+        outcome = managed_pool.ensure(b'', key, item.id, item.user_id, storage=storage, client=client, now=now, sha=row.content_sha256, media_kind='video')
         if outcome.kind == 'failed':
             return outcome
         if outcome.kind == 'wait' and worst.kind != 'wait':

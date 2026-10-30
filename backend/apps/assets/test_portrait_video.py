@@ -101,6 +101,7 @@ class VideoGalleryTests(GalleryBase):
         self.assertEqual(ManagedPortraitAsset.objects.get().error_code, 'PORTRAIT_VIDEO_UNREADABLE')
         card = self.listing()['portraits'][0]
         self.assertEqual((card['state'], card['posterUrl']), ('unusable', None))
+        self.assertEqual(card['message'], 'This video could not be read. Use an MP4 or MOV file and upload it again.')
         self.assertEqual(self.fake.calls, [])
 
     def test_images_still_report_the_image_kind(self):

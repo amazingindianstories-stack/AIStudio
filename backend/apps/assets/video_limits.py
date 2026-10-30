@@ -70,7 +70,7 @@ def probe_stored(storage, key):
 def problem(info):
     """(code, short user copy) for the first rule a video breaks, else None. The copy fits under a card's file name."""
     if info is None:
-        return 'PORTRAIT_VIDEO_UNREADABLE', 'This video could not be read. Use an MP4 or MOV file.'
+        return 'PORTRAIT_VIDEO_UNREADABLE', 'This video could not be read. Use an MP4 or MOV file and upload it again.'
     if not set(info['containers']) & set(CONTAINERS):
         return 'PORTRAIT_VIDEO_FORMAT', 'Only MP4 and MOV videos can be portraits.'
     seconds = info['seconds']

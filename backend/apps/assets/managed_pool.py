@@ -673,36 +673,19 @@ def _verify(asset, client):
     return ready(asset.byteplus_asset_id)
 
 
-def ensure(data, source_key, generation_id, user_id, *, storage, client=None, now=None, _retry=True):
-    """Make the face reference with these bytes usable as a BytePlus asset for this generation."""
+def ensure(data, source_key, generation_id, user_id, *, storage, client=None, now=None, sha=None, media_kind='image', _retry=True):
+    """Make the face reference with these bytes, or the Gallery video portrait with this ``sha`` (registered again when it
+    expired), usable as a BytePlus asset for this generation."""
     client = client or default_client()
-    sha = content_sha256(data)
-    outcome, asset, action = _claim(sha, source_key, generation_id, user_id, now or now_ms())
+    sha = sha or content_sha256(data)
+    outcome, asset, action = _claim(sha, source_key, generation_id, user_id, now or now_ms(), media_kind)
     if action == 'verify':
         verified = _verify(asset, client)
         if verified is None and _retry:     # vanished remotely: register it again
-            return ensure(data, source_key, generation_id, user_id, storage=storage, client=client, _retry=False)
+            return ensure(data, source_key, generation_id, user_id, storage=storage, client=client, sha=sha, media_kind=media_kind, _retry=False)
         return verified or wait('portrait_registering', 1000)
     if action == 'register':
         return _register(asset, data, storage, client, user_id)
-    if action == 'poll':
-        return _poll(asset, client)
-    if action == 'delete':
-        remote_delete(asset, client)
-    return outcome
-
-
-def ensure_video(sha, source_key, generation_id, user_id, *, storage, client=None, now=None, _retry=True):
-    """Make a Gallery video portrait usable as a BytePlus Video asset for this generation (registers it again when it expired)."""
-    client = client or default_client()
-    outcome, asset, action = _claim(sha, source_key, generation_id, user_id, now or now_ms(), media_kind='video')
-    if action == 'verify':
-        verified = _verify(asset, client)
-        if verified is None and _retry:
-            return ensure_video(sha, source_key, generation_id, user_id, storage=storage, client=client, _retry=False)
-        return verified or wait('portrait_registering', 1000)
-    if action == 'register':
-        return _register(asset, b'', storage, client, user_id)
     if action == 'poll':
         return _poll(asset, client)
     if action == 'delete':
