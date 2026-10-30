@@ -24,11 +24,20 @@ test('Board work: create cards, edit details, arrange columns, reload persisted 
   await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Board', exact: true }).click();
   await page.getByRole('button', { name: 'Cards and work', exact: true }).click();
   const panel = page.getByRole('dialog', { name: 'Cards and work' });
-  await panel.getByRole('button', { name: 'Add card (D)', exact: true }).click();
+  await page.getByRole('button', { name: 'Cards and work', exact: true }).click();
+  await page.keyboard.press('d');
+  await expect(panel.getByLabel('title', { exact: true })).toHaveValue('Untitled task');
+  await panel.getByRole('button', { name: 'Close cards and work' }).click();
+  await page.keyboard.press('Control+Shift+Enter');
+  await expect(panel).toBeVisible();
   await panel.getByLabel('title', { exact: true }).fill('Ship milestone');
-  await panel.getByLabel('description', { exact: true }).fill('Review the release checklist');
+  await panel.getByRole('textbox', { name: 'description', exact: true }).fill('Review the release checklist');
+  await panel.getByLabel('start', { exact: true }).fill('2026-12-01');
   await panel.getByLabel('end', { exact: true }).fill('2026-12-15');
-  await panel.getByLabel('Assignee', { exact: true }).selectOption(USER);
+  await panel.getByLabel('tags', { exact: true }).fill('release, review');
+  await panel.getByLabel('links', { exact: true }).fill('https://example.test/release');
+  await panel.getByRole('combobox', { name: 'Status', exact: true }).selectOption('In progress');
+  await panel.getByRole('combobox', { name: 'Assignee', exact: true }).selectOption(USER);
   await panel.getByRole('button', { name: 'Add columns', exact: true }).click();
   await panel.getByLabel('lanes name 1', { exact: true }).fill('Backlog');
   await panel.getByRole('button', { name: 'Add card to columns', exact: true }).click();
@@ -40,9 +49,14 @@ test('Board work: create cards, edit details, arrange columns, reload persisted 
     return board.data.nodes.filter(n => n.type === 'card').map(n => n.record.title).sort();
   }).toEqual(['Lane task', 'Ship milestone']);
   await page.reload();
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Board', exact: true }).click();
   await page.getByRole('button', { name: 'Cards and work', exact: true }).click();
-  await panel.getByLabel('Selected widget').selectOption({ label: 'Ship milestone' });
-  await expect(panel.getByLabel('description', { exact: true })).toHaveValue('Review the release checklist');
-  await expect(panel.getByLabel('Assignee', { exact: true })).toHaveValue(USER);
+  await panel.getByRole('combobox', { name: 'Selected widget', exact: true }).selectOption({ label: 'Ship milestone' });
+  await expect(panel.getByRole('textbox', { name: 'description', exact: true })).toHaveValue('Review the release checklist');
+  await expect(panel.getByRole('combobox', { name: 'Assignee', exact: true })).toHaveValue(USER);
+  for (const [field, value] of Object.entries({ title: 'Ship milestone', description: 'Review the release checklist', start: '2026-12-01', end: '2026-12-15', tags: 'release, review', links: 'https://example.test/release' })) {
+    await expect(panel.getByRole('textbox', { name: field, exact: true })).toHaveValue(value);
+  }
+  await expect(panel.getByRole('combobox', { name: 'Status', exact: true })).toHaveValue('In progress');
   await context.close();
 });
