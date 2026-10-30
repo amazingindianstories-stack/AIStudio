@@ -17,7 +17,7 @@ export const MIN_NODE_SIZE = 4;
 const CONTAINER_NODE_TYPES = new Set(["frame", "swimlane", "diagram"]);
 
 export function isContainerNode(node) {
-  return CONTAINER_NODE_TYPES.has(node?.type);
+  return CONTAINER_NODE_TYPES.has(node?.type) || (node?.type === "work" && node.kind === "columns");
 }
 
 // ---- viewport bounds ----

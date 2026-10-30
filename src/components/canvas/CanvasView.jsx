@@ -30,6 +30,7 @@ import { LayersPanel } from "./LayersPanel";
 import { useLockShortcut } from "./use-lock-shortcut";
 import { useArrangeShortcuts } from "./use-arrange-shortcuts";
 import { layeredView } from "@/lib/canvas/layers";
+import { WorkTools } from "./WorkTools";
 import { ObjectInfo } from "./ObjectInfo";
 import { BoardViewOverlays } from "./BoardViewOverlays";
 import { useBoardView } from "./use-board-view";
@@ -562,6 +563,7 @@ export function CanvasView() {
             </span>
           )}
         </div>
+        {!noBoards && <WorkTools viewCenter={viewCenter} viewOnly={touchViewOnly} />}
         {!noBoards && (
           <CanvasToolbar
             readOnly={readOnly}

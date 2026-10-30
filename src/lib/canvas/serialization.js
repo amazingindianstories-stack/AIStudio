@@ -12,6 +12,7 @@ import {
   CANVAS_STATE_VERSION,
 
 } from "./types";
+import { cleanWorkNode } from "./work-records";
 import { validateMarks } from "./rich-text";
 import { SHAPE_KIND_PATTERN } from "./shapes";
 import { FONT_FAMILY_PATTERN } from "./fonts";
@@ -28,6 +29,8 @@ export function emptyCanvasState() {
 }
 
 const NODE_TYPES = new Set([
+  "card",
+  "work",
   "rect",
   "ellipse",
   "triangle",
@@ -219,6 +222,9 @@ function validateNodeContent(raw) {
   const type = r.type ;
 
   switch (type) {
+    case "card":
+    case "work":
+      return { ...base, type, ...cleanWorkNode(r) };
     case "rect":
     case "ellipse":
     case "triangle":
