@@ -13,6 +13,7 @@ import {
   pasteSelectionStyle,
   removeTag,
   selectByTag,
+  setReactionOnSelection,
   setSelectedStickyFlag,
   setSelectedStickyShape,
   switchSelectionType,
@@ -20,7 +21,7 @@ import {
   toggleStickyReaction,
 } from "./sticky-actions.js";
 
-function useStorage(t) {
+function withStorage(t) {
   const map = new Map();
   const value = { getItem: (k) => (map.has(k) ? map.get(k) : null), setItem: (k, v) => map.set(k, String(v)), removeItem: (k) => map.delete(k) };
   const had = Object.prototype.hasOwnProperty.call(globalThis, "localStorage");
@@ -37,7 +38,7 @@ const sticky = (id, extra = {}) => ({ id, type: "sticky", x: 0, y: 0, w: 200, h:
   color: "#1c1a12", opacity: 1, parentId: null, groupId: null, ...extra });
 
 async function openBoard(t, role, nodes) {
-  useStorage(t);
+  withStorage(t);
   t.mock.method(globalThis, "fetch", async () => json(200, { id: "board-1", name: "Board", data: { ...emptyCanvasState(), nodes }, updatedAt: 1, role }));
   useStore.setState({ currentUser: { id: "u1" } });
   const store = useCanvasStore;
@@ -141,3 +142,13 @@ for (const role of ["view", "comment"]) {
     assert.equal(undoSteps(), 0);
   });
 }
+
+test("a vote from the picker goes on every selected sticky, and comes off all of them", async (t) => {
+  const store = await openBoard(t, "edit", [sticky("a", { reactions: { "🔥": ["u1"] } }), sticky("b"), { ...sticky("c"), type: "text" }]);
+  store.getState().setSelection(["a", "b", "c"]);
+  setReactionOnSelection("🔥", true);
+  assert.deepEqual(nodes().map((n) => n.reactions), [{ "🔥": ["u1"] }, { "🔥": ["u1"] }, undefined]);
+  setReactionOnSelection("🔥", false);
+  assert.deepEqual(nodes().map((n) => n.reactions), [undefined, undefined, undefined]);
+  assert.equal(undoSteps(), 2);
+});

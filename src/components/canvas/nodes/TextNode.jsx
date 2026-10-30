@@ -1,5 +1,6 @@
 "use client";
 
+import { fontFamilyCss } from "@/lib/canvas/fonts";
 import { RichTextContent, RichTextEditor } from "./RichText";
 
 const TEXT_CLASS = "h-full w-full overflow-hidden whitespace-pre-wrap break-words outline-none";
@@ -13,7 +14,7 @@ const EDITOR_CLASS = "w-full whitespace-pre-wrap break-words outline-none";
  * drag/selection.
  */
 export function TextNode({ node, editing, readOnly, onCommit, onCancel }) {
-  const style = { fontSize: node.fontSize, color: node.color, textAlign: node.align };
+  const style = { fontSize: node.fontSize, color: node.color, textAlign: node.align, fontFamily: fontFamilyCss(node.fontFamily) };
   if (editing) {
     return (
       <RichTextEditor

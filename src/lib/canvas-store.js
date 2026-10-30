@@ -1406,3 +1406,8 @@ export function frameNodesOf(state) {
 export function hasClipboard() {
   return clipboard.length > 0;
 }
+
+/** The objects last copied or cut on the board. */
+export function clipboardNodes() {
+  return clipboard;
+}

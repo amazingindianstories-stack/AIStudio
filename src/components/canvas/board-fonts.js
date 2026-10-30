@@ -1,7 +1,8 @@
 /**
  * The board font library (src/lib/canvas/fonts.js), self-hosted through
  * next/font. Nothing is preloaded: each font only declares its @font-face and
- * CSS variable, so a browser downloads a font (and only the scripts it needs)
+ * CSS variable (set on the root element in src/app/layout.jsx, so menus
+ * portaled outside the board see them too), so a browser downloads a font (and only the scripts it needs)
  * once an object on the board uses it.
  */
 import {

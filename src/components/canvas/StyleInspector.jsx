@@ -27,6 +27,12 @@ import { useCanvasStore, } from "@/lib/canvas-store";
 import { nodeBounds, resolveEndpoint, worldToScreen } from "@/lib/canvas/geometry";
 import { Dropdown, MenuItem } from "@/components/Dropdown";
 import { isShapeNode } from "@/lib/canvas/shapes";
+import { ColorPicker } from "./ColorPicker";
+import { FontPicker } from "./FontPicker";
+import { AutoFitButton, ReactionPicker, StickyShapeControl, TagPicker } from "./StickyControls";
+import { StyleMoreItems } from "./StyleMoreItems";
+import { STICKY_COLORS, stickyColorPatch } from "@/lib/canvas/stickies";
+import { rememberSelectionStyle } from "@/lib/canvas/sticky-actions";
 import { HIGHLIGHT_COLORS } from "@/lib/canvas/rich-text";
 import {
   activeFormats,
@@ -42,23 +48,6 @@ import {
 const RICH_TEXT_TYPES = new Set(["text", "sticky"]);
 /** World height of a frame's title strip, which FrameNode draws above the box (`-top-6`). */
 const FRAME_TITLE_HEIGHT = 24;
-
-// ~12 monochrome-plus-FigJam-ish swatches — the only saturated color in the
-// board's chrome, and it only ever comes from user choice (ui-spec §5).
-const PALETTE = [
-  { value: "transparent", name: "Transparent" },
-  { value: "#ffffff", name: "White" },
-  { value: "#d1d5db", name: "Light grey" },
-  { value: "#6b7280", name: "Grey" },
-  { value: "#e3c56a", name: "Muted yellow" },
-  { value: "#7fae86", name: "Muted green" },
-  { value: "#6f9bd1", name: "Muted blue" },
-  { value: "#d189a7", name: "Muted pink" },
-  { value: "#d99a5b", name: "Muted orange" },
-  { value: "#9b86c9", name: "Muted purple" },
-  { value: "#c97a72", name: "Muted red" },
-  { value: "#1c1a12", name: "Ink" },
-];
 
 export function StyleInspector({ hidden }) {
   const selection = useCanvasStore((s) => s.selection);
@@ -137,7 +126,7 @@ export function StyleInspector({ hidden }) {
   const onlyConnectors = hasConnectors && !hasNodes;
 
   const isShape = selectedNodes.length > 0 && selectedNodes.every(isShapeNode);
-  const showFill = isShape || (homogeneous && (soleType === "sticky" || soleType === "frame"));
+  const showFill = isShape || (homogeneous && (soleType === "sticky" || soleType === "stack" || soleType === "frame"));
   const showStroke = isShape;
   const showCornerRadius = homogeneous && soleType === "rect";
   const shapeText = isShape && selectedNodes.every((n) => n.text || n.id === editingTextId);
@@ -150,7 +139,13 @@ export function StyleInspector({ hidden }) {
   // `selectedConnectorIds` in one call (see canvas-store.ts's
   // `NodeStyleProps`/`applyStylePatchToConnector`), so a connector-only
   // selection is patched through the same call.
-  const patch = (p) => updateSelectedStyle(p);
+  // New objects of the same kinds take the style chosen here (personal, per browser).
+  const patch = (p) => {
+    updateSelectedStyle(p);
+    rememberSelectionStyle(selectedNodes, p);
+  };
+  const stickies = homogeneous && soleType === "sticky" ? selectedNodes : [];
+  const autoFit = stickies.length > 0 && stickies.every((n) => n.autoFit);
   const editingRichText =
     selection.length === 1 && editingTextId === selection[0] && (RICH_TEXT_TYPES.has(soleType) || isShape);
 
@@ -170,9 +165,12 @@ export function StyleInspector({ hidden }) {
           <ColorSwatchButton
             label="Fill"
             value={(selectedNodes[0] ).fill ?? "transparent"}
-            onChange={(v) => patch({ fill: v })}
+            palette={stickies.length || soleType === "stack" ? STICKY_COLORS : undefined}
+            onChange={(v) => patch(stickies.length ? stickyColorPatch(stickies[0], v) : { fill: v })}
           />
         )}
+
+        {stickies.length > 0 && <StickyShapeControl stickies={stickies} />}
 
         {(showStroke || onlyConnectors) && (
           <>
@@ -210,11 +208,25 @@ export function StyleInspector({ hidden }) {
           />
         )}
 
+        {showTextColor && (
+          <FontPicker value={selectedNodes[0]?.fontFamily ?? null} onChange={(fontFamily) => patch({ fontFamily })} />
+        )}
+
         {showFontSize && (
           <FontSizeControl
             value={(selectedNodes[0] ).fontSize ?? 16}
+            auto={autoFit}
             onChange={(v) => patch({ fontSize: v })}
           />
+        )}
+
+        {stickies.length > 0 && <AutoFitButton on={autoFit} onChange={(on) => patch({ autoFit: on })} />}
+
+        {stickies.length > 0 && (
+          <>
+            <TagPicker stickies={stickies} />
+            <ReactionPicker stickies={stickies} />
+          </>
         )}
 
         {showTextAlign && (
@@ -281,6 +293,7 @@ export function StyleInspector({ hidden }) {
               >
                 <SendToBack className="h-4 w-4 text-white/45" /> Send to back
               </MenuItem>
+              {hasNodes && <StyleMoreItems nodes={selectedNodes} readOnly={false} close={close} />}
               <div className="my-1 h-px bg-line" />
               <MenuItem
                 onClick={() => {
@@ -308,14 +321,7 @@ export function StyleInspector({ hidden }) {
   );
 }
 
-function ColorSwatchButton({
-  label,
-  value,
-  onChange,
-}
-
-) {
-  const [custom, setCustom] = useState(value);
+function ColorSwatchButton({ label, value, palette, onChange }) {
   return (
     <Dropdown
       trigger={(open) => (
@@ -342,60 +348,14 @@ function ColorSwatchButton({
       )}
     >
       {(close) => (
-        <div className="w-44">
-          <div className="grid grid-cols-4 gap-1.5 p-1">
-            {PALETTE.map((sw) => (
-              <button
-                key={sw.value}
-                type="button"
-                role="button"
-                aria-label={sw.name}
-                title={sw.name}
-                onClick={() => {
-                  onChange(sw.value);
-                  close();
-                }}
-                className="relative grid h-8 w-8 place-items-center rounded-md border border-white/15"
-                style={
-                  sw.value === "transparent"
-                    ? {
-                        backgroundImage: "repeating-conic-gradient(#666 0% 25%, #333 0% 50%)",
-                        backgroundSize: "6px 6px",
-                      }
-                    : { backgroundColor: sw.value }
-                }
-              >
-                {value === sw.value && (
-                  <Check className="h-3.5 w-3.5 text-white drop-shadow" />
-                )}
-              </button>
-            ))}
-          </div>
-          <div className="mt-1 flex items-center gap-1.5 border-t border-line p-1.5">
-            <input
-              value={custom}
-              onChange={(e) => setCustom(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  onChange(custom);
-                  close();
-                }
-              }}
-              placeholder="#rrggbb"
-              className="h-7 flex-1 rounded-md border border-line bg-ink-800 px-2 text-xs text-white outline-none placeholder:text-white/30 focus:border-brand/40"
-            />
-            <button
-              type="button"
-              onClick={() => {
-                onChange(custom);
-                close();
-              }}
-              className="rounded-md bg-brand/20 px-2 py-1 text-xs font-semibold text-brand hover:bg-brand/30"
-            >
-              Use
-            </button>
-          </div>
-        </div>
+        <ColorPicker
+          value={value}
+          palette={palette}
+          onPick={(color) => {
+            onChange(color);
+            close();
+          }}
+        />
       )}
     </Dropdown>
   );
@@ -486,7 +446,7 @@ function CornerRadiusControl({ value, onChange }) {
   );
 }
 
-function FontSizeControl({ value, onChange }) {
+function FontSizeControl({ value, auto = false, onChange }) {
   return (
     <div className="flex items-center gap-0.5 rounded-lg bg-ink-800 px-1">
       <button
@@ -497,7 +457,7 @@ function FontSizeControl({ value, onChange }) {
       >
         −
       </button>
-      <span className="w-6 text-center text-xs tabular-nums text-white/80">{value}</span>
+      <span className={cn("min-w-6 text-center tabular-nums text-white/80", auto ? "text-[10px] font-medium" : "text-xs")}>{auto ? "Auto" : value}</span>
       <button
         type="button"
         aria-label="Increase font size"

@@ -1,5 +1,6 @@
 "use client";
 
+import { fontFamilyCss } from "@/lib/canvas/fonts";
 import { pointsToPath, shapeDetail, shapeRenderPoints } from "@/lib/canvas/shapes";
 import { RichTextContent, RichTextEditor } from "./RichText";
 
@@ -16,7 +17,7 @@ export function ShapeNode({ node, editing, readOnly, onCommit, onCancel }) {
   const { w, h, fill, stroke, strokeWidth, type } = node;
   const inset = strokeWidth / 2;
   const paint = { fill, stroke, strokeWidth, vectorEffect: "non-scaling-stroke" };
-  const textStyle = { fontSize: node.fontSize ?? 16, color: node.color ?? "#ffffff" };
+  const textStyle = { fontSize: node.fontSize ?? 16, color: node.color ?? "#ffffff", fontFamily: fontFamilyCss(node.fontFamily) };
 
   return (
     <>

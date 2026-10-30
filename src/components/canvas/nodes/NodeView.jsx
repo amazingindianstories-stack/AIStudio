@@ -7,6 +7,7 @@ import { nodeAnchorPoint } from "@/lib/canvas/geometry";
 import { ShapeNode } from "./ShapeNode";
 import { TextNode } from "./TextNode";
 import { StickyNode } from "./StickyNode";
+import { StackNode } from "./StackNode";
 import { FrameNode } from "./FrameNode";
 import { ImageNode } from "./ImageNode";
 
@@ -128,6 +129,8 @@ export function NodeView({
                 onCancel={() => onCancelEdit(node.id)}
               />
             );
+          case "stack":
+            return <StackNode node={node} />;
           case "frame":
             return (
               <FrameNode

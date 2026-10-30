@@ -103,7 +103,7 @@ function renderSegments(segments, openLinks) {
  * Cmd/Ctrl+Enter, and when it closes for any other reason (for example the
  * selection moving on); Escape discards the edit.
  */
-export function RichTextEditor({ text, marks, onCommit, onCancel, className, style }) {
+export function RichTextEditor({ text, marks, onCommit, onCancel, onInput, className, style }) {
   const ref = useRef(null);
   const settled = useRef(false);
   // What this edit opened with, so a commit that typed nothing keeps another person's newer text.
@@ -165,6 +165,7 @@ export function RichTextEditor({ text, marks, onCommit, onCancel, className, sty
         document.execCommand("insertText", false, plainTextFromClipboard(e.clipboardData));
       }}
       onDrop={(e) => e.preventDefault()}
+      onInput={onInput}
       onKeyDown={(e) => {
         const mod = e.metaKey || e.ctrlKey;
         const key = e.key.toLowerCase();

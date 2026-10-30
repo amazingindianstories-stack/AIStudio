@@ -98,6 +98,21 @@ export function toggleStickyReaction(id, emoji) {
   }));
 }
 
+/** Adds this person's `emoji` vote to every selected sticky when `on`, otherwise takes it back. */
+export function setReactionOnSelection(emoji, on) {
+  const userId = currentUserId();
+  if (!userId || !editable()) return;
+  const ids = new Set(canvas().selection);
+  canvas().editBoard((present) => ({
+    ...present,
+    nodes: present.nodes.map((node) => {
+      if (!ids.has(node.id) || node.type !== "sticky") return node;
+      const mine = Boolean(node.reactions?.[emoji]?.includes(userId));
+      return mine === on ? node : toggleReaction(node, emoji, userId);
+    }),
+  }));
+}
+
 /** Square or rectangular shape for every selected sticky. */
 export function setSelectedStickyShape(shape) {
   const ids = new Set(selectedNodes().filter((node) => node.type === "sticky").map((node) => node.id));
