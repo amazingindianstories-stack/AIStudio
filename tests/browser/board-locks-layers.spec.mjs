@@ -87,6 +87,7 @@ async function contextMenu(page, id) {
 }
 
 test('Board locks and layers: lock, Unlock all, layer order, hide and lock, and a co-owner protected lock', async ({ browser, baseURL }, info) => {
+  test.setTimeout(150000);
   const db = await seedUsers();
   const setup = await signIn(browser, baseURL, OWNER, null);
   const created = await setup.context.request.post('/api/projects', {

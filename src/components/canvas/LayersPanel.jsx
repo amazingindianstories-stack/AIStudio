@@ -238,8 +238,9 @@ function LayerRow({ row, active, hidden, editable, canMoveUp, canMoveDown, hasSe
                       onDelete(row);
                     }}
                   >
-                    <Trash2 className="h-4 w-4 text-red-300/80" />
-                    <span className="flex-1 text-red-200">Delete layer</span>
+                    {/* Red only while enabled, so a locked layer's item dims like the others. */}
+                    <Trash2 className={`h-4 w-4 ${row.locked ? "" : "text-red-300/80"}`} />
+                    <span className={`flex-1 ${row.locked ? "" : "text-red-200"}`}>Delete layer</span>
                   </MenuItem>
                 </>
               )}
