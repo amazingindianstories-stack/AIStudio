@@ -11,6 +11,8 @@ import {
   writeRichDom,
 } from "@/lib/canvas/rich-text";
 import { FORMAT_CONTROL_SELECTOR, requestLink, toggleFormat } from "@/lib/canvas/rich-text-commands";
+import { handleListKey } from "@/lib/canvas/list-commands";
+import { displayLines, renumberLists } from "@/lib/canvas/lists";
 import { cn } from "@/lib/utils";
 
 /**
@@ -20,7 +22,52 @@ import { cn } from "@/lib/utils";
  * editable board still selects the node.
  */
 export function RichTextContent({ text, marks, openLinks = false }) {
-  return richSegments(text, marks).map((segment) => {
+  const segments = richSegments(text, marks);
+  const lines = displayLines(text);
+  if (!lines) return renderSegments(segments, openLinks);
+  // List items get a hanging indent: wrapped lines align with the item's text, not its marker.
+  return lines.map((line) => {
+    if (line.level < 0) {
+      return (
+        <span key={line.start} className="block">
+          {line.end > line.start ? renderSegments(clipSegments(segments, line.start, line.end), openLinks) : <br />}
+        </span>
+      );
+    }
+    const markerEnd = line.start + line.prefix;
+    return (
+      <span
+        key={line.start}
+        className="block"
+        style={{ paddingLeft: `${line.level * LIST_INDENT_EM + MARKER_EM}em`, textIndent: `-${MARKER_EM}em` }}
+      >
+        <span className="inline-block indent-0" style={{ minWidth: `${MARKER_EM}em` }}>
+          {renderSegments(clipSegments(segments, line.start + line.level, markerEnd), openLinks)}
+        </span>
+        {renderSegments(clipSegments(segments, markerEnd, line.end), openLinks)}
+      </span>
+    );
+  });
+}
+
+/** Nesting step and marker width of list items, in em. */
+const LIST_INDENT_EM = 1.5;
+const MARKER_EM = 1.25;
+
+/** The parts of `segments` inside [from, to). */
+function clipSegments(segments, from, to) {
+  const out = [];
+  for (const segment of segments) {
+    const end = segment.start + segment.text.length;
+    if (end <= from || segment.start >= to) continue;
+    const start = Math.max(segment.start, from);
+    out.push({ ...segment, start, text: segment.text.slice(start - segment.start, Math.min(end, to) - segment.start) });
+  }
+  return out;
+}
+
+function renderSegments(segments, openLinks) {
+  return segments.map((segment) => {
     let content = segment.text;
     if (segment.s) content = <s>{content}</s>;
     if (segment.u) content = <u>{content}</u>;
@@ -67,7 +114,7 @@ export function RichTextEditor({ text, marks, onCommit, onCancel, className, sty
   const commit = () => {
     if (settled.current || !ref.current) return;
     settled.current = true;
-    const value = readRichDom(ref.current);
+    const value = readEditor(ref.current);
     // The laid-out content height lets a text box grow to fit what was typed.
     callbacks.current.onCommit(value.text, value.marks, ref.current.scrollHeight, seeded.current);
   };
@@ -89,7 +136,7 @@ export function RichTextEditor({ text, marks, onCommit, onCancel, className, sty
       queueMicrotask(() => {
         if (settled.current || el.isConnected) return;
         settled.current = true;
-        const value = readRichDom(el);
+        const value = readEditor(el);
         callbacks.current.onCommit(value.text, value.marks, undefined, opened);
       });
     };
@@ -128,6 +175,8 @@ export function RichTextEditor({ text, marks, onCommit, onCancel, className, sty
         } else if (mod && e.key === "Enter") {
           e.preventDefault();
           e.currentTarget.blur();
+        } else if (handleListKey(e.currentTarget, e.nativeEvent)) {
+          e.preventDefault();
         } else if (e.key === "Enter" && !e.nativeEvent.isComposing) {
           // One newline character rather than browser-specific block markup.
           e.preventDefault();
@@ -144,7 +193,13 @@ export function RichTextEditor({ text, marks, onCommit, onCancel, className, sty
         }
       }}
       className={cn("select-text", className)}
-      style={style}
+      style={{ tabSize: `${LIST_INDENT_EM}em`, ...style }}
     />
   );
+}
+
+/** The editor's value, with numbered lists counting from 1 again. */
+function readEditor(el) {
+  const value = readRichDom(el);
+  return renumberLists(value.text, value.marks);
 }
