@@ -41,6 +41,9 @@ import {
 } from "@/lib/canvas/touch-gestures";
 import { selectionActions } from "@/lib/canvas/selection-actions";
 import { cullBoard } from "@/lib/canvas/culling";
+import { withLastStyle } from "@/lib/canvas/styles";
+import { currentUserId, takeStickyFromStack } from "@/lib/canvas/sticky-actions";
+import { markSystemClipboard } from "@/lib/canvas/use-board-clipboard";
 import { NodeView, } from "./nodes/NodeView";
 import { ConnectorLayer } from "./ConnectorLayer";
 import { CanvasContextMenu, } from "./CanvasContextMenu";
@@ -65,9 +68,15 @@ const SHAPE_DEFAULT_SIZE = {
 };
 
 /** Builds a fully-formed default-sized node centered at `center` (world
- *  coords), ready for `addNode`. Shared by canvas click-to-place and the
- *  Enter-to-place accessibility path (§11). */
+ *  coords), ready for `addNode`, in the last style its person used on that
+ *  kind of object. Shared by canvas click-to-place and the Enter-to-place
+ *  accessibility path (§11). */
 export function buildDefaultNode(tool, center) {
+  const node = buildBaseNode(tool, center);
+  return node ? withLastStyle(node, currentUserId()) : node;
+}
+
+function buildBaseNode(tool, center) {
   const id = crypto.randomUUID();
   const base = { id, opacity: 1, parentId: null, groupId: null };
   const shapeStyle = {
@@ -129,6 +138,7 @@ export function buildDefaultNode(tool, center) {
         fill: "#e3c56a",
         fontSize: 16,
         color: "#1c1a12",
+        autoFit: true,
       };
     case "frame":
       return {
@@ -543,12 +553,16 @@ export const CanvasSurface = forwardRef
       } else if (!selection.includes(node.id)) {
         setSelection([node.id]);
       }
+      // Dragging an unselected sticky stack peels a new sticky off it; once
+      // selected (a click), the stack itself moves.
+      const fromStack = node.type === "stack" && !e.altKey && !e.shiftKey && !selection.includes(node.id) ? node : undefined;
       dragRef.current = {
         kind: "move",
         startScreen: screen,
         startWorld: screenToWorld(screen, viewport),
         moved: false,
         altDuplicate,
+        fromStack,
         pendingDeselectId,
       };
       onTransientChange?.(true);
@@ -660,11 +674,12 @@ export const CanvasSurface = forwardRef
       case "duplicate":
         s.duplicateSelected();
         break;
+      // A browser copy follows, so the system clipboard is marked too (useBoardClipboard).
       case "copy":
-        s.copy();
+        if (s.copy()) markSystemClipboard();
         break;
       case "cut":
-        s.cut();
+        if (s.cut()) markSystemClipboard();
         break;
       case "paste":
         s.paste();
@@ -762,8 +777,10 @@ export const CanvasSurface = forwardRef
       // rather than a stale closure (design.md's "Alt-drag stale-closure"
       // risk). `startScreen` is deliberately NOT reset, so the total delta
       // committed in endDrag still measures from the original pointer-down.
-      if (drag.altDuplicate && !drag.altDuplicated && drag.moved) {
-        duplicateSelectionInPlace();
+      if ((drag.altDuplicate || drag.fromStack) && !drag.altDuplicated && drag.moved) {
+        // A stack drag does the same with the sticky it hands out.
+        if (drag.fromStack) takeStickyFromStack(drag.fromStack);
+        else duplicateSelectionInPlace();
         drag.altDuplicated = true;
         return;
       }

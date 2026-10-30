@@ -8,6 +8,8 @@ import { useMediaQuery } from "@/lib/use-media-query";
 import { useCanvasStore, selectReadOnly } from "@/lib/canvas-store";
 import { isCreateTool } from "@/lib/canvas/shapes";
 import { useBoardPolling } from "@/lib/canvas/use-board-polling";
+import { noteKeyboardCopy, pageTextSelected, useBoardClipboard } from "@/lib/canvas/use-board-clipboard";
+import { copySelectionStyle, pasteSelectionStyle } from "@/lib/canvas/sticky-actions";
 import {
   CanvasSurface,
   buildDefaultNode,
@@ -195,19 +197,12 @@ export function CanvasView() {
     [boardId, addImageBatch]
   );
 
-  useEffect(() => {
-    const onPaste = (event) => {
-      const target = event.target;
-      if (target?.isContentEditable || target?.tagName === "INPUT" || target?.tagName === "TEXTAREA") return;
-      if (touchViewOnly || selectReadOnly(useCanvasStore.getState())) return;
-      const files = Array.from(event.clipboardData?.files ?? []).filter((file) => file.type.startsWith("image/"));
-      event.preventDefault();
-      if (files.length) void importImageFiles(files);
-      else paste();
-    };
-    document.addEventListener("paste", onPaste);
-    return () => document.removeEventListener("paste", onPaste);
-  }, [importImageFiles, paste, touchViewOnly]);
+  const viewCenter = useCallback(() => surfaceRef.current?.getViewportCenterWorld() ?? { x: 0, y: 0 }, []);
+  const notify = useCallback((message) => {
+    setImportNotice(message);
+    window.setTimeout(() => setImportNotice(""), 3500);
+  }, []);
+  useBoardClipboard({ importImageFiles, touchViewOnly, viewCenter, notify });
 
   // Single source of truth for "add image" (⇧I shortcut B / toolbar button)
   // — one hidden file input, one code path, so the toolbar's "(⇧I)" tooltip
@@ -282,14 +277,23 @@ export function CanvasView() {
         else sendBackward();
         return;
       }
-      if (mod && e.key.toLowerCase() === "c") {
+      if (mod && e.altKey && e.code === "KeyC") {
         e.preventDefault();
-        copy();
+        copySelectionStyle();
+        return;
+      }
+      if (mod && e.altKey && e.code === "KeyV") {
+        e.preventDefault();
+        pasteSelectionStyle();
+        return;
+      }
+      // The browser's copy and cut events that follow also mark the system clipboard (useBoardClipboard).
+      if (mod && e.key.toLowerCase() === "c") {
+        if (!pageTextSelected() && copy()) noteKeyboardCopy();
         return;
       }
       if (mod && e.key.toLowerCase() === "x") {
-        e.preventDefault();
-        cut();
+        if (!pageTextSelected() && cut()) noteKeyboardCopy();
         return;
       }
       if (mod && e.key.toLowerCase() === "v") {
@@ -535,6 +539,7 @@ export function CanvasView() {
             onAddImageClick={openImagePicker}
             aiOpen={aiOpen && Boolean(boardId)}
             onAiClick={() => setAiOpen((v) => !v)}
+            viewCenter={viewCenter}
           />
         )}
         {aiOpen && boardId && !readOnly && !touchViewOnly && <CanvasAiPanel boardId={boardId} leftInset={assetPanelWidth} onClose={() => setAiOpen(false)} />}

@@ -3,7 +3,7 @@ import json
 import math
 import re
 
-NODE_TYPES = {'rect', 'ellipse', 'triangle', 'diamond', 'shape', 'text', 'sticky', 'frame', 'image'}
+NODE_TYPES = {'rect', 'ellipse', 'triangle', 'diamond', 'shape', 'text', 'sticky', 'stack', 'frame', 'image'}
 SHAPE_TYPES = ('rect', 'ellipse', 'triangle', 'diamond', 'shape')
 # Mirrors src/lib/canvas/shapes.js and src/lib/canvas/rich-text.js.
 SHAPE_KIND = re.compile(r'[a-z][a-z0-9-]{0,39}')
@@ -14,12 +14,23 @@ SIMPLE_MARKS = ('b', 'i', 'u', 's')
 # letters onto ASCII ones where JavaScript does not.
 SAFE_HREF = re.compile(r'(?:[hH][tT][tT][pP][sS]?://|[mM][aA][iI][lL][tT][oO]:)[^\x00-\x20\x7f]+')
 HIGHLIGHT = re.compile(r'#[0-9a-fA-F]{6}')
+# Mirrors src/lib/canvas/stickies.js, tags.js and fonts.js.
+FONT_FAMILY = re.compile(r'[a-z0-9][a-z0-9-]{0,39}')
+MAX_TAGS = 300
+MAX_TAG_NAME = 60
+MAX_TAG_ID = 64
+MAX_NODE_TAGS = 8
+MAX_REACTION_EMOJIS = 12
+MAX_REACTION_EMOJI = 16
+MAX_REACTION_VOTES = 1000
+ARRAY_INDEX = re.compile(r'0|[1-9][0-9]*')
 ANCHORS = {'auto', 'top', 'right', 'bottom', 'left', 'center'}
 # The editor's JSON.stringify(data).length limit for a saved graph, in UTF-16 units, not counting the
 # server stamps (content_length).
 MAX_BOARD_JSON_UNITS = 2 * 1024 * 1024
 # Per-object author and time fields the server owns (apps.canvas.activity).
-STAMP_KEYS = ('createdBy', 'createdAt', 'updatedBy', 'updatedAt')
+# `textBy` is who last replaced the text (sticky author labels).
+STAMP_KEYS = ('createdBy', 'createdAt', 'updatedBy', 'updatedAt', 'textBy')
 JS_WHITESPACE = '\u0009\u000a\u000b\u000c\u000d\u0020\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff'
 
 
@@ -88,7 +99,7 @@ def marks(raw, text):
 
 def with_stamps(result, raw):
     """Server stamps (apps.canvas.activity) ride along; a save replaces them with the server's own."""
-    for key in ('createdBy', 'updatedBy'):
+    for key in ('createdBy', 'updatedBy', 'textBy'):
         if isinstance(raw.get(key), str):
             result[key] = raw[key]
     for key in ('createdAt', 'updatedAt'):
@@ -101,6 +112,68 @@ def with_marks(result, raw):
     valid = marks(raw.get('marks'), result['text'])
     if valid:
         result['marks'] = valid
+
+
+def with_font(result, raw):
+    if isinstance(raw.get('fontFamily'), str) and FONT_FAMILY.fullmatch(raw['fontFamily']):
+        result['fontFamily'] = raw['fontFamily']
+
+
+def unique_strings(raw, limit, length=None):
+    result = {}
+    for value in raw if isinstance(raw, list) else []:
+        if isinstance(value, str) and value and value not in result and (length is None or utf16_length(value) <= length):
+            result[value] = None
+            if len(result) == limit:
+                break
+    return list(result)
+
+
+def reactions(raw):
+    """`{emoji: [userId, ...]}`: each person's vote on one emoji, at most once."""
+    if not isinstance(raw, dict):
+        return None
+    result = {}
+    for emoji, voters in raw.items():
+        if len(result) == MAX_REACTION_EMOJIS:
+            break
+        # An array-index key would change places in a JavaScript object.
+        if not emoji or utf16_length(emoji) > MAX_REACTION_EMOJI or ARRAY_INDEX.fullmatch(emoji):
+            continue
+        valid = unique_strings(voters, MAX_REACTION_VOTES, MAX_TAG_ID)
+        if valid:
+            result[emoji] = valid
+    return result or None
+
+
+def with_sticky_extras(result, raw):
+    """Sticky-only options, each present only when set."""
+    for key in ('autoFit', 'showAuthor'):
+        if raw.get(key) is True:
+            result[key] = True
+    tag_ids = unique_strings(raw.get('tagIds'), MAX_NODE_TAGS, MAX_TAG_ID)
+    if tag_ids:
+        result['tagIds'] = tag_ids
+    valid = reactions(raw.get('reactions'))
+    if valid:
+        result['reactions'] = valid
+
+
+def tags(raw):
+    """The board's tag table: `[{id, name, color}]`, ids unique, names non-blank."""
+    result, seen = [], set()
+    for item in raw if isinstance(raw, list) else []:
+        if len(result) == MAX_TAGS:
+            break
+        r = object_value(item)
+        identifier, name, color = r.get('id'), r.get('name'), r.get('color')
+        if not isinstance(identifier, str) or not identifier or utf16_length(identifier) > MAX_TAG_ID or identifier in seen:
+            continue
+        if not isinstance(name, str) or not name.strip(JS_WHITESPACE) or utf16_length(name) > MAX_TAG_NAME:
+            continue
+        seen.add(identifier)
+        result.append({'id': identifier, 'name': name, 'color': color if isinstance(color, str) and HIGHLIGHT.fullmatch(color) else '#9ca3af'})
+    return result
 
 
 def node(raw):
@@ -133,13 +206,22 @@ def node(raw):
             result['fontSize'] = r['fontSize']
         if isinstance(r.get('color'), str):
             result['color'] = r['color']
+        # Shape text is centered unless aligned otherwise.
+        if r.get('align') in ('left', 'center', 'right'):
+            result['align'] = r['align']
+        with_font(result, r)
     elif kind == 'text':
         result.update(text=string(r.get('text'), ''), fontSize=num(r.get('fontSize'), 16),
                       align=r.get('align') if r.get('align') in ('center', 'right') else 'left', color=string(r.get('color'), '#000000'))
         with_marks(result, r)
+        with_font(result, r)
     elif kind == 'sticky':
         result.update(text=string(r.get('text'), ''), fill=string(r.get('fill'), '#fff59d'), fontSize=num(r.get('fontSize'), 16), color=string(r.get('color'), '#000000'))
         with_marks(result, r)
+        with_font(result, r)
+        with_sticky_extras(result, r)
+    elif kind == 'stack':
+        result['fill'] = string(r.get('fill'), '#fff59d')
     elif kind == 'frame':
         result.update(name=string(r.get('name'), 'Frame'), fill=string(r.get('fill'), 'transparent'), stroke=string(r.get('stroke'), '#000000'))
     elif kind == 'image':
@@ -190,12 +272,23 @@ def validate_state(raw):
     zoom = viewport.get('zoom')
     nodes = [valid for item in obj.get('nodes', []) if (valid := node(item)) is not None] if isinstance(obj.get('nodes'), list) else []
     identifiers = {item['id'] for item in nodes}
+    table = tags(obj.get('tags'))
+    tag_ids = {item['id'] for item in table}
     for item in nodes:
         if item['parentId'] and item['parentId'] not in identifiers:
             item['parentId'] = None
+        # A tag deleted board-wide leaves no reference behind.
+        if 'tagIds' in item:
+            item['tagIds'] = [value for value in item['tagIds'] if value in tag_ids]
+            if not item['tagIds']:
+                del item['tagIds']
     connectors = [valid for item in obj.get('connectors', []) if (valid := connector(item, identifiers)) is not None] if isinstance(obj.get('connectors'), list) else []
-    return {'version': 1, 'viewport': {'x': num(viewport.get('x'), 0), 'y': num(viewport.get('y'), 0), 'zoom': zoom if finite(zoom) and zoom > 0 else 1},
-            'nodes': nodes, 'connectors': connectors}
+    result = {'version': 1, 'viewport': {'x': num(viewport.get('x'), 0), 'y': num(viewport.get('y'), 0), 'zoom': zoom if finite(zoom) and zoom > 0 else 1},
+              'nodes': nodes, 'connectors': connectors}
+    # Present only once the board has a tag, so boards without tags keep their shape.
+    if table:
+        result['tags'] = table
+    return result
 
 
 def _number_text(value):

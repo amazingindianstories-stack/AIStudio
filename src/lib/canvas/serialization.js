@@ -14,6 +14,9 @@ import {
 } from "./types";
 import { validateMarks } from "./rich-text";
 import { SHAPE_KIND_PATTERN } from "./shapes";
+import { FONT_FAMILY_PATTERN } from "./fonts";
+import { uniqueStrings, validateReactions } from "./reactions";
+import { MAX_NODE_TAGS, MAX_TAG_ID, validateTags } from "./tags";
 
 export function emptyCanvasState() {
   return {
@@ -32,9 +35,12 @@ const NODE_TYPES = new Set([
   "shape",
   "text",
   "sticky",
+  "stack",
   "frame",
   "image",
 ]);
+const TEXT_ALIGNS = ["left", "center", "right"];
+
 const ANCHORS = new Set([
   "auto",
   "top",
@@ -94,13 +100,27 @@ function validateBase(
  * on every save (backend/apps/canvas/activity.py) and ignores what a client
  * sends, so they only ride along here; boards saved before them have none.
  */
-export const STAMP_KEYS = ["createdBy", "createdAt", "updatedBy", "updatedAt"];
+export const STAMP_KEYS = ["createdBy", "createdAt", "updatedBy", "updatedAt", "textBy"];
 
 function withStamps(item, r) {
   if (!item) return null;
-  for (const key of ["createdBy", "updatedBy"]) if (typeof r[key] === "string") item[key] = r[key];
+  // `textBy` is who last replaced the text, for sticky author labels.
+  for (const key of ["createdBy", "updatedBy", "textBy"]) if (typeof r[key] === "string") item[key] = r[key];
   for (const key of ["createdAt", "updatedAt"]) if (isFiniteNumber(r[key])) item[key] = r[key];
   return item;
+}
+
+function withFont(node, r) {
+  if (typeof r.fontFamily === "string" && FONT_FAMILY_PATTERN.test(r.fontFamily)) node.fontFamily = r.fontFamily;
+}
+
+/** Sticky-only options, each present only when set. */
+function withStickyExtras(node, r) {
+  for (const key of ["autoFit", "showAuthor"]) if (r[key] === true) node[key] = true;
+  const tagIds = uniqueStrings(r.tagIds, MAX_NODE_TAGS, MAX_TAG_ID);
+  if (tagIds.length) node.tagIds = tagIds;
+  const reactions = validateReactions(r.reactions);
+  if (reactions) node.reactions = reactions;
 }
 
 function validateNode(raw) {
@@ -144,6 +164,9 @@ function validateNodeContent(raw) {
       }
       if (isFiniteNumber(r.fontSize)) node.fontSize = r.fontSize;
       if (typeof r.color === "string") node.color = r.color;
+      // Shape text is centered unless aligned otherwise.
+      if (TEXT_ALIGNS.includes(r.align)) node.align = r.align;
+      withFont(node, r);
       return node;
     }
     case "text": {
@@ -158,6 +181,7 @@ function validateNodeContent(raw) {
       };
       const marks = validateMarks(r.marks, node.text);
       if (marks) node.marks = marks;
+      withFont(node, r);
       return node;
     }
     case "sticky": {
@@ -171,8 +195,13 @@ function validateNodeContent(raw) {
       };
       const marks = validateMarks(r.marks, node.text);
       if (marks) node.marks = marks;
+      withFont(node, r);
+      withStickyExtras(node, r);
       return node;
     }
+    case "stack":
+      // A pile of blank stickies; dragging from it adds one (./stickies.js).
+      return { ...base, type, fill: str(r.fill, "#fff59d") };
     case "frame": {
       const node = {
         ...base,
@@ -256,9 +285,16 @@ export function validateCanvasState(raw) {
     ? obj.nodes.map(validateNode).filter((n) => n !== null)
     : [];
 
+  const tags = validateTags(obj.tags);
+  const tagIds = new Set(tags.map((tag) => tag.id));
   const nodeIds = new Set(nodes.map((n) => n.id));
   for (const n of nodes) {
     if (n.parentId && !nodeIds.has(n.parentId)) n.parentId = null;
+    // A tag deleted board-wide leaves no reference behind.
+    if (n.tagIds) {
+      n.tagIds = n.tagIds.filter((id) => tagIds.has(id));
+      if (!n.tagIds.length) delete n.tagIds;
+    }
   }
 
   const connectors = Array.isArray(obj.connectors)
@@ -267,5 +303,8 @@ export function validateCanvasState(raw) {
         .filter((c) => c !== null)
     : [];
 
-  return { version: CANVAS_STATE_VERSION, viewport, nodes, connectors };
+  const state = { version: CANVAS_STATE_VERSION, viewport, nodes, connectors };
+  // Present only once the board has a tag, so boards without tags keep their shape.
+  if (tags.length) state.tags = tags;
+  return state;
 }

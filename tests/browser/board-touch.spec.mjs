@@ -104,8 +104,17 @@ async function pixelClean(page) {
     const style = getComputedStyle(node);
     if (!box.width || !box.height || style.visibility === 'hidden' || style.position === 'fixed') return false;
     if (node.closest('[data-node-id]')) return false; // board content is meant to be panned off screen
-    for (let a = node.parentElement; a && a !== document.body; a = a.parentElement) if (getComputedStyle(a).textOverflow === 'ellipsis') return false; // truncated by an ancestor
-    return box.left < -0.5 || box.right > innerWidth + 0.5 || box.top < -0.5 || box.bottom > innerHeight + 0.5 ||
+    // Only the part its scrolling ancestors show counts: the phone inspector scrolls its style controls.
+    let { left, right, top, bottom } = box;
+    for (let a = node.parentElement; a && a !== document.body; a = a.parentElement) {
+      const scroller = getComputedStyle(a);
+      if (scroller.textOverflow === 'ellipsis') return false; // truncated by an ancestor
+      const clip = a.getBoundingClientRect();
+      if (['auto', 'scroll'].includes(scroller.overflowX)) { left = Math.max(left, clip.left); right = Math.min(right, clip.right); }
+      if (['auto', 'scroll'].includes(scroller.overflowY)) { top = Math.max(top, clip.top); bottom = Math.min(bottom, clip.bottom); }
+    }
+    if (right <= left || bottom <= top) return false; // scrolled out of view
+    return left < -0.5 || right > innerWidth + 0.5 || top < -0.5 || bottom > innerHeight + 0.5 ||
       (node.scrollWidth > node.clientWidth + 1 && !['auto', 'scroll', 'hidden'].includes(style.overflowX) && style.textOverflow !== 'ellipsis');
   }).map((node) => `${node.tagName.toLowerCase()}.${String(node.className).slice(0, 80)}`));
   expect(overflowing).toEqual([]);
@@ -627,7 +636,8 @@ test('Board touch: a double tap inside an open text editor keeps it open and eve
   await phone.page.waitForTimeout(400);
   await expect(editor).toBeVisible();
   expect(await zoomPercent(phone.page)).toBe(zoom);
-  await phone.page.keyboard.press('End');
+  // End of the line; macOS Chrome's End only scrolls, so it would leave a double-tap word selection in place.
+  await phone.page.keyboard.press(process.platform === 'darwin' ? 'Meta+ArrowRight' : 'End');
   await phone.page.keyboard.type(' world');
   await expect(editor).toHaveText('Hello world');
 

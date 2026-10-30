@@ -4,6 +4,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { JSDOM } from "jsdom";
 import {
+  clipRichText,
   cssColorToHex,
   isSafeHref,
   marksFromRuns,
@@ -146,4 +147,19 @@ test("RichTextContent renders formats as elements and never raw HTML", () => {
   assert.doesNotMatch(html, /javascript:/);
   assert.match(html, /background-color:#fde0478c/);
   assert.doesNotMatch(html, /red;x/);
+});
+
+test("clipping rich text keeps marks inside the cut and never splits an emoji", () => {
+  assert.deepEqual(clipRichText("abc", [[0, 3, "b"]], 6), { text: "abc", marks: [[0, 3, "b"]] });
+  assert.deepEqual(clipRichText("abcdef", [[1, 5, "b"], [4, 6, "i"]], 3), { text: "abc", marks: [[1, 3, "b"]] });
+  assert.deepEqual(clipRichText("ab👍", null, 3), { text: "ab", marks: null });
+});
+
+test("readRichDom reports where each text node and line break starts, counting block lines", () => {
+  const root = document.createElement("div");
+  root.innerHTML = "• one<div>• two</div><div><br></div><div>x<br>y</div>";
+  const seen = [];
+  const { text } = readRichDom(root, (node, start) => seen.push([node.nodeType === 3 ? node.data : node.tagName, start]));
+  assert.equal(text, "• one\n• two\n\nx\ny");
+  assert.deepEqual(seen, [["• one", 0], ["• two", 6], ["BR", 12], ["x", 13], ["BR", 14], ["y", 15]]);
 });

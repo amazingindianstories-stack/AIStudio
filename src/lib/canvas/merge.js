@@ -16,7 +16,12 @@
  * re-renders what another person changed. Server stamps (who changed an item
  * and when) are not edits: an item whose local copy differs from base only in
  * them is unchanged locally and takes the remote copy, stamps included.
+ * Emoji votes merge per person even when both sides changed a sticky, so two
+ * people voting at once both count, and a local copy that differs from base
+ * only in votes takes the remote copy with the local votes added. The board's tag table merges per tag id
+ * like nodes.
  */
+import { mergeReactions } from "./reactions";
 import { unstamped } from "./stamps";
 
 export function sameValue(a, b) {
@@ -79,12 +84,32 @@ function mergeItems(baseItems, localItems, remoteItems) {
     const r = remote.get(id);
     const b = base.get(id);
     const localChanged = !sameValue(unstamped(b), unstamped(l));
+    // A local vote alone is not an edit: the remote copy wins and keeps the vote.
+    const localEdited = localChanged && !(b && l && r && sameValue(unvoted(unstamped(b)), unvoted(unstamped(l))));
     // Neither side changed it: keep the local object so nothing re-renders.
-    const item = localChanged || sameValue(l, r) ? l : r;
+    let item = localEdited || sameValue(l, r) ? l : r;
+    if (l && r && localChanged && !sameValue(l.reactions, r.reactions)) item = withVotes(item, b, l, r);
     if (item !== undefined) chosen.set(id, item);
   }
   const ids = (items) => items.map((item) => item.id);
   return mergeOrder(ids(baseItems), ids(localItems), ids(remoteItems), chosen).map((id) => chosen.get(id));
+}
+
+function unvoted(item) {
+  if (!item || !("reactions" in item)) return item;
+  const rest = { ...item };
+  delete rest.reactions;
+  return rest;
+}
+
+/** `item` (the side that won) with both sides' votes. */
+function withVotes(item, base, local, remote) {
+  const reactions = mergeReactions(base?.reactions, local.reactions, remote.reactions);
+  if (sameValue(reactions, item.reactions)) return item;
+  const next = { ...item };
+  if (reactions) next.reactions = reactions;
+  else delete next.reactions;
+  return sameValue(next, local) ? local : next;
 }
 
 function attachedTo(endpoint, nodeIds) {
@@ -100,9 +125,13 @@ export function mergeCanvasStates(base, local, remote) {
   // A node deleted on one side drops connectors attached to it on the other.
   const connectors = mergeItems(base.connectors, local.connectors, remote.connectors)
     .filter((connector) => attachedTo(connector.from, nodeIds) && attachedTo(connector.to, nodeIds));
+  const tags = mergeItems(base.tags ?? [], local.tags ?? [], remote.tags ?? []);
   const unchanged = (next, prev) => next.length === prev.length && next.every((item, index) => item === prev[index]);
-  if (unchanged(nodes, local.nodes) && unchanged(connectors, local.connectors)) return local;
-  return { ...local, nodes, connectors };
+  if (unchanged(nodes, local.nodes) && unchanged(connectors, local.connectors) && unchanged(tags, local.tags ?? [])) return local;
+  const state = { ...local, nodes, connectors };
+  if (tags.length) state.tags = tags;
+  else delete state.tags;
+  return state;
 }
 
 /**

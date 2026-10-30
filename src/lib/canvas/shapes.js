@@ -14,6 +14,9 @@ const CURVE_STEPS = 24;
 /** Kind ids the format accepts for a `shape` node; known or not. */
 export const SHAPE_KIND_PATTERN = /^[a-z][a-z0-9-]{0,39}$/;
 
+/** Text typed into a shape stops at this many characters (Miro's limit). */
+export const MAX_SHAPE_TEXT = 6000;
+
 function regularPolygon(sides, w, h, rotation = -Math.PI / 2) {
   const points = [];
   for (let i = 0; i < sides; i++) {

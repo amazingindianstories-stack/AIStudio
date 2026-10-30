@@ -2,15 +2,17 @@
 
 A graph save is compared with the graph it replaces, per node and connector id, in the save's own
 transaction. The server stamps every changed object with its author and time, so a client cannot
-forge them, and appends one `board_activity` row per change. Moves are not changes (as in Miro):
-a node whose only difference is its position, frame or group, or a connector whose only difference
-is where a free end sits, keeps its stamps and records nothing.
+forge them, and appends one `board_activity` row per change. Moves and emoji votes are not changes
+(as in Miro): a node whose only difference is its position, frame, group or reactions, or a connector
+whose only difference is where a free end sits, keeps its stamps and records nothing. `textBy` names
+whoever last replaced an existing sticky's text (absent until then, so the creator wrote it), for
+sticky author labels.
 """
 from .models import BoardActivity
 from .serialization import STAMP_KEYS
 
-# Arrangement, not content: changing only these is a move.
-ARRANGEMENT_KEYS = ('x', 'y', 'parentId', 'groupId')
+# Arrangement and votes, not content: changing only these is not an edit.
+ARRANGEMENT_KEYS = ('x', 'y', 'parentId', 'groupId', 'reactions')
 SNIPPET_LENGTH = 120
 # History rows are kept this long (Miro keeps 90 days); run_scheduler prunes older ones.
 ACTIVITY_RETENTION_MS = 90 * 24 * 60 * 60 * 1000
@@ -53,11 +55,13 @@ def _stamped(items, previous, kind, actor, now, changes):
             stamps = {'createdBy': actor, 'createdAt': now, 'updatedBy': actor, 'updatedAt': now}
             changes.append(('add', item, kind))
         elif _content(old, connector) != _content(item, connector):
-            stamps = {key: old[key] for key in ('createdBy', 'createdAt') if key in old}
+            stamps = {key: old[key] for key in ('createdBy', 'createdAt', 'textBy') if key in old}
             stamps.update(updatedBy=actor, updatedAt=now)
             changes.append(('edit', item, kind))
         else:
             stamps = {key: old[key] for key in STAMP_KEYS if key in old}
+        if old is not None and item.get('type') == 'sticky' and old.get('text') != item.get('text'):
+            stamps['textBy'] = actor
         result.append({**{key: value for key, value in item.items() if key not in STAMP_KEYS}, **stamps})
     return result
 

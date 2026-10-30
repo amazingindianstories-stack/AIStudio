@@ -13,6 +13,7 @@ const TYPE_LABELS = {
   shape: "shape",
   text: "text",
   sticky: "sticky note",
+  stack: "sticky stack",
   frame: "frame",
   image: "image",
   connector: "connector",

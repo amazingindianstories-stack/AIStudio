@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useRef, } from "react";
+import dynamic from "next/dynamic";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
-import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import { AlertCircle, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { LocalDataStatus } from "@/components/LocalDataStatus";
@@ -14,11 +15,39 @@ import { DetailModal } from "@/components/DetailModal";
 import { AssetLibrary } from "@/components/AssetLibrary";
 import { PortraitGallery } from "@/components/PortraitGallery";
 import { startFreezeWatchdog, stopFreezeWatchdog } from "@/lib/freeze-watchdog";
-import { CanvasView } from "@/components/canvas/CanvasView";
 import { StudioView } from "@/components/StudioView";
 import { Toaster } from "@/components/Toaster";
 import { TextPromptDialog } from "@/components/TextPromptDialog";
 import { useDesktopLayout } from "@/lib/use-desktop-layout";
+
+function BoardPlaceholder({ children }) {
+  return <div className="grid min-w-0 flex-1 place-items-center bg-ink-900">{children}</div>;
+}
+
+/** Shown when the board's code cannot be downloaded, e.g. from a tab opened before a new deployment. */
+function BoardUnavailable() {
+  return (
+    <BoardPlaceholder>
+      <div role="alert" className="flex flex-col items-center gap-3 text-center">
+        <AlertCircle className="h-7 w-7 text-red-400/90" />
+        <p className="text-sm text-white/70">Could not open the board. Reload the page to try again.</p>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="rounded-lg bg-brand/20 px-3 py-1.5 text-sm font-semibold text-brand hover:bg-brand/30"
+        >
+          Reload
+        </button>
+      </div>
+    </BoardPlaceholder>
+  );
+}
+
+// The board and its fonts load only when the board opens.
+const CanvasView = dynamic(
+  () => import("@/components/canvas/BoardView").then((m) => m.CanvasView, () => BoardUnavailable),
+  { ssr: false, loading: () => <BoardPlaceholder /> }
+);
 
 export default function Page() {
   const loadHistory = useStore((s) => s.loadHistory);

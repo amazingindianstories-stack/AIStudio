@@ -71,6 +71,18 @@ export function validateMarks(raw, text) {
 }
 
 /**
+ * `text` and its marks cut to at most `max` UTF-16 units, never splitting a
+ * surrogate pair; ranges past the cut shrink or drop.
+ */
+export function clipRichText(text, marks, max) {
+  if (text.length <= max) return { text, marks };
+  let end = Math.max(0, max);
+  if (end > 0 && /[\uD800-\uDBFF]/.test(text[end - 1])) end -= 1;
+  const clipped = text.slice(0, end);
+  return { text: clipped, marks: validateMarks(marks ?? [], clipped) };
+}
+
+/**
  * Splits `text` at every mark boundary into display segments, each carrying
  * the formatting active over it. Overlapping same-kind marks resolve to the
  * one listed last.
@@ -126,8 +138,11 @@ const BLOCK_TAGS = new Set(["DIV", "P", "LI", "H1", "H2", "H3", "H4", "H5", "H6"
  * Reads a contentEditable subtree back into `{ text, marks }`. This is the
  * input sanitizer: only text and the six known formats survive; tags,
  * attributes, styles and links outside http/https/mailto are discarded.
+ * `onPosition(node, start, end)`, when given, hears where each text node and
+ * each line-making <br> starts and ends in the text, so callers can map
+ * offsets between the text and the DOM exactly as the text was read.
  */
-export function readRichDom(root) {
+export function readRichDom(root, onPosition) {
   let text = "";
   const runs = [];
   // Block boundaries request one line break, emitted only between content,
@@ -145,6 +160,7 @@ export function readRichDom(root) {
       const data = node.data;
       if (!data) return;
       flush();
+      onPosition?.(node, text.length, text.length + data.length);
       runs.push({ start: text.length, end: text.length + data.length, format });
       text += data;
       return;
@@ -159,11 +175,13 @@ export function readRichDom(root) {
       // <div><br></div> is the browser's empty line: it holds a line, no character.
       if (inBlock && parent.childNodes.length === 1) {
         flush();
+        onPosition?.(el, text.length, text.length);
         return;
       }
       // A trailing <br> after content in a block only keeps that line open.
       if (inBlock && el === parent.lastChild && el.previousSibling) return;
       flush();
+      onPosition?.(el, text.length, text.length + 1);
       text += "\n";
       return;
     }

@@ -24,6 +24,7 @@ import { nodeBounds } from "@/lib/canvas/geometry";
 import { Dropdown, MenuItem } from "@/components/Dropdown";
 import { BASIC_SHAPES, isShapeTool } from "@/lib/canvas/shapes";
 import { ShapeGlyph } from "./ShapeGlyph";
+import { StickyMenu } from "./StickyMenu";
 import { ACTIVE_STATUSES, useBoardAi } from "@/lib/board-ai";
 
 /**
@@ -45,6 +46,8 @@ export function CanvasToolbar({
   onAddImageClick,
   aiOpen,
   onAiClick,
+  /** World point at the middle of the view, where bulk stickies and stacks go. */
+  viewCenter,
 }
 
 ) {
@@ -109,6 +112,7 @@ export function CanvasToolbar({
             locked={toolLocked && tool === "sticky"}
             onClick={(e) => arm("sticky", e)}
           />
+          {viewCenter && <StickyMenu onStickyTool={() => setTool("sticky")} viewCenter={viewCenter} />}
           <ToolButton
             id="text"
             active={tool === "text"}

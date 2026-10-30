@@ -9,8 +9,11 @@ it is refused, so the editor sends its whole graph and no item lands at a z-posi
 rebuilds the whole graph from the stored one and saves it exactly as a full save (apps.canvas.services), so
 normalization, stamps, History and the size limit all see the resulting whole board.
 
-Each version a save makes records the ids of the objects it changed in any way (moves included), so an open
-board that is a few versions behind can fetch only those objects (`changes_since`).
+The board's tag table (`tags`) is small and travels whole: a patch carries it only when it changed, and an
+empty list removes it.
+
+Each version a save makes records the ids of the objects it changed in any way (moves included), and whether
+the tag table changed, so an open board that is a few versions behind can fetch only those (`changes_since`).
 """
 KINDS = ('nodes', 'connectors')
 ORDER_KEYS = {'nodes': 'nodeOrder', 'connectors': 'connectorOrder'}
@@ -70,19 +73,24 @@ def apply_patch(stored, patch):
         graph[kind] = _applied(stored[kind], items, added, deleted, patch.get(ORDER_KEYS[kind]))
     if 'viewport' in patch:
         graph['viewport'] = patch['viewport']
+    if 'tags' in patch:
+        if not isinstance(patch['tags'], list):
+            raise PatchError()
+        graph['tags'] = patch['tags']
     return graph
 
 
 def changed_ids(old_graph, new_graph):
     """The ids of the nodes and of the connectors that differ in any way (added, deleted, moved, edited)
-    between two normalized graphs, or None when there are more than MAX_RECORDED_IDS."""
-    result = {}
+    between two normalized graphs, with `tags: True` when the tag table differs, or None when there are more
+    than MAX_RECORDED_IDS."""
+    result = {'tags': True} if old_graph.get('tags', []) != new_graph.get('tags', []) else {}
     for kind in KINDS:
         old = {item['id']: item for item in old_graph[kind]}
         new = {item['id']: item for item in new_graph[kind]}
         result[kind] = sorted([key for key, item in new.items() if old.get(key) != item] +
                               [key for key in old if key not in new])
-    return None if sum(len(ids) for ids in result.values()) > MAX_RECORDED_IDS else result
+    return None if sum(len(result[kind]) for kind in KINDS) > MAX_RECORDED_IDS else result
 
 
 def order_hash(ids):
@@ -108,6 +116,8 @@ def changes_since(graph, records):
         items = [item for item in graph[kind] if item['id'] in ids]
         present = {item['id'] for item in items}
         result[kind] = {'upsert': items, 'delete': sorted(ids - present)}
+    if any(record.get('tags') for record in records):
+        result['tags'] = graph.get('tags', [])
     result['nodeOrderHash'] = order_hash(item['id'] for item in graph['nodes'])
     result['connectorOrderHash'] = order_hash(item['id'] for item in graph['connectors'])
     return result
