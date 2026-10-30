@@ -88,7 +88,7 @@ def board_frame(request, identifier, node_id):
 
 @node_route(['GET'])
 def frame_copies(request, identifier, node_id):
-    """Boards the caller can open that hold a synced copy of this frame."""
+    """Boards the caller can open that hold a synced copy of this frame where the caller can see it."""
     user = lookup(request)
     if user is None:
         return reply(request, {'error': 'UNAUTHENTICATED'}, 401)
@@ -102,10 +102,10 @@ def frame_copies(request, identifier, node_id):
         levels = access.roles_for(user, rows)
         copies = []
         for entry in rows:
-            if levels[str(entry['id'])] < access.READ:
+            entry_level = levels[str(entry['id'])]
+            if entry_level < access.READ:
                 continue
-            nodes = validate_state(entry['data'])['nodes']
-            for item in nodes:
+            for item in hidden.view_of(validate_state(entry['data']), entry_level)['nodes']:
                 if item.get('type') == 'synced' and item['sourceBoardId'] == identifier and item['sourceNodeId'] == node_id:
                     copies.append({'boardId': str(entry['id']), 'boardName': entry['name'], 'projectId': str(entry['project_id']), 'nodeId': item['id']})
         return reply(request, {'copies': copies})
