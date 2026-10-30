@@ -17,6 +17,9 @@ import {
   ZoomIn,
   ZoomOut,
   Sparkles,
+  Pen,
+  Highlighter,
+  Eraser,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCanvasStore, } from "@/lib/canvas-store";
@@ -25,6 +28,8 @@ import { Dropdown, MenuItem } from "@/components/Dropdown";
 import { BASIC_SHAPES, isShapeTool } from "@/lib/canvas/shapes";
 import { ShapeGlyph } from "./ShapeGlyph";
 import { StickyMenu } from "./StickyMenu";
+import { GridMenu } from "./GridMenu";
+import { NotesButton } from "./NotesPanel";
 import { ACTIVE_STATUSES, useBoardAi } from "@/lib/board-ai";
 
 /**
@@ -220,6 +225,16 @@ export function CanvasToolbar({
         <Divider />
 
         <ToolGroup>
+          <ToolButton id="pen" active={tool === "pen"} icon={Pen} label="Pen" shortcut="P" onClick={(e) => arm("pen", e)} />
+          <ToolButton id="highlighter" active={tool === "highlighter"} icon={Highlighter} label="Highlighter" shortcut="Shift+P" onClick={(e) => arm("highlighter", e)} />
+          <ToolButton id="eraser" active={tool === "eraser"} icon={Eraser} label="Eraser" shortcut="E" onClick={(e) => arm("eraser", e)} />
+        </ToolGroup>
+
+        <Divider />
+
+        <ToolGroup>
+          <GridMenu />
+          <NotesButton />
           <button
             type="button"
             className="grid h-9 w-9 cursor-pointer place-items-center rounded-lg text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white max-sm:h-8 max-sm:w-8"

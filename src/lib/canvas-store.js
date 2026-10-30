@@ -9,6 +9,7 @@ import { emptyCanvasState, validateCanvasState } from "./canvas/serialization";
 import { mergeCanvasStates, rebaseHistory, sameValue } from "./canvas/merge";
 import { boardFromChanges, buildBoardPatch } from "./canvas/patch";
 import { unstamped, withServerStamps } from "./canvas/stamps";
+import { copyOrigin, pasteDestinations, renameDuplicatedFrames, renestFrames } from "./canvas/frames";
 import {
   MAX_ZOOM,
   MIN_ZOOM,
@@ -784,6 +785,8 @@ function writeNodeText(set, get, id, text, marks, contentHeight, from) {
 // Clipboard (spec: "copy/paste within a board and across boards"). Kept as
 // a module variable, NOT store state, so it survives loadBoard()/reset().
 let clipboard = [];
+// The corner the clipboard's offsets are measured from, so pasting into frames keeps each object's place in them.
+let clipboardOrigin = { x: 0, y: 0 };
 
 export const useCanvasStore = create((set, get) => ({
   boardId: null,
@@ -1089,6 +1092,8 @@ export const useCanvasStore = create((set, get) => ({
             return newParentId !== (n.parentId ?? null) ? { ...n, parentId: newParentId } : n;
           }),
         };
+        // A dragged frame joins the smallest frame it now sits wholly inside (frames nest to any depth).
+        next = renestFrames(next, selection);
         if (selectedConnectorIds.length) {
           next = {
             ...next,
@@ -1159,7 +1164,8 @@ export const useCanvasStore = create((set, get) => ({
     mutateGraph(set, get, (present) => {
       const built = buildClones(present.nodes, selection, 20, 20, true);
       idMap = built.idMap;
-      return { ...present, nodes: [...present.nodes, ...built.clones] };
+      // A duplicated frame takes the next date in its title.
+      return { ...present, nodes: [...present.nodes, ...renameDuplicatedFrames(built.clones, built.idMap, present.nodes)] };
     });
     set({ selection: Array.from(idMap.values()), selectedConnectorIds: [] });
   },
@@ -1264,6 +1270,7 @@ export const useCanvasStore = create((set, get) => ({
     if (!selection.length) return false;
     const selSet = new Set(selection);
     clipboard = history.present.nodes.filter((n) => selSet.has(n.id)).map((n) => ({ ...n }));
+    clipboardOrigin = copyOrigin(clipboard, history.present.nodes);
     return true;
   },
 
@@ -1274,6 +1281,7 @@ export const useCanvasStore = create((set, get) => ({
     const selected = new Set(selection);
     if (selectReadOnly(get())) return false;
     clipboard = history.present.nodes.filter((node) => selected.has(node.id)).map((node) => ({ ...node }));
+    clipboardOrigin = copyOrigin(clipboard, history.present.nodes);
     get().deleteSelected();
     return true;
   },
@@ -1308,7 +1316,20 @@ export const useCanvasStore = create((set, get) => ({
     if (selectReadOnly(get())) return;
     if (!clipboard.length) return;
     let idMap = new Map();
+    const { selection } = get();
     mutateGraph(set, get, (present) => {
+      // With frames selected, one copy goes into each of them at the same offsets from the frame's corner.
+      const targets = present.nodes.filter((n) => selection.includes(n.id));
+      if (targets.length && targets.every((n) => n.type === "frame")) {
+        const ids = clipboard.map((n) => n.id);
+        const all = [];
+        for (const where of pasteDestinations(targets, clipboardOrigin)) {
+          const built = buildClones(clipboard, ids, where.dx, where.dy, false);
+          for (const clone of built.clones) all.push(clone.parentId ? clone : { ...clone, parentId: where.parentId });
+          for (const id of built.idMap.values()) idMap.set(id, id);
+        }
+        return { ...present, nodes: [...present.nodes, ...all] };
+      }
       // Cloned from the clipboard SNAPSHOT (taken at copy()-time), not from
       // the live present — edits made after copying, or the original being
       // deleted, don't affect what gets pasted, matching pre-refactor

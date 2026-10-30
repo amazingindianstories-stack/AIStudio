@@ -26,6 +26,9 @@ import { CanvasAiPanel } from "./CanvasAiPanel";
 import { useBoardAi } from "@/lib/board-ai";
 import { BoardHistoryPanel } from "./BoardHistoryPanel";
 import { ObjectInfo } from "./ObjectInfo";
+import { useOpenBoardRequests } from "@/lib/open-board";
+import { NotesPanel } from "./NotesPanel";
+import { frameSelection } from "@/lib/frame-actions";
 
 // Miro's keys: N sticky note, T text, F frame; S opens the shapes panel.
 const TOOL_SHORTCUTS = {
@@ -170,6 +173,29 @@ export function CanvasView() {
     [activeProjectId, flushSave, reset, setActiveProject]
   );
 
+  // A synced copy's "open the original" jump. In another project the board switcher picks that project's
+  // board on arrival, so the wanted board is remembered and wins over its pick.
+  const wantedBoard = useRef(null);
+  useOpenBoardRequests(
+    useCallback(
+      (target, projectId) => {
+        if (projectId && projectId !== activeProjectId) {
+          wantedBoard.current = target;
+          handleBoardProjectChange(projectId);
+        } else {
+          flushSave({ keepalive: true });
+          setBoardId(target);
+        }
+      },
+      [activeProjectId, flushSave, handleBoardProjectChange]
+    )
+  );
+  const onBoardIdChange = useCallback((id) => {
+    const wanted = wantedBoard.current;
+    wantedBoard.current = null;
+    setBoardId(wanted ?? id);
+  }, []);
+
   const placeAsset = useCallback(
     (asset) => {
       const center = surfaceRef.current?.getViewportCenterWorld() ?? { x: 0, y: 0 };
@@ -254,6 +280,11 @@ export function CanvasView() {
         e.preventDefault();
         const vp = useCanvasStore.getState().history.present.viewport;
         setViewport({ ...vp, zoom: 1 });
+        return;
+      }
+      if (mod && e.altKey && e.code === "KeyF") {
+        e.preventDefault();
+        frameSelection();
         return;
       }
       if (mod && e.key.toLowerCase() === "g") {
@@ -370,6 +401,8 @@ export function CanvasView() {
       else if (key === "h") setTool("hand");
       else if (key === "r") setTool("rect");
       else if (key === "c") setTool("connector");
+      else if (key === "p") setTool(e.shiftKey ? "highlighter" : "pen");
+      else if (key === "e") setTool("eraser");
       else if (key === "s") {
         if (!selectReadOnly(useCanvasStore.getState())) setShapesOpen(true);
       } else if (TOOL_SHORTCUTS[key]) setTool(TOOL_SHORTCUTS[key]);
@@ -470,7 +503,7 @@ export function CanvasView() {
           <BoardSwitcher
             projectId={activeProjectId}
             boardId={boardId}
-            onBoardIdChange={setBoardId}
+            onBoardIdChange={onBoardIdChange}
             onLoadingChange={setBoardsLoading}
             onEmptyChange={setNoBoards}
             reloadToken={boardsReload}
@@ -542,6 +575,7 @@ export function CanvasView() {
             viewCenter={viewCenter}
           />
         )}
+        {boardId && !noBoards && <NotesPanel />}
         {aiOpen && boardId && !readOnly && !touchViewOnly && <CanvasAiPanel boardId={boardId} leftInset={assetPanelWidth} onClose={() => setAiOpen(false)} />}
       </div>
 

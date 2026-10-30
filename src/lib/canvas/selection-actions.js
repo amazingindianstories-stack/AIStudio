@@ -28,6 +28,7 @@ export function selectionActions(
     canDelete: hasNodeSelection || hasConnectorSelection,
     canReorder: hasNodeSelection,
     canGroup: selection.length >= 2 && !allShareOneGroup(selectedNodes),
+    canFrame: hasNodeSelection,
     canUngroup: selectedNodes.some((n) => n.groupId != null),
   };
 }

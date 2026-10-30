@@ -10,6 +10,9 @@ import { StickyNode } from "./StickyNode";
 import { StackNode } from "./StackNode";
 import { FrameNode } from "./FrameNode";
 import { ImageNode } from "./ImageNode";
+import { InkNode } from "./InkNode";
+import { GridNode } from "./GridNode";
+import { SyncedNode } from "./SyncedNode";
 
 ;
 
@@ -61,8 +64,8 @@ export function NodeView({
   const [hovered, setHovered] = useState(false);
   const editing = editingTextId === node.id;
   const showConnectionHandles =
-    !readOnly && !viewOnly && tool === "select" && hovered && !dragging && !editing;
-  const pathShape = node.type === "shape";
+    !readOnly && !viewOnly && tool === "select" && hovered && !dragging && !editing && node.type !== "ink" && node.type !== "synced";
+  const pathShape = node.type === "shape" || node.type === "ink";
   // A text box being edited grows with its text (the commit stores that height), so the
   // selection ring and handles stay around every line.
   const growing = editing && node.type === "text";
@@ -144,6 +147,12 @@ export function NodeView({
                 onLabelDoubleClick={(e) => onDoubleClickBody(e, node)}
               />
             );
+          case "ink":
+            return <InkNode node={node} />;
+          case "grid":
+            return <GridNode node={node} selected={showRing} readOnly={readOnly || viewOnly} />;
+          case "synced":
+            return <SyncedNode node={node} />;
           case "image":
             return <ImageNode node={node} cropMode={cropMode} cropDraft={cropDraft} onCropChange={onCropChange} onApplyCrop={onApplyCrop} onCancelCrop={onCancelCrop} onResetCrop={onResetCrop} />;
         }

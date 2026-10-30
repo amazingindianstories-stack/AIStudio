@@ -10,6 +10,7 @@ import {
   BringToFront,
   SendToBack,
   Group,
+  Frame,
   Ungroup,
   Trash2,
   Scissors,
@@ -146,6 +147,14 @@ export function CanvasContextMenu({
             <span className="flex-1">Send to Back</span>
             <span className="ml-auto pl-6 text-xs text-white/40">⌘⇧[</span>
           </MenuItem>
+
+          {flags.canFrame && (
+            <MenuItem onClick={() => onAction("frame")}>
+              <Frame className="h-4 w-4 text-white/50" />
+              <span className="flex-1">Create frame around selection</span>
+              <span className="ml-auto pl-6 text-xs text-white/40">⌘⌥F</span>
+            </MenuItem>
+          )}
 
           {showGroupBlock && <div className="my-1 h-px bg-line" />}
           {flags.canGroup && (
