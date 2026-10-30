@@ -14,6 +14,7 @@
 | [features/board-roles.md](features/board-roles.md) | Board and project roles, the effective-role rule, the share dialog and read-only boards |
 | [features/board-history.md](features/board-history.md) | Board History (the server-side save diff, `board_activity`, its read route and panel) and object info stamps |
 | [features/board-shapes-rich-text.md](features/board-shapes-rich-text.md) | Board path shapes and the shapes panel, rich-text marks, their format v1 fields and sanitizing |
+| [features/board-navigation-presenting.md](features/board-navigation-presenting.md) | Board find and replace, frames panel and presenting (`frameOrder`, `notes`), command palette, shortcut registry, accessibility tools, copy as text or image, object links and recent boards |
 | [operations/status.md](operations/status.md) | Current production state, incidents, owner approval gates and open items |
 | [operations/release-runbook.md](operations/release-runbook.md) | Release gates, staging and rolling a backend commit to Railway, rollback |
 | [operations/managed-portraits.md](operations/managed-portraits.md) | Rollout and rollback of the automatic BytePlus portrait pool |
