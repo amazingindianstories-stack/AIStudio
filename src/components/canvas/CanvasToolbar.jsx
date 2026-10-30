@@ -29,6 +29,7 @@ import { ShapeGlyph } from "./ShapeGlyph";
 import { ShapesPanel } from "./ShapesPanel";
 import { StickyMenu } from "./StickyMenu";
 import { GridMenu } from "./GridMenu";
+import { SyncedMenu } from "./SyncedMenu";
 import { NotesButton } from "./NotesPanel";
 import { ACTIVE_STATUSES, useBoardAi } from "@/lib/board-ai";
 
@@ -39,6 +40,8 @@ import { ACTIVE_STATUSES, useBoardAi } from "@/lib/board-ai";
  * dedicated component for the zoom control.
  */
 export function CanvasToolbar({
+  projectId,
+  boardId,
   readOnly = false,
   /** Touch view-only mode: the board pans and zooms but shows no creation tools. */
   viewOnly = false,
@@ -195,6 +198,7 @@ export function CanvasToolbar({
 
         <ToolGroup>
           <GridMenu />
+          {projectId && boardId && <SyncedMenu projectId={projectId} boardId={boardId} />}
           <NotesButton />
           <button
             type="button"

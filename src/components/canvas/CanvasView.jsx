@@ -564,6 +564,8 @@ export function CanvasView() {
         </div>
         {!noBoards && (
           <CanvasToolbar
+            projectId={activeProjectId}
+            boardId={boardId}
             readOnly={readOnly}
             viewOnly={touchViewOnly}
             insetLeft={narrow ? 0 : assetPanelWidth}
