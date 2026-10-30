@@ -36,7 +36,7 @@ import {
   resolveEndpoint,
 } from "./geometry.js";
 import { validateCanvasState } from "./serialization.js";
-import { cullBoard, hiddenDiagramLayerNodeIds } from "./culling.js";
+import { cullBoard, hiddenBoardIds, hiddenDiagramLayerNodeIds } from "./culling.js";
 
 test("Shape packs catalogue: includes Flowchart, Callouts, Diagram, UML, BPMN, DFD, VSM, Cloud, Electrical, Process", () => {
   const packIds = SHAPE_PACKS.map((p) => p.id);
@@ -262,6 +262,53 @@ test("Diagram layers: culling hides nodes on hidden diagram layers and their con
   assert.equal(culled.connectors.length, 0);
 });
 
+const box = (id, extra = {}) => ({ id, type: "rect", x: 0, y: 0, w: 40, h: 40, parentId: null, groupId: null, ...extra });
+const diagram = (id, x, layers) => ({ ...box(id), type: "diagram", x, w: 400, h: 400, layers, containers: [] });
+
+test("Diagram layers: a hidden layer hides only the nodes of its own diagram", () => {
+  const nodes = [
+    diagram("diag-a", 0, [{ id: "layer-main", name: "Main", visible: false }]),
+    diagram("diag-b", 500, [{ id: "layer-main", name: "Main", visible: true }]),
+    box("in-a", { parentId: "diag-a", diagramLayerId: "layer-main" }),
+    box("group", { type: "frame", parentId: "diag-a" }),
+    box("nested-a", { parentId: "group", diagramLayerId: "layer-main" }),
+    box("in-b", { x: 520, parentId: "diag-b", diagramLayerId: "layer-main" }),
+    box("loose", { x: 950, diagramLayerId: "layer-main" }),
+  ];
+  assert.deepEqual([...hiddenDiagramLayerNodeIds(nodes)].sort(), ["in-a", "nested-a"]);
+});
+
+test("Focus mode hides every node and connector outside the focused diagram", () => {
+  const graph = {
+    nodes: [
+      diagram("diag-a", 0, []),
+      box("in-a", { x: 20, y: 20, parentId: "diag-a" }),
+      box("in-a-2", { x: 200, y: 200, parentId: "diag-a" }),
+      diagram("diag-b", 500, []),
+      box("in-b", { x: 520, parentId: "diag-b" }),
+      box("loose", { x: 950 }),
+    ],
+    connectors: [
+      { id: "inside", from: { nodeId: "in-a", anchor: "right" }, to: { nodeId: "in-a-2", anchor: "left" } },
+      { id: "across", from: { nodeId: "in-a", anchor: "right" }, to: { nodeId: "in-b", anchor: "left" } },
+      { id: "free-in", from: { nodeId: "in-a", anchor: "right" }, to: { x: 300, y: 300 } },
+      { id: "free-out", from: { nodeId: "in-a", anchor: "right" }, to: { x: 450, y: 50 } },
+    ],
+  };
+  const focused = hiddenBoardIds(graph, "diag-a");
+  assert.deepEqual([...focused.nodes].sort(), ["diag-b", "in-b", "loose"]);
+  assert.deepEqual([...focused.connectors].sort(), ["across", "free-out"]);
+
+  const culled = cullBoard(graph, Object.fromEntries(graph.nodes.map((n) => [n.id, n])), { x: 0, y: 0, zoom: 1 }, { w: 2000, h: 1000 }, {}, focused);
+  assert.deepEqual(culled.nodes.map((n) => n.id), ["diag-a", "in-a", "in-a-2"]);
+  assert.deepEqual(culled.connectors.map((c) => c.id), ["inside", "free-in"]);
+
+  for (const missing of [null, "in-a", "nope"]) {
+    const none = hiddenBoardIds(graph, missing);
+    assert.equal(none.nodes.size + none.connectors.size, 0, String(missing));
+  }
+});
+
 test("Connector routing: Shift angle snap, orthogonal obstacle avoidance, line jumps, labels, tangents", () => {
   // 1. Shift angle snap (0, 45, 90 degrees)
   const snappedHoriz = snapPointToAngle({ x: 0, y: 0 }, { x: 100, y: 12 });
@@ -356,6 +403,8 @@ test("Serialization round-trip: ERD, Swimlane, Diagram, Callout tail, and Connec
         stroke: "#6366f1",
         strokeWidth: 2,
         strokeStyle: "dashed",
+        headerFill: "#312e81",
+        color: "#f4f4f5",
         columns: 3,
         rows: [{ id: "r1", cells: ["PK", "id", "uuid"] }],
         parentId: null,
@@ -373,7 +422,9 @@ test("Serialization round-trip: ERD, Swimlane, Diagram, Callout tail, and Connec
         fill: "#18181b",
         stroke: "#52525b",
         strokeWidth: 2,
-        lanes: [{ id: "l1", title: "Customer", size: 180 }],
+        headerFill: "#3f3f46",
+        color: "#fafafa",
+        lanes: [{ id: "l1", name: "Customer", size: 180 }],
         parentId: null,
         groupId: null,
       },
@@ -388,8 +439,10 @@ test("Serialization round-trip: ERD, Swimlane, Diagram, Callout tail, and Connec
         fill: "#0f172a",
         stroke: "#6366f1",
         strokeWidth: 2,
+        headerFill: "#1e1b4b",
+        color: "#e0e7ff",
         layers: [{ id: "layer-1", name: "Core", visible: true }],
-        containers: [{ id: "sub-1", title: "Sub", x: 20, y: 60, w: 200, h: 120 }],
+        containers: [{ id: "sub-1", name: "Sub", x: 20, y: 60, w: 200, h: 120, layerId: "layer-1" }],
         parentId: null,
         groupId: null,
       },
@@ -425,8 +478,7 @@ test("Serialization round-trip: ERD, Swimlane, Diagram, Callout tail, and Connec
         startCap: "erd-only-one",
         endCap: "erd-zero-or-many",
         waypoints: [{ x: 200, y: 250 }],
-        labels: [{ id: "lbl-1", text: "1:N", t: 0.4, align: "aligned" }],
-        lineJumps: true,
+        labels: [{ id: "lbl-1", text: "1:N", position: 0.4, orientation: "aligned" }],
       },
     ],
   };
@@ -443,6 +495,11 @@ test("Serialization round-trip: ERD, Swimlane, Diagram, Callout tail, and Connec
   assert.equal(validated.connectors[0].startCap, "erd-only-one");
   assert.equal(validated.connectors[0].endCap, "erd-zero-or-many");
   assert.equal(validated.connectors[0].waypoints.length, 1);
-  assert.equal(validated.connectors[0].labels[0].text, "1:N");
-  assert.equal(validated.connectors[0].lineJumps, true);
+  assert.deepEqual(validated.connectors[0].labels, input.connectors[0].labels);
+  for (const [index, node] of input.nodes.entries()) {
+    for (const key of ["headerFill", "color", "lanes", "containers"]) {
+      if (key in node) assert.deepEqual(validated.nodes[index][key], node[key], `${node.id}.${key}`);
+    }
+  }
+  assert.deepEqual(validateCanvasState(validated), validated);
 });

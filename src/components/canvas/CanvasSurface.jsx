@@ -31,7 +31,7 @@ import {
   screenToWorld,
 } from "@/lib/canvas/geometry";
 import { snapPointToAngle } from "@/lib/canvas/connector-routing";
-import { getCustomShapeByTool, isCreateTool, shapeKindOfTool } from "@/lib/canvas/shapes";
+import { ensureShapePacksLoaded, getCustomShapeByTool, isCreateTool, isKnownShapeKind, shapeKindOfTool } from "@/lib/canvas/shapes";
 import { getDiagramTheme } from "@/lib/canvas/diagram-themes";
 import {
   LONG_PRESS_MS,
@@ -45,7 +45,7 @@ import {
   swipeZoomViewport,
 } from "@/lib/canvas/touch-gestures";
 import { selectionActions } from "@/lib/canvas/selection-actions";
-import { cullBoard } from "@/lib/canvas/culling";
+import { cullBoard, hiddenBoardIds } from "@/lib/canvas/culling";
 import { withLastStyle } from "@/lib/canvas/styles";
 import { currentUserId, takeStickyFromStack } from "@/lib/canvas/sticky-actions";
 import { markSystemClipboard } from "@/lib/canvas/use-board-clipboard";
@@ -106,7 +106,7 @@ function buildBaseNode(tool, center) {
       type: "shape",
       shape: "custom",
       shapeName: custom?.name || "Custom Shape",
-      svg: custom?.svg || '<rect x="10" y="10" width="80" height="80"/>',
+      svg: custom?.svg || '<rect x="10" y="10" width="80" height="80" />',
       svgViewBox: custom?.viewBox || "0 0 100 100",
       x: center.x - 70,
       y: center.y - 70,
@@ -183,8 +183,8 @@ function buildBaseNode(tool, center) {
         headerFill: theme.id === "default" ? "rgba(63, 63, 70, 0.55)" : theme.headerFill,
         color: theme.id === "default" ? "#f4f4f5" : theme.color,
         lanes: [
-          { id: "lane-1", title: "Lane 1", size: 160 },
-          { id: "lane-2", title: "Lane 2", size: 160 },
+          { id: "lane-1", name: "Lane 1", size: 160 },
+          { id: "lane-2", name: "Lane 2", size: 160 },
         ],
       };
     }
@@ -314,6 +314,12 @@ export const CanvasSurface = forwardRef
     }
     return counts;
   }, [displayState.nodes]);
+  const hidden = useMemo(() => hiddenBoardIds(displayState, focusedDiagramId), [displayState, focusedDiagramId]);
+  // Pointer hit tests and the marquee only reach objects the board shows.
+  const pickable = useMemo(
+    () => (hidden.nodes.size ? { ...present, nodes: present.nodes.filter((n) => !hidden.nodes.has(n.id)) } : present),
+    [present, hidden]
+  );
   // Large boards hold thousands of objects: mount only those near the viewport (see cullBoard),
   // so panning stays smooth and off-screen media never loads.
   const { nodes: renderedNodes, connectors: renderedConnectors } = useMemo(
@@ -321,9 +327,26 @@ export const CanvasSurface = forwardRef
       cullBoard(displayState, nodesById, viewport, size, {
         nodeIds: [...selection, editingTextId, croppingImageId, connectorHoverTargetId].filter(Boolean),
         connectorIds: selectedConnectorIds,
-      }),
-    [displayState, nodesById, viewport, size, selection, editingTextId, croppingImageId, connectorHoverTargetId, selectedConnectorIds]
+      }, hidden),
+    [displayState, nodesById, viewport, size, selection, editingTextId, croppingImageId, connectorHoverTargetId, selectedConnectorIds, hidden]
   );
+  // Pack shape outlines load lazily; a board that holds pack kinds loads them on open and on
+  // remote changes, then draws again with the real outlines.
+  const [, setShapePacksReady] = useState(false);
+  const needsShapePacks = useMemo(
+    () => displayState.nodes.some((n) => n.type === "shape" && n.shape !== "custom" && !isKnownShapeKind(n.shape)),
+    [displayState.nodes]
+  );
+  useEffect(() => {
+    if (!needsShapePacks) return;
+    let active = true;
+    ensureShapePacksLoaded().then(() => {
+      if (active) setShapePacksReady(true);
+    });
+    return () => {
+      active = false;
+    };
+  }, [needsShapePacks]);
   const selectedNodes = useMemo(() => {
     const selected = new Set(selection);
     return displayState.nodes.filter((n) => selected.has(n.id));
@@ -497,7 +520,7 @@ export const CanvasSurface = forwardRef
       // A double tap on text opens it for typing and on an image opens its
       // crop, like a mouse double click; while viewing it switches to Edit first.
       const nodeId =
-        e.target.closest?.("[data-node-id]")?.getAttribute("data-node-id") ?? hitTest(present, screenToWorld(screen, viewport));
+        e.target.closest?.("[data-node-id]")?.getAttribute("data-node-id") ?? hitTest(pickable, screenToWorld(screen, viewport));
       const node = nodeId ? present.nodes.find((n) => n.id === nodeId) : null;
       const action = doubleTapAction(node, { viewOnly: touchViewOnly, readOnly });
       if (action !== "zoom") {
@@ -796,7 +819,7 @@ export const CanvasSurface = forwardRef
     if (readOnly || touchViewOnly || touchRef.current.lastPointerType === "touch") return;
     const screen = toScreenLocal(e.clientX, e.clientY);
     const worldPoint = screenToWorld(screen, viewport);
-    const nodeId = hitTest(present, worldPoint);
+    const nodeId = hitTest(pickable, worldPoint);
     if (nodeId) {
       if (!selection.includes(nodeId)) setSelection([nodeId]);
     } else {
@@ -978,7 +1001,7 @@ export const CanvasSurface = forwardRef
       let worldPoint = screenToWorld(screen, viewport);
       const fromPt = draftConnector?.fromPoint ?? drag.startWorld;
       const disableSnap = e.metaKey || e.ctrlKey;
-      const target = disableSnap ? null : hitTest(present, worldPoint);
+      const target = disableSnap ? null : hitTest(pickable, worldPoint);
       if (e.shiftKey && !target) {
         worldPoint = snapPointToAngle(fromPt, worldPoint);
         drag.shiftStraight = true;
@@ -999,7 +1022,7 @@ export const CanvasSurface = forwardRef
     if (drag.kind === "connector-endpoint" && drag.endpointConnectorId && drag.endpointEnd) {
       let worldPoint = screenToWorld(screen, viewport);
       const disableSnap = e.metaKey || e.ctrlKey;
-      const target = disableSnap ? null : hitTest(present, worldPoint);
+      const target = disableSnap ? null : hitTest(pickable, worldPoint);
       if (e.shiftKey && !target) {
         const conn = present.connectors.find((c) => c.id === drag.endpointConnectorId);
         if (conn) {
@@ -1034,15 +1057,15 @@ export const CanvasSurface = forwardRef
       const worldPoint = screenToWorld(screen, viewport);
       const conn = present.connectors.find((c) => c.id === drag.connectorId);
       if (!conn) return;
-      const t = connectorNearestT(conn, nodesById, worldPoint);
-      upsertConnectorLabel(drag.connectorId, { id: drag.labelId, t }, { coalesce: true });
+      const position = connectorNearestT(conn, nodesById, worldPoint);
+      upsertConnectorLabel(drag.connectorId, { id: drag.labelId, position }, { coalesce: true });
       return;
     }
 
     if (drag.kind === "callout-tail" && drag.calloutNodeId) {
       const worldPoint = screenToWorld(screen, viewport);
       const disableSnap = e.metaKey || e.ctrlKey;
-      const target = disableSnap ? null : hitTest(present, worldPoint);
+      const target = disableSnap ? null : hitTest(pickable, worldPoint);
       const validTarget = target && target !== drag.calloutNodeId ? target : null;
       setConnectorHoverTargetId(validTarget);
       const tail = validTarget
@@ -1070,7 +1093,7 @@ export const CanvasSurface = forwardRef
             w: Math.abs(w2.x - w1.x),
             h: Math.abs(w2.y - w1.y),
           };
-          const hits = marqueeHits(present, rect);
+          const hits = marqueeHits(pickable, rect);
           if (hits.length) setSelection(Array.from(new Set([...selection, ...hits])));
         }
       }
@@ -1396,8 +1419,8 @@ export const CanvasSurface = forwardRef
                   upsertConnectorLabel(connId, {
                     id: `lbl-${crypto.randomUUID().slice(0, 8)}`,
                     text: "Label",
-                    t: 0.5,
-                    align: "horizontal",
+                    position: 0.5,
+                    orientation: "horizontal",
                   })
           }
           onConnectorContextMenu={onConnectorContextMenu}

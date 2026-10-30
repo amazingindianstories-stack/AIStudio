@@ -6,7 +6,6 @@ import {
   curvedWaypointsPath,
   nearestTOnPolyline,
   pointAtPolyline,
-  polylineEndTangents,
   polylineToPathWithJumps,
   snapPointToAngle,
 } from "./connector-routing";
@@ -354,10 +353,14 @@ export function connectorNearestT(c, nodesById, worldPoint) {
 }
 
 /**
- * Start and end tangent angles (radians) for connector `c`.
+ * Connector `c`'s polyline `points` and SVG path `d`, from one routing pass:
+ * orthogonal routing scans the board, so a renderer derives labels, caps and
+ * the midpoint from `points` rather than routing again.
  */
-export function connectorEndTangents(c, nodesById) {
-  return polylineEndTangents(connectorPoints(c, nodesById));
+export function connectorGeometry(c, nodesById, earlierSegments = []) {
+  const { from, to } = resolveConnectorEnds(c, nodesById);
+  const points = connectorPolyline(c, from, to, nodesById);
+  return { points, d: connectorPathFrom(c, from, to, points, earlierSegments) };
 }
 
 /** SVG path `d` for a connector, resolving "auto" anchors against each
@@ -369,14 +372,15 @@ export function connectorPath(
   nodesById,
   earlierSegments = []
 ) {
-  const { from, to } = resolveConnectorEnds(c, nodesById);
+  return connectorGeometry(c, nodesById, earlierSegments).d;
+}
+
+function connectorPathFrom(c, from, to, points, earlierSegments) {
   const shape = c.shape ?? "curved";
   const waypoints = Array.isArray(c.waypoints) && c.waypoints.length > 0 ? c.waypoints : null;
 
   if (shape === "straight" || shape === "orthogonal") {
-    const pts = connectorPolyline(c, from, to, nodesById);
-    const jumps = c.lineJumps === false ? [] : earlierSegments;
-    return polylineToPathWithJumps(pts, jumps);
+    return polylineToPathWithJumps(points, earlierSegments);
   }
 
   if (waypoints) {

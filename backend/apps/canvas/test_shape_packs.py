@@ -1,10 +1,11 @@
 """Custom SVG shape packs: sanitized on upload, owned by their creator, optionally shared with the team."""
 import json
 from uuid import uuid4
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from apps.authentication.models import User
 from apps.authentication.session import sign_session
 from .models import CustomShapePack
+from .serialization import validate_state
 from .svg_sanitize import MAX_SHAPES_PER_PACK, sanitize_svg
 
 VALVE = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M0 0 L24 24" fill="none" stroke="#000"/></svg>'
@@ -43,6 +44,27 @@ class SanitizeSvgTests(TestCase):
                     '<svg xmlns="http://www.w3.org/2000/svg"><rect width="1" height="1"/>' + ' ' * (50 * 1024) + '</svg>'):
             with self.assertRaises(ValueError, msg=repr(raw)[:40]):
                 sanitize_svg(raw)
+
+
+class BoardCustomShapeTests(SimpleTestCase):
+    def saved_svg(self, svg):
+        node = {'id': 'c-1', 'type': 'shape', 'shape': 'custom', 'x': 0, 'y': 0, 'w': 100, 'h': 100, 'parentId': None,
+                'groupId': None, 'fill': '#fff', 'stroke': '#000', 'strokeWidth': 2, 'svg': svg, 'svgViewBox': '0 0 24 24'}
+        return validate_state({'nodes': [node], 'connectors': [], 'viewport': {'x': 0, 'y': 0, 'zoom': 1}})['nodes'][0].get('svg')
+
+    def test_a_saved_board_stores_the_sanitized_markup(self):
+        self.assertEqual(self.saved_svg(VALVE), sanitize_svg(VALVE)[0])
+        dirty = ('<p><base href="https://x.invalid/"/></p><rect width="5" height="5" onload="alert(1)"/>'
+                 '<use href="#a"/><SCRIPT>alert(1)</SCRIPT>')
+        clean = self.saved_svg(dirty)
+        self.assertIn('<rect', clean)
+        for bad in ('base', 'x.invalid', 'onload', 'alert', 'use', 'SCRIPT', '<p'):
+            self.assertNotIn(bad, clean)
+        self.assertEqual(self.saved_svg(clean), clean)
+
+    def test_markup_with_nothing_drawable_is_dropped(self):
+        for raw in ('<script>alert(1)</script>', '<!DOCTYPE x [<!ENTITY a "b">]><rect/>', ''):
+            self.assertIsNone(self.saved_svg(raw), raw)
 
 
 @override_settings(ROOT_URLCONF='config.urls')

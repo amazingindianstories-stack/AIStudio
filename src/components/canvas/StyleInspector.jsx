@@ -565,8 +565,8 @@ function SingleConnectorActions({
             onAddOrUpdateLabel({
               id: `lbl-${crypto.randomUUID().slice(0, 8)}`,
               text: "Label",
-              t: 0.5,
-              align: "horizontal",
+              position: 0.5,
+              orientation: "horizontal",
             })
           }
           className="h-7 rounded-lg border border-line bg-ink-800 px-2 text-[10px] font-medium text-white/80 hover:bg-white/10 hover:text-white"
@@ -586,16 +586,16 @@ function SingleConnectorActions({
           <button
             type="button"
             aria-label="Toggle line label orientation"
-            title={primary.align === "aligned" ? "Aligned with line" : "Horizontal label"}
+            title={primary.orientation === "aligned" ? "Aligned with line" : "Horizontal label"}
             onClick={() =>
               onAddOrUpdateLabel({
                 ...primary,
-                align: primary.align === "aligned" ? "horizontal" : "aligned",
+                orientation: primary.orientation === "aligned" ? "horizontal" : "aligned",
               })
             }
             className="rounded bg-white/10 px-1.5 py-0.5 text-[9px] text-white/80 hover:bg-white/20"
           >
-            {primary.align === "aligned" ? "Aligned" : "Horiz"}
+            {primary.orientation === "aligned" ? "Aligned" : "Horiz"}
           </button>
           <button
             type="button"
@@ -605,8 +605,8 @@ function SingleConnectorActions({
               onAddOrUpdateLabel({
                 id: `lbl-${crypto.randomUUID().slice(0, 8)}`,
                 text: `Label ${labels.length + 1}`,
-                t: Math.min(0.85, 0.25 + labels.length * 0.25),
-                align: "horizontal",
+                position: Math.min(0.85, 0.25 + labels.length * 0.25),
+                orientation: "horizontal",
               })
             }
             className="rounded bg-white/10 px-1 py-0.5 text-[10px] text-white/80 hover:bg-white/20"

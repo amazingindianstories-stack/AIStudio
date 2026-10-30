@@ -12,15 +12,15 @@ export function SwimlaneNode({ node, selected, readOnly }) {
   const lanes = Array.isArray(node.lanes) && node.lanes.length > 0
     ? node.lanes
     : [
-        { id: "lane-1", title: "Lane 1", size: 160 },
-        { id: "lane-2", title: "Lane 2", size: 160 },
+        { id: "lane-1", name: "Lane 1", size: 160 },
+        { id: "lane-2", name: "Lane 2", size: 160 },
       ];
 
   const totalSize = lanes.reduce((acc, l) => acc + (l.size || 160), 0);
 
-  const renameLane = (idx, title) => {
+  const renameLane = (idx, name) => {
     if (readOnly) return;
-    const nextLanes = lanes.map((l, i) => (i === idx ? { ...l, title } : l));
+    const nextLanes = lanes.map((l, i) => (i === idx ? { ...l, name } : l));
     updateNodeFields(node.id, { lanes: nextLanes });
   };
 
@@ -30,7 +30,7 @@ export function SwimlaneNode({ node, selected, readOnly }) {
     const defaultSize = 150;
     const nextLanes = [
       ...lanes,
-      { id: `lane-${crypto.randomUUID().slice(0, 8)}`, title: `Lane ${lanes.length + 1}`, size: defaultSize },
+      { id: `lane-${crypto.randomUUID().slice(0, 8)}`, name: `Lane ${lanes.length + 1}`, size: defaultSize },
     ];
     if (orientation === "horizontal") {
       updateNodeFields(node.id, { lanes: nextLanes, h: node.h + defaultSize });
@@ -188,13 +188,13 @@ export function SwimlaneNode({ node, selected, readOnly }) {
                   <input
                     type="text"
                     aria-label={`Lane ${idx + 1} title`}
-                    value={lane.title ?? `Lane ${idx + 1}`}
+                    value={lane.name ?? `Lane ${idx + 1}`}
                     onChange={(e) => renameLane(idx, e.target.value)}
                     onPointerDown={(e) => e.stopPropagation()}
                     className="w-full bg-transparent text-[11px] font-medium outline-none"
                   />
                 ) : (
-                  <span className="truncate">{lane.title || `Lane ${idx + 1}`}</span>
+                  <span className="truncate">{lane.name || `Lane ${idx + 1}`}</span>
                 )}
 
                 {selected && !readOnly && (

@@ -38,13 +38,11 @@ export function DiagramNode({ node, selected, readOnly }) {
       ...containers,
       {
         id: `sub-${crypto.randomUUID().slice(0, 8)}`,
-        title: `Sub-container ${containers.length + 1}`,
+        name: `Sub-container ${containers.length + 1}`,
         x: 28 + offset,
         y: 64 + offset,
         w: Math.min(220, Math.max(120, node.w - 64)),
         h: Math.min(140, Math.max(90, node.h - 96)),
-        fill: "rgba(99, 102, 241, 0.08)",
-        stroke: node.stroke || "#6366f1",
       },
     ];
     updateNodeFields(node.id, { containers: nextContainers });
@@ -68,7 +66,7 @@ export function DiagramNode({ node, selected, readOnly }) {
       <div
         className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-1.5 text-xs"
         style={{
-          backgroundColor: "rgba(15, 23, 42, 0.75)",
+          backgroundColor: node.headerFill || "rgba(15, 23, 42, 0.75)",
           borderColor: node.stroke || "#6366f1",
         }}
       >
@@ -163,11 +161,11 @@ export function DiagramNode({ node, selected, readOnly }) {
               top: sub.y - 36,
               width: sub.w,
               height: sub.h,
-              backgroundColor: sub.fill || "rgba(99, 102, 241, 0.08)",
-              borderColor: sub.stroke || "#6366f1",
+              backgroundColor: "rgba(99, 102, 241, 0.08)",
+              borderColor: node.stroke || "#6366f1",
             }}
           >
-            <span className="font-medium">{sub.title}</span>
+            <span className="font-medium">{sub.name}</span>
           </div>
         ))}
       </div>

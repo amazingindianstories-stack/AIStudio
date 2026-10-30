@@ -3,6 +3,8 @@ import json
 import math
 import re
 
+from .svg_sanitize import sanitize_svg
+
 NODE_TYPES = {'rect', 'ellipse', 'triangle', 'diamond', 'shape', 'text', 'sticky', 'stack', 'frame', 'image', 'erd', 'swimlane', 'diagram'}
 SHAPE_TYPES = ('rect', 'ellipse', 'triangle', 'diamond', 'shape')
 # Mirrors src/lib/canvas/shapes.js and src/lib/canvas/rich-text.js.
@@ -31,7 +33,6 @@ CONNECTOR_SHAPES = {'curved', 'straight', 'orthogonal'}
 CONNECTOR_CAPS = {'none', 'arrow', 'open-arrow', 'diamond', 'filled-diamond', 'circle',
                   'erd-one', 'erd-many', 'erd-only-one', 'erd-zero-or-one', 'erd-one-or-many', 'erd-zero-or-many'}
 VIEWBOX_RE = re.compile(r'-?\d+(?:\.\d+)?(?:\s+-?\d+(?:\.\d+)?){3}')
-UNSAFE_SVG_RE = re.compile(r'<\s*(?:script|foreignobject|iframe|object|embed|image|use|style|a)\b|on[a-z]+\s*=|javascript:|data:|<!(?:doctype|entity)', re.IGNORECASE)
 MAX_CUSTOM_SVG_UNITS = 51200
 
 
@@ -39,8 +40,21 @@ def valid_anchor(value):
     return isinstance(value, str) and (value in ANCHORS or bool(ROW_ANCHOR.fullmatch(value)))
 
 
-def safe_custom_svg(svg):
-    return isinstance(svg, str) and 0 < len(svg) <= MAX_CUSTOM_SVG_UNITS and not UNSAFE_SVG_RE.search(svg)
+def sanitized_custom_svg(svg):
+    if not isinstance(svg, str) or not 0 < len(svg) <= MAX_CUSTOM_SVG_UNITS:
+        return None
+    try:
+        return sanitize_svg(svg)[0]
+    except ValueError:
+        return None
+
+
+def with_structured_theme(result, r):
+    if r.get('strokeStyle') in STROKE_STYLES:
+        result['strokeStyle'] = r['strokeStyle']
+    for key in ('headerFill', 'color'):
+        if isinstance(r.get(key), str):
+            result[key] = r[key]
 # The editor's JSON.stringify(data).length limit for a saved graph, in UTF-16 units, not counting the
 # server stamps (content_length).
 MAX_BOARD_JSON_UNITS = 2 * 1024 * 1024
@@ -226,8 +240,9 @@ def node(raw):
                     result['tail'] = {'nodeId': tail['nodeId'], 'anchor': tail['anchor'] if valid_anchor(tail.get('anchor')) else 'auto'}
                 elif finite(tail.get('x')) and finite(tail.get('y')):
                     result['tail'] = {'x': tail['x'], 'y': tail['y']}
-            if safe_custom_svg(r.get('svg')):
-                result['svg'] = r['svg']
+            svg = sanitized_custom_svg(r.get('svg'))
+            if svg:
+                result['svg'] = svg
                 vb = r.get('svgViewBox')
                 if isinstance(vb, str) and len(vb) <= 64 and VIEWBOX_RE.fullmatch(vb):
                     result['svgViewBox'] = vb
@@ -289,10 +304,7 @@ def node(raw):
         result.update(name=string(r.get('name'), 'Entity'), columns=cols, rows=rows,
                       fill=string(r.get('fill'), '#18181f'), stroke=string(r.get('stroke'), '#6f9bd1'),
                       strokeWidth=num(r.get('strokeWidth'), 2))
-        if r.get('strokeStyle') in STROKE_STYLES:
-            result['strokeStyle'] = r['strokeStyle']
-        if isinstance(r.get('color'), str):
-            result['color'] = r['color']
+        with_structured_theme(result, r)
     elif kind == 'swimlane':
         orientation = 'vertical' if r.get('orientation') == 'vertical' else 'horizontal'
         raw_lanes = r.get('lanes') if isinstance(r.get('lanes'), list) else []
@@ -306,8 +318,7 @@ def node(raw):
         result.update(name=string(r.get('name'), 'Pool'), orientation=orientation, lanes=lanes,
                       fill=string(r.get('fill'), 'transparent'), stroke=string(r.get('stroke'), '#6b7280'),
                       strokeWidth=num(r.get('strokeWidth'), 2))
-        if r.get('strokeStyle') in STROKE_STYLES:
-            result['strokeStyle'] = r['strokeStyle']
+        with_structured_theme(result, r)
     elif kind == 'diagram':
         raw_layers = r.get('layers') if isinstance(r.get('layers'), list) else []
         layers = []
@@ -320,8 +331,7 @@ def node(raw):
         result.update(name=string(r.get('name'), 'Diagram'), layers=layers,
                       fill=string(r.get('fill'), 'rgba(15,23,42,0.45)'), stroke=string(r.get('stroke'), '#6f9bd1'),
                       strokeWidth=num(r.get('strokeWidth'), 2))
-        if r.get('strokeStyle') in STROKE_STYLES:
-            result['strokeStyle'] = r['strokeStyle']
+        with_structured_theme(result, r)
         if isinstance(r.get('containers'), list):
             containers = []
             for c in r['containers'][:50]:
@@ -374,8 +384,6 @@ def connector(raw, identifiers):
         result['startCap'] = r['startCap']
     if r.get('endCap') in CONNECTOR_CAPS:
         result['endCap'] = r['endCap']
-    if isinstance(r.get('lineJumps'), bool):
-        result['lineJumps'] = r['lineJumps']
     if isinstance(r.get('waypoints'), list):
         waypoints = [{'x': pt['x'], 'y': pt['y']} for pt in r['waypoints'][:64]
                      if isinstance(pt, dict) and finite(pt.get('x')) and finite(pt.get('y'))]

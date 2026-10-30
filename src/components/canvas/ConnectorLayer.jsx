@@ -3,19 +3,14 @@
 import { useState } from "react";
 import { cn } from "@/lib/utils";
 
-import {
-  connectorEndTangents,
-  connectorPath,
-  connectorPointAt,
-  connectorPoints,
-  resolveEndpoint,
-} from "@/lib/canvas/geometry";
+import { connectorGeometry, resolveEndpoint } from "@/lib/canvas/geometry";
+import { pointAtPolyline, polylineEndTangents } from "@/lib/canvas/connector-routing";
 import { strokeDasharrayFor } from "./nodes/ShapeNode";
 
 /**
  * Overlaid `<svg>` living INSIDE the world-transformed layer (so it pans/
  * zooms with everything else) rendering every connector + the live marquee
- * rectangle. `connectorPath`/`resolveEndpoint` are the pure functions owned
+ * rectangle. `connectorGeometry`/`resolveEndpoint` are the pure functions owned
  * by `src/lib/canvas/geometry.js` - this component only draws what they
  * compute, in WORLD coordinates; `vector-effect="non-scaling-stroke"` keeps
  * strokes a constant on-screen width regardless of zoom.
@@ -63,8 +58,7 @@ export function ConnectorLayer({
         let d = "";
         let pts = [];
         try {
-          d = connectorPath(c, nodesById, earlierSegments);
-          pts = connectorPoints(c, nodesById);
+          ({ d, points: pts } = connectorGeometry(c, nodesById, earlierSegments));
           const shape = c.shape || "curved";
           if (shape === "straight" || shape === "orthogonal") {
             for (let i = 0; i < pts.length - 1; i++) {
@@ -77,13 +71,13 @@ export function ConnectorLayer({
         const from = safeResolve(c.from, nodesById);
         const to = safeResolve(c.to, nodesById);
         const dash = strokeDasharrayFor(c.strokeStyle, c.strokeWidth);
-        const tangents = connectorEndTangents(c, nodesById);
+        const tangents = polylineEndTangents(pts);
         const startCap = c.startCap ?? "none";
         const endCap = c.endCap ?? (c.kind === "arrow" ? "arrow" : "none");
         const useDefaultMarker = startCap === "none" && endCap === "arrow" && !c.endCap;
         const waypoints = Array.isArray(c.waypoints) ? c.waypoints : [];
         const labels = Array.isArray(c.labels) ? c.labels : [];
-        const midPt = connectorPointAt(c, nodesById, 0.5);
+        const midPt = pointAtPolyline(pts, 0.5);
 
         return (
           <g key={c.id} data-connector-id={c.id}>
@@ -154,8 +148,8 @@ export function ConnectorLayer({
 
             {/* Text labels along the connector */}
             {labels.map((label) => {
-              const pt = connectorPointAt(c, nodesById, label.t ?? 0.5);
-              let rot = label.align === "aligned" ? pt.angle : 0;
+              const pt = pointAtPolyline(pts, label.position ?? 0.5);
+              let rot = label.orientation === "aligned" ? pt.angle : 0;
               if (rot > 90) rot -= 180;
               if (rot < -90) rot += 180;
               const text = label.text || "";

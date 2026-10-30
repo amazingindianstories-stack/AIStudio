@@ -12,7 +12,7 @@ MAX_SHAPES_PER_PACK = 100
 
 ALLOWED_TAGS = {
     'svg', 'g', 'path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon',
-    'defs', 'linearGradient', 'radialGradient', 'stop', 'clipPath', 'mask', 'use',
+    'defs', 'linearGradient', 'radialGradient', 'stop', 'clipPath', 'mask',
 }
 
 ALLOWED_ATTRS = {
@@ -23,7 +23,7 @@ ALLOWED_ATTRS = {
     'stroke-dasharray', 'stroke-dashoffset', 'stroke-miterlimit', 'stroke-opacity',
     'opacity', 'transform', 'id', 'clip-path', 'mask',
     'gradientUnits', 'gradientTransform', 'spreadMethod',
-    'offset', 'stop-color', 'stop-opacity', 'preserveAspectRatio', 'href',
+    'offset', 'stop-color', 'stop-opacity', 'preserveAspectRatio',
 }
 
 FORBIDDEN_XML_RE = re.compile(r'<!\s*(?:DOCTYPE|ENTITY)\b', re.IGNORECASE)
@@ -56,8 +56,6 @@ def _clean_element(elem):
             continue
         val = str(raw_val).strip()
         if DANGEROUS_VALUE_RE.search(val) or EXTERNAL_URL_RE.search(val):
-            continue
-        if key == 'href' and not val.startswith('#'):
             continue
         clean.set(key, val)
     for child in list(elem):

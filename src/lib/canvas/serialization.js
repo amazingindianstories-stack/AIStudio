@@ -70,20 +70,20 @@ export const CONNECTOR_CAPS = new Set([
   "erd-zero-or-many",
 ]);
 const VIEWBOX_PATTERN = /^-?\d+(?:\.\d+)?(?:\s+-?\d+(?:\.\d+)?){3}$/;
-const UNSAFE_SVG_PATTERN = /<\s*(?:script|foreignobject|iframe|object|embed|image|use|style|a)\b|on[a-z]+\s*=|javascript:|data:|<!(?:doctype|entity)/i;
 const MAX_CUSTOM_SVG_UNITS = 51200;
 
 function isValidAnchor(anchor) {
   return typeof anchor === "string" && (ANCHORS.has(anchor) || ROW_ANCHOR_PATTERN.test(anchor));
 }
 
-function isSafeCustomSvg(svg) {
-  return (
-    typeof svg === "string" &&
-    svg.length > 0 &&
-    svg.length <= MAX_CUSTOM_SVG_UNITS &&
-    !UNSAFE_SVG_PATTERN.test(svg)
-  );
+function isCustomSvg(svg) {
+  return typeof svg === "string" && svg.length > 0 && svg.length <= MAX_CUSTOM_SVG_UNITS;
+}
+
+function withStructuredTheme(node, r) {
+  if (STROKE_STYLES.has(r.strokeStyle)) node.strokeStyle = r.strokeStyle;
+  if (typeof r.headerFill === "string") node.headerFill = r.headerFill;
+  if (typeof r.color === "string") node.color = r.color;
 }
 
 function isFiniteNumber(v) {
@@ -209,7 +209,7 @@ function validateNodeContent(raw) {
             node.tail = { x: r.tail.x, y: r.tail.y };
           }
         }
-        if (isSafeCustomSvg(r.svg)) {
+        if (isCustomSvg(r.svg)) {
           node.svg = r.svg;
           if (typeof r.svgViewBox === "string" && r.svgViewBox.length <= 64 && VIEWBOX_PATTERN.test(r.svgViewBox)) {
             node.svgViewBox = r.svgViewBox;
@@ -324,8 +324,7 @@ function validateNodeContent(raw) {
         stroke: str(r.stroke, "#6f9bd1"),
         strokeWidth: num(r.strokeWidth, 2),
       };
-      if (STROKE_STYLES.has(r.strokeStyle)) node.strokeStyle = r.strokeStyle;
-      if (typeof r.color === "string") node.color = r.color;
+      withStructuredTheme(node, r);
       return node;
     }
     case "swimlane": {
@@ -356,7 +355,7 @@ function validateNodeContent(raw) {
         stroke: str(r.stroke, "#6b7280"),
         strokeWidth: num(r.strokeWidth, 2),
       };
-      if (STROKE_STYLES.has(r.strokeStyle)) node.strokeStyle = r.strokeStyle;
+      withStructuredTheme(node, r);
       return node;
     }
     case "diagram": {
@@ -382,7 +381,7 @@ function validateNodeContent(raw) {
         stroke: str(r.stroke, "#6f9bd1"),
         strokeWidth: num(r.strokeWidth, 2),
       };
-      if (STROKE_STYLES.has(r.strokeStyle)) node.strokeStyle = r.strokeStyle;
+      withStructuredTheme(node, r);
       if (Array.isArray(r.containers)) {
         const containers = [];
         for (const c of r.containers.slice(0, 50)) {
@@ -439,7 +438,6 @@ function validateConnector(raw, nodeIds) {
   if (STROKE_STYLES.has(r.strokeStyle)) connector.strokeStyle = r.strokeStyle;
   if (CONNECTOR_CAPS.has(r.startCap)) connector.startCap = r.startCap;
   if (CONNECTOR_CAPS.has(r.endCap)) connector.endCap = r.endCap;
-  if (typeof r.lineJumps === "boolean") connector.lineJumps = r.lineJumps;
   if (Array.isArray(r.waypoints)) {
     const waypoints = [];
     for (const pt of r.waypoints.slice(0, 64)) {

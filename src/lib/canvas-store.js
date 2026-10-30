@@ -23,6 +23,7 @@ import {
   connectorPointAt,
 } from "./canvas/geometry";
 import { getDiagramTheme, loadDiagramThemeId, saveDiagramThemeId } from "./canvas/diagram-themes";
+import { hiddenBoardIds } from "./canvas/culling";
 import {
   bringToFront as zBringToFront,
   sendToBack as zSendToBack,
@@ -251,10 +252,6 @@ function applyStylePatchToConnector(c, patch) {
     next.kind = patch.endCap === "none" ? "line" : "arrow";
   } else if (patch.kind !== undefined && c.endCap !== undefined) {
     next.endCap = patch.kind === "arrow" ? "arrow" : "none";
-  }
-  if (patch.lineJumps !== undefined) {
-    if (patch.lineJumps) next.lineJumps = true;
-    else delete next.lineJumps;
   }
   return next;
 }
@@ -1313,7 +1310,6 @@ export const useCanvasStore = create((set, get) => ({
       ...(extra.strokeStyle && extra.strokeStyle !== "solid" ? { strokeStyle: extra.strokeStyle } : {}),
       ...(extra.startCap && extra.startCap !== "none" ? { startCap: extra.startCap } : {}),
       ...(extra.endCap ? { endCap: extra.endCap } : {}),
-      ...(extra.lineJumps ? { lineJumps: true } : {}),
     };
     mutateGraph(set, get, (present) => ({
       ...present,
@@ -1378,8 +1374,8 @@ export const useCanvasStore = create((set, get) => ({
           const normalized = {
             id: labelId,
             text: typeof label.text === "string" ? label.text : (existing[idx]?.text ?? "Label"),
-            t: clamp01(typeof label.t === "number" ? label.t : (existing[idx]?.t ?? 0.5)),
-            align: (label.align ?? existing[idx]?.align) === "aligned" ? "aligned" : "horizontal",
+            position: clamp01(typeof label.position === "number" ? label.position : (existing[idx]?.position ?? 0.5)),
+            orientation: (label.orientation ?? existing[idx]?.orientation) === "aligned" ? "aligned" : "horizontal",
           };
           if (idx >= 0) existing[idx] = normalized;
           else existing.push(normalized);
@@ -1751,9 +1747,10 @@ export const useCanvasStore = create((set, get) => ({
 
   selectAll: () => {
     const { present } = get().history;
+    const hidden = hiddenBoardIds(present, get().focusedDiagramId);
     set({
-      selection: present.nodes.map((n) => n.id),
-      selectedConnectorIds: present.connectors.map((c) => c.id),
+      selection: present.nodes.filter((n) => !hidden.nodes.has(n.id)).map((n) => n.id),
+      selectedConnectorIds: present.connectors.filter((c) => !hidden.connectors.has(c.id)).map((c) => c.id),
     });
   },
 

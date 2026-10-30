@@ -53,49 +53,85 @@ function connectorMeets(rect, connector, nodesById) {
   );
 }
 
-export function hiddenDiagramLayerNodeIds(nodes = []) {
-  const hiddenLayersByDiagram = new Map();
-  const globalHiddenLayers = new Set();
-  for (const node of nodes) {
-    if (node.type === "diagram" && Array.isArray(node.layers)) {
-      const set = new Set();
-      for (const layer of node.layers) {
-        if (layer && layer.visible === false && typeof layer.id === "string") {
-          set.add(layer.id);
-          globalHiddenLayers.add(layer.id);
-        }
-      }
-      if (set.size > 0) hiddenLayersByDiagram.set(node.id, set);
-    }
+/** `node` and its `parentId` ancestors, nearest first; stops on a missing parent or a cycle. */
+function* selfAndAncestors(node, byId) {
+  const seen = new Set();
+  for (let current = node; current && !seen.has(current.id); current = byId.get(current.parentId)) {
+    seen.add(current.id);
+    yield current;
   }
-  const hiddenNodeIds = new Set();
-  if (globalHiddenLayers.size === 0) return hiddenNodeIds;
+}
+
+function hasHiddenLayer(node) {
+  return node.type === "diagram" && Array.isArray(node.layers) && node.layers.some((layer) => layer?.visible === false);
+}
+
+/** Nodes on a layer that their own (nearest enclosing) diagram hides. */
+export function hiddenDiagramLayerNodeIds(nodes = []) {
+  const hidden = new Set();
+  if (!nodes.some(hasHiddenLayer)) return hidden;
+  const byId = new Map(nodes.map((node) => [node.id, node]));
   for (const node of nodes) {
     if (!node.diagramLayerId) continue;
-    if (node.parentId && hiddenLayersByDiagram.has(node.parentId)) {
-      if (hiddenLayersByDiagram.get(node.parentId).has(node.diagramLayerId)) {
-        hiddenNodeIds.add(node.id);
+    let diagram = null;
+    for (const ancestor of selfAndAncestors(byId.get(node.parentId), byId)) {
+      if (ancestor.type === "diagram") {
+        diagram = ancestor;
+        break;
       }
-    } else if (globalHiddenLayers.has(node.diagramLayerId)) {
-      hiddenNodeIds.add(node.id);
+    }
+    if (diagram && Array.isArray(diagram.layers) && diagram.layers.some((layer) => layer?.id === node.diagramLayerId && layer.visible === false)) {
+      hidden.add(node.id);
     }
   }
-  return hiddenNodeIds;
+  return hidden;
+}
+
+/**
+ * The node and connector ids the board hides: nodes on a hidden diagram layer and, in Focus mode
+ * (`focusDiagramId`, local view state), everything outside the focused diagram. A connector hides
+ * with either end; in Focus mode a free end hides it when it lies outside the diagram.
+ */
+export function hiddenBoardIds(graph, focusDiagramId = null) {
+  const nodes = hiddenDiagramLayerNodeIds(graph.nodes);
+  const connectors = new Set();
+  const focus = focusDiagramId ? graph.nodes.find((node) => node.id === focusDiagramId && node.type === "diagram") : null;
+  if (focus) {
+    const byId = new Map(graph.nodes.map((node) => [node.id, node]));
+    for (const node of graph.nodes) {
+      let inside = false;
+      for (const ancestor of selfAndAncestors(node, byId)) {
+        if (ancestor.id === focus.id) {
+          inside = true;
+          break;
+        }
+      }
+      if (!inside) nodes.add(node.id);
+    }
+  } else if (nodes.size === 0) {
+    return { nodes, connectors };
+  }
+  const endHidden = (ep) =>
+    "nodeId" in ep
+      ? nodes.has(ep.nodeId)
+      : !!focus && !(ep.x >= focus.x && ep.x <= focus.x + focus.w && ep.y >= focus.y && ep.y <= focus.y + focus.h);
+  for (const connector of graph.connectors) {
+    if (endHidden(connector.from) || endHidden(connector.to)) connectors.add(connector.id);
+  }
+  return { nodes, connectors };
 }
 
 /**
  * The nodes and connectors to mount, each in board (z-)order.
  * `keep` holds the always-mounted ids: `nodeIds` (an iterable) and
- * `connectorIds` (an iterable).
+ * `connectorIds` (an iterable). `hidden` (see hiddenBoardIds) is never mounted.
  */
-export function cullBoard(graph, nodesById, viewport, size, keep = {}) {
+export function cullBoard(graph, nodesById, viewport, size, keep = {}, hidden = hiddenBoardIds(graph)) {
   const rect = cullRect(viewport, size);
-  const hiddenNodes = hiddenDiagramLayerNodeIds(graph.nodes);
   const keptNodes = new Set(keep.nodeIds ?? []);
   const keptConnectors = new Set(keep.connectorIds ?? []);
   const connectors = graph.connectors.filter((connector) => {
-    if ("nodeId" in connector.from && hiddenNodes.has(connector.from.nodeId)) return false;
-    if ("nodeId" in connector.to && hiddenNodes.has(connector.to.nodeId)) return false;
+    if (hidden.connectors.has(connector.id)) return false;
     if (!keptConnectors.has(connector.id) && !connectorMeets(rect, connector, nodesById)) return false;
     if ("nodeId" in connector.from) keptNodes.add(connector.from.nodeId);
     if ("nodeId" in connector.to) keptNodes.add(connector.to.nodeId);
@@ -103,7 +139,7 @@ export function cullBoard(graph, nodesById, viewport, size, keep = {}) {
   });
   const nodes = graph.nodes.filter(
     (node) =>
-      !hiddenNodes.has(node.id) &&
+      !hidden.nodes.has(node.id) &&
       (keptNodes.has(node.id) || meets(rect, node.x, node.y, node.x + node.w, node.y + node.h))
   );
   return { nodes, connectors };
