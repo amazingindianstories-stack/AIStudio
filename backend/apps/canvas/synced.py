@@ -26,7 +26,7 @@ def _readable_graph(user, identifier):
     if existing is None or access.role_for(user, existing) < access.READ:
         return None, None, None
     level = access.role_for(user, existing)
-    row = CanvasBoard.objects.filter(pk=identifier).values('name', 'version', 'data').first()
+    row = CanvasBoard.objects.filter(pk=identifier).values('name', 'version', 'data', 'project_id').first()
     return row, hidden.view_of(validate_state(row['data']), level), level
 
 
@@ -66,7 +66,7 @@ def board_frames(request, identifier):
         row, graph, level = _readable_graph(user, identifier)
         if row is None:
             return reply(request, {'error': 'Board not found.'}, 404)
-        return reply(request, {'board': {'id': identifier, 'name': row['name']}, 'frames': frame_summaries(graph, level)})
+        return reply(request, {'board': {'id': identifier, 'name': row['name'], 'projectId': str(row['project_id']) if row['project_id'] else None}, 'frames': frame_summaries(graph, level)})
     except Exception:
         return failure()
 
@@ -81,7 +81,7 @@ def board_frame(request, identifier, node_id):
         content = frame_content(graph, level, node_id) if row is not None and NODE_ID_PATTERN.fullmatch(node_id) else None
         if content is None:
             return reply(request, {'error': 'Frame not found.'}, 404)
-        return reply(request, {'board': {'id': identifier, 'name': row['name']}, 'version': row['version'], **content})
+        return reply(request, {'board': {'id': identifier, 'name': row['name'], 'projectId': str(row['project_id']) if row['project_id'] else None}, 'version': row['version'], **content})
     except Exception:
         return failure()
 

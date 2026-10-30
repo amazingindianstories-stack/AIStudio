@@ -33,6 +33,10 @@ import {
 import { snapPointToAngle } from "@/lib/canvas/connector-routing";
 import { ensureShapePacksLoaded, getCustomShapeByTool, isCreateTool, isKnownShapeKind, shapeKindOfTool } from "@/lib/canvas/shapes";
 import { getDiagramTheme } from "@/lib/canvas/diagram-themes";
+import { INK_TOOLS } from "@/lib/ink-prefs";
+import { InkOverlay } from "./InkOverlay";
+import { FrameControls } from "./FrameControls";
+import { frameSelection } from "@/lib/frame-actions";
 import {
   LONG_PRESS_MS,
   doubleTapAction,
@@ -864,6 +868,9 @@ export const CanvasSurface = forwardRef
       case "sendToBack":
         s.sendToBack();
         break;
+      case "frame":
+        frameSelection();
+        break;
       case "group":
         s.group();
         break;
@@ -1452,6 +1459,10 @@ export const CanvasSurface = forwardRef
           </button>
         </div>
       )}
+
+      {!touchViewOnly && <FrameControls />}
+
+      {INK_TOOLS.includes(tool) && !readOnly && !touchViewOnly && <InkOverlay tool={tool} viewport={viewport} />}
 
       {contextMenu && (
         <CanvasContextMenu

@@ -14,6 +14,9 @@ import { ImageNode } from "./ImageNode";
 import { ErdNode } from "./ErdNode";
 import { SwimlaneNode } from "./SwimlaneNode";
 import { DiagramNode } from "./DiagramNode";
+import { InkNode } from "./InkNode";
+import { GridNode } from "./GridNode";
+import { SyncedNode } from "./SyncedNode";
 
 ;
 
@@ -80,9 +83,11 @@ export function NodeView({
     tool === "select" &&
     (hovered || (showHandles && quickDiagramEligible)) &&
     !dragging &&
-    !editing;
-  const pathShape = node.type === "shape";
-  const isCallout = pathShape && isCalloutKind(node.shape);
+    !editing &&
+    node.type !== "ink" &&
+    node.type !== "synced";
+  const pathShape = node.type === "shape" || node.type === "ink";
+  const isCallout = node.type === "shape" && isCalloutKind(node.shape);
   const tailPoint =
     isCallout && node.tail
       ? resolveEndpoint(node.tail, nodesById || {}, { x: node.x + node.w / 2, y: node.y + node.h / 2 })
@@ -186,6 +191,12 @@ export function NodeView({
             return <SwimlaneNode node={node} selected={showRing} readOnly={readOnly} />;
           case "diagram":
             return <DiagramNode node={node} selected={showRing} readOnly={readOnly} />;
+          case "ink":
+            return <InkNode node={node} />;
+          case "grid":
+            return <GridNode node={node} selected={showRing} readOnly={readOnly || viewOnly} />;
+          case "synced":
+            return <SyncedNode node={node} />;
           case "image":
             return <ImageNode node={node} cropMode={cropMode} cropDraft={cropDraft} onCropChange={onCropChange} onApplyCrop={onApplyCrop} onCancelCrop={onCancelCrop} onResetCrop={onResetCrop} />;
         }
