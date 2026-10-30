@@ -34,6 +34,7 @@ import {
   connectorPath,
   hitTest,
   marqueeHits,
+  unionBounds,
 } from "./geometry";
 
 // ---------------------------------------------------------------------------
@@ -153,6 +154,12 @@ test("nodeBounds: extracts {x,y,w,h} matching the node's own fields", () => {
   assert.equal(b.y, 20);
   assert.equal(b.w, 30);
   assert.equal(b.h, 40);
+});
+
+test("unionBounds: the box around every box, or null for none", () => {
+  assert.equal(unionBounds([]), null);
+  assert.deepEqual(unionBounds([{ x: 0, y: 0, w: 10, h: 10 }, { x: -5, y: 20, w: 5, h: 5 }]), { x: -5, y: 0, w: 15, h: 25 });
+  assert.deepEqual(unionBounds([{ x: 0, y: 0, w: 10, h: 10 }, { x: 20, y: -5, w: 5, h: 5 }]), { x: 0, y: -5, w: 25, h: 15 });
 });
 
 test("boundsContain: a point clearly inside the outer bounds is contained", () => {

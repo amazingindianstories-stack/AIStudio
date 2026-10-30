@@ -12,7 +12,7 @@
  * - Moving a frame carries its unselected children along, and a moved object
  *   joins whichever frame its center lands in, as with a drag.
  */
-import { computeFrameMembership, nodeBounds } from "./geometry";
+import { computeFrameMembership, nodeBounds, unionBounds } from "./geometry";
 import { lockedIdSet } from "./locks";
 import { isShapeNode } from "./shapes";
 
@@ -20,22 +20,6 @@ export const ALIGN_MODES = ["left", "hcenter", "right", "top", "vcenter", "botto
 
 /** Miro's gap between an object and its smart duplicate, in world units. */
 export const DUPLICATE_GAP = 20;
-
-/** The union box {x, y, w, h} of `boxes`, or null when there are none. */
-export function unionBounds(boxes) {
-  let x0 = Infinity;
-  let y0 = Infinity;
-  let x1 = -Infinity;
-  let y1 = -Infinity;
-  for (const b of boxes) {
-    x0 = Math.min(x0, b.x);
-    y0 = Math.min(y0, b.y);
-    x1 = Math.max(x1, b.x + b.w);
-    y1 = Math.max(y1, b.y + b.h);
-  }
-  if (!Number.isFinite(x0)) return null;
-  return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
-}
 
 /**
  * The selected objects that may move, gathered into units: one per group

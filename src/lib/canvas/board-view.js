@@ -4,6 +4,7 @@
  * selection size label. Everything works from board data, never the DOM, so
  * it covers objects that viewport culling has not mounted.
  */
+import { unionBounds } from "./geometry";
 import { GRID_SIZE } from "./view-prefs";
 
 // The board's default background (the app's ink-900); a board without a
@@ -75,21 +76,6 @@ export function gridBackground(grid, viewport) {
 export function nextGridStyle(grid) {
   const index = GRID_STYLES.indexOf(grid);
   return GRID_STYLES[(index + 1) % GRID_STYLES.length];
-}
-
-/** Union of `bounds` ({x, y, w, h} boxes) or null when empty. */
-export function unionBounds(bounds) {
-  let x0 = Infinity;
-  let y0 = Infinity;
-  let x1 = -Infinity;
-  let y1 = -Infinity;
-  for (const b of bounds) {
-    if (b.x < x0) x0 = b.x;
-    if (b.y < y0) y0 = b.y;
-    if (b.x + b.w > x1) x1 = b.x + b.w;
-    if (b.y + b.h > y1) y1 = b.y + b.h;
-  }
-  return x0 === Infinity ? null : { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
 
 /** The world rectangle the board view shows. */

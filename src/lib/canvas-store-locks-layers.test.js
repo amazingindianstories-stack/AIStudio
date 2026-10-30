@@ -238,6 +238,39 @@ test("Move selection here skips locked objects; reorder, duplicate and delete ch
   assert.equal(store.getState().history.present.nodes.filter((n) => n.layerId === copyId).length, 1, "undo restores them");
 });
 
+test("a locked layer is not deleted, and deleting a layer keeps its locked objects on the default layer", async (t) => {
+  const layers = [{ id: "L", name: "Top" }, { id: "K", name: "Kept", locked: true }];
+  const held = rect("held", { layerId: "L", locked: true, lockedBy: OTHER, lockProtected: true });
+  await open(t, graph([rect("free", { layerId: "L" }), rect("plain", { layerId: "L", locked: true }), held, rect("k", { layerId: "K" })], { layers }));
+  const before = store.getState().history.present;
+  store.getState().setLayerHidden("K", true);
+  store.getState().deleteLayer("K");
+  assert.equal(store.getState().history.present, before, "a locked layer stays with everything on it");
+  assert.deepEqual(store.getState().hiddenLayerIds, ["K"], "and stays hidden for this person");
+
+  store.getState().deleteLayer("L");
+  assert.deepEqual(layersOf(store.getState().history.present).map((l) => l.id), ["K"]);
+  assert.deepEqual(ids(store.getState().history.present), ["plain", "held", "k"], "only the unlocked object is deleted");
+  assert.equal(nodeOf("plain").layerId, undefined);
+  const { layerId: _layer, ...heldOnDefault } = held;
+  assert.deepEqual(nodeOf("held"), heldOnDefault, "a protected object keeps its lock on the default layer");
+});
+
+test("duplicating a layer copies its objects without their locks", async (t) => {
+  const layers = [{ id: "L", name: "Top" }];
+  const held = rect("held", { layerId: "L", locked: true, lockedBy: OTHER, lockProtected: true });
+  await open(t, graph([held, rect("plain", { layerId: "L", locked: true, lockedBy: ME })], { layers }));
+  store.getState().duplicateLayer("L");
+  const copyId = layersOf(store.getState().history.present)[1].id;
+  const copies = store.getState().history.present.nodes.filter((n) => n.layerId === copyId);
+  assert.equal(copies.length, 2);
+  for (const copy of copies) {
+    assert.deepEqual([copy.locked, copy.lockedBy, copy.lockProtected], [undefined, undefined, undefined]);
+    assert.equal(isLocked(store.getState().history.present, copy), false, "the copier may change the copy");
+  }
+  assert.deepEqual(nodeOf("held"), held, "the original keeps its lock");
+});
+
 test("a save the server corrected merges its board back and is not saved again", async (t) => {
   const held = rect("held", { x: 0, locked: true, lockedBy: OTHER, lockProtected: true });
   const server = await open(t, graph([held, rect("free")]), {

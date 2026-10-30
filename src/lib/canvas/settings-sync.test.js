@@ -66,6 +66,35 @@ test("settings merge per key: each side's change lands, and local wins a key bot
   assert.equal(mergeCanvasStates(base, local, both).settings.background, "#111111");
 });
 
+test("layers merge per layer: layers added on both sides both stay", () => {
+  const base = board([]);
+  const local = board([], { layers: layers("B") });
+  const remote = board([], { layers: layers("A") });
+  assert.deepEqual(mergeCanvasStates(base, local, remote).settings.layers, layers("A", "B"));
+  // The other tab's next poll keeps both too.
+  assert.deepEqual(mergeCanvasStates(remote, remote, board([], { layers: layers("A", "B") })).settings.layers, layers("A", "B"));
+});
+
+test("a layer both sides changed merges per field, and changes to different layers both land", () => {
+  const base = board([], { layers: layers("A", "B") });
+  const local = board([], { layers: [{ id: "a", name: "Renamed" }, { id: "b", name: "B" }] });
+  const remote = board([], { layers: [{ id: "a", name: "A", locked: true }, { id: "b", name: "B", locked: true }] });
+  assert.deepEqual(mergeCanvasStates(base, local, remote).settings.layers, [
+    { id: "a", name: "Renamed", locked: true },
+    { id: "b", name: "B", locked: true },
+  ]);
+});
+
+test("a deleted layer goes only when the other side left it unchanged; a reorder on one side keeps", () => {
+  const base = board([], { layers: layers("A", "B", "C") });
+  const local = board([], { layers: layers("A", "C") });
+  assert.deepEqual(mergeCanvasStates(base, local, base).settings.layers, layers("A", "C"));
+  const relocked = board([], { layers: [...layers("A"), { id: "b", name: "B", locked: true }, ...layers("C")] });
+  assert.deepEqual(mergeCanvasStates(base, local, relocked).settings.layers.map((l) => l.id), ["a", "b", "c"]);
+  const reordered = board([], { layers: layers("C", "A", "B") });
+  assert.deepEqual(mergeCanvasStates(base, reordered, board([], { layers: layers("A", "B", "C", "D") })).settings.layers, layers("C", "A", "B", "D"));
+});
+
 test("a setting removed on one side is removed in the merge, and all removed drops the key", () => {
   const base = board([], { background: "#000000", layers: layers("A") });
   const local = board([], { background: "#000000", layers: layers("A") });

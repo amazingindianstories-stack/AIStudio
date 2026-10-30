@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import { MoveHorizontal } from "lucide-react";
 import { useCanvasStore } from "@/lib/canvas-store";
-import { hitTest, nodeBounds, screenToWorld, worldToScreen } from "@/lib/canvas/geometry";
-import { arrangeUnits, unionBounds } from "@/lib/canvas/arrange";
+import { hitTest, nodeBounds, screenToWorld, unionBounds, worldToScreen } from "@/lib/canvas/geometry";
+import { arrangeUnits } from "@/lib/canvas/arrange";
 import { measureGaps } from "@/lib/canvas/snapping";
 
 const GUIDE_COLOR = "#f43f5e";
