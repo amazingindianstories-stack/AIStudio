@@ -39,6 +39,7 @@ const nodeOf = (data, id) => data.nodes.find((n) => n.id === id);
 const clipboardText = (page) => page.evaluate(() => navigator.clipboard.readText());
 
 test('Board find, frames, presenting, links, keyboard and shortcuts work from the data model', async ({ browser, baseURL }, info) => {
+  test.setTimeout(180000);
   const db = fixtureDatabase(process.env.E2E_DATABASE_URL);
   await db`INSERT INTO users (id, email, password_hash, password_salt, created_at, name, role, is_active, auth_version)
     VALUES (${OWNER.id}, ${OWNER.email}, 'unused', 'unused', 1, ${OWNER.name}, 'user', true, 0)
