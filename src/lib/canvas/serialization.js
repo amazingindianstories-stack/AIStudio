@@ -181,6 +181,9 @@ function validateNodeContent(raw) {
         fill: str(r.fill, "transparent"),
         stroke: str(r.stroke, "#000000"),
       };
+      // The frames panel's board-wide order and the presenter notes; both optional.
+      if (isFiniteNumber(r.frameOrder)) node.frameOrder = r.frameOrder;
+      if (typeof r.notes === "string" && r.notes) node.notes = r.notes;
       return node;
     }
     case "image": {

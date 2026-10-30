@@ -19,6 +19,7 @@ import { StudioView } from "@/components/StudioView";
 import { Toaster } from "@/components/Toaster";
 import { TextPromptDialog } from "@/components/TextPromptDialog";
 import { useDesktopLayout } from "@/lib/use-desktop-layout";
+import { pageObjectLink } from "@/lib/canvas/object-link";
 
 export default function Page() {
   const loadHistory = useStore((s) => s.loadHistory);
@@ -54,6 +55,12 @@ export default function Page() {
       setView("studio");
     }
   }, [view, currentUser, setView]);
+
+  // A link to a board object opens the board view; CanvasView opens the board.
+  // This runs after the composer restores the last view, so the link wins.
+  useEffect(() => {
+    if (pageObjectLink()) setView("canvas");
+  }, [setView]);
 
   useEffect(() => {
     loadMe();

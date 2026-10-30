@@ -6,11 +6,9 @@ import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { useCanvasStore, selectReadOnly } from "@/lib/canvas-store";
-import { isCreateTool } from "@/lib/canvas/shapes";
 import { useBoardPolling } from "@/lib/canvas/use-board-polling";
 import {
   CanvasSurface,
-  buildDefaultNode,
   uploadImageFiles,
 
 } from "./CanvasSurface";
@@ -24,13 +22,10 @@ import { CanvasAiPanel } from "./CanvasAiPanel";
 import { useBoardAi } from "@/lib/board-ai";
 import { BoardHistoryPanel } from "./BoardHistoryPanel";
 import { ObjectInfo } from "./ObjectInfo";
-
-// Miro's keys: N sticky note, T text, F frame; S opens the shapes panel.
-const TOOL_SHORTCUTS = {
-  n: "sticky",
-  t: "text",
-  f: "frame",
-};
+import { useBoardShortcuts } from "./useBoardShortcuts";
+import { useBoardLinks } from "./useBoardLinks";
+import { BoardExtras, BoardMenu, BoardSkipLink } from "./BoardExtras";
+import { useBoardUi } from "@/lib/canvas/board-ui";
 
 export function CanvasView() {
   const activeProjectId = useStore((s) => s.activeProjectId);
@@ -53,6 +48,7 @@ export function CanvasView() {
   const [aiOpen, setAiOpen] = useState(false);
 
   const surfaceRef = useRef(null);
+  const rootRef = useRef(null);
 
   const loaded = useCanvasStore((s) => s.loaded);
   const saveStatus = useCanvasStore((s) => s.saveStatus);
@@ -68,26 +64,9 @@ export function CanvasView() {
   const flushSave = useCanvasStore((s) => s.flushSave);
   const pollRemote = useCanvasStore((s) => s.pollRemote);
   const setTool = useCanvasStore((s) => s.setTool);
-  const undo = useCanvasStore((s) => s.undo);
-  const redo = useCanvasStore((s) => s.redo);
-  const deleteSelected = useCanvasStore((s) => s.deleteSelected);
-  const duplicateSelected = useCanvasStore((s) => s.duplicateSelected);
-  const selectAll = useCanvasStore((s) => s.selectAll);
-  const clearSelection = useCanvasStore((s) => s.clearSelection);
-  const zoomToFit = useCanvasStore((s) => s.zoomToFit);
-  const setViewport = useCanvasStore((s) => s.setViewport);
-  const addNode = useCanvasStore((s) => s.addNode);
   const addImageFromAsset = useCanvasStore((s) => s.addImageFromAsset);
   const addImageBatch = useCanvasStore((s) => s.addImageBatch);
-  const group = useCanvasStore((s) => s.group);
-  const ungroup = useCanvasStore((s) => s.ungroup);
-  const bringForward = useCanvasStore((s) => s.bringForward);
-  const sendBackward = useCanvasStore((s) => s.sendBackward);
-  const bringToFront = useCanvasStore((s) => s.bringToFront);
-  const sendToBack = useCanvasStore((s) => s.sendToBack);
-  const copy = useCanvasStore((s) => s.copy);
   const paste = useCanvasStore((s) => s.paste);
-  const cut = useCanvasStore((s) => s.cut);
 
   const imageFileInputRef = useRef(null);
 
@@ -217,186 +196,19 @@ export function CanvasView() {
     imageFileInputRef.current?.click();
   }, []);
 
-  // ── document-level keyboard shortcuts (ui-spec §11) ─────────────────
+  // Document-level keyboard shortcuts, from the registry in lib/canvas/shortcuts.
+  const openShapes = useCallback(() => setShapesOpen(true), []);
+  const toggleAi = useCallback(() => setAiOpen((v) => !v), []);
+  const runToolbarTool = useBoardShortcuts({ surfaceRef, toolLocked, touchViewOnly, openShapes, openImagePicker, toggleAi });
+  const openBoard = useBoardLinks({ boardId, setBoardId });
+
+  // One side panel at a time: a board panel replaces History and back.
+  const boardPanel = useBoardUi((s) => s.panel);
   useEffect(() => {
-    const onKeyDown = (e) => {
-      const target = e.target ;
-      const editing =
-        target?.isContentEditable || target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.tagName === "SELECT" ||
-        target?.closest?.('[data-crop-controls], [role="dialog"], [role="alertdialog"]');
-      if (editing) return;
-
-      const canvasState = useCanvasStore.getState();
-      if (canvasState.croppingImageId && (e.key === "Enter" || e.key === "Escape")) {
-        e.preventDefault();
-        if (e.key === "Enter") canvasState.applyCrop();
-        else canvasState.cancelCrop();
-        return;
-      }
-
-      const mod = e.metaKey || e.ctrlKey;
-
-      // View only on touch: a hardware keyboard may move the view, never edit.
-      if (touchViewOnly && !(mod && e.key === "0") && !(e.key === "!" && e.shiftKey)) return;
-
-      if (mod && e.key.toLowerCase() === "z") {
-        e.preventDefault();
-        if (e.shiftKey) redo();
-        else undo();
-        return;
-      }
-      if (mod && e.key.toLowerCase() === "d") {
-        e.preventDefault();
-        duplicateSelected();
-        return;
-      }
-      if (mod && e.key.toLowerCase() === "a") {
-        e.preventDefault();
-        selectAll();
-        return;
-      }
-      if (mod && e.key === "0") {
-        e.preventDefault();
-        const vp = useCanvasStore.getState().history.present.viewport;
-        setViewport({ ...vp, zoom: 1 });
-        return;
-      }
-      if (mod && e.key.toLowerCase() === "g") {
-        e.preventDefault();
-        if (e.shiftKey) ungroup();
-        else group();
-        return;
-      }
-      // Bracket keys MUST be detected via e.code ("BracketRight"/"BracketLeft"),
-      // not e.key — with Shift held, e.key for "]"/"[" becomes "}"/"{" on a US
-      // layout, so e.code is the only robust, shift-independent discriminator.
-      if (mod && e.code === "BracketRight") {
-        e.preventDefault();
-        if (e.shiftKey) bringToFront();
-        else bringForward();
-        return;
-      }
-      if (mod && e.code === "BracketLeft") {
-        e.preventDefault();
-        if (e.shiftKey) sendToBack();
-        else sendBackward();
-        return;
-      }
-      if (mod && e.key.toLowerCase() === "c") {
-        e.preventDefault();
-        copy();
-        return;
-      }
-      if (mod && e.key.toLowerCase() === "x") {
-        e.preventDefault();
-        cut();
-        return;
-      }
-      if (mod && e.key.toLowerCase() === "v") {
-        // Browser paste event decides whether OS images or internal nodes win.
-        return;
-      }
-      if (!mod && e.shiftKey && e.key.toLowerCase() === "i") {
-        e.preventDefault();
-        openImagePicker();
-        return;
-      }
-      if (e.key === "Delete" || e.key === "Backspace") {
-        e.preventDefault();
-        deleteSelected();
-        return;
-      }
-      if (e.key === "Escape") {
-        clearSelection();
-        setTool("select");
-        return;
-      }
-      if (e.key === "!" && e.shiftKey) {
-        zoomToFit();
-        return;
-      }
-      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
-        const selection = useCanvasStore.getState().selection;
-        if (!selection.length) return;
-        e.preventDefault();
-        const step = e.shiftKey ? 10 : 1;
-        const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
-        const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
-        useCanvasStore.getState().moveSelectionBy(dx, dy);
-        return;
-      }
-      if (e.key === "Tab") {
-        const s = useCanvasStore.getState();
-        const nodes = s.history.present.nodes;
-        if (!nodes.length) return;
-        e.preventDefault();
-        const curIdx = s.selection.length ? nodes.findIndex((n) => n.id === s.selection[0]) : -1;
-        const nextIdx = e.shiftKey
-          ? (curIdx - 1 + nodes.length) % nodes.length
-          : (curIdx + 1) % nodes.length;
-        s.setSelection([nodes[nextIdx].id]);
-        return;
-      }
-      if (e.key === "Enter") {
-        const tool = useCanvasStore.getState().tool;
-        if (isCreateTool(tool)) {
-          const center = surfaceRef.current?.getViewportCenterWorld() ?? { x: 0, y: 0 };
-          const node = buildDefaultNode(tool , center);
-          addNode(node);
-          useCanvasStore.getState().setSelection([node.id]);
-          if (node.type === "text" || node.type === "sticky") {
-            useCanvasStore.getState().setEditingTextId(node.id);
-          }
-          if (!toolLocked) setTool("select");
-        }
-        return;
-      }
-
-      // Latent-bug fix: without this guard, an unhandled mod-combination
-      // (e.g. mod+C once it didn't `return` above) falls through to the
-      // tool-letter switch below and wrongly re-arms a tool (mod+C used to
-      // switch to the connector tool). Every new mod binding above already
-      // `return`s before reaching here; this is belt-and-suspenders so NO
-      // mod+<letter> combination can ever leak into a tool switch.
-      if (mod) return;
-
-      // tool letter shortcuts
-      const key = e.key.toLowerCase();
-      if (key === "v") setTool("select");
-      else if (key === "h") setTool("hand");
-      else if (key === "r") setTool("rect");
-      else if (key === "c") setTool("connector");
-      else if (key === "s") {
-        if (!selectReadOnly(useCanvasStore.getState())) setShapesOpen(true);
-      } else if (TOOL_SHORTCUTS[key]) setTool(TOOL_SHORTCUTS[key]);
-    };
-
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [
-    undo,
-    redo,
-    duplicateSelected,
-    selectAll,
-    clearSelection,
-    deleteSelected,
-    setTool,
-    zoomToFit,
-    setViewport,
-    addNode,
-    toolLocked,
-    group,
-    ungroup,
-    bringForward,
-    sendBackward,
-    bringToFront,
-    sendToBack,
-    copy,
-    cut,
-    paste,
-    openImagePicker,
-    touchViewOnly,
-  ]);
+    if (boardPanel) setHistoryOpen(false);
+  }, [boardPanel]);
+  // A slide hides the board's controls; a break to the board shows them again.
+  const presentingSlide = useBoardUi((s) => Boolean(s.presenting && !s.presenting.onBoard));
 
   // Board AI jobs follow the loaded, editable board: unfinished jobs resume and finished, unplaced results are placed.
   const loadedBoardId = useCanvasStore((s) => s.boardId);
@@ -412,7 +224,14 @@ export function CanvasView() {
   const showEditToggle = coarsePointer && !readOnly && !noBoards && !!boardId && loaded;
 
   return (
-    <div className="relative min-w-0 flex-1 overflow-hidden bg-ink-900">
+    <div
+      ref={rootRef}
+      className={cn(
+        "relative min-w-0 flex-1 overflow-hidden bg-ink-900",
+        presentingSlide && "[&>*:not([data-board-surface]):not([data-presentation]):not([role=status])]:hidden"
+      )}
+    >
+      {!noBoards && boardId && loaded && <BoardSkipLink />}
       <CanvasSurface
         ref={surfaceRef}
         toolLocked={toolLocked}
@@ -485,7 +304,10 @@ export function CanvasView() {
             <button
               type="button"
               aria-expanded={historyOpen}
-              onClick={() => setHistoryOpen((open) => !open)}
+              onClick={() => {
+                useBoardUi.getState().closePanel();
+                setHistoryOpen((open) => !open);
+              }}
               className={cn(
                 "flex items-center gap-1.5 rounded-full border border-line bg-ink-700 px-3 py-1.5 text-sm text-white/85 outline-none transition hover:text-white focus-visible:ring-2 focus-visible:ring-brand",
                 historyOpen && "bg-ink-600 text-white"
@@ -495,6 +317,7 @@ export function CanvasView() {
               History
             </button>
           )}
+          {boardId && loaded && <BoardMenu />}
           {showEditToggle && (
             <button
               type="button"
@@ -574,6 +397,15 @@ export function CanvasView() {
       {historyOpen && boardId && loaded && !readOnly && (
         <BoardHistoryPanel key={boardId} boardId={boardId} onClose={closeHistory} />
       )}
+
+      <BoardExtras
+        boardId={boardId}
+        loaded={loaded && loadedBoardId === boardId}
+        canEdit={!readOnly && !touchViewOnly}
+        runToolbarTool={runToolbarTool}
+        openBoard={openBoard}
+        rootRef={rootRef}
+      />
 
       {loadError && (
         <div className="absolute inset-0 z-40 grid place-items-center bg-ink-900/90">

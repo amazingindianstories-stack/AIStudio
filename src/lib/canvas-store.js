@@ -899,6 +899,43 @@ export const useCanvasStore = create((set, get) => ({
     return true;
   },
 
+  /**
+   * Shows `vp` without recording it as the board's saved view, for a
+   * presentation stepping through frames. Putting the earlier view back the
+   * same way leaves nothing to save.
+   */
+  showViewport: (vp) => {
+    const { history } = get();
+    set({ history: { ...history, present: { ...history.present, viewport: vp } } });
+  },
+
+  /**
+   * Replaces nodes by id with the edited copies in `edits` (a Map of id to
+   * node) as one undo step: find and replace, frame order, presenter notes.
+   */
+  replaceNodes: (edits) => {
+    if (!edits?.size) return;
+    mutateGraph(set, get, (present) => ({
+      ...present,
+      nodes: present.nodes.map((n) => edits.get(n.id) ?? n),
+    }));
+  },
+
+  /** Connects each `[fromId, toId]` node pair with a connector of `kind`, as one undo step. */
+  connectNodes: (pairs, kind = "arrow") => {
+    const connectors = pairs.map(([from, to]) => ({
+      id: crypto.randomUUID(),
+      from: { nodeId: from, anchor: "auto" },
+      to: { nodeId: to, anchor: "auto" },
+      kind,
+      stroke: "rgba(255,255,255,0.7)",
+      strokeWidth: 2,
+    }));
+    if (!connectors.length) return;
+    mutateGraph(set, get, (present) => ({ ...present, connectors: [...present.connectors, ...connectors] }));
+    if (!selectReadOnly(get())) set({ selection: [], selectedConnectorIds: connectors.map((c) => c.id) });
+  },
+
   setViewportSize: (w, h) => {
     if (w > 0 && h > 0) viewportPx = { w, h };
   },
