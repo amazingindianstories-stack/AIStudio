@@ -3,8 +3,8 @@ import { createHmac, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { fixtureDatabase } from './fixture-db.mjs';
 
-const OWNER = { id: 'b0a2d000-0000-4000-8000-000000000021', name: 'Stickies owner', email: 'stickies-owner@example.test' };
-const VIEWER = { id: 'b0a2d000-0000-4000-8000-000000000022', name: 'Stickies viewer', email: 'stickies-viewer@example.test' };
+const OWNER = { id: 'b0a2d000-0000-4000-8000-000000000031', name: 'Stickies owner', email: 'stickies-owner@example.test' };
+const VIEWER = { id: 'b0a2d000-0000-4000-8000-000000000032', name: 'Stickies viewer', email: 'stickies-viewer@example.test' };
 const BLUE = '#6f9bd1';
 const YELLOW = '#e3c56a';
 
