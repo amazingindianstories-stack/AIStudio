@@ -12,7 +12,7 @@ No feature is skipped or needs a product decision at this point.
 
 | Line | Feature | Size | Outcome | Evidence and remaining acceptance work |
 | --- | --- | --- | --- | --- |
-| 216 | Cards | M | Pending verification | `WorkTools` implements structured fields, existing-user assignees, D and Cmd/Ctrl+Shift+Enter; `WorkNode` renders cards. Existing browser spec covers details and reload. Browser verified D creation, Ctrl+Shift+Enter details, all fields and reload persistence in iteration 3. Remaining: Cmd variant, roles and offscreen edits. |
+| 216 | Cards | M | Pending verification | `WorkTools` implements structured fields, existing-user assignees, D and Cmd/Ctrl+Shift+Enter; `WorkNode` renders cards. Existing browser spec covers details and reload. Browser verified D creation, Ctrl+Shift+Enter details, all fields and reload persistence in iteration 3. Iteration 4 verified viewer/commenter inspection, disabled fields, blocked D creation, no browser board saves, and direct API save rejection (403), with unchanged persisted data. Remaining: Cmd variant and offscreen edits. |
 | 217 | Columns | M | Pending verification | `work-records.layoutColumns` uses board data; `WorkTools` adds, renames, recolors and moves lanes upward. Verify swimlanes, reorder, containment and persistence end to end. |
 | 218 | Tables | XL | Pending verification | Django `WorkTable`/`WorkRecord` and `work_tables` own data; board widgets hold dataset IDs. `WorkDataPanel` has fields, card/sticky copying, CSV/Excel and owner-only editing. Verify schema migrations, indexed queries, roles and file round trips. |
 | 219 | Filter, sort, search, grouping | M | Pending completion | SQL search/filter/sort and SQL group counts exist. Panel never sends `groupBy`; rendering groups only its current page. Complete grouping across pagination and add browser coverage. |
@@ -91,3 +91,23 @@ stopped its processes and removed its database on exit. Evidence:
 Next smallest increment: finish Cards role and offscreen-edit browser acceptance,
 then verify the remaining Columns operations in checklist order. Cmd shortcut
 acceptance is also outstanding; this run exercised the supported Ctrl variant.
+
+## Iteration 4: Cards read-only role acceptance
+
+Extended the permanent cards browser test with a separate ordinary user in both
+view and comment roles. Both can select the saved card and inspect its title;
+all six text/date fields and assignee, status and columns selectors are disabled.
+Card/columns creation controls are absent, D does not open a creation panel,
+and neither role emits a browser board-save request. Direct PUT attempts return
+403 and the owner's subsequent API read confirms unchanged board data.
+No production code changed. Cards remains pending Cmd and offscreen acceptance.
+
+Validation: permanent `Board work:` browser spec passed (1 test, 54.3 seconds)
+through the shared heavy lock and disposable PostgreSQL harness, using mock
+providers. All 936 unit tests and lint passed; `git diff --check` passed.
+The harness exited successfully and cleaned up its servers, workers, browser
+and disposable database. No commit, push or deployment.
+
+Next increment: verify card editing through the widget selector while the card
+is culled offscreen, and the Meta/Cmd details shortcut, before advancing to
+Columns acceptance.
