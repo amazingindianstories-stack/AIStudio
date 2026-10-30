@@ -158,6 +158,26 @@ test('Board work: create cards, edit details, arrange columns, reload persisted 
       for (const field of ['Assignee', 'Status', 'Columns widget']) {
         await expect(readPanel.getByRole('combobox', { name: field, exact: true })).toBeDisabled();
       }
+      await readPanel.getByRole('combobox', { name: 'Selected widget', exact: true }).selectOption({ label: 'Lane task' });
+      for (const field of ['lane', 'swimlane']) {
+        await expect(readPanel.getByRole('combobox', { name: field, exact: true })).toBeDisabled();
+      }
+      await readPanel.getByRole('combobox', { name: 'Selected widget', exact: true }).selectOption({ label: 'Team board' });
+      await expect(readPanel.getByRole('textbox', { name: 'Widget title', exact: true })).toBeDisabled();
+      for (const [kind, lanes] of [['lanes', columns.lanes], ['swimlanes', columns.swimlanes]]) {
+        for (const [index, lane] of lanes.entries()) {
+          const name = readPanel.getByRole('textbox', { name: `${kind} name ${index + 1}`, exact: true });
+          await expect(name).toHaveValue(lane.name);
+          await expect(name).toBeDisabled();
+          const color = readPanel.getByLabel(`${kind} color ${index + 1}`, { exact: true });
+          await expect(color).toHaveValue(lane.color);
+          await expect(color).toBeDisabled();
+          await expect(readPanel.getByRole('button', { name: `Move ${lane.name} up`, exact: true })).toBeDisabled();
+        }
+      }
+      for (const name of ['Add column', 'Add swimlane', 'Add card to columns', 'Arrange cards']) {
+        await expect(readPanel.getByRole('button', { name, exact: true })).toBeDisabled();
+      }
       // API authorization must hold even if a client bypasses disabled controls.
       const denied = await reader.request.put(`/api/canvas-boards/${boardId}`, {
         data: { data: before.data, version: before.version }, headers: { Origin: baseURL },
