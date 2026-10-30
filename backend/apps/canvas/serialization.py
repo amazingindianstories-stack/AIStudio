@@ -142,6 +142,11 @@ def node(raw):
         with_marks(result, r)
     elif kind == 'frame':
         result.update(name=string(r.get('name'), 'Frame'), fill=string(r.get('fill'), 'transparent'), stroke=string(r.get('stroke'), '#000000'))
+        # The frames panel's board-wide order and the presenter notes; both optional.
+        if finite(r.get('frameOrder')):
+            result['frameOrder'] = r['frameOrder']
+        if isinstance(r.get('notes'), str) and r['notes']:
+            result['notes'] = r['notes']
     elif kind == 'image':
         src = string(r.get('src'), '')
         if not src.startswith('/api/media/'):

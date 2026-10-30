@@ -85,6 +85,22 @@ test("an empty project the caller may add to still gets its first board created 
   });
 });
 
+test("a board chosen while the list loads (a followed link) is kept, not replaced by the first board", async () => {
+  const second = { ...BOARD, id: "board-2", name: "Linked" };
+  let release;
+  const listed = new Promise((resolve) => { release = resolve; });
+  const server = ({ url }) => url.startsWith("/api/canvas-boards?") ? listed.then(() => json(200, { boards: [BOARD, second], canCreate: true })) : null;
+  await harness(server, async ({ root, settle }) => {
+    const boardIds = [];
+    const onBoardIdChange = (id) => boardIds.push(id);
+    await renderSwitcher(root, { onBoardIdChange });
+    await renderSwitcher(root, { boardId: second.id, onBoardIdChange });
+    release();
+    await settle();
+    assert.deepEqual(boardIds, []);
+  });
+});
+
 test("New board is offered only to callers who may create boards", async () => {
   for (const canCreate of [true, false]) {
     await harness(({ url }) => url.startsWith("/api/canvas-boards?") ? json(200, { boards: [BOARD], canCreate }) : null, async ({ root, settle }) => {

@@ -11,6 +11,9 @@
 
 const CURVE_STEPS = 24;
 
+/** The color of a shape's text when it has none of its own: light, for the dark board. */
+export const textColorOf = (node) => node.color ?? "#ffffff";
+
 /** Kind ids the format accepts for a `shape` node; known or not. */
 export const SHAPE_KIND_PATTERN = /^[a-z][a-z0-9-]{0,39}$/;
 
