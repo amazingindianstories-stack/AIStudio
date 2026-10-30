@@ -8,7 +8,7 @@ import { useMediaQuery } from "@/lib/use-media-query";
 import { useCanvasStore, selectReadOnly } from "@/lib/canvas-store";
 import { isCreateTool } from "@/lib/canvas/shapes";
 import { useBoardPolling } from "@/lib/canvas/use-board-polling";
-import { noteKeyboardCopy, useBoardClipboard } from "@/lib/canvas/use-board-clipboard";
+import { noteKeyboardCopy, pageTextSelected, useBoardClipboard } from "@/lib/canvas/use-board-clipboard";
 import { copySelectionStyle, pasteSelectionStyle } from "@/lib/canvas/sticky-actions";
 import {
   CanvasSurface,
@@ -289,11 +289,11 @@ export function CanvasView() {
       }
       // The browser's copy and cut events that follow also mark the system clipboard (useBoardClipboard).
       if (mod && e.key.toLowerCase() === "c") {
-        if (copy()) noteKeyboardCopy();
+        if (!pageTextSelected() && copy()) noteKeyboardCopy();
         return;
       }
       if (mod && e.key.toLowerCase() === "x") {
-        if (cut()) noteKeyboardCopy();
+        if (!pageTextSelected() && cut()) noteKeyboardCopy();
         return;
       }
       if (mod && e.key.toLowerCase() === "v") {

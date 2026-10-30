@@ -54,7 +54,7 @@ the store's `editBoard`, so it is one undo step, a per-node save, and a no-op on
   ordinary text (`lists.js`), so lists need no format field; numbers are rewritten on commit.
 - **Fonts.** `fontFamily` on text, stickies and shapes picks one of 34 fonts (sans, serif, mono,
   handwriting and CJK), self-hosted through next/font in `src/components/canvas/board-fonts.js` (loaded
-  by the board's page only; Inter is the page font) and downloaded only when used. An unknown id is
+  with the board only; Inter is the page font) and downloaded only when used. An unknown id is
   kept and renders in the default font.
 - **Colors.** Fill, stroke and text colors use the 23 board colors plus "My colors": up to 16 colors
   picked by spectrum, hex or eyedropper, saved per person in this browser.

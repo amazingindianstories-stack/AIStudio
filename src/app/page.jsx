@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, } from "react";
+import dynamic from "next/dynamic";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { useStore } from "@/lib/store";
@@ -14,12 +15,13 @@ import { DetailModal } from "@/components/DetailModal";
 import { AssetLibrary } from "@/components/AssetLibrary";
 import { PortraitGallery } from "@/components/PortraitGallery";
 import { startFreezeWatchdog, stopFreezeWatchdog } from "@/lib/freeze-watchdog";
-import { CanvasView } from "@/components/canvas/CanvasView";
-import { BOARD_FONT_VARIABLES } from "@/components/canvas/board-fonts";
 import { StudioView } from "@/components/StudioView";
 import { Toaster } from "@/components/Toaster";
 import { TextPromptDialog } from "@/components/TextPromptDialog";
 import { useDesktopLayout } from "@/lib/use-desktop-layout";
+
+// The board and its fonts load only when the board opens.
+const CanvasView = dynamic(() => import("@/components/canvas/BoardView").then((m) => m.CanvasView), { ssr: false });
 
 export default function Page() {
   const loadHistory = useStore((s) => s.loadHistory);
@@ -55,14 +57,6 @@ export default function Page() {
       setView("studio");
     }
   }, [view, currentUser, setView]);
-
-  // The board fonts' variables go on the root element while the board is open, so portaled menus see them too.
-  useEffect(() => {
-    if (view !== "canvas") return;
-    const classes = BOARD_FONT_VARIABLES.split(" ");
-    document.documentElement.classList.add(...classes);
-    return () => document.documentElement.classList.remove(...classes);
-  }, [view]);
 
   useEffect(() => {
     loadMe();

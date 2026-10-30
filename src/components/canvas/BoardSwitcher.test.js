@@ -181,3 +181,38 @@ test("the canvas shows one empty state with tools, sharing and editing off when 
     }
   });
 });
+
+test("the copy and cut shortcuts leave selected page text to the browser instead of taking the board selection", async () => {
+  const sticky = { id: "s1", type: "sticky", x: 0, y: 0, w: 100, h: 100, parentId: null, groupId: null, text: "keep", fill: "#e3c56a", color: "#1c1a12", fontSize: 16 };
+  const board = { ...BOARD, version: 1, data: { nodes: [sticky], connectors: [], viewport: { x: 0, y: 0, zoom: 1 } } };
+  await harness(({ url }) => {
+    if (url.startsWith("/api/canvas-boards?")) return json(200, { boards: [BOARD], canCreate: true });
+    if (url.startsWith("/api/canvas-boards/board-1")) return json(200, board);
+    if (url.startsWith("/api/assets")) return json(200, { assets: [], items: [] });
+    return null;
+  }, async ({ root, settle }) => {
+    const original = useStore.getState();
+    useStore.setState({ activeProjectId: "project", projects: [{ id: "project", name: "Project" }], items: [], assets: [], currentUser: { id: "me", role: "user" } });
+    const matchMedia = window.matchMedia;
+    window.matchMedia = (query) => ({ ...matchMedia(query), matches: query !== "(pointer: coarse)" });
+    try {
+      await act(async () => root.render(React.createElement(CanvasView)));
+      await settle();
+      await settle();
+      const nodes = () => useCanvasStore.getState().history.present.nodes.map((node) => node.id);
+      assert.deepEqual(nodes(), ["s1"]);
+      await act(async () => useCanvasStore.getState().setSelection(["s1"]));
+      const note = document.body.appendChild(document.createElement("p"));
+      note.textContent = "Generated caption";
+      document.getSelection().selectAllChildren(note);
+      for (const key of ["c", "x"]) document.dispatchEvent(new window.KeyboardEvent("keydown", { key, metaKey: true, bubbles: true }));
+      await settle();
+      assert.deepEqual(nodes(), ["s1"], "the cut shortcut copies the page text, not the sticky");
+      document.getSelection().removeAllRanges();
+      await act(async () => document.dispatchEvent(new window.KeyboardEvent("keydown", { key: "x", metaKey: true, bubbles: true })));
+      assert.deepEqual(nodes(), [], "without page text, the shortcut cuts the sticky");
+    } finally {
+      await act(async () => useStore.setState(original, true));
+    }
+  });
+});

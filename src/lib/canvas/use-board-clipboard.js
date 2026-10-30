@@ -26,8 +26,8 @@ function typing(target) {
   return target?.isContentEditable || target?.tagName === "INPUT" || target?.tagName === "TEXTAREA";
 }
 
-/** Page text the person selected (board objects hold no selectable text), which a menu copy copies instead. */
-function pageTextSelected() {
+/** Page text the person selected (board objects hold no selectable text), which a copy copies instead. */
+export function pageTextSelected() {
   const selection = document.getSelection();
   return Boolean(selection && !selection.isCollapsed && selection.toString());
 }

@@ -2,10 +2,9 @@
  * The board font library (src/lib/canvas/fonts.js), self-hosted through
  * next/font. Nothing is preloaded: each font only declares its @font-face and
  * CSS variable, so a browser downloads a font (and only the scripts it needs)
- * once an object on the board uses it. Only the board's page (src/app/page.jsx)
- * imports this module, and it sets the variables on the root element while the
- * board is open, so menus portaled outside the board see them too. Inter is
- * the page font from src/app/layout.jsx (see `fontVariable`).
+ * once an object on the board uses it. Only BoardView.jsx imports this module,
+ * so its CSS arrives with the board's chunk (src/app/page.jsx loads it when the
+ * board opens). Inter is the page font from src/app/layout.jsx (see `fontVariable`).
  */
 import {
   Caveat,
