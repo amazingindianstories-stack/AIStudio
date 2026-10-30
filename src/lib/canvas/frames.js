@@ -210,3 +210,20 @@ export function copyOrigin(selectedNodes, allNodes) {
   const box = boundsOfNodes(selectedNodes);
   return box ? { x: box.x, y: box.y } : { x: 0, y: 0 };
 }
+
+/** A view-only synced copy node of `frame` (`{ id, name, w, h }`) from board `boardId`, centered at `center`. */
+export function syncedNodeFor(boardId, frame, center, id = crypto.randomUUID()) {
+  return {
+    id,
+    type: "synced",
+    x: center.x - frame.w / 2,
+    y: center.y - frame.h / 2,
+    w: frame.w,
+    h: frame.h,
+    sourceBoardId: boardId,
+    sourceNodeId: frame.id,
+    name: frame.name,
+    parentId: null,
+    groupId: null,
+  };
+}

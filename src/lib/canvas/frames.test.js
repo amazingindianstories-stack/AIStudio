@@ -110,3 +110,9 @@ test("paste into frames keeps the offsets from the copied frame in every selecte
   assert.deepEqual(destinations, [{ dx: 900, dy: -100, parentId: "d1" }, { dx: -100, dy: 1900, parentId: "d2" }]);
   assert.deepEqual(copyOrigin([box("x", 30, 40), box("y", 90, 90)], [box("x", 30, 40), box("y", 90, 90)]), { x: 30, y: 40 });
 });
+
+test("a synced copy node keeps the frame's size and points at the source", async () => {
+  const { syncedNodeFor } = await import("./frames");
+  const node = syncedNodeFor("b1", { id: "f1", name: "Scene", w: 400, h: 200 }, { x: 0, y: 0 }, "n1");
+  assert.deepEqual([node.type, node.x, node.y, node.sourceBoardId, node.sourceNodeId], ["synced", -200, -100, "b1", "f1"]);
+});
