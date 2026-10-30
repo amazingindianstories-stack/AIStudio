@@ -55,3 +55,16 @@ test("the image is drawn from board data with escaped text, connectors inside th
   assert.match(withImage.svg, /<image href="data:image\/png;base64,AA=="/);
   assert.equal(selectionSvg(board, [], { measure }), null);
 });
+
+test("shape text without its own color is drawn in the light color the board shows", () => {
+  const measure = (s, size) => s.length * size * 0.5;
+  const shapes = {
+    nodes: [
+      node("plain", "rect", 0, 0, { text: "Default", fill: "rgba(255,255,255,0.06)", stroke: "#fff", strokeWidth: 2 }),
+      node("colored", "ellipse", 200, 0, { text: "Colored", color: "#ff0000", fill: "#000", stroke: "#fff", strokeWidth: 2 }),
+    ],
+    connectors: [],
+  };
+  const fills = (svg) => [...svg.matchAll(/<text [^>]*fill="([^"]+)"[^>]*>/g)].map((m) => m[1]);
+  assert.deepEqual(fills(selectionSvg(shapes, ["plain", "colored"], { measure, images: new Map() }).svg), ["#ffffff", "#ff0000"]);
+});

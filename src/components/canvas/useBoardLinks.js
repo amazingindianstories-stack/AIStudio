@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { useStore } from "@/lib/store";
 import { useCanvasStore } from "@/lib/canvas-store";
 import { useBoardUi } from "@/lib/canvas/board-ui";
-import { useBoardPrefs } from "@/lib/canvas/board-prefs";
+import { rememberBoard } from "@/lib/canvas/board-prefs";
 import { pageObjectLink, withoutLinkParams } from "@/lib/canvas/object-link";
 
 /**
@@ -44,6 +44,7 @@ export function useBoardLinks({ boardId, setBoardId }) {
   const loadedBoardId = useCanvasStore((s) => s.boardId);
   const boardName = useCanvasStore((s) => s.boardName);
   const activeProjectId = useStore((s) => s.activeProjectId);
+  const userId = useStore((s) => s.currentUser?.id);
 
   useEffect(() => {
     if (!loaded || !loadedBoardId || loadedBoardId !== boardId) return;
@@ -53,8 +54,8 @@ export function useBoardLinks({ boardId, setBoardId }) {
 
   useEffect(() => {
     if (!loaded || !loadedBoardId || loadedBoardId !== boardId || !activeProjectId) return;
-    useBoardPrefs.getState().rememberBoard({ id: loadedBoardId, projectId: activeProjectId, name: boardName });
-  }, [loaded, loadedBoardId, boardId, boardName, activeProjectId]);
+    rememberBoard(userId, { id: loadedBoardId, projectId: activeProjectId, name: boardName });
+  }, [loaded, loadedBoardId, boardId, boardName, activeProjectId, userId]);
 
   function showPending() {
     const link = pending.current;

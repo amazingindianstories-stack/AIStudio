@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DEFAULT_PREFS, MAX_RECENT_BOARDS, parsePrefs, useBoardPrefs } from "./board-prefs.js";
+import { DEFAULT_PREFS, MAX_RECENT_BOARDS, clearRecentBoards, parsePrefs, readRecentBoards, rememberBoard, useBoardPrefs } from "./board-prefs.js";
 
 function useStorage(t, initial = {}) {
   const map = new Map(Object.entries(initial));
@@ -21,11 +21,10 @@ function resetPrefs() {
 
 test("stored prefs are coerced, and anything unknown falls back to the default", () => {
   assert.deepEqual(parsePrefs(null), DEFAULT_PREFS);
-  assert.deepEqual(parsePrefs({ singleKeyShortcuts: "no", toolbarOrder: ["a", 3], toolbarHidden: "x", recentBoards: [{ id: "b", projectId: "p" }, { id: 1 }], extra: true }), {
+  assert.deepEqual(parsePrefs({ singleKeyShortcuts: "no", toolbarOrder: ["a", 3], toolbarHidden: "x", recentBoards: [{ id: "b", projectId: "p" }], extra: true }), {
     singleKeyShortcuts: true,
     toolbarOrder: ["a"],
     toolbarHidden: [],
-    recentBoards: [{ id: "b", projectId: "p", name: "" }],
   });
   assert.equal(parsePrefs({ singleKeyShortcuts: false }).singleKeyShortcuts, false);
 });
@@ -52,15 +51,35 @@ test("a change before hydration keeps the other saved prefs", (t) => {
 });
 
 test("recent boards put the newest first, without duplicates, up to the limit", (t) => {
-  useStorage(t);
-  resetPrefs();
-  const { rememberBoard } = useBoardPrefs.getState();
-  for (let i = 0; i < MAX_RECENT_BOARDS + 2; i += 1) rememberBoard({ id: `b${i}`, projectId: "p", name: `Board ${i}` });
-  rememberBoard({ id: "b5", projectId: "p", name: "Board 5" });
-  const recent = useBoardPrefs.getState().recentBoards.map((b) => b.id);
+  useStorage(t, { "veevee-board-prefs-v1:me": JSON.stringify([{ id: 1 }, { id: "old", projectId: "p" }]) });
+  assert.deepEqual(readRecentBoards("nobody"), []);
+  for (let i = 0; i < MAX_RECENT_BOARDS + 2; i += 1) rememberBoard("me", { id: `b${i}`, projectId: "p", name: `Board ${i}` });
+  rememberBoard("me", { id: "b5", projectId: "p", name: "Board 5" });
+  const recent = readRecentBoards("me").map((b) => b.id);
   assert.equal(recent.length, MAX_RECENT_BOARDS);
   assert.deepEqual(recent.slice(0, 3), ["b5", "b9", "b8"]);
   assert.equal(new Set(recent).size, recent.length);
+});
+
+test("another account on the same browser never sees someone's recent boards, and signing out forgets them", (t) => {
+  const map = useStorage(t);
+  rememberBoard("alice", { id: "secret", projectId: "p", name: "Alice's launch plan" });
+  rememberBoard(undefined, { id: "anon", projectId: "p", name: "Signed out" });
+  assert.deepEqual(readRecentBoards("bob"), []);
+  assert.deepEqual(readRecentBoards(undefined), []);
+  assert.ok(![...map.values()].some((v) => v.includes("Signed out")));
+  // Device prefs stay shared and never carry board names.
+  resetPrefs();
+  useBoardPrefs.getState().setPrefs({ singleKeyShortcuts: false });
+  assert.doesNotMatch(map.get("veevee-board-prefs-v1"), /launch plan/);
+
+  rememberBoard("bob", { id: "mine", projectId: "q", name: "Bob's board" });
+  assert.deepEqual(readRecentBoards("bob").map((b) => b.id), ["mine"]);
+  assert.deepEqual(readRecentBoards("alice").map((b) => b.id), ["secret"]);
+
+  clearRecentBoards("alice");
+  assert.deepEqual(readRecentBoards("alice"), []);
+  assert.deepEqual(readRecentBoards("bob").map((b) => b.id), ["mine"]);
   resetPrefs();
 });
 

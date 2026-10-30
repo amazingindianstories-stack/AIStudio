@@ -26,7 +26,7 @@ import { cn } from "@/lib/utils";
 import { useCanvasStore, } from "@/lib/canvas-store";
 import { nodeBounds, resolveEndpoint, worldToScreen } from "@/lib/canvas/geometry";
 import { Dropdown, MenuItem } from "@/components/Dropdown";
-import { isShapeNode } from "@/lib/canvas/shapes";
+import { isShapeNode, textColorOf } from "@/lib/canvas/shapes";
 import { HIGHLIGHT_COLORS } from "@/lib/canvas/rich-text";
 import {
   activeFormats,
@@ -205,7 +205,7 @@ export function StyleInspector({ hidden }) {
         {showTextColor && (
           <ColorSwatchButton
             label="Text color"
-            value={(selectedNodes[0] ).color ?? "#ffffff"}
+            value={textColorOf(selectedNodes[0])}
             onChange={(v) => patch({ color: v })}
           />
         )}

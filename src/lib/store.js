@@ -37,6 +37,7 @@ import { inlineMediaUrl } from "./utils";
 import { historyFilterToParams } from "./history-query";
 import { emptyLibraryFilters, libraryDateBounds, librarySourceKey, normalizeLibraryFilters } from "./library-filters";
 import { cleanLibraryQuery, clearLibrarySession, readLibrarySession, writeLibrarySession } from "./library-session";
+import { clearRecentBoards } from "./canvas/board-prefs";
 import { apiFetch as crossOriginFetch, retryWhileBusy, fetchRetryBusy } from "./api";
 import { apiErrorMessage } from "./api-error";
 import { referenceAudioProblem, withAudioDurations } from "./audio-duration";
@@ -2790,6 +2791,7 @@ export const useStore = create((set, get) => ({
     }
     disposeStoreRuntime();
     clearLibrarySession(actorId);
+    clearRecentBoards(actorId);
     window.location.href = "/login";
   },
 }));

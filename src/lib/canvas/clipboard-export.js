@@ -5,7 +5,7 @@
  */
 import { readingOrder } from "./keyboard-nav";
 import { connectorPath, nodeBounds } from "./geometry";
-import { shapeOutline, pointsToPath } from "./shapes";
+import { shapeOutline, pointsToPath, textColorOf } from "./shapes";
 import { BOARD_BACKGROUND } from "./a11y-check";
 
 /** The selected nodes plus the contents of every selected frame. */
@@ -84,7 +84,7 @@ function textBlock(node, box, measure, { align = "left", valign = "top", inset =
   const spans = lines
     .map((line, i) => `<tspan x="${x}" y="${top + size + i * lineHeight}">${esc(line) || " "}</tspan>`)
     .join("");
-  return `<text font-family="Inter, system-ui, sans-serif" font-size="${size}" fill="${esc(node.color ?? "#000000")}" text-anchor="${anchor}">${spans}</text>`;
+  return `<text font-family="Inter, system-ui, sans-serif" font-size="${size}" fill="${esc(textColorOf(node))}" text-anchor="${anchor}">${spans}</text>`;
 }
 
 function shapeMarkup(node, measure) {

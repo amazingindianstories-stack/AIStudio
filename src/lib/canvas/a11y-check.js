@@ -3,7 +3,7 @@
  * from the board graph so they cover culled objects too.
  */
 import { readingOrder } from "./keyboard-nav";
-import { BASIC_SHAPES } from "./shapes";
+import { BASIC_SHAPES, textColorOf } from "./shapes";
 
 // The board is drawn on the app's darkest ink; see tailwind.config's ink-900.
 export const BOARD_BACKGROUND = "#070708";
@@ -90,8 +90,7 @@ export function accessibilityIssues(present) {
     }
     const hasText = typeof node.text === "string" && node.text.trim();
     if (!hasText) continue;
-    const color = node.color ?? "#000000";
-    const ratio = contrastRatio(color, backgroundOf(node, nodesById));
+    const ratio = contrastRatio(textColorOf(node), backgroundOf(node, nodesById));
     const needed = (node.fontSize ?? 16) >= LARGE_TEXT_PX ? LARGE_RATIO : NORMAL_RATIO;
     if (ratio !== null && ratio < needed) {
       issues.push({ id, kind: "contrast", ratio, needed, message: `Low text contrast (${ratio.toFixed(1)}:1, needs ${needed}:1)` });

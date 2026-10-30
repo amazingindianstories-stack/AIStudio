@@ -43,6 +43,17 @@ test("text on the dark board is checked against the board color", () => {
   assert.deepEqual(accessibilityIssues(board).map((i) => i.kind), ["contrast"]);
 });
 
+test("shape text without its own color is checked as the light text the board draws", () => {
+  const board = {
+    nodes: [
+      node("default", "rect", 0, { text: "Readable", fill: "rgba(255,255,255,0.06)" }),
+      node("pale", "rect", 200, { text: "Unreadable", fill: "#ffffff" }),
+    ],
+    connectors: [],
+  };
+  assert.deepEqual(accessibilityIssues(board).map((i) => [i.id, i.kind]), [["pale", "contrast"]]);
+});
+
 test("describes objects and summarizes the board for screen readers", () => {
   const board = {
     nodes: [node("f", "frame", 0, { name: "Plan" }), node("s", "sticky", 10, { text: "Ship it", parentId: "f" }), node("i", "image", 400, {})],
