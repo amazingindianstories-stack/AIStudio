@@ -42,7 +42,7 @@ async function openBoard(page) {
 async function addSticky(page, canvas, position) {
   await page.getByRole('button', { name: 'Sticky note', exact: true }).click();
   const saved = page.waitForResponse((response) => /\/api\/canvas-boards\/[^/]+$/.test(new URL(response.url()).pathname) &&
-    response.request().method() === 'PUT');
+    ['PUT', 'PATCH'].includes(response.request().method()));
   await canvas.click({ position });
   const response = await saved;
   expect(response.status()).toBe(200);
@@ -120,6 +120,9 @@ test('Board roles: an owner shares a board and a teammate gets comment, edit and
   expect(after.updatedAt).toBe(before.updatedAt);
   const refused = await mate.context.request.put(boardPath, { data: { data: before.data }, headers: { Origin: baseURL } });
   expect(refused.status()).toBe(403);
+  const refusedPatch = await mate.context.request.patch(boardPath, { data: { patch: { nodes: { upsert: [], delete: [before.data.nodes[0].id] } },
+    baseVersion: before.version, saveId: randomUUID() }, headers: { Origin: baseURL } });
+  expect(refusedPatch.status()).toBe(403);
   await info.attach('teammate-comment-only', { body: await mate.page.screenshot(), contentType: 'image/png' });
 
   // The teammate sees who has access but cannot change it.

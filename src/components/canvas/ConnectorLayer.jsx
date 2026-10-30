@@ -25,6 +25,7 @@ export function ConnectorLayer({
 }
 
 ) {
+  const selectedSet = new Set(selectedConnectorIds);
   return (
     <svg
       // A width/height of 0 disables rendering of the whole <svg> per the
@@ -53,7 +54,7 @@ export function ConnectorLayer({
       </defs>
 
       {connectors.map((c) => {
-        const selected = selectedConnectorIds.includes(c.id);
+        const selected = selectedSet.has(c.id);
         let d = "";
         try {
           d = connectorPath(c, nodesById);

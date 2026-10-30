@@ -4,17 +4,33 @@ Several people can edit one board without overwriting each other. There is no re
 a single gunicorn worker with 8 threads and a 25 s timeout, so boards save through conditional writes,
 merge per node on the client and poll for other people's saves.
 
-## Save contract (`PUT /api/canvas-boards/<id>`)
+## Save contract (`PUT` and `PATCH /api/canvas-boards/<id>`)
 
 - The body carries `data` (the graph), `baseVersion` (the board version the edits started from) and
   `saveId` (a fresh client UUID for each save attempt). The write locks the board row and applies only
   when its version equals `baseVersion`. There is no unconditional write: a missing or stale
   `baseVersion`, or a missing `saveId`, gets `409 {error: "VERSION_CONFLICT", board}` with the current
   board (graph and version), and nothing is written. A malformed `baseVersion` or `saveId` gets 400.
+- `PATCH` sends `patch` in place of `data`: for `nodes` and for `connectors` the whole items added or changed
+  (`upsert`), the ids of the upserted items that are new (`add`) and the ids deleted (`delete`), the `viewport`, and `nodeOrder`/`connectorOrder` (every id) only
+  when the order is not "kept items in their old order, then added ones in patch order"
+  (`backend/apps/canvas/patch.py`, mirrored by `src/lib/canvas/patch.js`). Under the same lock and version check
+  the server applies it to the stored graph and saves the result exactly as a full save, so roles, stamps,
+  History, normalization and the size limit all see the resulting whole board. A patch that does not describe
+  a graph (a duplicate id, an order that does not name every item once) or was built over a different one
+  (`add` does not name exactly the upserted items the stored graph lacks, as when the editor still holds an
+  image someone deleted while it was cropped) gets `400 {error: "INVALID_PATCH"}`.
+- The editor sends a patch against the graph of the version it last synced (after a 409, the version the 409
+  returned). It sends the whole graph with `PUT` when it holds no version, when a patch got 400 (the same save,
+  same `saveId`, goes again as the whole graph; nothing was written), and for the rest of the open board once a
+  server answers 405. On unload the keepalive request carries the whole graph when that fits the keepalive
+  limit, otherwise the patch, so an edit on a large board still saves; the local draft always holds the whole
+  graph.
 - A save that changes nodes or connectors bumps `version`. A save that only changes the viewport (each
   person's own) keeps the version, so open boards do not refetch the graph.
 - A graph-changing save records `(board_id, save_id, version, applied_at)` in `canvas_board_saves` in the
-  same transaction, unique per board and save id. `run_scheduler` prunes rows older than 30 days daily
+  same transaction, unique per board and save id, with `changes`: the ids of the nodes and connectors it
+  added, edited, moved or deleted (null when more than 2,000). `run_scheduler` prunes rows older than 30 days daily
   (`board_saves`, the 03:17 UTC slot); deleting a board deletes its rows. Viewport-only saves record nothing.
 - In the same transaction (the board row is locked with `SELECT ... FOR UPDATE`) the server diffs the stored
   graph against the saved one per node and connector id, stamps each added or edited object with
@@ -22,13 +38,21 @@ merge per node on the client and poll for other people's saves.
   ignored (`../features/board-history.md`). The reply carries `stamps` for the objects this save added or
   edited, which the client adopts into its graph, sync base and undo snapshots without an undo step.
 - The size limit (2,097,152 UTF-16 units of the graph's JSON) counts content only: both the request check and
-  the check on the normalized graph leave out the stamps, so stamping never costs a board room. A save over it
+  the check on the normalized graph leave out the stamps, so stamping never costs a board room. A patch is
+  measured only as the whole board it produces, never by its own size. A save over it
   gets 413 and nothing is written; the editor says the board is too large to save and does not retry until the
   next edit, and the pending draft keeps the unsaved edits.
 - `GET /api/canvas-boards/<id>?saveId=<uuid>` adds `saveVersion`: the version that save landed at, or null.
 - `GET /api/canvas-boards/<id>/version` returns `{version, updatedAt}` without reading the graph. Open boards
   poll it every 3 s, every 15 s after a minute with no input and no remote change, and not while hidden
   (`src/lib/canvas/use-board-polling.js`); the graph is fetched only when the version moved.
+- `GET /api/canvas-boards/<id>/changes?since=<version>` (read role) returns `{version, updatedAt, changes}`
+  with, per kind, the current items whose ids the saves after `since` recorded (`upsert`) and those ids no
+  longer on the board (`delete`), plus `nodeOrderHash`/`connectorOrderHash` (FNV-1a over the ids). It returns
+  `{version, updatedAt, data}`, the whole graph, when `since` is ahead of the board or more than 200 versions
+  behind, or a save in between recorded no ids or was pruned. A poll that saw a newer version asks it first,
+  rebuilds the graph over the one it synced and checks both hashes; a mismatch (a reorder records no ids) or
+  an image crop in progress reads the whole board instead, as does a server without the endpoint.
 
 ## Client merge (`src/lib/canvas/merge.js`, `src/lib/canvas-store.js`)
 
@@ -53,6 +77,14 @@ merge per node on the client and poll for other people's saves.
   the image leaving the board) the ordinary merge applies the held version: this person's change to the image
   wins, otherwise theirs is kept. An applied crop is set after that merge, on the image's current version, so
   it keeps their change too; an image they deleted comes back with the crop.
+
+## Large boards (`src/lib/canvas/culling.js`)
+
+The board mounts only the nodes and connectors that meet the viewport grown by 900 screen pixels on each side,
+so a board of thousands of objects keeps a few hundred elements in the DOM. The selection, the node being
+text-edited or cropped, a connector's hover target, selected connectors and both endpoint nodes of every
+mounted connector are always mounted. Culling only decides what is mounted: select all, marquee, align,
+copy, export, fit, minimap, search, jump-to-object and AI placement read the whole graph from the store.
 
 ## Local drafts (`src/lib/canvas-pending-draft.js`)
 

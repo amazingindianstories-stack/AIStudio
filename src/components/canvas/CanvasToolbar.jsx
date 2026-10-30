@@ -316,7 +316,8 @@ function ZoomControl() {
 
   const zoomToSelection = () => {
     if (!selection.length) return;
-    const nodes = present.nodes.filter((n) => selection.includes(n.id));
+    const selected = new Set(selection);
+    const nodes = present.nodes.filter((n) => selected.has(n.id));
     if (!nodes.length) return;
     const bounds = nodes.map(nodeBounds);
     const x0 = Math.min(...bounds.map((b) => b.x));

@@ -50,11 +50,15 @@ class CanvasBoardSave(models.Model):
     save_id = models.UUIDField()
     version = models.BigIntegerField()
     applied_at = models.BigIntegerField()
+    # The ids of the nodes and connectors the save changed ({"nodes": [...], "connectors": [...]}), so open
+    # boards fetch only those (apps.canvas.patch); null when it changed too many or was saved before this.
+    changes = models.JSONField(null=True)
 
     class Meta:
         managed = True
         db_table = 'canvas_board_saves'
-        indexes = [models.Index(fields=['applied_at'], name='canvas_board_saves_applied_idx')]
+        indexes = [models.Index(fields=['applied_at'], name='canvas_board_saves_applied_idx'),
+                   models.Index(fields=['board_id', 'version'], name='canvas_board_saves_version_idx')]
         constraints = [models.UniqueConstraint(fields=('board_id', 'save_id'), name='canvas_board_saves_board_save_key')]
 
 

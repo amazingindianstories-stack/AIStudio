@@ -39,11 +39,11 @@ async function openBoard(page) {
   return canvas;
 }
 
-const isBoardPut = (response) => /\/api\/canvas-boards\/[^/]+$/.test(new URL(response.url()).pathname) && response.request().method() === 'PUT';
+const isBoardSave = (response) => /\/api\/canvas-boards\/[^/]+$/.test(new URL(response.url()).pathname) && ['PUT', 'PATCH'].includes(response.request().method());
 
 /** Runs `action` and returns the board as stored once a save of it lands. */
 async function saved(page, boardPath, action, until) {
-  const response = page.waitForResponse(isBoardPut);
+  const response = page.waitForResponse(isBoardSave);
   await action();
   expect((await response).status()).toBe(200);
   await expect.poll(async () => until((await (await page.request.get(boardPath)).json()).data)).toBeTruthy();
@@ -74,7 +74,7 @@ test('Board history: edits are stamped and listed by person, moves are not, and 
   // The owner adds a sticky and writes on it.
   const owner = await signIn(browser, baseURL, OWNER, project.id);
   const canvas = await openBoard(owner.page);
-  const placed = owner.page.waitForResponse(isBoardPut);
+  const placed = owner.page.waitForResponse(isBoardSave);
   await owner.page.getByRole('button', { name: 'Sticky note', exact: true }).click();
   await canvas.click({ position: { x: 520, y: 320 } });
   const boardPath = new URL((await placed).url()).pathname;

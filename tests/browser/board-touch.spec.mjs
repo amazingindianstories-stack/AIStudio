@@ -51,7 +51,7 @@ async function openBoard(page) {
 async function addSticky(page, canvas, position) {
   await page.getByRole('button', { name: 'Sticky note', exact: true }).click();
   const saved = page.waitForResponse((response) => /\/api\/canvas-boards\/[^/]+$/.test(new URL(response.url()).pathname) &&
-    response.request().method() === 'PUT');
+    ['PUT', 'PATCH'].includes(response.request().method()));
   await canvas.click({ position });
   const response = await saved;
   expect(response.status()).toBe(200);
@@ -170,7 +170,7 @@ test('Board touch: a phone opens the board view-only, pans and zooms by touch, a
   const phone = await signIn(browser, baseURL, OWNER, project.id, PHONE);
   const writes = [];
   phone.page.on('request', (request) => {
-    if (request.url().includes('/api/canvas-boards/') && request.method() === 'PUT') writes.push(request.url());
+    if (request.url().includes('/api/canvas-boards/') && ['PUT', 'PATCH'].includes(request.method())) writes.push(request.url());
   });
   const canvas = await openBoard(phone.page);
   expect(await phone.page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBeTruthy();
@@ -251,7 +251,7 @@ test('Board touch: a phone opens the board view-only, pans and zooms by touch, a
   await centreNode(touch, sticky, box);
   const start = await sticky.boundingBox();
   const centre = at(start.x - box.x + start.width / 2, start.y - box.y + start.height / 2);
-  const saved = phone.page.waitForResponse((response) => response.url().endsWith(boardPath) && response.request().method() === 'PUT');
+  const saved = phone.page.waitForResponse((response) => response.url().endsWith(boardPath) && ['PUT', 'PATCH'].includes(response.request().method()));
   await touch.drag(centre, { x: centre.x - 80, y: centre.y + 50 });
   expect((await saved).status()).toBe(200);
   const moved = await sticky.boundingBox();
@@ -449,7 +449,7 @@ test('Board touch: viewing, a keyboard cannot edit, save trouble stays visible, 
 
   // Viewing still autosaves the viewport; a failed save shows the error and Retry in place of View only.
   const isBoard = (url) => new URL(url).pathname === boardPath;
-  await phone.page.route(isBoard, (route) => (route.request().method() === 'PUT'
+  await phone.page.route(isBoard, (route) => (['PUT', 'PATCH'].includes(route.request().method())
     ? route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"down"}' })
     : route.continue()));
   await touch.drag(at(300, 650), at(120, 650));

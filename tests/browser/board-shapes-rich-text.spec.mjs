@@ -36,7 +36,7 @@ async function openBoard(page) {
   return canvas;
 }
 
-const isSave = (response) => /\/api\/canvas-boards\/[^/]+$/.test(new URL(response.url()).pathname) && response.request().method() === 'PUT';
+const isSave = (response) => /\/api\/canvas-boards\/[^/]+$/.test(new URL(response.url()).pathname) && ['PUT', 'PATCH'].includes(response.request().method());
 
 /** Waits for the autosave that follows `action`, then returns the stored board. */
 async function saved(page, action) {

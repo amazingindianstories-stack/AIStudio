@@ -26,7 +26,7 @@ async function chipAfterSave(t, status) {
     for (const name of names) Object.defineProperty(globalThis, name, { value: prior[name], configurable: true, writable: true });
     dom.window.close();
   });
-  t.mock.method(globalThis, "fetch", async (url, init = {}) => (init.method === "PUT" ? json(status, { error: "Refused." }) : json(200, board)));
+  t.mock.method(globalThis, "fetch", async (url, init = {}) => (init.method === "PUT" || init.method === "PATCH" ? json(status, { error: "Refused." }) : json(200, board)));
   useCanvasStore.getState().reset();
   await useCanvasStore.getState().loadBoard("board-1");
   useCanvasStore.getState().addNode(rect("big"));

@@ -33,7 +33,7 @@ test("a failed save followed by unmount/reset keeps the edit and restores it on 
   let failSaves = true;
   t.mock.method(globalThis, "fetch", async (url, init = {}) => {
     calls.push({ url, method: init.method || "GET", keepalive: init.keepalive });
-    if ((init.method || "GET") === "PUT") return failSaves ? json(503, {}) : json(200, { updatedAt: Date.now(), version: 2 });
+    if (["PUT", "PATCH"].includes(init.method)) return failSaves ? json(503, {}) : json(200, { updatedAt: Date.now(), version: 2 });
     return json(200, { id: "board-1", name: "Board", data: emptyCanvasState(), updatedAt: 1, version: 1 });
   });
   const store = useCanvasStore;
@@ -58,22 +58,35 @@ test("a failed save followed by unmount/reset keeps the edit and restores it on 
   store.getState().reset();
 });
 
-test("large boards never use keepalive, small ones may", async (t) => {
+test("unload saves use keepalive only for bodies that fit it: the whole graph, else the patch", async (t) => {
   useStorage(t, memoryStorage());
-  const puts = [];
+  const saves = [];
+  const nodes = Array.from({ length: 1000 }, (_, index) => ({ id: `n${index}`, type: "sticky", x: index * 10, y: 0, w: 120, h: 120, text: "note ".repeat(10) }));
+  let board = emptyCanvasState();
   t.mock.method(globalThis, "fetch", async (url, init = {}) => {
-    if ((init.method || "GET") === "PUT") { puts.push(init); return json(200, { updatedAt: Date.now(), version: 2 }); }
-    return json(200, { id: "board-2", name: "Board", data: emptyCanvasState(), updatedAt: 1, version: 1 });
+    if (["PUT", "PATCH"].includes(init.method)) { saves.push(init); return json(200, { updatedAt: Date.now(), version: 2 + saves.length }); }
+    return json(200, { id: "board-2", name: "Board", data: board, updatedAt: 1, version: 1 });
   });
   const store = useCanvasStore;
+  const edit = (present) => { store.setState({ history: { past: [], present, future: [] }, saveStatus: "dirty" }); return store.getState().flushSave({ keepalive: true }); };
   store.getState().reset();
   await store.getState().loadBoard("board-2");
-  store.setState({ history: { past: [], present: editedState("small"), future: [] }, saveStatus: "dirty" });
-  await store.getState().flushSave({ keepalive: true });
-  const big = { ...emptyCanvasState(), padding: "x".repeat(KEEPALIVE_MAX_BYTES + 100) };
-  store.setState({ history: { past: [], present: big, future: [] }, saveStatus: "dirty" });
-  await store.getState().flushSave({ keepalive: true });
-  assert.equal(puts[0].keepalive, true);
-  assert.equal(puts[1].keepalive, false);
+  // A small board goes whole, as it always did.
+  await edit(editedState("small"));
+  assert.deepEqual([saves[0].method, saves[0].keepalive], ["PUT", true]);
+
+  // On a large board the whole graph cannot use keepalive, but a small edit's patch can.
+  board = { ...emptyCanvasState(), nodes };
+  await store.getState().loadBoard("board-2");
+  assert.ok(JSON.stringify(board).length > KEEPALIVE_MAX_BYTES);
+  const loaded = store.getState().history.present;
+  await edit({ ...loaded, nodes: loaded.nodes.map((node) => (node.id === "n7" ? { ...node, text: "moved" } : node)) });
+  assert.deepEqual([saves[1].method, saves[1].keepalive], ["PATCH", true]);
+  assert.ok(saves[1].body.length < 1000);
+
+  // An edit too large for keepalive either way relies on the pending draft.
+  const present = store.getState().history.present;
+  await edit({ ...present, nodes: present.nodes.map((node) => ({ ...node, text: "edited ".repeat(30) })) });
+  assert.deepEqual([saves[2].method, saves[2].keepalive], ["PATCH", false]);
   store.getState().reset();
 });

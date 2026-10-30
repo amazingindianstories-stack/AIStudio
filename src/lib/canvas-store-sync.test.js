@@ -3,6 +3,7 @@ import test from "node:test";
 import { useCanvasStore } from "./canvas-store.js";
 import { DRAFT_SYNC_MAX_AGE_MS, readPendingDraft, savePendingDraft } from "./canvas-pending-draft.js";
 import { emptyCanvasState } from "./canvas/serialization.js";
+import { applyBoardPatch, orderHash } from "./canvas/patch.js";
 
 function useStorage(t) {
   const map = new Map();
@@ -22,28 +23,43 @@ const graph = (...nodes) => ({ ...emptyCanvasState(), nodes });
 const ids = (state) => state.nodes.map((node) => node.id);
 const store = useCanvasStore;
 
-/** A board endpoint with the server's conditional-save contract; `edit` is another person's save. */
+/**
+ * A board endpoint with the server's conditional-save contract; `edit` is another person's save.
+ * Saves arrive as a whole graph (PUT) or as a patch over the version they start from (PATCH);
+ * `puts` records every save with the whole graph it stands for as `data`. `/changes` answers with
+ * the objects changed since a version, as apps.canvas.services.board_changes does.
+ */
 function fakeServer(t, data) {
-  const server = { version: 1, data, applied: new Map(), puts: [], boardUrls: [], versionReads: 0, boardReads: 0, holdPut: null, dropResponse: false };
+  const server = { version: 1, data, versions: new Map([[1, data]]), applied: new Map(), puts: [], boardUrls: [], versionReads: 0,
+    boardReads: 0, changeReads: 0, holdPut: null, dropResponse: false, patchStatus: null };
   const board = () => ({ id: "board-1", projectId: "p", name: "Board", createdBy: null, createdAt: 1, updatedAt: server.version,
     version: server.version, data: server.data });
-  server.edit = (next) => { server.data = next; server.version += 1; };
+  server.edit = (next) => { server.data = next; server.version += 1; server.versions.set(server.version, next); };
   t.mock.method(globalThis, "fetch", async (url, init = {}) => {
     if (url.endsWith("/version")) {
       server.versionReads += 1;
       return json(200, { version: server.version, updatedAt: server.version });
     }
-    if (init.method === "PUT") {
+    if (url.includes("/changes?since=")) {
+      server.changeReads += 1;
+      const since = Number(new URL(url, "http://veevee.test").searchParams.get("since"));
+      const old = server.versions.get(since);
+      if (!old) return json(200, { version: server.version, updatedAt: server.version, data: server.data });
+      return json(200, { version: server.version, updatedAt: server.version, changes: changesBetween(old, server.data) });
+    }
+    if (init.method === "PUT" || init.method === "PATCH") {
       const body = JSON.parse(init.body);
-      server.puts.push(body);
+      if (init.method === "PATCH" && server.patchStatus) return json(server.patchStatus, { error: "INVALID_PATCH" });
+      const sent = init.method === "PUT" ? body.data : applyBoardPatch(server.versions.get(body.baseVersion) ?? server.data, body.patch);
+      server.puts.push({ ...body, method: init.method, data: sent });
       if (server.holdPut) await server.holdPut;
       if (body.baseVersion !== server.version || typeof body.saveId !== "string") {
         return json(409, { error: "VERSION_CONFLICT", board: board() });
       }
-      server.edit(body.data);
+      server.edit(sent);
       server.applied.set(body.saveId, server.version);
       if (server.dropResponse) throw new TypeError("Failed to fetch");
-      const stamps = server.stampSave ? server.stampSave(body.data) : {};
+      const stamps = server.stampSave ? server.stampSave(sent) : {};
       return json(200, { ok: true, updatedAt: server.version, version: server.version, stamps });
     }
     server.boardReads += 1;
@@ -53,6 +69,20 @@ function fakeServer(t, data) {
   });
   t.after(() => store.getState().reset());
   return server;
+}
+
+/** The ids that differ between two graphs, as the server records them, answered with the current items. */
+function changesBetween(old, current) {
+  const changes = { nodeOrderHash: orderHash(current.nodes.map((item) => item.id)), connectorOrderHash: orderHash(current.connectors.map((item) => item.id)) };
+  for (const kind of ["nodes", "connectors"]) {
+    const before = new Map(old[kind].map((item) => [item.id, item]));
+    const present = new Set(current[kind].map((item) => item.id));
+    changes[kind] = {
+      upsert: current[kind].filter((item) => JSON.stringify(before.get(item.id)) !== JSON.stringify(item)),
+      delete: [...before.keys()].filter((id) => !present.has(id)),
+    };
+  }
+  return changes;
 }
 
 async function until(condition) {
@@ -690,4 +720,84 @@ test("an edit made while a save is in flight keeps the board dirty after the sav
   assert.equal(store.getState().saveStatus, "dirty");
   assert.equal(store.getState().history.present.nodes.find((node) => node.id === "mine").updatedBy, "me");
   assert.ok(store.getState().history.present.nodes.some((node) => node.id === "later"));
+});
+
+test("a save sends only the objects changed since the synced version", async (t) => {
+  useStorage(t);
+  const many = Array.from({ length: 2000 }, (_, index) => rect(`n${index}`, { x: index * 20 }));
+  const server = fakeServer(t, graph(...many));
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  store.getState().setSelection(["n5"]);
+  store.getState().moveSelectionBy(40, 0);
+  addLocalNode("mine");
+  await store.getState().flushSave();
+  const [save] = server.puts;
+  assert.equal(save.method, "PATCH");
+  assert.deepEqual(save.patch.nodes.upsert.map((node) => node.id), ["n5", "mine"]);
+  assert.deepEqual(save.patch.nodes.delete, []);
+  assert.equal(save.patch.nodeOrder, undefined);
+  assert.ok(JSON.stringify(save.patch).length < 1000, "a small edit sends a small request");
+  assert.deepEqual(server.data, store.getState().history.present);
+  // The next save patches over the version this one made.
+  store.getState().setSelection(["n5"]);
+  store.getState().deleteSelected();
+  await store.getState().flushSave();
+  assert.deepEqual([server.puts[1].baseVersion, server.puts[1].patch.nodes.delete], [2, ["n5"]]);
+  assert.deepEqual(ids(server.data), ids(store.getState().history.present));
+});
+
+test("a patch the server cannot apply is sent again as the whole graph", async (t) => {
+  useStorage(t);
+  const server = fakeServer(t, graph(rect("a")));
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  server.patchStatus = 400;
+  addLocalNode("mine");
+  await store.getState().flushSave();
+  assert.deepEqual(server.puts.map((save) => save.method), ["PUT"]);
+  assert.deepEqual(ids(server.data), ["a", "mine"]);
+  assert.equal(store.getState().saveStatus, "saved");
+  // Only that save: the next one tries a patch again.
+  server.patchStatus = null;
+  addLocalNode("next");
+  await store.getState().flushSave();
+  assert.deepEqual(server.puts.map((save) => save.method), ["PUT", "PATCH"]);
+});
+
+test("a server without patch saves gets the whole graph for as long as the board is open", async (t) => {
+  useStorage(t);
+  const server = fakeServer(t, graph(rect("a")));
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  server.patchStatus = 405;
+  for (const id of ["one", "two"]) {
+    addLocalNode(id);
+    await store.getState().flushSave();
+  }
+  assert.deepEqual(server.puts.map((save) => save.method), ["PUT", "PUT"]);
+  assert.deepEqual(ids(server.data), ["a", "one", "two"]);
+});
+
+test("polling fetches only the objects others changed, and the whole board when it cannot rebuild their order", async (t) => {
+  useStorage(t);
+  const server = fakeServer(t, graph(rect("a"), rect("b"), rect("c")));
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  addLocalNode("mine");
+  server.edit(graph(rect("a", { x: 12 }), rect("c"), rect("theirs")));
+  assert.equal(await store.getState().pollRemote(), true);
+  assert.deepEqual([server.changeReads, server.boardReads], [1, 1], "the graph itself is not refetched");
+  assert.deepEqual(ids(store.getState().history.present), ["a", "c", "theirs", "mine"]);
+  assert.equal(store.getState().history.present.nodes[0].x, 12);
+  assert.equal(store.getState().serverVersion, 2);
+  // A reorder changes no object: the rebuilt order does not match, so the whole board is read.
+  server.edit(graph(rect("theirs"), rect("a", { x: 12 }), rect("c")));
+  assert.equal(await store.getState().pollRemote(), true);
+  assert.deepEqual([server.changeReads, server.boardReads], [2, 2]);
+  assert.deepEqual(ids(store.getState().history.present), ["theirs", "a", "c", "mine"]);
+  // Saves after a delta merge patch over the merged version.
+  await store.getState().flushSave();
+  assert.deepEqual([server.puts[0].method, server.puts[0].baseVersion], ["PATCH", 3]);
+  assert.deepEqual(ids(server.data), ["theirs", "a", "c", "mine"]);
 });

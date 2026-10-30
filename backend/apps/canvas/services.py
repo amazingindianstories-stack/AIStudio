@@ -85,7 +85,7 @@ def _graph(data):
     return {key: value for key, value in data.items() if key != 'viewport'} if isinstance(data, dict) else data
 
 
-def save_board(identifier, data, base_version, save_id, actor):
+def save_board(identifier, data, base_version, save_id, actor, patch=None):
     """Write the graph only over the version the editor loaded, so concurrent editors never overwrite
     each other. A save without a base version or a save id is refused like a stale one. The board row is
     locked while the save is compared with the graph it replaces (apps.canvas.activity): changed objects
@@ -93,30 +93,58 @@ def save_board(identifier, data, base_version, save_id, actor):
     and version, all in that transaction, so the editor can tell whether a save whose response it never
     received landed. Returns the new version and the stamps the save gave, which the editor adopts.
     The viewport is each editor's own, so a save that only pans or zooms keeps the version, records
-    nothing, and open boards polling for changes do not refetch the graph."""
-    from . import activity
+    nothing, and open boards polling for changes do not refetch the graph.
+    With a `patch` (apps.canvas.patch) instead of `data`, the graph saved is the patch applied to the stored
+    one; everything above then runs on that whole graph, so a patch and the full graph it stands for save alike.
+    The save id row also records which objects the save changed, for `board_changes`."""
+    from . import activity, patch as board_patch
     now = now_ms()
     actor = str(actor)
     if base_version is not None and save_id is not None:
         with transaction.atomic():
             row = CanvasBoard.objects.select_for_update().filter(pk=identifier).values('version', 'data').first()
             if row and row['version'] == base_version:
-                stamped, changes = activity.stamp(validate_state(row['data']), data, actor, now)
+                stored = validate_state(row['data'])
+                if patch is not None:
+                    data = validate_state(board_patch.apply_patch(stored, patch))
+                stamped, changes = activity.stamp(stored, data, actor, now)
                 if content_length(stamped) > MAX_BOARD_JSON_UNITS:
                     raise BoardTooLarge()
                 version = base_version + 1 if _graph(stamped) != _graph(row['data']) else base_version
                 CanvasBoard.objects.filter(pk=identifier).update(data=stamped, updated_at=now, version=version)
                 if version != base_version:
                     with connection.cursor() as cursor:
-                        cursor.execute('INSERT INTO canvas_board_saves (board_id, save_id, version, applied_at) '
-                                       'VALUES (%s, %s, %s, %s) ON CONFLICT (board_id, save_id) DO NOTHING',
-                                       [identifier, save_id, version, now])
+                        changed = board_patch.changed_ids(stored, stamped)
+                        cursor.execute('INSERT INTO canvas_board_saves (board_id, save_id, version, applied_at, changes) '
+                                       'VALUES (%s, %s, %s, %s, %s) ON CONFLICT (board_id, save_id) DO NOTHING',
+                                       [identifier, save_id, version, now,
+                                        None if changed is None else json.dumps(changed)])
                     activity.record(identifier, actor, now, changes)
                 return {'updatedAt': now, 'version': version, 'stamps': activity.stamps_of(stamped, changes)}
     current = get_board(identifier)
     if current is None:
         return None
     raise VersionConflict(current)
+
+
+def board_changes(identifier, since):
+    """What an editor holding version `since` needs to reach the current version: the objects changed since
+    then (apps.canvas.patch.changes_since), or the whole graph when a version in between recorded no ids,
+    has been pruned, or is too far back. None when the board does not exist."""
+    from . import patch as board_patch
+    row = CanvasBoard.objects.filter(pk=identifier).values('version', 'updated_at', 'data').first()
+    if row is None:
+        return None
+    reply = {'version': row['version'], 'updatedAt': row['updated_at']}
+    graph = validate_state(row['data'])
+    behind = row['version'] - since
+    changes = None
+    if 0 <= behind <= board_patch.MAX_CHANGE_VERSIONS:
+        records = dict(CanvasBoardSave.objects.filter(board_id=identifier, version__gt=since,
+                                                      version__lte=row['version']).values_list('version', 'changes'))
+        if len(records) == behind:
+            changes = board_patch.changes_since(graph, list(records.values()))
+    return {**reply, 'changes': changes} if changes is not None else {**reply, 'data': row['data']}
 
 
 def prune_board_saves(now=None):
