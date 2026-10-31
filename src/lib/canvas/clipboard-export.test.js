@@ -68,3 +68,38 @@ test("shape text without its own color is drawn in the light color the board sho
   const fills = (svg) => [...svg.matchAll(/<text [^>]*fill="([^"]+)"[^>]*>/g)].map((m) => m[1]);
   assert.deepEqual(fills(selectionSvg(shapes, ["plain", "colored"], { measure, images: new Map() }).svg), ["#ffffff", "#ff0000"]);
 });
+
+const diagramBoard = {
+  nodes: [
+    node("lane", "swimlane", 0, 0, { name: "Flow & co", w: 600, h: 334, lanes: [{ id: "a", name: "Buyer", size: 150 }, { id: "b", name: "Seller", size: 150 }], stroke: "#52525b" }),
+    node("ask", "sticky", 200, 60, { text: "Ask", parentId: "lane", fill: "#fde68a" }),
+    node("erd", "erd", 700, 0, { name: "users", columns: 2, w: 240, h: 120, rows: [{ id: "r", cells: ["email", "text", "hidden"] }] }),
+    node("dia", "diagram", 0, 500, { name: "System", w: 400, h: 300 }),
+    node("server", "shape", 700, 500, { shape: "custom", svg: "<rect width='10' height='10'/>", svgViewBox: "0 0 10 10", fill: "#fff", stroke: "#000", strokeWidth: 1 }),
+    node("tip", "sticky", 1100, 800, { text: "", fill: "#fde68a" }),
+    node("bubble", "shape", 1000, 500, { shape: "callout", tail: { nodeId: "tip", anchor: "auto" }, fill: "#fff", stroke: "#000", strokeWidth: 1 }),
+  ],
+  connectors: [
+    { id: "rel", from: { nodeId: "erd" }, to: { nodeId: "server" }, kind: "line", stroke: "#fff", strokeWidth: 2, labels: [{ id: "l", text: "hosts", position: 0.5 }] },
+  ],
+};
+
+test("copied text includes diagram objects' text, a swimlane's contents under it", () => {
+  assert.equal(selectionText(diagramBoard, ["erd", "lane"]), "Flow & co\nBuyer\nSeller\nAsk\nusers\nemail\ntext");
+  assert.equal(selectionText(diagramBoard, ["dia"]), "System");
+});
+
+test("the image draws ERD tables, swimlanes, diagrams, custom shapes, callout tails and connector labels", () => {
+  const measure = (s, size) => s.length * size * 0.5;
+  const { svg } = selectionSvg(diagramBoard, ["lane", "erd", "dia", "server", "bubble"], { measure, images: new Map() });
+  const texts = [...svg.matchAll(/>([^<]+)<\/t(?:ext|span)>/g)].map((m) => m[1]);
+  for (const text of ["Flow &amp; co", "Buyer", "Seller", "Ask", "users", "email", "text", "DIAGRAM", "System", "hosts"]) {
+    assert.ok(texts.includes(text), `missing ${text} in ${texts.join(", ")}`);
+  }
+  assert.ok(!texts.includes("hidden"));
+  // The custom shape draws its own markup, not just a box.
+  assert.match(svg, /<image href="data:image\/svg\+xml,[^"]*%3Crect%20width%3D&#39;10&#39;/);
+  // The callout's tail points at the note it is attached to, where the board points it (1150, 800).
+  const bubble = /<path transform="translate\(1000 500\)" d="([^"]+)"/.exec(svg)[1];
+  assert.match(bubble, /L150 300 Z$/);
+});

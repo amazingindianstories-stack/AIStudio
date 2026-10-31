@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { useCanvasStore } from "@/lib/canvas-store";
 import { useBoardUi } from "@/lib/canvas/board-ui";
 import { FIND_TYPES, findOnBoard, matchCount, replaceMatches, replaceOneMatch } from "@/lib/canvas/find";
-import { nodeBounds, worldToScreen } from "@/lib/canvas/geometry";
+import { connectorBounds, nodeBounds, worldToScreen } from "@/lib/canvas/geometry";
 
 const ICON_BUTTON =
   "grid h-7 w-7 shrink-0 place-items-center rounded-lg text-white/60 outline-none hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-brand disabled:pointer-events-none disabled:opacity-35";
@@ -215,19 +215,21 @@ export function BoardFind({ canEdit, onClose }) {
 export function BoardFindOverlay() {
   const findHits = useBoardUi((s) => s.findHits);
   const nodes = useCanvasStore((s) => s.history.present.nodes);
+  const connectors = useCanvasStore((s) => s.history.present.connectors);
   const viewport = useCanvasStore((s) => s.history.present.viewport);
 
   const boxes = useMemo(() => {
     if (!findHits.ids.length) return [];
     const wanted = new Set(findHits.ids);
-    return nodes
-      .filter((n) => wanted.has(n.id))
-      .map((n) => {
-        const b = nodeBounds(n);
-        const p = worldToScreen(b, viewport);
-        return { id: n.id, x: p.x - 4, y: p.y - 4, w: b.w * viewport.zoom + 8, h: b.h * viewport.zoom + 8 };
-      });
-  }, [findHits.ids, nodes, viewport]);
+    const nodesById = Object.fromEntries(nodes.map((n) => [n.id, n]));
+    return [
+      ...nodes.filter((n) => wanted.has(n.id)).map((n) => [n.id, nodeBounds(n)]),
+      ...connectors.filter((c) => wanted.has(c.id)).map((c) => [c.id, connectorBounds(c, nodesById)]),
+    ].map(([id, b]) => {
+      const p = worldToScreen(b, viewport);
+      return { id, x: p.x - 4, y: p.y - 4, w: b.w * viewport.zoom + 8, h: b.h * viewport.zoom + 8 };
+    });
+  }, [findHits.ids, nodes, connectors, viewport]);
 
   if (!boxes.length) return null;
   return (

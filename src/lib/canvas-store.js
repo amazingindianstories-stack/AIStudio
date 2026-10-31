@@ -18,7 +18,7 @@ import {
   screenToWorld,
   nodeBounds,
   computeFrameMembership,
-  resolveEndpoint,
+  connectorBounds,
   isContainerNode,
   connectorPointAt,
 } from "./canvas/geometry";
@@ -974,11 +974,8 @@ export const useCanvasStore = create((set, get) => ({
     const connector = node ? null : present.connectors.find((item) => item.id === id);
     let bounds;
     if (node) bounds = nodeBounds(node);
-    else if (connector) {
-      const nodesById = Object.fromEntries(present.nodes.map((item) => [item.id, item]));
-      const [a, b] = [resolveEndpoint(connector.from, nodesById), resolveEndpoint(connector.to, nodesById)];
-      bounds = { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) };
-    } else return false;
+    else if (connector) bounds = connectorBounds(connector, Object.fromEntries(present.nodes.map((item) => [item.id, item])));
+    else return false;
     const PAD = 160;
     const zoom = clampZoom(Math.min(present.viewport.zoom, viewportPx.w / (bounds.w + PAD), viewportPx.h / (bounds.h + PAD)));
     const cx = bounds.x + bounds.w / 2;
@@ -1005,14 +1002,16 @@ export const useCanvasStore = create((set, get) => ({
   },
 
   /**
-   * Replaces nodes by id with the edited copies in `edits` (a Map of id to
-   * node) as one undo step: find and replace, frame order, presenter notes.
+   * Replaces nodes and connectors by id with the edited copies in `edits` (a
+   * Map of id to object) as one undo step: find and replace, frame order,
+   * presenter notes.
    */
   replaceNodes: (edits) => {
     if (!edits?.size) return;
     mutateGraph(set, get, (present) => ({
       ...present,
       nodes: present.nodes.map((n) => edits.get(n.id) ?? n),
+      connectors: present.connectors.map((c) => edits.get(c.id) ?? c),
     }));
   },
 

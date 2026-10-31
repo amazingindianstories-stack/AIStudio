@@ -60,6 +60,26 @@ test("Enter goes into a frame or group and Escape comes back out", () => {
   assert.equal(leaveContainer(board, ["a"]), null);
 });
 
+test("Enter goes into a swimlane or diagram like a frame, and Escape comes back out", () => {
+  const containers = {
+    nodes: [
+      box("lane", 0, 0, { type: "swimlane", w: 600, h: 300 }),
+      box("s2", 300, 150, { parentId: "lane" }),
+      box("s1", 150, 40, { parentId: "lane" }),
+      box("dia", 0, 400, { type: "diagram", w: 400, h: 300 }),
+      box("d1", 50, 450, { parentId: "dia" }),
+      box("empty", 700, 0, { type: "swimlane", w: 300, h: 200 }),
+    ],
+    connectors: [],
+  };
+  assert.deepEqual(navigationStops(containers, null).map((s) => s.ids), [["lane"], ["empty"], ["dia"]]);
+  assert.deepEqual(enterContainer(containers, ["lane"]), ["s1"]);
+  assert.deepEqual(stepStop(containers, ["s1"], 1), ["s2"]);
+  assert.deepEqual(leaveContainer(containers, ["s2"]), ["lane"]);
+  assert.deepEqual(enterContainer(containers, ["dia"]), ["d1"]);
+  assert.equal(enterContainer(containers, ["empty"]), null);
+});
+
 test("Cmd+arrows find the nearest object ahead, preferring straight ahead", () => {
   assert.equal(spatialNeighbor(board, ["a"], "right"), "b");
   assert.equal(spatialNeighbor(board, ["a"], "down"), "c");

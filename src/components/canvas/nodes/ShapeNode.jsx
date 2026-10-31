@@ -4,6 +4,7 @@ import { fontFamilyCss } from "@/lib/canvas/fonts";
 import {
   MAX_SHAPE_TEXT,
   calloutOutlineWithTail,
+  customSvgImage,
   isCalloutKind,
   pointsToPath,
   shapeDetails,
@@ -107,21 +108,6 @@ export function ShapeNode({ node, tailPoint, editing, readOnly, onCommit, onCanc
       )}
     </>
   );
-}
-
-function xmlAttr(value) {
-  return String(value ?? "").replace(/[&<>"]/g, (ch) => `&#${ch.charCodeAt(0)};`);
-}
-
-/**
- * A custom shape's markup as an SVG image: an image document never runs
- * scripts or loads subresources, whatever the markup holds.
- */
-function customSvgImage(svg, viewBox, stroke, strokeWidth) {
-  const doc =
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${xmlAttr(viewBox || "0 0 100 100")}" ` +
-    `fill="none" stroke="${xmlAttr(stroke)}" stroke-width="${xmlAttr(strokeWidth)}">${svg}</svg>`;
-  return `data:image/svg+xml,${encodeURIComponent(doc)}`;
 }
 
 function PathShape({ node, tailPoint, inset, paint }) {

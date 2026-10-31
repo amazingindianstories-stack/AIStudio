@@ -65,3 +65,21 @@ test("describes objects and summarizes the board for screen readers", () => {
   assert.equal(boardSummary(board), "3 objects: 1 frame, 1 sticky note, 1 image; 1 connector.");
   assert.equal(boardSummary({ nodes: [], connectors: [] }), "The board is empty.");
 });
+
+test("names ERD tables, swimlanes and diagrams with their text", () => {
+  const board = {
+    nodes: [
+      node("erd", "erd", 0, { name: "users", columns: 2, rows: [{ id: "r", cells: ["id", "uuid", "hidden"] }] }),
+      node("lane", "swimlane", 200, { name: "Flow", lanes: [{ id: "a", name: "Buyer" }, { id: "b", name: "Seller" }] }),
+      node("note", "sticky", 220, { text: "Ask", parentId: "lane" }),
+      node("dia", "diagram", 400, { name: "System" }),
+      node("custom", "shape", 600, { shape: "custom", svg: "<path d='M0 0'/>", shapeName: "Server" }),
+    ],
+    connectors: [],
+  };
+  assert.equal(describeObject(board.nodes[0], board), "ERD table: users, id, uuid");
+  assert.equal(describeObject(board.nodes[1], board), "Swimlane: Flow, Buyer, Seller, 1 object");
+  assert.equal(describeObject(board.nodes[3], board), "Diagram: System, 0 objects");
+  assert.equal(describeObject(board.nodes[4], board), "Server, empty");
+  assert.equal(boardSummary(board), "5 objects: 1 ERD table, 1 swimlane, 1 sticky note, 1 diagram, 1 shape.");
+});

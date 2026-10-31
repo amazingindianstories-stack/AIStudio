@@ -46,6 +46,21 @@ test("replace all is one undo step", async (t) => {
   assert.equal(store.getState().history.past.length, 0);
 });
 
+test("replace all edits sticky text and connector labels in one undo step", async (t) => {
+  const store = await loadAs(t, "edit");
+  store.getState().connectNodes([["a", "b"]]);
+  const id = store.getState().history.present.connectors[0].id;
+  store.getState().upsertConnectorLabel(id, { id: "l", text: "cat path" });
+  const present = store.getState().history.present;
+  const past = store.getState().history.past.length;
+  store.getState().replaceNodes(replaceMatches(present, findOnBoard(present, "cat"), "dog"));
+  assert.equal(store.getState().history.present.connectors[0].labels[0].text, "dog path");
+  assert.deepEqual(store.getState().history.present.nodes.map((n) => n.text), ["dog", "dog dog"]);
+  assert.equal(store.getState().history.past.length, past + 1);
+  store.getState().undo();
+  assert.equal(store.getState().history.present.connectors[0].labels[0].text, "cat path");
+});
+
 test("connecting selected objects adds arrows in one undo step and selects them", async (t) => {
   const store = await loadAs(t, "edit");
   store.getState().connectNodes([["a", "b"]]);

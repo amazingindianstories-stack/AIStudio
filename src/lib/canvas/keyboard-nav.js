@@ -3,11 +3,13 @@
  * objects that viewport culling has not mounted).
  *
  * The board reads like a page: Tab walks the objects at one level (the top
- * of the board, or the inside of one frame) row by row, left to right. A
- * group is one stop at its level. Enter goes into the selected frame or
- * group, Escape comes back out to it, and Cmd/Ctrl + arrows jump to the
- * nearest object in that direction anywhere on the board.
+ * of the board, or the inside of one container: a frame, swimlane or
+ * diagram) row by row, left to right. A group is one stop at its level.
+ * Enter goes into the selected container or group, Escape comes back out to
+ * it, and Cmd/Ctrl + arrows jump to the nearest object in that direction
+ * anywhere on the board.
  */
+import { isContainerNode } from "./geometry";
 
 const center = (n) => ({ x: n.x + n.w / 2, y: n.y + n.h / 2 });
 
@@ -24,14 +26,14 @@ export function readingOrder(nodes) {
   return rows.flatMap((row) => row.items.sort((a, b) => a.x - b.x || a.y - b.y)).map((n) => n.id);
 }
 
-/** The frame a node sits in, or null at the top level. */
+/** The container a node sits in, or null at the top level. */
 function containerOf(nodesById, node) {
   return node?.parentId && nodesById.get(node.parentId) ? node.parentId : null;
 }
 
 /**
- * Tab stops at one level: every node directly in `container` (a frame id, or
- * null for the top level), a group standing as one stop of all its members.
+ * Tab stops at one level: every node directly in `container` (a container
+ * id, or null for the top level), a group standing as one stop of all its members.
  */
 export function navigationStops(present, container) {
   const nodesById = new Map(present.nodes.map((n) => [n.id, n]));
@@ -63,7 +65,7 @@ export function navigationStops(present, container) {
   return readingOrder(stops).map((id) => byId.get(id));
 }
 
-/** The level the current selection is browsing: the frame of its first node, or the top level. */
+/** The level the current selection is browsing: the container of its first node, or the top level. */
 function currentLevel(present, selection) {
   const nodesById = new Map(present.nodes.map((n) => [n.id, n]));
   const first = nodesById.get(selection[0]);
@@ -76,7 +78,7 @@ function stopIndex(stops, selection) {
 }
 
 /**
- * The selection after Tab (`step` 1) or Shift+Tab (-1). Inside a frame it
+ * The selection after Tab (`step` 1) or Shift+Tab (-1). Inside a container it
  * wraps at the ends; at the top level it stops, returning null past the last
  * or before the first stop so focus can leave the board. Null on an empty level.
  */
@@ -98,7 +100,7 @@ export function edgeStop(present, selection, which) {
   return (which === "last" ? stops[stops.length - 1] : stops[0]).ids;
 }
 
-/** Enter: into the selected frame (its first child) or group (its first member alone). */
+/** Enter: into the selected container (its first child) or group (its first member alone). */
 export function enterContainer(present, selection) {
   if (!selection.length) return null;
   const nodesById = new Map(present.nodes.map((n) => [n.id, n]));
@@ -109,14 +111,14 @@ export function enterContainer(present, selection) {
     const members = present.nodes.filter((n) => n.groupId === first.groupId);
     return [readingOrder(members)[0]];
   }
-  if (selection.length === 1 && first.type === "frame") {
+  if (selection.length === 1 && isContainerNode(first)) {
     const stops = navigationStops(present, first.id);
     return stops.length ? stops[0].ids : null;
   }
   return null;
 }
 
-/** Escape inside a group selects the whole group; inside a frame, the frame. Null at the top. */
+/** Escape inside a group selects the whole group; inside a container, the container. Null at the top. */
 export function leaveContainer(present, selection) {
   if (!selection.length) return null;
   const nodesById = new Map(present.nodes.map((n) => [n.id, n]));

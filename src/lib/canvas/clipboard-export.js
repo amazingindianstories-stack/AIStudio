@@ -4,11 +4,20 @@
  * objects that viewport culling has not mounted copy the same way.
  */
 import { readingOrder } from "./keyboard-nav";
-import { connectorPath, nodeBounds } from "./geometry";
-import { shapeOutline, pointsToPath, textColorOf } from "./shapes";
+import {
+  ERD_HEADER_HEIGHT,
+  ERD_ROW_HEIGHT,
+  connectorPath,
+  connectorPointAt,
+  isContainerNode,
+  nodeBounds,
+  resolveEndpoint,
+} from "./geometry";
+import { calloutOutlineWithTail, customSvgImage, isCalloutKind, shapeOutline, pointsToPath, textColorOf } from "./shapes";
+import { textFields } from "./find";
 import { BOARD_BACKGROUND } from "./a11y-check";
 
-/** The selected nodes plus the contents of every selected frame. */
+/** The selected nodes plus the contents of every selected container. */
 export function expandSelection(present, selection) {
   const ids = new Set(selection);
   for (const node of present.nodes) {
@@ -17,15 +26,15 @@ export function expandSelection(present, selection) {
   return present.nodes.filter((n) => ids.has(n.id));
 }
 
+/** An object's visible text, the same text find searches, one field per line. */
 function textOf(node) {
-  if (node.type === "frame") return node.name ?? "";
-  if (node.type === "image") return node.alt ?? "";
-  return typeof node.text === "string" ? node.text : "";
+  return textFields(node).map(({ value }) => value).join("\n");
 }
 
 /**
  * Plain text for the selection: each object's text on its own line, in
- * reading order; a selected frame contributes its title, then its contents.
+ * reading order; a selected container (frame, swimlane, diagram) contributes
+ * its own text, then its contents.
  */
 export function selectionText(present, selection) {
   const selected = new Set(selection);
@@ -37,13 +46,13 @@ export function selectionText(present, selection) {
     seen.add(node.id);
     const text = textOf(node).trim();
     if (text) lines.push(text);
-    if (node.type === "frame") {
+    if (isContainerNode(node)) {
       const children = present.nodes.filter((n) => n.parentId === node.id);
       const byId = new Map(children.map((n) => [n.id, n]));
       for (const id of readingOrder(children)) emit(byId.get(id));
     }
   };
-  // Frames first claim their contents, so a child selected with its frame is written once, under it.
+  // Containers first claim their contents, so a child selected with its container is written once, under it.
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const topLevel = nodes.filter((n) => !(n.parentId && selected.has(n.parentId)));
   for (const id of readingOrder(topLevel)) emit(byId.get(id));
@@ -87,23 +96,135 @@ function textBlock(node, box, measure, { align = "left", valign = "top", inset =
   return `<text font-family="Inter, system-ui, sans-serif" font-size="${size}" fill="${esc(textColorOf(node))}" text-anchor="${anchor}">${spans}</text>`;
 }
 
-function shapeMarkup(node, measure) {
+/** `text` cut with an ellipsis to fit `width` pixels. */
+function fitText(text, width, size, measure) {
+  if (measure(text, size) <= width) return text;
+  let cut = text;
+  while (cut && measure(`${cut}…`, size) > width) cut = cut.slice(0, -1);
+  return `${cut}…`;
+}
+
+function label(text, x, y, width, measure, { size = 12, weight = 400, fill = "#f4f4f5", anchor = "start" } = {}) {
+  if (!text) return "";
+  const fitted = esc(fitText(text, Math.max(width, 1), size, measure));
+  return `<text x="${x}" y="${y}" font-family="Inter, system-ui, sans-serif" font-size="${size}" font-weight="${weight}" fill="${esc(fill)}" text-anchor="${anchor}">${fitted}</text>`;
+}
+
+function shapeMarkup(node, measure, nodesById) {
   const paint = `fill="${esc(node.fill ?? "#ffffff")}" stroke="${esc(node.stroke ?? "#000000")}" stroke-width="${node.strokeWidth ?? 1}"`;
   let outline;
   if (node.type === "rect") outline = `<rect x="${node.x}" y="${node.y}" width="${node.w}" height="${node.h}" rx="${node.cornerRadius ?? 0}" ${paint}/>`;
   else if (node.type === "ellipse") outline = `<ellipse cx="${node.x + node.w / 2}" cy="${node.y + node.h / 2}" rx="${node.w / 2}" ry="${node.h / 2}" ${paint}/>`;
-  else {
-    const points = node.type === "triangle"
-      ? [[node.w / 2, 0], [node.w, node.h], [0, node.h]]
-      : node.type === "diamond"
-      ? [[node.w / 2, 0], [node.w, node.h / 2], [node.w / 2, node.h], [0, node.h / 2]]
-      : shapeOutline(node.shape, node.w, node.h);
+  else if (node.shape === "custom" && node.svg) {
+    // Drawn like the board draws it: a box with the shape's own markup inside.
+    const href = customSvgImage(node.svg, node.svgViewBox, node.stroke ?? "#000000", node.strokeWidth ?? 1);
+    outline = `<rect x="${node.x}" y="${node.y}" width="${node.w}" height="${node.h}" rx="${node.cornerRadius ?? 4}" ${paint}/>`
+      + `<image href="${esc(href)}" x="${node.x + node.w * 0.08}" y="${node.y + node.h * 0.08}" width="${node.w * 0.84}" height="${node.h * 0.84}"/>`;
+  } else {
+    let points;
+    if (node.type === "triangle") points = [[node.w / 2, 0], [node.w, node.h], [0, node.h]];
+    else if (node.type === "diamond") points = [[node.w / 2, 0], [node.w, node.h / 2], [node.w / 2, node.h], [0, node.h / 2]];
+    else if (isCalloutKind(node.shape) && node.tail) {
+      const tip = resolveEndpoint(node.tail, nodesById);
+      points = calloutOutlineWithTail(node.shape, node.w, node.h, { x: tip.x - node.x, y: tip.y - node.y });
+    } else points = shapeOutline(node.shape, node.w, node.h);
     outline = `<path transform="translate(${node.x} ${node.y})" d="${pointsToPath(points)}" ${paint}/>`;
   }
   return outline + textBlock(node, nodeBounds(node), measure, { align: "center", valign: "middle", inset: 8 });
 }
 
-function nodeMarkup(node, measure, images) {
+/** An ERD table: its name in the header, then a row per attribute with the cells its columns show. */
+function erdMarkup(node, measure) {
+  const stroke = node.stroke ?? "#6366f1";
+  const color = node.color ?? "#f4f4f5";
+  const columns = node.columns ?? 3;
+  const rows = Array.isArray(node.rows) ? node.rows : [];
+  let out = `<rect x="${node.x}" y="${node.y}" width="${node.w}" height="${node.h}" rx="6" fill="${esc(node.fill ?? "#18181b")}" stroke="${esc(stroke)}" stroke-width="${node.strokeWidth ?? 2}"/>`
+    + `<rect x="${node.x}" y="${node.y}" width="${node.w}" height="${ERD_HEADER_HEIGHT}" fill="${esc(node.headerFill ?? "rgba(99, 102, 241, 0.28)")}"/>`
+    + label(node.name || "Entity", node.x + 12, node.y + ERD_HEADER_HEIGHT / 2 + 4, node.w - 24, measure, { weight: 600, fill: color });
+  // Cell x offsets and widths per column count, as the table lays them out: key, attribute, type.
+  const right = node.w - 80;
+  const layout = columns === 3
+    ? [[6, 34, "#fcd34d"], [48, right - 52, color], [right + 8, 66, "#a1a1aa"]]
+    : columns === 2 ? [[8, right - 12, color], [right + 8, 66, "#a1a1aa"]] : [[8, node.w - 16, color]];
+  rows.forEach((row, i) => {
+    const top = node.y + ERD_HEADER_HEIGHT + i * ERD_ROW_HEIGHT;
+    out += `<line x1="${node.x}" y1="${top}" x2="${node.x + node.w}" y2="${top}" stroke="rgba(255,255,255,0.1)"/>`;
+    (row.cells ?? []).slice(0, columns).forEach((cell, c) => {
+      const [dx, width, fill] = layout[c];
+      out += label(cell, node.x + dx, top + ERD_ROW_HEIGHT / 2 + 4, width, measure, { size: 11, fill });
+    });
+  });
+  return out;
+}
+
+const POOL_HEADER = 34;
+const LANE_TITLE_WIDTH = 110;
+const LANE_HEADER = 36;
+
+/** A swimlane: the pool name in its header, then each lane with its name, across or down by orientation. */
+function swimlaneMarkup(node, measure) {
+  const stroke = esc(node.stroke ?? "#52525b");
+  const color = node.color ?? "#f4f4f5";
+  const lanes = Array.isArray(node.lanes) ? node.lanes : [];
+  const total = lanes.reduce((sum, lane) => sum + (lane.size || 160), 0) || 1;
+  const across = node.orientation !== "vertical";
+  const bodyY = node.y + POOL_HEADER;
+  const bodyH = node.h - POOL_HEADER;
+  let out = `<rect x="${node.x}" y="${node.y}" width="${node.w}" height="${node.h}" rx="6" fill="${esc(node.fill ?? "rgba(24, 24, 27, 0.45)")}" stroke="${stroke}" stroke-width="${node.strokeWidth ?? 2}"/>`
+    + `<rect x="${node.x}" y="${node.y}" width="${node.w}" height="${POOL_HEADER}" fill="${esc(node.headerFill ?? "rgba(63, 63, 70, 0.55)")}"/>`
+    + `<line x1="${node.x}" y1="${bodyY}" x2="${node.x + node.w}" y2="${bodyY}" stroke="${stroke}"/>`
+    + label(node.name || "Swimlane Pool", node.x + 12, node.y + POOL_HEADER / 2 + 4, node.w - 24, measure, { weight: 600, fill: color });
+  let offset = 0;
+  lanes.forEach((lane, i) => {
+    const share = (lane.size || 160) / total;
+    const name = lane.name || `Lane ${i + 1}`;
+    if (across) {
+      const top = bodyY + offset * bodyH;
+      const height = share * bodyH;
+      if (i) out += `<line x1="${node.x}" y1="${top}" x2="${node.x + node.w}" y2="${top}" stroke="${stroke}"/>`;
+      out += `<line x1="${node.x + LANE_TITLE_WIDTH}" y1="${top}" x2="${node.x + LANE_TITLE_WIDTH}" y2="${top + height}" stroke="${stroke}"/>`
+        + label(name, node.x + 8, top + height / 2 + 4, LANE_TITLE_WIDTH - 16, measure, { size: 11, weight: 500, fill: color });
+    } else {
+      const left = node.x + offset * node.w;
+      const width = share * node.w;
+      if (i) out += `<line x1="${left}" y1="${bodyY}" x2="${left}" y2="${node.y + node.h}" stroke="${stroke}"/>`;
+      out += `<line x1="${left}" y1="${bodyY + LANE_HEADER}" x2="${left + width}" y2="${bodyY + LANE_HEADER}" stroke="${stroke}"/>`
+        + label(name, left + 8, bodyY + LANE_HEADER / 2 + 4, width - 16, measure, { size: 11, weight: 500, fill: color });
+    }
+    offset += share;
+  });
+  return out;
+}
+
+const DIAGRAM_HEADER = 30;
+
+/** A diagram: its dashed outline and its title in the header. */
+function diagramMarkup(node, measure) {
+  const stroke = esc(node.stroke ?? "#6366f1");
+  return `<rect x="${node.x}" y="${node.y}" width="${node.w}" height="${node.h}" rx="8" fill="${esc(node.fill ?? "rgba(15, 23, 42, 0.35)")}" stroke="${stroke}" stroke-width="${node.strokeWidth ?? 2}" stroke-dasharray="6 4"/>`
+    + `<rect x="${node.x}" y="${node.y}" width="${node.w}" height="${DIAGRAM_HEADER}" fill="${esc(node.headerFill ?? "rgba(15, 23, 42, 0.75)")}"/>`
+    + label("DIAGRAM", node.x + 12, node.y + DIAGRAM_HEADER / 2 + 4, 64, measure, { size: 10, weight: 600, fill: "#a5b4fc" })
+    + label(node.name || "System Diagram", node.x + 80, node.y + DIAGRAM_HEADER / 2 + 4, node.w - 92, measure, { weight: 600, fill: "#ffffff" });
+}
+
+/** A connector's text labels, boxed at their place along it as the board shows them. */
+function connectorLabelsMarkup(c, nodesById) {
+  if (!Array.isArray(c.labels)) return "";
+  return c.labels.map((item) => {
+    const pt = connectorPointAt(c, nodesById, item.position ?? 0.5);
+    let rot = item.orientation === "aligned" ? pt.angle : 0;
+    if (rot > 90) rot -= 180;
+    if (rot < -90) rot += 180;
+    const text = item.text || "";
+    const boxW = Math.max(36, text.length * 6.8 + 14);
+    return `<g transform="translate(${pt.x} ${pt.y}) rotate(${rot})">`
+      + `<rect x="${-boxW / 2}" y="-10" width="${boxW}" height="20" rx="4" fill="#18181b" stroke="rgba(255,255,255,0.25)"/>`
+      + `<text x="0" y="4" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" fill="#f4f4f5">${esc(text)}</text></g>`;
+  }).join("");
+}
+
+function nodeMarkup(node, measure, images, nodesById) {
   const opacity = node.opacity != null && node.opacity < 1 ? ` opacity="${node.opacity}"` : "";
   let body = "";
   switch (node.type) {
@@ -125,8 +246,17 @@ function nodeMarkup(node, measure, images) {
         : `<rect x="${node.x}" y="${node.y}" width="${node.w}" height="${node.h}" fill="rgba(255,255,255,0.08)"/>`;
       break;
     }
+    case "erd":
+      body = erdMarkup(node, measure);
+      break;
+    case "swimlane":
+      body = swimlaneMarkup(node, measure);
+      break;
+    case "diagram":
+      body = diagramMarkup(node, measure);
+      break;
     default:
-      body = shapeMarkup(node, measure);
+      body = shapeMarkup(node, measure, nodesById);
   }
   return `<g${opacity}>${body}</g>`;
 }
@@ -152,13 +282,14 @@ export function selectionSvg(present, selection, { measure, images, selectedConn
   const y1 = Math.max(...nodes.map((n) => n.y + n.h)) + PAD;
   const width = Math.ceil(x1 - x0);
   const height = Math.ceil(y1 - y0);
-  const body = nodes.map((n) => nodeMarkup(n, measure, images)).join("");
+  const body = nodes.map((n) => nodeMarkup(n, measure, images, nodesById)).join("");
   const lines = connectors.map((c) => {
     const marker = c.kind === "arrow" ? ` marker-end="url(#arrow-${esc(c.id)})"` : "";
     const head = c.kind === "arrow"
       ? `<marker id="arrow-${esc(c.id)}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="${esc(c.stroke)}"/></marker>`
       : "";
-    return `<defs>${head}</defs><path d="${connectorPath(c, nodesById)}" fill="none" stroke="${esc(c.stroke)}" stroke-width="${c.strokeWidth}"${marker}/>`;
+    return `<defs>${head}</defs><path d="${connectorPath(c, nodesById)}" fill="none" stroke="${esc(c.stroke)}" stroke-width="${c.strokeWidth}"${marker}/>`
+      + connectorLabelsMarkup(c, nodesById);
   }).join("");
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="${x0} ${y0} ${width} ${height}">`
     + `<rect x="${x0}" y="${y0}" width="${width}" height="${height}" fill="${BOARD_BACKGROUND}"/>${body}${lines}</svg>`;

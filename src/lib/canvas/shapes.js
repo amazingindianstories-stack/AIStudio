@@ -286,6 +286,21 @@ export function shapeKindOfTool(tool) {
   return tool.slice("shape:".length);
 }
 
+function xmlAttr(value) {
+  return String(value ?? "").replace(/[&<>"]/g, (ch) => `&#${ch.charCodeAt(0)};`);
+}
+
+/**
+ * A custom shape's markup as an SVG image: an image document never runs
+ * scripts or loads subresources, whatever the markup holds.
+ */
+export function customSvgImage(svg, viewBox, stroke, strokeWidth) {
+  const doc =
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${xmlAttr(viewBox || "0 0 100 100")}" ` +
+    `fill="none" stroke="${xmlAttr(stroke)}" stroke-width="${xmlAttr(strokeWidth)}">${svg}</svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(doc)}`;
+}
+
 /** Polygon outline for a `shape` node of `kind`, in box-local pixels. */
 export function shapeOutline(kind, w, h) {
   const build = OUTLINES[kind] ?? OUTLINES.rectangle;

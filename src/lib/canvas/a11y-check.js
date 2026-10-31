@@ -3,7 +3,9 @@
  * from the board graph so they cover culled objects too.
  */
 import { readingOrder } from "./keyboard-nav";
+import { isContainerNode } from "./geometry";
 import { BASIC_SHAPES, textColorOf } from "./shapes";
+import { textFields } from "./find";
 
 // The board is drawn on the app's darkest ink; see tailwind.config's ink-900.
 export const BOARD_BACKGROUND = "#070708";
@@ -99,11 +101,20 @@ export function accessibilityIssues(present) {
   return issues;
 }
 
-const TYPE_NAMES = { sticky: "Sticky note", text: "Text", frame: "Frame", image: "Image" };
+const TYPE_NAMES = {
+  sticky: "Sticky note",
+  text: "Text",
+  frame: "Frame",
+  image: "Image",
+  erd: "ERD table",
+  swimlane: "Swimlane",
+  diagram: "Diagram",
+};
 
-/** What a node is, in words: "Sticky note", "Circle", "Frame". */
+/** What a node is, in words: "Sticky note", "Circle", "Frame", "ERD table". */
 export function objectKind(node) {
   if (TYPE_NAMES[node.type]) return TYPE_NAMES[node.type];
+  if (node.type === "shape" && node.shape === "custom" && node.shapeName) return node.shapeName;
   const tool = node.type === "shape" ? `shape:${node.shape}` : node.type === "rect" && node.cornerRadius ? "rect-rounded" : node.type;
   return BASIC_SHAPES.find((s) => s.tool === tool)?.label ?? "Shape";
 }
@@ -113,23 +124,30 @@ const snippet = (text, max = 80) => {
   return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 };
 
-/** A one-line spoken description of a node: kind plus its text, title or image description. */
+/**
+ * A one-line spoken description of a node: kind plus its visible text (an
+ * ERD table's name and cells, a swimlane's pool and lane names), and for a
+ * container how many objects it holds.
+ */
 export function describeObject(node, present) {
   const kind = objectKind(node);
-  if (node.type === "frame") {
+  const text = textFields(node).map(({ value }) => value.trim()).filter(Boolean).join(", ");
+  if (isContainerNode(node)) {
     const count = present ? present.nodes.filter((n) => n.parentId === node.id).length : 0;
     const objects = `${count} object${count === 1 ? "" : "s"}`;
-    return node.name?.trim() ? `${kind}: ${snippet(node.name)}, ${objects}` : `${kind}, untitled, ${objects}`;
+    return text ? `${kind}: ${snippet(text)}, ${objects}` : `${kind}, untitled, ${objects}`;
   }
-  if (node.type === "image") return node.alt?.trim() ? `${kind}: ${snippet(node.alt)}` : `${kind}, no description`;
-  return node.text?.trim() ? `${kind}: ${snippet(node.text)}` : `${kind}, empty`;
+  if (node.type === "image") return text ? `${kind}: ${snippet(text)}` : `${kind}, no description`;
+  return text ? `${kind}: ${snippet(text)}` : `${kind}, empty`;
 }
+
+const SUMMARY_KINDS = { sticky: "sticky note", image: "image", frame: "frame", text: "text box", erd: "ERD table", swimlane: "swimlane", diagram: "diagram" };
 
 /** "12 objects: 5 sticky notes, 3 frames, 4 shapes; 2 connectors". */
 export function boardSummary(present) {
   const counts = new Map();
   for (const node of present.nodes) {
-    const kind = node.type === "sticky" ? "sticky note" : node.type === "image" ? "image" : node.type === "frame" ? "frame" : node.type === "text" ? "text box" : "shape";
+    const kind = SUMMARY_KINDS[node.type] ?? "shape";
     counts.set(kind, (counts.get(kind) ?? 0) + 1);
   }
   const total = present.nodes.length;
