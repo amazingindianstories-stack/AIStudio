@@ -68,11 +68,11 @@ Number keys 1 to 9 pick dock tools in dock order; **Customize toolbar** pins, un
 the creation tools (`src/lib/canvas/toolbar-tools.js`).
 
 Keyboard navigation (`src/lib/canvas/keyboard-nav.js`) reads the board like a page: B focuses the
-board, Tab walks one level in reading order (wrapping inside a frame; at the top level, Tab past
-the last object or Shift+Tab before the first leaves the board for the next page control), Enter
-goes into a frame or group (or edits text), Escape comes back out, and Cmd/Ctrl+arrows jump to the
-nearest object in that direction. Screen readers hear what is selected through a polite live
-region.
+board, Tab walks one level in reading order (wrapping inside a frame, swimlane or diagram; at the
+top level, Tab past the last object or Shift+Tab before the first leaves the board for the next
+page control), Enter goes into one of those containers or a group (or edits text), Escape comes
+back out, and Cmd/Ctrl+arrows jump to the nearest object in that direction. Screen readers hear
+what is selected through a polite live region.
 
 ## Accessibility tools
 
