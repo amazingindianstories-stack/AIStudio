@@ -53,9 +53,17 @@ export function watchWork({ path, nodeId, kind }, subscriber) {
   feed.schedule();
   return {
     refresh: () => feed.refresh(),
+    resize(limit) {
+      const grew = limit > subscriber.limit;
+      subscriber.limit = limit;
+      if (grew && ![...feed.subscribers].some(s => s.query)) feed.schedule();
+    },
     close() {
       feed.subscribers.delete(subscriber);
-      if (feed.subscribers.size) return;
+      if (feed.subscribers.size) {
+        if (subscriber.query) feed.schedule();
+        return;
+      }
       clearInterval(feed.timer);
       feeds.delete(key);
     },
@@ -68,13 +76,16 @@ export function useWorkRecords(boardId, node, { query = null, limit = 0 } = {}) 
   const subscription = useRef(null);
   const path = boardId && node.datasetId ? tablePath(boardId, node.datasetId) : '';
   const { id: nodeId, kind } = node;
-  useEffect(() => { subscriber.current.limit = limit; }, [limit]);
+  useEffect(() => {
+    if (subscription.current) subscription.current.resize(limit);
+    else subscriber.current.limit = limit;
+  }, [limit]);
   useEffect(() => {
     if (!path) return undefined;
     subscriber.current.query = query;
     const current = watchWork({ path, nodeId, kind }, subscriber.current);
     subscription.current = current;
-    return () => current.close();
+    return () => { current.close(); subscription.current = null; };
   }, [path, nodeId, kind, query]);
   const load = useCallback(async () => subscription.current?.refresh(), []);
   return { data: state?.data || null, error: state?.error || '', load };
