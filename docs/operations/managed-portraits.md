@@ -31,13 +31,13 @@ Nothing is deployed. Every production step below needs explicit owner approval.
   `asset://<id>` (registered again if it expired, matched by content to the asset the job pinned), never as a URL;
   a job that references a clip the Gallery marked unusable fails before admission and is not charged. A Gallery clip
   is refused as an image reference, a frame or an upscale source.
-  `assets.0007` brings `django_migrations` to 80 rows (`MIGRATION_ROWS` accepts 79 and 80). A pre-0007 build does
+  `assets.0007` brings `django_migrations` to 81 rows (`MIGRATION_ROWS` accepts 80 and 81). A pre-0007 build does
   **not** understand video rows: it would show them as broken image cards, let them be added to a prompt as image
   references (the generation then fails) and its scheduler would read a queued clip into memory and register it as an
-  Image asset. Its launcher also refuses 80 rows. Before rolling the code back past this change: with this build
+  Image asset. Its launcher also refuses 81 rows. Before rolling the code back past this change: with this build
   still running, delete every video portrait from the Gallery and wait until none is left outside `DELETED`
   (`ManagedPortraitAsset.objects.filter(media_kind='video').exclude(status='DELETED')` is empty; a held one goes once
-  its generation finishes), then `python manage.py migrate assets 0006` (owner DSN; 80 → 79 rows).
+  its generation finishes), then `python manage.py migrate assets 0006` (owner DSN; 81 → 80 rows).
 - Pool slots are handed out strictly first come first served: the oldest waiting generation or queued
   upload gets the next free (or evictable) slot; everyone else waits behind it.
 - A face the detector misses never traps an artist: when Seedance refuses an inline reference as a real
@@ -133,7 +133,7 @@ Nothing is deployed. Every production step below needs explicit owner approval.
   3. `python manage.py managed_portraits_rollback --delete-remote --confirm` - deletes every asset in
      Veevee's own pool group at BytePlus **and then the pool group** (irreversible; owner approval), then
      migrates `assets` back to `0004` (reverses 0007, 0006 and 0005; drops only the five pool tables) and
-     verifies the three migration rows are gone (`django_migrations` drops by 3, 80 → 77 on this release). The
+     verifies the three migration rows are gone (`django_migrations` drops by 3, 81 → 78 on this release). The
      launcher you roll back to must accept the remaining count (`MIGRATION_ROWS`).
   4. Roll the services back per `release-runbook.md`.
   Generations, media, ledger rows and all other tables are untouched.
