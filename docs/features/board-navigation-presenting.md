@@ -7,6 +7,10 @@ mounted are found, navigated, checked and copied too. The **Board** menu in the 
 tool; the open panel, finder and presentation live in `src/lib/canvas/board-ui.js` and are never
 saved.
 
+Find, copy, keyboard navigation, the accessibility check and **Explore board content** read the
+board as it is shown (`visibleGraph` in `src/lib/canvas/culling.js`): objects on a hidden diagram
+layer, everything Focus mode hides, and connectors to either of those are left out.
+
 ## Frame fields in format v1
 
 Frames take two optional fields, both board data that saves and merges per object like any other
@@ -26,8 +30,10 @@ both test suites. Boards saved before these fields load and save unchanged.
 
 ## Find and replace
 
-Cmd/Ctrl+F searches sticky notes, text boxes and shapes (their text), frame titles and image
-descriptions, with an optional match-case switch and type filters (`src/lib/canvas/find.js`). Hits
+Cmd/Ctrl+F searches sticky notes, text boxes and shapes (their text), frame titles, image
+descriptions, ERD table names and the cells their columns show, swimlane pool and lane names,
+diagram titles and connector labels, with an optional match-case switch and type filters (Sticky
+notes, Text, Shapes, Frames, Images, Diagrams, Connectors; `src/lib/canvas/find.js`). Hits
 come in reading order; each jump selects the hit and brings it into view while the overlay dims
 the rest. Editors can replace one match (then move to the next match after the new text) or all
 of them as one undo step; formatting ranges around replaced text stretch or shift with it.
@@ -79,10 +85,13 @@ frames in presentation order with what each holds, then the objects outside fram
 ## Copy as text or image
 
 Cmd/Ctrl+C copies the selection for pasting on a board and also puts its text on the system
-clipboard, one object per line in reading order; a selected frame contributes its title, then its
-contents. Cmd/Ctrl+Shift+C copies the selection as a PNG drawn from the board data on the board
-background, at up to twice its size and at most 4096 x 4096 pixels' worth of area; images are read
-through the same-origin media stream (`src/lib/canvas/clipboard-export.js`).
+clipboard, one object per line in reading order, using the same text fields find searches; a
+selected frame, swimlane or diagram contributes its own text, then its contents. Cmd/Ctrl+Shift+C
+copies the selection as a PNG drawn from the board data on the board background, at up to twice
+its size and at most 4096 x 4096 pixels' worth of area: ERD tables, swimlanes and diagrams with
+their names, rows and lanes, shapes with their own outline, callouts with their tails, and
+connectors with their labels, the image sized to take all of it in. Images are read through the
+same-origin media stream (`src/lib/canvas/clipboard-export.js`).
 
 ## Object links and recent boards
 
