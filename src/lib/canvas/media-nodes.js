@@ -9,7 +9,7 @@
  */
 import { classifyEmbed } from "./embeds";
 
-export const MEDIA_NODE_TYPES = ["video", "pdf", "embed", "linkcard", "code", "emoji", "icon"];
+export const MEDIA_NODE_TYPES = ["audio", "video", "pdf", "embed", "linkcard", "code", "emoji", "icon"];
 const MEDIA_PREFIX = "/api/media/";
 const MAX_MEDIA_REF = 600;
 const MAX_URL = 2048;
@@ -96,6 +96,7 @@ function uniqueStrings(raw, limit, length) {
 /** `base` plus the type's fields, or null when `r` is not valid for the type. */
 export function validateMediaNode(type, r, base) {
   switch (type) {
+    case "audio":
     case "video": {
       const src = mediaRef(r.src);
       if (!src) return null;
@@ -147,6 +148,7 @@ export function validateMediaNode(type, r, base) {
     case "emoji": {
       if (typeof r.emoji !== "string" || r.emoji.length === 0 || r.emoji.length > 32) return null;
       const node = { ...base, type, emoji: r.emoji };
+      if (finite(r.rotation)) node.rotation = ((r.rotation % 360) + 360) % 360;
       if (r.style === "sticker") node.style = "sticker";
       if (r.interactive === true) {
         node.interactive = true;

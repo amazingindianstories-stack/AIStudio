@@ -11,7 +11,7 @@ import re
 
 from . import embeds
 
-TYPES = {'video', 'pdf', 'embed', 'linkcard', 'code', 'emoji', 'icon'}
+TYPES = {'audio', 'video', 'pdf', 'embed', 'linkcard', 'code', 'emoji', 'icon'}
 MEDIA_PREFIX = '/api/media/'
 MAX_MEDIA_REF = 600
 MAX_URL = 2048
@@ -84,7 +84,7 @@ def _unique_strings(raw, limit, length):
 def coerce(kind, r, result):
     """Add the type's fields to `result` (the shared id, x, y, w, h and type), or return None when the object
     is not valid for the type."""
-    if kind == 'video':
+    if kind in ('audio', 'video'):
         src = media_ref(r.get('src'))
         if not src:
             return None
@@ -130,6 +130,8 @@ def coerce(kind, r, result):
         if not isinstance(emoji, str) or not 0 < _units(emoji) <= 32:
             return None
         result['emoji'] = emoji
+        if _finite(r.get('rotation')):
+            result['rotation'] = r['rotation'] % 360
         if r.get('style') == 'sticker':
             result['style'] = 'sticker'
         if r.get('interactive') is True:

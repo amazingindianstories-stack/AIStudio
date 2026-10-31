@@ -3,7 +3,12 @@ from django.urls import path
 from .views import (board_access, board_activity, board_ai_job, board_ai_jobs, board_ai_quote, board_detail, board_metadata_reads,
                     board_upload, board_version, board_changes, shape_packs, shape_pack_detail)
 
+from .media_views import media_detail, media_library, import_url
+
 urlpatterns = [
+    path("api/canvas-boards/<str:identifier>/media", media_library),
+    path("api/canvas-boards/<str:identifier>/media/<str:media_id>", media_detail),
+    path("api/canvas-boards/<str:identifier>/import-url", import_url),
     path('api/canvas-boards', board_metadata_reads),
     path('api/canvas-boards/<str:identifier>/upload', board_upload),
     path('api/canvas-boards/<str:identifier>/access', board_access),

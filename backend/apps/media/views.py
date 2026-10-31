@@ -82,8 +82,11 @@ def authorize_media_key(path):
         original_key = match[1]
     if original_key.startswith('uploads/'):
         from .models import UploadSession
-        staged = UploadSession.objects.filter(key=original_key).only('state', 'finalized_at').first()
-        if staged and (not staged.finalized_at or staged.state != 'ready'):
+        staged = UploadSession.objects.filter(key=original_key).only('state', 'finalized_at', 'content_type', 'purpose').first()
+        # Active originals never leave private storage; boards receive rasterized PNGs.
+        active_canvas = staged and staged.purpose == 'canvas' and staged.content_type in (
+            'image/svg+xml', 'image/vnd.adobe.photoshop', 'image/x-photoshop')
+        if active_canvas or staged and (not staged.finalized_at or staged.state != 'ready'):
             raise MediaHidden(key)
     if is_export_key(key):
         raise MediaHidden(key)

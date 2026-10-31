@@ -13,6 +13,7 @@ import { Shapes, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
 import { uploadFileDirect } from "@/lib/client-reference-upload";
+import { isBoardFile } from "@/lib/canvas/media-upload";
 import { useStore } from "@/lib/store";
 import { useCanvasStore, hasClipboard, selectReadOnly } from "@/lib/canvas-store";
 import { getAssetDragData } from "@/lib/asset-drag-contract";
@@ -1365,10 +1366,10 @@ export const CanvasSurface = forwardRef
           (assetPayload.items && assetPayload.items.find((i) => i.id === id)) ||
           useStore.getState().items.find((i) => i.id === id);
         if (item) {
-          const src = item.kind === "video" ? item.poster ?? item.url : item.url;
+          const src = item.url;
           if (src) {
             addImageFromAsset(
-              { url: src, aspectRatio: item.aspectRatio },
+              { url: src, aspectRatio: item.aspectRatio, kind: item.kind, title: item.name || "Video" },
               { x: worldPoint.x + offset, y: worldPoint.y + offset }
             );
             offset += 30;
@@ -1378,7 +1379,7 @@ export const CanvasSurface = forwardRef
       return;
     }
     // Direct OS file drop (best-effort; not the primary/AC path).
-    const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith("image/"));
+    const files = Array.from(e.dataTransfer.files).filter(isBoardFile);
     if (files.length && boardId) {
       const screen = toScreenLocal(e.clientX, e.clientY);
       const worldPoint = screenToWorld(screen, viewport);

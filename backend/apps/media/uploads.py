@@ -16,7 +16,7 @@ PURPOSES = {
     'depth-input': ('uploads/depth-input', r'video/(mp4|quicktime|x-m4v|webm)$'),
     'portrait': ('uploads/portrait', r'image/(jpeg|png|webp|tiff|gif|heic|heif|avif|bmp)$'),
     'material': ('uploads/material', r'image/(jpeg|png|webp|tiff|gif|heic|heif|avif|bmp)$'),
-    'canvas': ('uploads/canvas', r'image/(jpeg|png|webp|tiff|gif|heic|heif|avif|bmp)$'),
+    'canvas': ('uploads/canvas', r'(image/(jpeg|png|webp|tiff|gif|heic|heif|avif|bmp|svg\+xml|vnd\.adobe\.photoshop|x-photoshop)|video/(mp4|quicktime|webm)|audio/(mpeg|wav|ogg|mp4|webm)|application/pdf)$'),
 }
 
 
