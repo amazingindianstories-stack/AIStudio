@@ -1,0 +1,605 @@
+{
+ "description": "Format objects (docs, slides, HTML, draw.io), Mermaid diagram source and wireframe screen links: the frontend (src/lib/canvas/serialization.js) and backend (serialization.py) serializers must both turn each input into its expected board.",
+ "cases": {
+  "doc_blocks_and_suggestions": {
+   "input": {
+    "nodes": [
+     {
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "id": "d",
+      "type": "format",
+      "format": "doc",
+      "name": "Spec",
+      "status": "in_review",
+      "defaultView": true,
+      "viewLocked": true,
+      "blocks": [
+       {
+        "id": "b1",
+        "type": "h1",
+        "text": "Title"
+       },
+       {
+        "id": "b2",
+        "type": "todo",
+        "text": "Ship @[Ada](user:u1) by {{date:2026-11-02}}",
+        "checked": true
+       },
+       {
+        "id": "b3",
+        "type": "table",
+        "rows": [
+         [
+          "a",
+          "b",
+          "c"
+         ],
+         [
+          "d"
+         ]
+        ]
+       },
+       {
+        "id": "b4",
+        "type": "diagram",
+        "ref": "dg"
+       },
+       {
+        "id": "b2",
+        "type": "p",
+        "text": "duplicate id dropped"
+       },
+       {
+        "id": "b5",
+        "type": "nope",
+        "text": "bad type"
+       },
+       {
+        "id": "b6",
+        "type": "p",
+        "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+       },
+       {
+        "id": "b7",
+        "type": "p",
+        "text": "x",
+        "checked": true
+       }
+      ],
+      "suggestions": [
+       {
+        "id": "s1",
+        "blockId": "b1",
+        "kind": "replace",
+        "text": "New",
+        "by": "u2",
+        "at": 5
+       },
+       {
+        "id": "s2",
+        "blockId": "b2",
+        "kind": "delete",
+        "text": "ignored",
+        "by": "u2",
+        "at": "x"
+       },
+       {
+        "id": "s3",
+        "blockId": "missing",
+        "kind": "insert",
+        "text": "dropped",
+        "by": "u2",
+        "at": 1
+       },
+       {
+        "id": "s4",
+        "blockId": "b1",
+        "kind": "weird",
+        "text": "dropped",
+        "by": "u2",
+        "at": 1
+       }
+      ]
+     }
+    ]
+   },
+   "expected": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [
+     {
+      "id": "d",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "format",
+      "format": "doc",
+      "name": "Spec",
+      "status": "in_review",
+      "defaultView": true,
+      "viewLocked": true,
+      "blocks": [
+       {
+        "id": "b1",
+        "type": "h1",
+        "text": "Title"
+       },
+       {
+        "id": "b2",
+        "type": "todo",
+        "text": "Ship @[Ada](user:u1) by {{date:2026-11-02}}",
+        "checked": true
+       },
+       {
+        "id": "b3",
+        "type": "table",
+        "rows": [
+         [
+          "a",
+          "b",
+          "c"
+         ],
+         [
+          "d",
+          "",
+          ""
+         ]
+        ]
+       },
+       {
+        "id": "b4",
+        "type": "diagram",
+        "ref": "dg"
+       },
+       {
+        "id": "b6",
+        "type": "p",
+        "text": ""
+       },
+       {
+        "id": "b7",
+        "type": "p",
+        "text": "x"
+       }
+      ],
+      "suggestions": [
+       {
+        "id": "s1",
+        "blockId": "b1",
+        "kind": "replace",
+        "text": "New",
+        "by": "u2",
+        "at": 5
+       },
+       {
+        "id": "s2",
+        "blockId": "b2",
+        "kind": "delete",
+        "text": "",
+        "by": "u2",
+        "at": 0
+       }
+      ]
+     }
+    ],
+    "connectors": []
+   }
+  },
+  "doc_without_blocks": {
+   "input": {
+    "nodes": [
+     {
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "id": "d",
+      "type": "format",
+      "format": "doc",
+      "status": "bogus",
+      "defaultView": false,
+      "viewLocked": true
+     }
+    ]
+   },
+   "expected": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [
+     {
+      "id": "d",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "format",
+      "format": "doc",
+      "name": "Untitled doc",
+      "blocks": [
+       {
+        "id": "b1",
+        "type": "p",
+        "text": ""
+       }
+      ]
+     }
+    ],
+    "connectors": []
+   }
+  },
+  "deck_lanes_and_slides": {
+   "input": {
+    "nodes": [
+     {
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "id": "f1",
+      "type": "frame",
+      "name": "Slide 1"
+     },
+     {
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "id": "k",
+      "type": "format",
+      "format": "deck",
+      "name": "Deck",
+      "status": "approved",
+      "lanes": [
+       {
+        "id": "alt",
+        "name": "Alt"
+       },
+       {
+        "id": "alt",
+        "name": "dup"
+       }
+      ],
+      "slides": [
+       {
+        "id": "s1",
+        "title": "One",
+        "frameId": "f1",
+        "notes": "say hi",
+        "lane": "main"
+       },
+       {
+        "id": "s2",
+        "title": "Two",
+        "frameId": "gone",
+        "notes": 4,
+        "lane": "unknown"
+       },
+       {
+        "id": "s3",
+        "title": "Three",
+        "frameId": "f1",
+        "notes": "n",
+        "lane": "alt"
+       },
+       {
+        "id": "s1",
+        "title": "dup"
+       }
+      ]
+     }
+    ]
+   },
+   "expected": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [
+     {
+      "id": "f1",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "frame",
+      "name": "Slide 1",
+      "fill": "transparent",
+      "stroke": "#000000"
+     },
+     {
+      "id": "k",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "format",
+      "format": "deck",
+      "name": "Deck",
+      "status": "approved",
+      "slides": [
+       {
+        "id": "s1",
+        "title": "One",
+        "frameId": "f1",
+        "notes": "say hi",
+        "lane": "main"
+       },
+       {
+        "id": "s2",
+        "title": "Two",
+        "frameId": "",
+        "notes": "",
+        "lane": "main"
+       },
+       {
+        "id": "s3",
+        "title": "Three",
+        "frameId": "f1",
+        "notes": "n",
+        "lane": "alt"
+       }
+      ],
+      "lanes": [
+       {
+        "id": "main",
+        "name": "Main"
+       },
+       {
+        "id": "alt",
+        "name": "Alt"
+       }
+      ]
+     }
+    ],
+    "connectors": []
+   }
+  },
+  "html_and_drawio": {
+   "input": {
+    "nodes": [
+     {
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "id": "h",
+      "type": "format",
+      "format": "html",
+      "html": "<b>hi</b>"
+     },
+     {
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "id": "x",
+      "type": "format",
+      "format": "drawio",
+      "xml": "<mxfile/>",
+      "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+     },
+     {
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "id": "u",
+      "type": "format",
+      "format": "video"
+     }
+    ]
+   },
+   "expected": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [
+     {
+      "id": "h",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "format",
+      "format": "html",
+      "name": "HTML embed",
+      "html": "<b>hi</b>"
+     },
+     {
+      "id": "x",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "format",
+      "format": "drawio",
+      "name": "Draw.io diagram",
+      "xml": "<mxfile/>"
+     }
+    ],
+    "connectors": []
+   }
+  },
+  "mermaid_diagram_and_screen_links": {
+   "input": {
+    "nodes": [
+     {
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "id": "dg",
+      "type": "diagram",
+      "name": "Flow",
+      "source": "graph TD\nA-->B",
+      "sourceKind": "mermaid",
+      "status": "draft"
+     },
+     {
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "id": "dg2",
+      "type": "diagram",
+      "source": "x",
+      "sourceKind": "plantuml",
+      "status": "nope"
+     },
+     {
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "id": "scr",
+      "type": "frame",
+      "name": "Home"
+     },
+     {
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "id": "btn",
+      "type": "rect",
+      "screenLink": "scr"
+     },
+     {
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "id": "dead",
+      "type": "rect",
+      "screenLink": "gone"
+     }
+    ]
+   },
+   "expected": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [
+     {
+      "id": "dg",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "diagram",
+      "name": "Flow",
+      "layers": [
+       {
+        "id": "default",
+        "name": "Main layer",
+        "visible": true
+       }
+      ],
+      "fill": "rgba(15,23,42,0.45)",
+      "stroke": "#6f9bd1",
+      "strokeWidth": 2,
+      "sourceKind": "mermaid",
+      "source": "graph TD\nA-->B",
+      "status": "draft"
+     },
+     {
+      "id": "dg2",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "diagram",
+      "name": "Diagram",
+      "layers": [
+       {
+        "id": "default",
+        "name": "Main layer",
+        "visible": true
+       }
+      ],
+      "fill": "rgba(15,23,42,0.45)",
+      "stroke": "#6f9bd1",
+      "strokeWidth": 2
+     },
+     {
+      "id": "scr",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "frame",
+      "name": "Home",
+      "fill": "transparent",
+      "stroke": "#000000"
+     },
+     {
+      "id": "btn",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "rect",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1,
+      "screenLink": "scr"
+     },
+     {
+      "id": "dead",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "rect",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1
+     }
+    ],
+    "connectors": []
+   }
+  }
+ }
+}

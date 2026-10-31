@@ -4,8 +4,9 @@ import math
 import re
 
 from .svg_sanitize import sanitize_svg
+from .formats import drop_dangling_refs, format_node, with_diagram_source, with_screen_link
 
-NODE_TYPES = {'rect', 'ellipse', 'triangle', 'diamond', 'shape', 'text', 'sticky', 'stack', 'frame', 'image', 'erd', 'swimlane', 'diagram'}
+NODE_TYPES = {'rect', 'ellipse', 'triangle', 'diamond', 'shape', 'text', 'sticky', 'stack', 'frame', 'image', 'erd', 'swimlane', 'diagram', 'format'}
 SHAPE_TYPES = ('rect', 'ellipse', 'triangle', 'diamond', 'shape')
 # Mirrors src/lib/canvas/shapes.js and src/lib/canvas/rich-text.js.
 SHAPE_KIND = re.compile(r'[a-z][a-z0-9-]{0,39}')
@@ -237,7 +238,11 @@ def node(raw):
     if isinstance(r.get('layerId'), str) and r['layerId']:
         result['layerId'] = r['layerId']
     result['type'] = kind
-    if kind in SHAPE_TYPES:
+    if kind == 'format':
+        result = format_node(r, result)
+        if result is None:
+            return None
+    elif kind in SHAPE_TYPES:
         # Path shapes name a catalogue outline; unknown well-formed kinds are kept.
         if kind == 'shape':
             if not isinstance(r.get('shape'), str) or not SHAPE_KIND.fullmatch(r['shape']):
@@ -347,6 +352,7 @@ def node(raw):
                       fill=string(r.get('fill'), 'rgba(15,23,42,0.45)'), stroke=string(r.get('stroke'), '#6f9bd1'),
                       strokeWidth=num(r.get('strokeWidth'), 2))
         with_structured_theme(result, r)
+        with_diagram_source(result, r)
         if isinstance(r.get('containers'), list):
             containers = []
             for c in r['containers'][:50]:
@@ -365,7 +371,7 @@ def node(raw):
                 })
             if containers:
                 result['containers'] = containers
-    return with_stamps(result, r)
+    return with_stamps(with_screen_link(result, r), r)
 
 
 def endpoint(raw, identifiers):

@@ -213,6 +213,8 @@ export function applyStylePatchToNode(n, patch) {
     }
     case "image":
       return applyDiagramLayerPatch({ ...n, opacity }, patch);
+    case "format":
+      return { ...n, opacity };
   }
 }
 
