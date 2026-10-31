@@ -3,7 +3,7 @@ import { createHmac, randomUUID } from 'node:crypto';
 import { fixtureDatabase } from './fixture-db.mjs';
 
 // One ordinary fixture user who owns every board in the project.
-const OWNER = { id: 'b0a2d000-0000-4000-8000-000000000031', name: 'Link owner', email: 'link-owner@example.test' };
+const OWNER = { id: 'b0a2d000-0000-4000-8000-000000000041', name: 'Link owner', email: 'link-owner@example.test' };
 
 function sessionCookie(userId) {
   const payload = Buffer.from(JSON.stringify({ uid: userId, ver: 0, exp: Date.now() + 3600000 })).toString('base64url');
