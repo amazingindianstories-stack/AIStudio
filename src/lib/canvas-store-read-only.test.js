@@ -56,6 +56,10 @@ function tryEveryEdit(store) {
   s.addImageBatch([{ url: "/api/media/x.png", naturalW: 10, naturalH: 10 }]);
   s.addImageFromAsset({ url: "/api/media/x.png", aspectRatio: "1:1" });
   s.addConnector({ x: 0, y: 0 }, { x: 5, y: 5 }, "arrow");
+  s.quickCreateFromNode("n1", "right");
+  s.convertSelectionToDiagram("Flow");
+  s.updateNodeFields("n1", { fill: "#000000" });
+  s.applyThemeToSelection("blueprint");
   s.deleteSelected();
   s.undo();
   s.redo();

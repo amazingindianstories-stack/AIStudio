@@ -190,3 +190,14 @@ test("key labels read naturally on each platform", () => {
   assert.deepEqual(comboLabels("Mod+Shift+C", true), ["⌘", "⇧", "C"]);
   assert.deepEqual(comboLabels("Mod+Shift+C", false), ["Ctrl", "Shift", "C"]);
 });
+
+test("keyboard navigation skips objects outside the focused diagram", () => {
+  const nodes = [
+    { id: "outside", type: "sticky", x: -400, y: 0, w: 100, h: 100 },
+    { id: "diagram", type: "diagram", x: 0, y: 0, w: 300, h: 300 },
+  ];
+  const ctx = context({ store: { ...context().store, focusedDiagramId: "diagram", history: { present: { nodes, connectors: [] } } } });
+  ctx.select = (ids) => ctx.calls.push(["select", ids]);
+  assert.equal(dispatchShortcut(keydown("Home"), ctx), true);
+  assert.deepEqual(ctx.calls, [["select", ["diagram"]]]);
+});

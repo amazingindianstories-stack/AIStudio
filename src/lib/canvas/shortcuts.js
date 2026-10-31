@@ -28,6 +28,8 @@ import {
   stepStop,
 } from "./keyboard-nav";
 
+import { hiddenBoardIds } from "./culling";
+
 export const SHORTCUT_GROUPS = ["Tools", "Edit", "Navigate", "View", "Board"];
 
 const CODES = { "/": "Slash", "[": "BracketLeft", "]": "BracketRight", "=": "Equal", "-": "Minus", ".": "Period", ",": "Comma" };
@@ -110,7 +112,12 @@ const ARROW_STEP = { left: [-1, 0], right: [1, 0], up: [0, -1], down: [0, 1] };
 const arrowKeys = (prefix) => Object.keys(ARROWS).map((k) => `${prefix}${k}`);
 const directionOf = (event) => ARROWS[event.key];
 
-const present = (ctx) => ctx.store.history.present;
+const present = (ctx) => {
+  const graph = ctx.store.history.present;
+  const hidden = hiddenBoardIds(graph, ctx.store.focusedDiagramId);
+  return { ...graph, nodes: graph.nodes.filter((node) => !hidden.nodes.has(node.id)),
+    connectors: graph.connectors.filter((connector) => !hidden.connectors.has(connector.id)) };
+};
 const hasSelection = (ctx) => ctx.store.selection.length > 0;
 
 function tool(id, label, keys, extra = {}) {
