@@ -217,7 +217,7 @@ export function PortraitLightbox({
           <button
             type="button"
             onClick={() => void downloadPortrait(asset)}
-            title="Download high-resolution image"
+            title={video ? "Download original video" : "Download high-resolution image"}
             className="grid h-8 w-8 place-items-center rounded-lg border border-white/15 bg-ink-800 text-white/80 transition hover:bg-white/10 hover:text-white"
           >
             <Download className="h-4 w-4" />
@@ -285,7 +285,7 @@ export function PortraitLightbox({
               controls
               playsInline
               preload="metadata"
-              className="max-h-[76dvh] max-w-[85vw] rounded-lg object-contain"
+              className="max-h-[76dvh] max-w-[min(85vw,100%)] rounded-lg object-contain"
             />
           ) : (
             // eslint-disable-next-line @next/next/no-img-element
@@ -295,7 +295,7 @@ export function PortraitLightbox({
               className={`select-none transition-all duration-200 ${
                 isZoomed
                   ? "max-w-none origin-center transform p-8 scale-150"
-                  : "max-h-[76dvh] max-w-[85vw] object-contain"
+                  : "max-h-[76dvh] max-w-[min(85vw,100%)] object-contain"
               }`}
             />
           )}

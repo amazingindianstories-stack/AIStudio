@@ -59,6 +59,15 @@ test('a video can be added to the Portrait Gallery, shows its first frame and pl
   await expect.poll(() => player.evaluate(video => video.readyState), { timeout: 30000 }).toBeGreaterThanOrEqual(1);
   expect(await player.evaluate(video => video.controls)).toBe(true);
   expect(await player.evaluate(video => Math.round(video.duration))).toBe(3);
+  // The side panel is narrower than the clip, so the player shrinks to fit and its controls stay reachable.
+  const fit = await player.evaluate(video => {
+    const frame = video.parentElement.getBoundingClientRect();
+    const box = video.getBoundingClientRect();
+    return { inside: box.left >= frame.left && box.right <= frame.right && box.top >= frame.top && box.bottom <= frame.bottom, width: box.width };
+  });
+  expect(fit.inside).toBe(true);
+  expect(fit.width).toBeGreaterThan(0);
+  await expect(preview.getByRole('button', { name: 'Download original video', exact: true })).toBeVisible();
 });
 
 test('a clip that is too short is refused in the browser with a clear message and nothing is registered', async ({ page, context, baseURL }) => {
