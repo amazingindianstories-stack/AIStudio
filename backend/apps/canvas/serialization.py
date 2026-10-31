@@ -478,6 +478,7 @@ def validate_state(raw):
             del item['tail']
         if 'layerId' in item and item['layerId'] not in layer_ids:
             del item['layerId']
+    drop_dangling_refs(nodes, identifiers)
     connectors = [valid for item in obj.get('connectors', []) if (valid := connector(item, identifiers)) is not None] if isinstance(obj.get('connectors'), list) else []
     result = {'version': 1, 'viewport': {'x': num(viewport.get('x'), 0), 'y': num(viewport.get('y'), 0), 'zoom': zoom if finite(zoom) and zoom > 0 else 1},
               'nodes': nodes, 'connectors': connectors}

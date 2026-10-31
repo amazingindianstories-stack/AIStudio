@@ -62,9 +62,9 @@ export function FormatsPanel({ boardId, touchViewOnly }) {
   const status = boardStatus(graph.nodes);
   if (!boardId || !loaded) return null;
   return <>
-    <div className="absolute bottom-20 left-3 z-20 text-sm">
+    <div className="absolute bottom-3 right-44 z-20 text-sm">
       <button className="rounded-xl border border-white/15 bg-slate-900 px-4 py-3 text-white shadow-xl" aria-expanded={panel} onClick={() => setPanel(!panel)}>Formats{status ? ` · ${STATUS_LABELS[status]}` : ""}</button>
-      {panel && <div className="absolute bottom-14 left-0 max-h-[70vh] w-80 space-y-4 overflow-auto rounded-xl border border-slate-200 bg-white p-4 text-slate-900 shadow-xl" role="region" aria-label="Board formats">
+      {panel && <div className="absolute bottom-14 right-0 max-h-[70vh] w-80 space-y-4 overflow-auto rounded-xl border border-slate-200 bg-white p-4 text-slate-900 shadow-xl" role="region" aria-label="Board formats">
         <h2 className="font-semibold">Docs, slides and prototypes</h2>
         {!readOnly && <div className="grid grid-cols-2 gap-2">{[["doc", "New doc"], ["deck", "New slides"], ["drawio", "New Draw.io"], ["html", "New HTML embed"]].map(([kind, label]) => <button key={kind} className="rounded border p-2" onClick={() => create(kind)}>{label}</button>)}<button className="rounded border p-2" onClick={() => setFocusId("new-mermaid")}>New Mermaid</button></div>}
         <ul className="space-y-2">{formats.map((n) => <li key={n.id}><button className="w-full rounded border px-3 py-2 text-left" onClick={() => openFormat(n.id)}>{n.name || n.type} <span className="text-xs text-slate-500">{STATUS_LABELS[n.status]}{n.defaultView ? " · Default" : ""}</span></button></li>)}</ul>
