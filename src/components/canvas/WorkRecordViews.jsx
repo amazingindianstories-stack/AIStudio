@@ -77,7 +77,8 @@ export function WorkRecordViews({ kind, records, fields, groups = [], view = {},
     return <div className="space-y-4">{lanes.map(lane => <section key={lane}><h3 className="mb-2 text-sm font-semibold">{groupText(swimlaneKey, lane)}</h3><div className="flex gap-3">{columns.map(column => <div key={column} className="w-56 shrink-0 rounded-lg bg-slate-100 p-2" {...dropTarget({ [groupKey]: column, ...(swimlaneKey ? { [swimlaneKey]: lane } : {}) })}><h4 className="mb-2 text-sm font-semibold">{groupText(groupKey, column)}</h4>{records.filter(r => String(r.cells[groupKey] || 'Unassigned') === column && (!swimlaneKey || String(r.cells[swimlaneKey] || 'Unassigned') === lane)).map(card)}</div>)}</div></section>)}</div>;
   }
   if (kind === 'chart') {
-    const valueField = view.valueField || fields.find(f => ['number', 'points', 'formula'].includes(f.type))?.id;
+    const numbers = fields.filter(f => ['number', 'points', 'formula'].includes(f.type));
+    const valueField = (numbers.find(f => f.id === view.valueField) || numbers[0])?.id;
     const bars = view.groupBy ? groups.map(g => ({ id: String(g.value ?? ''), name: groupText(view.groupBy, String(g.value ?? '')), value: Math.max(0, Number('sum' in g ? g.sum : g.count) || 0) }))
       : records.map(r => ({ id: r.id, name: label(r), value: Math.max(0, Number(r.cells[valueField]) || 0), record: r }));
     const max = Math.max(1, ...bars.map(b => b.value)), sum = bars.reduce((a, b) => a + b.value, 0) || 1;

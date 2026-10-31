@@ -55,6 +55,10 @@ test("work views show people by name, round formulas and omit empty card fields;
     await render({ kind: "chart", view: { groupBy: "assignee" }, groups: [{ value: ADA, count: 2 }, { value: "", count: 1 }] });
     assert.deepEqual(texts("svg text"), ["Ada Lovelace", "Unassigned"]);
     assert.ok(document.body.textContent.includes("Legend: Ada Lovelace · Unassigned"));
+
+    // Without a valid saved value field, the chart plots the first number field, as the server does.
+    await render({ kind: "chart", view: { valueField: "deleted" } });
+    assert.deepEqual(texts("svg title"), ["Ship: 33.333333333333336", "Plan: 116.66666666666667"]);
   } finally {
     await act(async () => root.unmount());
     Object.assign(globalThis, prior);

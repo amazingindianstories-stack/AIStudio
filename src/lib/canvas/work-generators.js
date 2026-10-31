@@ -34,7 +34,8 @@ export function buildTimeline(board, { start, end, interval = 'month', lanes, co
   function label(text, x, y, w, h, fill) {
     nodes.push(box({ x, y }, w, h, { type: 'rect', parentId: frame.id, fill, stroke: '#cbd5e1', strokeWidth: 1, text, fontSize: 14, color: '#0f172a', align: 'center' }));
   }
-  periods.forEach((date, column) => label(date, origin.x + 150 + column * 140, origin.y + 40, 140, 40, color));
+  // Shapes pad their text by 10% of the width above and below, so a header needs 56 px to show one 14 px line.
+  periods.forEach((date, column) => label(date, origin.x + 150 + column * 140, origin.y + 24, 140, 56, color));
   rows.forEach((name, row) => {
     label(name, origin.x + 10, origin.y + 80 + row * 100, 140, 100, '#f1f5f9');
     periods.forEach((_, column) => label('', origin.x + 150 + column * 140, origin.y + 80 + row * 100, 140, 100, '#ffffff'));
