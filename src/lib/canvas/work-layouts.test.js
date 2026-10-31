@@ -30,6 +30,12 @@ test('timeline dates, milestones and invalid intervals are deterministic', () =>
   assert.equal(generated.nodes.length, 12);
   assert.equal(validateCanvasState(generated).nodes.length, 12);
   assert.throws(() => buildTimeline({ nodes: [] }, { start: '2026-01-01', end: '2026-12-31', interval: 'day', lanes: 'Team' }, { x: 0, y: 0 }), /120/);
+  // Every labelled cell leaves room for a whole line after the shape's 10%-of-width text padding,
+  // and the header sits inside the frame directly above the first swimlane.
+  const [timelineFrame, ...timelineCells] = generated.nodes;
+  for (const cell of timelineCells.filter(c => c.text)) assert.ok(cell.h - 2 * 0.1 * cell.w >= cell.fontSize * 1.5, `${cell.text} is clipped`);
+  const header = timelineCells.find(c => c.text === '2026-01-31'), lane = timelineCells.find(c => c.text === 'Design');
+  assert.ok(header.y >= timelineFrame.y && header.y + header.h === lane.y);
   // Built where an existing widget sits, the timeline moves as a whole to free space beside it.
   const chart = { id: 'chart', type: 'work', kind: 'chart', x: 0, y: 0, w: 640, h: 420 };
   const beside = buildTimeline({ nodes: [chart], connectors: [] }, { start: '2026-01-31', end: '2026-04-01', interval: 'month', lanes: 'Design\nBuild' }, { x: 0, y: 0 });
