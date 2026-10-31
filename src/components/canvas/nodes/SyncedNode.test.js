@@ -36,3 +36,29 @@ test("a synced copy whose source frame holds a copy of itself draws that copy as
     dom.window.close();
   }
 });
+
+test("a synced copy of a diagram draws its content without the nodes on a layer the diagram hides", async () => {
+  const dom = new JSDOM("<div id='root'></div>", { url: "http://localhost", pretendToBeVisual: true });
+  const names = ["window", "document", "HTMLElement", "Node", "React", "IS_REACT_ACT_ENVIRONMENT", "fetch"];
+  const prior = Object.fromEntries(names.map((name) => [name, globalThis[name]]));
+  const layers = [{ id: "main", name: "Main", visible: true }, { id: "draft", name: "Draft", visible: false }];
+  const source = { id: "d", type: "diagram", x: 0, y: 0, w: 400, h: 200, name: "Flow", layers, fill: "transparent", stroke: "#000", strokeWidth: 2, parentId: null, groupId: null };
+  const sticky = (id, layer) => ({ id, type: "sticky", x: 20, y: 20, w: 80, h: 80, text: id, fill: "#fff59d", fontSize: 16, color: "#000", parentId: "d", groupId: null, diagramLayerId: layer });
+  Object.assign(globalThis, { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, Node: dom.window.Node, React, IS_REACT_ACT_ENVIRONMENT: true,
+    fetch: async () => json({ board: { id: "board-a", name: "Board A", projectId: "p" }, version: 1, frame: source,
+      nodes: [source, sticky("shown", "main"), sticky("drafted", "draft")], connectors: [] }) });
+  clearSyncedCache();
+  const root = createRoot(document.querySelector("#root"));
+  try {
+    const copy = { id: "outer", type: "synced", x: 0, y: 0, w: 200, h: 100, sourceBoardId: "board-a", sourceNodeId: "d", name: "Flow", parentId: null, groupId: null };
+    await act(async () => root.render(React.createElement(SyncedNode, { node: copy })));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
+    assert.match(document.body.textContent, /Board A: Flow/);
+    assert.deepEqual([...document.querySelectorAll("[data-node-id]")].map((el) => el.getAttribute("data-node-id")), ["d", "shown"]);
+  } finally {
+    await act(async () => root.unmount());
+    clearSyncedCache();
+    Object.assign(globalThis, prior);
+    dom.window.close();
+  }
+});

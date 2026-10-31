@@ -1,6 +1,6 @@
-"""Synced copies: view-only references to a frame on another board.
+"""Synced copies: view-only references to a frame or diagram on another board.
 
-A `synced` node on a board stores only which board and which frame it points at. The editor asks for the frame's
+A `synced` node on a board stores only which board and which source it points at. The editor asks for the source's
 current content when the node is shown and again while it stays on screen; nothing is pushed and nothing of
 the source is copied into the copy's board. Each read checks the caller's own access to the *source* board and
 applies the same hidden-frame rule as reading that board directly, so a copy never shows what its viewer
@@ -16,6 +16,7 @@ from apps.authentication.session import lookup
 
 ID_PATTERN = re.compile(r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}')
 NODE_ID_PATTERN = re.compile(r'[^\x00-\x1f/]{1,64}')
+SOURCE_TYPES = {'frame': 'Frame', 'diagram': 'Diagram'}
 
 
 def _readable_graph(user, identifier):
@@ -31,14 +32,16 @@ def _readable_graph(user, identifier):
 
 
 def frame_summaries(graph, level):
-    """The frames a caller can sync: visible frames of the board, never hidden ones for people who cannot manage them."""
-    return [{'id': item['id'], 'name': item.get('name', 'Frame'), 'w': item['w'], 'h': item['h'], 'parentId': item.get('parentId')}
-            for item in graph['nodes'] if item.get('type') == 'frame' and (hidden.can_manage(level) or not item.get('hidden'))]
+    """The frames and diagrams a caller can sync: visible ones of the board, never hidden frames for people who cannot manage them."""
+    return [{'id': item['id'], 'type': item['type'], 'name': item.get('name', SOURCE_TYPES[item['type']]), 'w': item['w'], 'h': item['h'],
+             'parentId': item.get('parentId')}
+            for item in graph['nodes'] if item.get('type') in SOURCE_TYPES and (hidden.can_manage(level) or not item.get('hidden'))]
 
 
 def frame_content(graph, level, node_id):
-    """A frame with everything inside it (at any depth) and the connectors among those objects; None when absent or hidden from the caller."""
-    frame = next((item for item in graph['nodes'] if item['id'] == node_id and item.get('type') == 'frame'), None)
+    """A frame or diagram with everything inside it (at any depth) and the connectors among those objects; None when absent or hidden
+    from the caller."""
+    frame = next((item for item in graph['nodes'] if item['id'] == node_id and item.get('type') in SOURCE_TYPES), None)
     if frame is None or (frame.get('hidden') and not hidden.can_manage(level)):
         return None
     children, queue, inside = {}, [node_id], {node_id}
@@ -88,7 +91,7 @@ def board_frame(request, identifier, node_id):
 
 @node_route(['GET'])
 def frame_copies(request, identifier, node_id):
-    """Boards the caller can open that hold a synced copy of this frame where the caller can see it."""
+    """Boards the caller can open that hold a synced copy of this frame or diagram where the caller can see it."""
     user = lookup(request)
     if user is None:
         return reply(request, {'error': 'UNAUTHENTICATED'}, 401)

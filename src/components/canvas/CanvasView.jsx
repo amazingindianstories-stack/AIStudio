@@ -28,7 +28,7 @@ import { useBoardAi } from "@/lib/board-ai";
 import { BoardHistoryPanel } from "./BoardHistoryPanel";
 import { ObjectInfo } from "./ObjectInfo";
 import { useOpenBoardRequests } from "@/lib/open-board";
-import { NotesPanel } from "./NotesPanel";
+import { NotesButton, NotesPanel } from "./NotesPanel";
 import { frameSelection } from "@/lib/frame-actions";
 
 // Miro's keys: N sticky note, T text, F frame; S opens the shapes panel.
@@ -534,6 +534,7 @@ export function CanvasView() {
               History
             </button>
           )}
+          {boardId && loaded && <NotesButton />}
           {showEditToggle && (
             <button
               type="button"

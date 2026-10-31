@@ -158,22 +158,23 @@ export function NotesPanel() {
   );
 }
 
-/** The toolbar button that opens and closes the notes panel. */
+/** The board header button that opens and closes the notes panel, for everyone who can read the board. */
 export function NotesButton() {
   const open = useNotesPanel((s) => s.open);
   return (
     <button
       type="button"
       className={cn(
-        "grid h-9 w-9 cursor-pointer place-items-center rounded-lg transition-colors max-sm:h-8 max-sm:w-8",
-        open ? "bg-ink-600 text-white ring-1 ring-line" : "text-white/55 hover:bg-white/[0.07] hover:text-white"
+        "flex items-center gap-1.5 rounded-full border border-line bg-ink-700 px-3 py-1.5 text-sm text-white/85 outline-none transition hover:text-white focus-visible:ring-2 focus-visible:ring-brand",
+        open && "bg-ink-600 text-white"
       )}
       title="Board notes"
       aria-label="Board notes"
       aria-pressed={open}
       onClick={() => useNotesPanel.getState().toggle()}
     >
-      <FileText className="h-4 w-4" />
+      <FileText className="h-3.5 w-3.5" />
+      Notes
     </button>
   );
 }

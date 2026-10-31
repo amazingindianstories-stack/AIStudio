@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import { apiFetch } from "./api";
 
-// Synced copies are references: the board stores which frame on which board, and this module reads that
-// frame's current content from the server when the copy is shown and again every REFRESH_MS while it stays on
+// Synced copies are references: the board stores which frame or diagram on which board, and this module reads
+// that source's current content from the server when the copy is shown and again every REFRESH_MS while it stays on
 // screen. Nothing is pushed. The server applies the viewer's own access to the source board, so a copy never
 // shows more than its viewer could open there.
 
@@ -20,7 +20,7 @@ function path(boardId, nodeId) {
   return `/api/canvas-boards/${encodeURIComponent(boardId)}/frames/${encodeURIComponent(nodeId)}`;
 }
 
-/** The source frame as `{ status: "ready", data }`, `{ status: "gone" }` when it is missing or no longer readable, or `{ status: "error" }`. */
+/** The source frame or diagram as `{ status: "ready", data }`, `{ status: "gone" }` when it is missing or no longer readable, or `{ status: "error" }`. */
 export async function fetchSyncedFrame(boardId, nodeId) {
   try {
     const response = await apiFetch(path(boardId, nodeId));
@@ -57,7 +57,7 @@ export function useSyncedFrame(boardId, nodeId) {
   return result;
 }
 
-/** The frames of another board a person can copy from: `{ board, frames }`, or null when it cannot be opened. */
+/** The frames and diagrams of another board a person can copy from: `{ board, frames }`, or null when it cannot be opened. */
 export async function listFrames(boardId) {
   try {
     const response = await apiFetch(`/api/canvas-boards/${encodeURIComponent(boardId)}/frames`);
@@ -67,7 +67,7 @@ export async function listFrames(boardId) {
   }
 }
 
-/** Boards holding a synced copy of a frame, for the "list of copies" next to the original. */
+/** Boards holding a synced copy of a frame or diagram, for the "list of copies" next to the original. */
 export async function listCopies(boardId, nodeId) {
   try {
     const response = await apiFetch(`${path(boardId, nodeId)}/copies`);

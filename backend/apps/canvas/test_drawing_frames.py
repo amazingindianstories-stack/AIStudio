@@ -165,6 +165,23 @@ class FrameRoutesTests(TransactionTestCase):
         self.as_user(self.owner)
         self.assertEqual(self.client.get(f'/api/canvas-boards/{SOURCE}/frames/secret').status_code, 200)
 
+    def test_a_diagram_is_a_synced_source_with_the_same_hidden_rule_as_a_frame(self):
+        CanvasBoard.objects.filter(pk=SOURCE).update(data=graph([
+            frame('open'), node('flow', 'diagram', name='Flow'), node('step', parentId='flow'), frame('secret', hidden=True),
+            node('plan', 'diagram', name='Plan', parentId='secret'), node('b', parentId='plan')]))
+        CanvasBoard.objects.filter(pk=OTHER).update(data=graph([node('s1', 'synced', sourceBoardId=SOURCE, sourceNodeId='flow')]))
+        self.as_user(self.viewer)
+        listed = self.client.get(f'/api/canvas-boards/{SOURCE}/frames').json()['frames']
+        self.assertEqual([(f['id'], f['type'], f['name']) for f in listed], [('open', 'frame', 'Frame'), ('flow', 'diagram', 'Flow')])
+        body = self.client.get(f'/api/canvas-boards/{SOURCE}/frames/flow').json()
+        self.assertEqual((body['frame']['type'], sorted(item['id'] for item in body['nodes'])), ('diagram', ['flow', 'step']))
+        self.assertEqual(self.client.get(f'/api/canvas-boards/{SOURCE}/frames/plan').status_code, 404)
+        self.assertEqual(self.client.get(f'/api/canvas-boards/{SOURCE}/frames/step').status_code, 404)
+        self.as_user(self.owner)
+        self.assertEqual(sorted(item['id'] for item in self.client.get(f'/api/canvas-boards/{SOURCE}/frames/plan').json()['nodes']), ['b', 'plan'])
+        copies = self.client.get(f'/api/canvas-boards/{SOURCE}/frames/flow/copies').json()['copies']
+        self.assertEqual([(c['boardId'], c['nodeId']) for c in copies], [(OTHER, 's1')])
+
     def test_a_missing_source_board_or_frame_is_not_found(self):
         self.as_user(self.viewer)
         self.assertEqual(self.client.get('/api/canvas-boards/00000000-0000-4000-8000-000000000000/frames').status_code, 404)

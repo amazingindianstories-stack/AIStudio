@@ -30,7 +30,6 @@ import { ShapesPanel } from "./ShapesPanel";
 import { StickyMenu } from "./StickyMenu";
 import { GridMenu } from "./GridMenu";
 import { SyncedMenu } from "./SyncedMenu";
-import { NotesButton } from "./NotesPanel";
 import { ACTIVE_STATUSES, useBoardAi } from "@/lib/board-ai";
 
 /**
@@ -199,7 +198,6 @@ export function CanvasToolbar({
         <ToolGroup>
           <GridMenu />
           {projectId && boardId && <SyncedMenu projectId={projectId} boardId={boardId} />}
-          <NotesButton />
           <button
             type="button"
             className="grid h-9 w-9 cursor-pointer place-items-center rounded-lg text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white max-sm:h-8 max-sm:w-8"
