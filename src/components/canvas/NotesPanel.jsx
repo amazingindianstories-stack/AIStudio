@@ -140,7 +140,7 @@ export function NotesPanel() {
       </div>
 
       <footer className="flex items-center gap-2 border-t border-line px-3 py-2 text-xs text-white/50">
-        <span className="min-w-0 flex-1 truncate">{notes?.updatedBy && stamp ? `Last edited by ${displayName(people.get(notes.updatedBy), notes.updatedBy)}, ${stamp}` : "Double-click the text to edit"}</span>
+        <span className="min-w-0 flex-1 truncate">{notes?.updatedBy && stamp ? `Last edited by ${displayName(people.get(notes.updatedBy), notes.updatedBy)}, ${stamp}` : readOnly ? "" : "Double-click the text to edit"}</span>
         {!readOnly && (
           <>
             <button type="button" disabled={picked.length === 0} title="Link the selected objects" onClick={() => setNotes(withNotesRefs(notes, picked))} className="rounded bg-white/10 px-2 py-1 text-white/80 hover:bg-white/15 disabled:opacity-40">
