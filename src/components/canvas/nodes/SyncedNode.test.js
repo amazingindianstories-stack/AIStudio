@@ -37,16 +37,18 @@ test("a synced copy whose source frame holds a copy of itself draws that copy as
   }
 });
 
-test("a synced copy of a diagram draws its content without the nodes on a layer the diagram hides", async () => {
+test("a synced copy of a diagram draws its content and connectors without what is on a layer the diagram hides", async () => {
   const dom = new JSDOM("<div id='root'></div>", { url: "http://localhost", pretendToBeVisual: true });
   const names = ["window", "document", "HTMLElement", "Node", "React", "IS_REACT_ACT_ENVIRONMENT", "fetch"];
   const prior = Object.fromEntries(names.map((name) => [name, globalThis[name]]));
+  const link = (id, from, to) => ({ id, from: { nodeId: from }, to: { nodeId: to }, kind: "arrow", shape: "straight", stroke: "#fff", strokeWidth: 2 });
   const layers = [{ id: "main", name: "Main", visible: true }, { id: "draft", name: "Draft", visible: false }];
   const source = { id: "d", type: "diagram", x: 0, y: 0, w: 400, h: 200, name: "Flow", layers, fill: "transparent", stroke: "#000", strokeWidth: 2, parentId: null, groupId: null };
-  const sticky = (id, layer) => ({ id, type: "sticky", x: 20, y: 20, w: 80, h: 80, text: id, fill: "#fff59d", fontSize: 16, color: "#000", parentId: "d", groupId: null, diagramLayerId: layer });
+  const sticky = (id, layer, x = 20) => ({ id, type: "sticky", x, y: 20, w: 80, h: 80, text: id, fill: "#fff59d", fontSize: 16, color: "#000", parentId: "d", groupId: null, diagramLayerId: layer });
   Object.assign(globalThis, { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, Node: dom.window.Node, React, IS_REACT_ACT_ENVIRONMENT: true,
     fetch: async () => json({ board: { id: "board-a", name: "Board A", projectId: "p" }, version: 1, frame: source,
-      nodes: [source, sticky("shown", "main"), sticky("drafted", "draft")], connectors: [] }) });
+      nodes: [source, sticky("shown", "main"), sticky("next", "main", 260), sticky("drafted", "draft", 140)],
+      connectors: [link("c1", "shown", "next"), link("c2", "shown", "drafted")] }) });
   clearSyncedCache();
   const root = createRoot(document.querySelector("#root"));
   try {
@@ -54,7 +56,10 @@ test("a synced copy of a diagram draws its content without the nodes on a layer 
     await act(async () => root.render(React.createElement(SyncedNode, { node: copy })));
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
     assert.match(document.body.textContent, /Board A: Flow/);
-    assert.deepEqual([...document.querySelectorAll("[data-node-id]")].map((el) => el.getAttribute("data-node-id")), ["d", "shown"]);
+    assert.deepEqual([...document.querySelectorAll("[data-node-id]")].map((el) => el.getAttribute("data-node-id")), ["d", "shown", "next"]);
+    const drawn = [...document.querySelectorAll("[data-connector-id]")];
+    assert.deepEqual(drawn.map((el) => el.getAttribute("data-connector-id")), ["c1"]);
+    assert.match(drawn[0].querySelector("path").getAttribute("d"), /^M/);
   } finally {
     await act(async () => root.unmount());
     clearSyncedCache();
