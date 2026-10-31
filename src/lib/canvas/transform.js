@@ -1,12 +1,13 @@
 /**
  * Rotating and precisely sizing board objects (pure functions over the board
- * graph). Frames do not rotate, as in Miro; connectors are not nodes. Locked
+ * graph). Frames and other containers do not rotate, as in Miro; connectors are not nodes. Locked
  * objects are left as they are. The store slice in transform-actions.js
  * commits these as single undo steps.
  */
 import {
   MIN_NODE_SIZE,
   computeFrameMembership,
+  isContainerNode,
   nodeBounds,
   nodeCenter,
   nodeRotation,
@@ -22,10 +23,10 @@ import { lockedIdSet } from "./locks";
 export const ROTATE_SNAP_DEG = 15;
 
 export function canRotateNode(node) {
-  return !!node && node.type !== "frame";
+  return !!node && !isContainerNode(node);
 }
 
-/** The nodes `ids` names that a rotation changes: present, unlocked and not frames, in board order. */
+/** The nodes `ids` names that a rotation changes: present, unlocked and not containers, in board order. */
 export function rotationTargets(state, ids) {
   const wanted = new Set(ids);
   const locked = lockedIdSet(state);
@@ -75,21 +76,21 @@ export function rotationDragDelta(startAngle, angle, { snap = false, startRotati
  * `center` (default: the center of their box): each node's center orbits
  * the pivot and its own rotation grows by the same angle. A single node
  * turned about its own center stays in place. Moved nodes re-take whichever
- * frame their center now sits in, as a drag does.
+ * container their center now sits in, as a drag does.
  */
 export function rotateNodesAbout(state, ids, deltaDeg, center = null) {
   const targets = rotationTargets(state, ids);
   if (!targets.length || !normalizeRotation(deltaDeg)) return state;
   const pivot = center ?? groupCenter(targets);
   const byId = new Map(targets.map((n) => [n.id, n]));
-  const frames = state.nodes.filter((n) => n.type === "frame");
+  const containers = state.nodes.filter(isContainerNode);
   let changed = false;
   const nodes = state.nodes.map((n) => {
     if (!byId.has(n.id)) return n;
     const c = rotatePoint(nodeCenter(n), pivot, deltaDeg);
     let next = withRotation({ ...n, x: c.x - n.w / 2, y: c.y - n.h / 2 }, nodeRotation(n) + deltaDeg);
     if (next.x !== n.x || next.y !== n.y) {
-      const parentId = computeFrameMembership(next, frames);
+      const parentId = computeFrameMembership(next, containers);
       if (parentId !== (n.parentId ?? null)) next = { ...next, parentId };
     }
     changed = true;

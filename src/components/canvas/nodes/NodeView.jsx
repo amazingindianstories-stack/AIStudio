@@ -250,7 +250,7 @@ export function NodeView({
         />
       )}
 
-      {showHandles && !cropMode && node.type !== "frame" && onPointerDownRotate && (
+      {showHandles && !cropMode && onPointerDownRotate && (
         <RotateHandle onPointerDown={(e) => onPointerDownRotate(e, node)} />
       )}
 

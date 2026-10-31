@@ -92,6 +92,29 @@ test("applyDeltas carries a frame's unselected children and re-parents moved obj
   assert.equal(applyDeltas(state, new Map()), state);
 });
 
+test("aligning objects inside a swimlane keeps them in it, and a moved swimlane never joins a frame", () => {
+  const state = {
+    nodes: [
+      n("frame", 0, 0, 2000, 2000, { type: "frame" }),
+      n("lane", 100, 100, 600, 400, { type: "swimlane", parentId: null }),
+      n("a", 150, 150, 50, 50, { type: "sticky", parentId: "lane" }),
+      n("b", 300, 250, 50, 50, { type: "sticky", parentId: "lane" }),
+      n("diagram", 1000, 1000, 300, 300, { type: "diagram" }),
+    ],
+  };
+  const aligned = applyDeltas(state, alignDeltas(state, ["a", "b"], "left"));
+  const byId = Object.fromEntries(aligned.nodes.map((m) => [m.id, m]));
+  assert.equal(byId.b.x, 150);
+  assert.equal(byId.a.parentId, "lane");
+  assert.equal(byId.b.parentId, "lane");
+  const moved = applyDeltas(state, new Map([["lane", { dx: 10, dy: 0 }], ["diagram", { dx: 10, dy: 0 }]]));
+  const movedById = Object.fromEntries(moved.nodes.map((m) => [m.id, m]));
+  assert.equal(movedById.lane.parentId, null);
+  assert.equal(movedById.diagram.parentId ?? null, null);
+  assert.equal(movedById.a.x, 160);
+  assert.equal(movedById.a.parentId, "lane");
+});
+
 test("smart duplicate lands beside the bounds with a 20 unit gap", () => {
   const b = { x: 0, y: 0, w: 100, h: 40 };
   assert.deepEqual(duplicateOffset(b, "right"), { dx: 120, dy: 0 });

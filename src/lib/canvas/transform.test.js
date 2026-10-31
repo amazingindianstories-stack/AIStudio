@@ -205,6 +205,26 @@ test("rotation skips locked nodes, nodes on locked layers and frames", () => {
   assert.equal(setNodesRotation(state, ["locked", "frame"], 30), state);
 });
 
+test("swimlanes and diagrams do not rotate, like frames", () => {
+  const lane = rect({ id: "lane", type: "swimlane", w: 600, h: 400 });
+  const diagram = rect({ id: "diagram", type: "diagram", x: 1000, w: 300, h: 300 });
+  const child = rect({ id: "child", x: 20, y: 20, w: 40, h: 40, parentId: "lane" });
+  const state = board([lane, diagram, child]);
+  assert.deepEqual(rotationTargets(state, ["lane", "diagram", "child"]).map((n) => n.id), ["child"]);
+  assert.equal(rotateNodesAbout(state, ["lane", "diagram"], 90), state);
+  assert.equal(setNodesRotation(state, ["lane", "diagram"], 90), state);
+});
+
+test("rotating a group keeps swimlane children in their swimlane", () => {
+  const frame = rect({ id: "f", type: "frame", x: -1000, y: -1000, w: 3000, h: 3000 });
+  const lane = rect({ id: "lane", type: "swimlane", x: 0, y: 0, w: 600, h: 400 });
+  const a = rect({ id: "a", x: 100, y: 100, w: 40, h: 40, parentId: "lane" });
+  const b = rect({ id: "b", x: 300, y: 100, w: 40, h: 40, parentId: "lane" });
+  const next = rotateNodesAbout(board([frame, lane, a, b]), ["a", "b"], 180);
+  assert.equal(next.nodes.find((n) => n.id === "a").parentId, "lane");
+  assert.equal(next.nodes.find((n) => n.id === "b").parentId, "lane");
+});
+
 test("rotating a group re-takes frame membership by the new center", () => {
   const frame = rect({ id: "f", type: "frame", x: 0, y: 0, w: 300, h: 300 });
   const a = rect({ id: "a", x: 20, y: 20, w: 40, h: 40, parentId: "f" });

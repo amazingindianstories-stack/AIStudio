@@ -23,7 +23,7 @@ function formatAngle(deg) {
  * Precise size and rotation for the selection, in the style inspector: W and
  * H in whole world pixels (a multi-selection sets every object to the value),
  * an aspect lock for images, and the rotation angle. Locked objects are shown
- * but not changed; frames do not rotate.
+ * but not changed; frames and other containers do not rotate.
  */
 export function TransformControls({ nodes }) {
   const setSize = useCanvasStore((s) => s.setSize);

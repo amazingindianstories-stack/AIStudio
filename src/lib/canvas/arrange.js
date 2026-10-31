@@ -9,10 +9,10 @@
  *   the target edge or the spacing, as if they were not selected.
  * - A group moves as one unit: its members keep their relative positions and
  *   the group's combined box is what gets aligned or spaced.
- * - Moving a frame carries its unselected children along, and a moved object
- *   joins whichever frame its center lands in, as with a drag.
+ * - Moving a container carries its unselected children along, and a moved object
+ *   joins whichever container its center lands in, as with a drag.
  */
-import { computeFrameMembership, nodeBounds, unionBounds } from "./geometry";
+import { computeFrameMembership, isContainerNode, nodeBounds, unionBounds } from "./geometry";
 import { lockedIdSet } from "./locks";
 import { isShapeNode } from "./shapes";
 
@@ -166,9 +166,10 @@ export function autoLayoutDeltas(state, ids, axis, gap) {
 }
 
 /**
- * Applies per-node moves to the board: a moved frame's unselected, unlocked
- * children follow it, and every moved object other than a frame joins the
- * frame its center now sits in (or leaves one), as after a drag.
+ * Applies per-node moves to the board: a moved container's unselected, unlocked
+ * children follow it, and every moved object other than a container joins the
+ * container (frame, swimlane, diagram) its center now sits in (or leaves one),
+ * as after a drag.
  */
 export function applyDeltas(state, deltas) {
   if (!deltas.size) return state;
@@ -183,10 +184,10 @@ export function applyDeltas(state, deltas) {
     const move = moves.get(n.id);
     return move ? { ...n, x: n.x + move.dx, y: n.y + move.dy } : n;
   });
-  const frames = nodes.filter((n) => n.type === "frame");
+  const containers = nodes.filter(isContainerNode);
   nodes = nodes.map((n) => {
-    if (n.type === "frame" || !deltas.has(n.id)) return n;
-    const parentId = computeFrameMembership(n, frames);
+    if (isContainerNode(n) || !deltas.has(n.id)) return n;
+    const parentId = computeFrameMembership(n, containers);
     return parentId !== (n.parentId ?? null) ? { ...n, parentId } : n;
   });
   return { ...state, nodes };
