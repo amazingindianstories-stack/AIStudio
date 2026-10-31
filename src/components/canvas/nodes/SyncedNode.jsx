@@ -59,6 +59,7 @@ export function SyncedNode({ node }) {
                 showHandles={false}
                 readOnly
                 viewOnly
+                syncedCopy
                 editingTextId={null}
                 dragging={false}
                 onPointerDownBody={noop}

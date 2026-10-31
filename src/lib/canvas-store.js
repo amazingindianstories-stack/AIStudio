@@ -8,7 +8,7 @@ import { canEditRole, canShareRole } from "./board-access";
 import { emptyCanvasState, validateCanvasState } from "./canvas/serialization";
 import { mergeCanvasStates, rebaseHistory, sameValue } from "./canvas/merge";
 import { boardFromChanges, buildBoardPatch } from "./canvas/patch";
-import { unstamped, withServerStamps } from "./canvas/stamps";
+import { unstamped, withNotesStamp, withServerStamps } from "./canvas/stamps";
 import { copyOrigin, holdsCopied, keepHiddenFrames, pasteDestinations, renameDuplicatedFrames, renestFrames } from "./canvas/frames";
 import {
   MAX_ZOOM,
@@ -544,8 +544,8 @@ function markDirty(set, get) {
 }
 
 /** Stamps a save returned, on every undo/redo snapshot (stamps are not undoable). */
-function historyWithStamps(history, stamps) {
-  const stamp = (snapshot) => withServerStamps(snapshot, stamps);
+function historyWithStamps(history, stamps, notesStamp) {
+  const stamp = (snapshot) => withNotesStamp(withServerStamps(snapshot, stamps), notesStamp);
   return { past: history.past.map(stamp), present: stamp(history.present), future: history.future.map(stamp) };
 }
 
@@ -652,11 +652,11 @@ async function flushSaveImpl(
       if (get().boardId === boardId) {
         // What the server now holds, normalized the same way it normalizes saves; an image still held
         // keeps its base copy. The objects this save added or changed carry the server's stamps.
-        if (gestureBaseline) gestureBaseline = historyWithStamps(gestureBaseline, j.stamps);
+        if (gestureBaseline) gestureBaseline = historyWithStamps(gestureBaseline, j.stamps, j.notesStamp);
         set({
           serverVersion: j.version,
-          serverState: withServerStamps(validateCanvasState(cropHold ? sentPresent : sent), j.stamps),
-          history: historyWithStamps(get().history, j.stamps),
+          serverState: withNotesStamp(withServerStamps(validateCanvasState(cropHold ? sentPresent : sent), j.stamps), j.notesStamp),
+          history: historyWithStamps(get().history, j.stamps, j.notesStamp),
         });
       }
       if (settled) {

@@ -37,7 +37,7 @@ test("a synced copy whose source frame holds a copy of itself draws that copy as
   }
 });
 
-test("a synced copy of a diagram draws its content and connectors without what is on a layer the diagram hides", async () => {
+test("a synced copy of a diagram draws its content and connectors, without its header or what is on a layer the diagram hides", async () => {
   const dom = new JSDOM("<div id='root'></div>", { url: "http://localhost", pretendToBeVisual: true });
   const names = ["window", "document", "HTMLElement", "Node", "React", "IS_REACT_ACT_ENVIRONMENT", "fetch"];
   const prior = Object.fromEntries(names.map((name) => [name, globalThis[name]]));
@@ -56,6 +56,9 @@ test("a synced copy of a diagram draws its content and connectors without what i
     await act(async () => root.render(React.createElement(SyncedNode, { node: copy })));
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
     assert.match(document.body.textContent, /Board A: Flow/);
+    // The copy's badge names the diagram; its header and controls, which a copy cannot use, are not drawn.
+    assert.doesNotMatch(document.body.textContent, /Diagram|Focus mode|Main/);
+    assert.equal(document.querySelectorAll("[data-synced-id] button").length, 1);
     assert.deepEqual([...document.querySelectorAll("[data-node-id]")].map((el) => el.getAttribute("data-node-id")), ["d", "shown", "next"]);
     const drawn = [...document.querySelectorAll("[data-connector-id]")];
     assert.deepEqual(drawn.map((el) => el.getAttribute("data-connector-id")), ["c1"]);

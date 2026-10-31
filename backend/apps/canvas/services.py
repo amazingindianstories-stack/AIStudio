@@ -126,7 +126,11 @@ def save_board(identifier, data, base_version, save_id, actor, patch=None, level
                                        [identifier, save_id, version, now,
                                         None if changed is None else json.dumps(changed)])
                     activity.record(identifier, actor, now, changes)
-                return {'updatedAt': now, 'version': version, 'stamps': activity.stamps_of(stamped, changes)}
+                result = {'updatedAt': now, 'version': version, 'stamps': activity.stamps_of(stamped, changes)}
+                if stamped.get('notes') and stamped['notes'] != stored.get('notes'):
+                    # The author and time this save gave the visual notes, for the saving editor's panel.
+                    result['notesStamp'] = {key: stamped['notes'][key] for key in ('updatedBy', 'updatedAt')}
+                return result
     current = get_board(identifier)
     if current is None:
         return None

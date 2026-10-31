@@ -60,7 +60,8 @@ function fakeServer(t, data) {
       server.applied.set(body.saveId, server.version);
       if (server.dropResponse) throw new TypeError("Failed to fetch");
       const stamps = server.stampSave ? server.stampSave(sent) : {};
-      return json(200, { ok: true, updatedAt: server.version, version: server.version, stamps });
+      const notesStamp = server.stampNotes?.(sent);
+      return json(200, { ok: true, updatedAt: server.version, version: server.version, stamps, ...(notesStamp ? { notesStamp } : {}) });
     }
     server.boardReads += 1;
     server.boardUrls.push(url);
@@ -701,6 +702,29 @@ test("a save adopts the server's stamps in the graph, the sync base and undo his
   const copy = store.getState().history.present.nodes.find((node) => !["a", "mine"].includes(node.id));
   assert.ok(copy);
   assert.ok(!("createdBy" in copy) && !("updatedAt" in copy));
+});
+
+test("a save that changed the visual notes shows their author and time at once, without an undo step", async (t) => {
+  useStorage(t);
+  const server = fakeServer(t, graph(rect("a")));
+  const stamp = { updatedBy: "me", updatedAt: 5 };
+  server.stampNotes = (data) => {
+    server.data = { ...data, notes: { ...data.notes, ...stamp } };
+    return stamp;
+  };
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  store.getState().editBoard((g) => ({ ...g, notes: { text: "Plan" } }));
+  const pastLength = store.getState().history.past.length;
+  await store.getState().flushSave();
+  const state = store.getState();
+  assert.equal(state.saveStatus, "saved");
+  assert.equal(state.history.past.length, pastLength);
+  assert.deepEqual(state.history.present.notes, { text: "Plan", ...stamp });
+  assert.deepEqual(state.serverState.notes, { text: "Plan", ...stamp });
+  // Undo goes back to the board before the notes, which gains no stamp.
+  store.getState().undo();
+  assert.equal(store.getState().history.present.notes, undefined);
 });
 
 test("an edit made while a save is in flight keeps the board dirty after the save's stamps arrive", async (t) => {

@@ -78,6 +78,9 @@ test('Board drawing and frames: pen, eraser, grid from CSV, frame around selecti
   const boardId = new URL((await firstSave).url()).pathname.split('/').pop();
   let board = await storedBoard(context, boardId, (b) => ofType(b, 'ink').length === 2);
   expect(ofType(board, 'ink')[0].pts.length).toBeLessThan(80);
+  // The pen presets sit where the selected object's info badge goes, so the badge stays away while drawing.
+  await expect(page.getByRole('group', { name: 'Drawing options' })).toBeVisible();
+  await expect(page.getByLabel('Object info')).toBeHidden();
   await info.attach('pen', { body: await page.screenshot(), contentType: 'image/png' });
 
   // Eraser: sweeping across one stroke removes it and keeps the other.
@@ -88,6 +91,7 @@ test('Board drawing and frames: pen, eraser, grid from CSV, frame around selecti
   // Frame around the remaining selection (Cmd/Ctrl+Alt+F).
   await page.keyboard.press('v');
   await page.keyboard.press('ControlOrMeta+KeyA');
+  await expect(page.getByLabel('Object info')).toContainText('Created by Drawing owner');
   await page.keyboard.press('ControlOrMeta+Alt+KeyF');
   board = await storedBoard(context, boardId, (b) => ofType(b, 'frame').length === 1 && ofType(b, 'ink')[0].parentId === ofType(b, 'frame')[0].id);
   await expect(page.getByRole('toolbar', { name: 'Frame controls' })).toBeVisible();
@@ -104,6 +108,11 @@ test('Board drawing and frames: pen, eraser, grid from CSV, frame around selecti
   board = await storedBoard(context, boardId, (b) => ofType(b, 'grid').length === 1);
   const grid = ofType(board, 'grid')[0];
   expect([grid.rows, grid.cols]).toEqual([3, 2]);
+  // The selection toolbar sits above the grid's own controls, so every one of them can be clicked.
+  const gridControls = page.getByRole('toolbar', { name: 'Grid controls' });
+  for (const name of ['Add row below', 'Add column right', 'Delete row', 'Delete column']) {
+    await gridControls.getByRole('button', { name }).click({ trial: true, timeout: 5000 });
+  }
 
   // Notes: open the panel, type, close and read it back from the saved board.
   await page.getByRole('button', { name: 'Board notes' }).click();
@@ -113,6 +122,8 @@ test('Board drawing and frames: pen, eraser, grid from CSV, frame around selecti
   await panel.getByRole('heading', { name: 'Notes' }).click();
   board = await storedBoard(context, boardId, (b) => b.data.notes?.text === 'Plan for tomorrow');
   expect(board.data.notes.updatedBy).toBeTruthy();
+  // The panel shows who wrote the notes as soon as the save returns, without a reload.
+  await expect(panel.locator('footer')).toContainText('Last edited by Drawing owner');
   await info.attach('notes', { body: await page.screenshot(), contentType: 'image/png' });
 
   expect(errors).toEqual([]);

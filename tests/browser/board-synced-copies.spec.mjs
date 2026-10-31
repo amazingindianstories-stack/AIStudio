@@ -155,6 +155,9 @@ test('Board synced copies: a diagram copy with its connectors, the list of copie
   await expect(flowCopy.getByText('Start', { exact: true })).toBeVisible();
   await expect(flowCopy.getByText('Finish', { exact: true })).toBeVisible();
   await expect(flowCopy.getByText('Draft idea')).toHaveCount(0);
+  // The copy's badge names the diagram; the diagram's own header and its controls are not drawn under it.
+  await expect(flowCopy.getByRole('button')).toHaveCount(1);
+  await expect(flowCopy.getByText('Focus mode')).toHaveCount(0);
   await expect(flowCopy.locator('[data-node-id="draft"]')).toHaveCount(0);
   await expect(flowCopy.locator('[data-connector-id]')).toHaveCount(1);
   await expect(flowCopy.locator('[data-connector-id="draft-link"]')).toHaveCount(0);

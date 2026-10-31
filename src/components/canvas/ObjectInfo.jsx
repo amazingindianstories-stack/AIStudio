@@ -5,6 +5,7 @@ import { useCanvasStore } from "@/lib/canvas-store";
 import { displayName } from "@/lib/board-access";
 import { formatWhen } from "@/lib/canvas/board-activity";
 import { usePeople } from "@/lib/canvas/use-people";
+import { INK_TOOLS } from "@/lib/ink-prefs";
 
 function selectedObject(state) {
   const { selection, selectedConnectorIds, history } = state;
@@ -30,9 +31,11 @@ function useNow() {
  */
 export function ObjectInfo({ style }) {
   const object = useCanvasStore(selectedObject);
+  // The pen, highlighter and eraser presets take this spot above the dock while one of those tools is on.
+  const inking = useCanvasStore((s) => INK_TOOLS.includes(s.tool));
   const people = usePeople();
   const now = useNow();
-  if (!object) return null;
+  if (!object || inking) return null;
   const created = typeof object.createdBy === "string" && typeof object.createdAt === "number";
   const updated = typeof object.updatedBy === "string" && typeof object.updatedAt === "number";
   if (!created && !updated) return null;

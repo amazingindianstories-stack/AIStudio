@@ -45,6 +45,7 @@ export function NodeView({
   showHandles,
   readOnly,
   viewOnly = false,
+  syncedCopy = false,
   editingTextId,
   dropHighlight,
   dragging,
@@ -190,7 +191,7 @@ export function NodeView({
           case "swimlane":
             return <SwimlaneNode node={node} selected={showRing} readOnly={readOnly} />;
           case "diagram":
-            return <DiagramNode node={node} selected={showRing} readOnly={readOnly} />;
+            return <DiagramNode node={node} selected={showRing} readOnly={readOnly} syncedCopy={syncedCopy} />;
           case "ink":
             return <InkNode node={node} />;
           case "grid":

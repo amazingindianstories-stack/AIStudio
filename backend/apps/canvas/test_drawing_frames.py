@@ -261,6 +261,23 @@ class FrameRoutesTests(TransactionTestCase):
         notes = self.client.get(f'/api/canvas-boards/{SOURCE}').json()['data']['notes']
         self.assertEqual((notes['text'], [ref['label'] for ref in notes['refs']]), ('Plan three', ['Open work', 'Secret plan']))
 
+    def test_a_save_that_changes_the_notes_returns_their_new_stamp_for_the_panel(self):
+        self.as_user(self.owner)
+
+        def save(data, base):
+            response = self.client.put(f'/api/canvas-boards/{SOURCE}', content_type='application/json',
+                                       data=json.dumps({'data': data, 'baseVersion': base, 'saveId': str(uuid4())}))
+            self.assertEqual(response.status_code, 200, response.content)
+            return response.json()
+
+        read = self.client.get(f'/api/canvas-boards/{SOURCE}').json()
+        written = save({**read['data'], 'notes': {'text': 'Plan', 'updatedBy': 'forged', 'updatedAt': 1}}, read['version'])
+        stored = CanvasBoard.objects.get(pk=SOURCE).data['notes']
+        self.assertEqual(written['notesStamp'], {'updatedBy': str(self.owner.id), 'updatedAt': stored['updatedAt']})
+        self.assertEqual(stored['updatedBy'], str(self.owner.id))
+        moved = {**read['data'], 'notes': stored, 'nodes': [{**item, 'x': 40} if item['id'] == 'a' else item for item in read['data']['nodes']]}
+        self.assertNotIn('notesStamp', save(moved, written['version']))
+
     def test_history_hides_hidden_work_from_a_viewer_who_cannot_manage_it(self):
         CanvasBoard.objects.filter(pk=SOURCE).update(data=graph(
             [frame('open'), node('a', parentId='open', text='Visible'), frame('secret', hidden=True), node('b', parentId='secret', text='Secret')],
