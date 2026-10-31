@@ -1,8 +1,9 @@
 import datetime
+import uuid
 from django.test import TransactionTestCase, SimpleTestCase
 from apps.admin_dashboard import tests as fixtures
 from apps.authentication.models import User
-from .models import CanvasBoard, WorkTable, WorkRecord, WorkHistory, BoardNotification
+from .models import CanvasBoard, WorkTable, WorkRecord, WorkRelation, WorkHistory, BoardNotification
 from . import work_tables as work, work_notifications as notifications, access
 from .work_formulas import calculate, parse
 from .serialization import validate_state
@@ -123,15 +124,27 @@ class WorkTableTests(TransactionTestCase):
         self.assertEqual(raised.exception.status, 403)
         self.assertFalse(WorkTable.objects.get(id=table['id']).owner_only)
 
-    def test_relation_cells_drive_dependencies_and_deleted_targets_are_pruned(self):
+    def test_relation_cells_and_explicit_dependencies_stay_separate(self):
         table = self.create([{'id': 'needs', 'name': 'Needs', 'type': 'relation'}])
         first = self.mutate(table, {'op': 'add', 'cells': {'title': 'First'}})['record']
         second = self.mutate(table, {'op': 'add', 'cells': {'title': 'Second'}})['record']
-        third = self.mutate(table, {'op': 'add', 'cells': {'title': 'Third', 'needs': [first['id'], second['id']]}})['record']
-        self.assertEqual(set(third['blockedBy']), {first['id'], second['id']})
-        third = self.mutate(table, {'op': 'update', 'id': third['id'], 'version': third['version'],
-                                    'cells': {'title': 'Third', 'needs': [second['id']]}, 'blockedBy': third['blockedBy']})['record']
+        links = lambda record: set(WorkRelation.objects.filter(source_id=record['id']).values_list('target_id', 'kind'))
+        a, b = uuid.UUID(first['id']), uuid.UUID(second['id'])
+        third = self.mutate(table, {'op': 'add', 'cells': {'title': 'Third', 'needs': [first['id'], second['id']]}, 'blockedBy': [second['id']]})['record']
         self.assertEqual(third['blockedBy'], [second['id']])
+        self.assertEqual(links(third), {(a, 'relation'), (b, 'relation'), (b, 'blocked_by')})
+        third = self.mutate(table, {'op': 'update', 'id': third['id'], 'version': third['version'], 'cells': third['cells'], 'blockedBy': []})['record']
+        self.assertEqual((third['blockedBy'], links(third)), ([], {(a, 'relation'), (b, 'relation')}))
+        third = self.mutate(table, {'op': 'update', 'id': third['id'], 'version': third['version'], 'cells': {'title': 'Third', 'needs': [second['id']]}})['record']
+        self.assertEqual((third['blockedBy'], links(third)), ([], {(b, 'relation')}))
+        third = self.mutate(table, {'op': 'update', 'id': third['id'], 'version': third['version'], 'cells': {'title': 'Third', 'needs': []}, 'blockedBy': [first['id']]})['record']
+        self.assertEqual((third['blockedBy'], links(third)), ([first['id']], {(a, 'blocked_by')}))
+        self.mutate(table, {'op': 'update', 'id': first['id'], 'version': first['version'], 'cells': {'title': 'First', 'needs': [third['id']]}}, 400)
+
+    def test_deleting_a_record_prunes_and_records_every_linked_record(self):
+        table = self.create([{'id': 'needs', 'name': 'Needs', 'type': 'relation'}])
+        second = self.mutate(table, {'op': 'add', 'cells': {'title': 'Second'}})['record']
+        third = self.mutate(table, {'op': 'add', 'cells': {'title': 'Third', 'needs': [second['id']]}})['record']
         child = self.mutate(table, {'op': 'add', 'cells': {'title': 'Child'}, 'parentId': second['id']})['record']
         self.mutate(table, {'op': 'delete', 'id': second['id'], 'version': second['version']})
         stale = self.mutate(table, {'op': 'update', 'id': third['id'], 'version': third['version'], 'cells': {'title': 'Stale', 'needs': [second['id']]}}, 409)
@@ -139,6 +152,9 @@ class WorkTableTests(TransactionTestCase):
         records = {r['id']: r for r in self.client.get(f"{self.base}/{table['id']}").json()['records']}
         self.assertEqual((records[third['id']]['cells']['needs'], records[third['id']]['blockedBy']), ([], []))
         self.assertIsNone(records[child['id']]['parentId'])
+        changes = {row.target_id: (row.before, row.after) for row in WorkHistory.objects.filter(table_id=table['id'], action='update')}
+        self.assertEqual((changes[third['id']][0]['cells']['needs'], changes[third['id']][1]), ([second['id']], records[third['id']]))
+        self.assertEqual((changes[child['id']][0]['parentId'], changes[child['id']][1]), (second['id'], records[child['id']]))
         saved = self.mutate(table, {'op': 'update', 'id': third['id'], 'version': records[third['id']]['version'], 'cells': {**records[third['id']]['cells'], 'title': 'Saved'}})['record']
         self.assertEqual(saved['cells']['title'], 'Saved')
 
@@ -160,20 +176,28 @@ class WorkTableTests(TransactionTestCase):
             self.assertEqual(response.json()['error'], 'Numeric filter requires a finite number.')
 
     def test_grouping_complete_loading_and_id_lookup_cover_the_whole_query(self):
-        table = self.create([{'id': 'team', 'name': 'Team', 'type': 'text'}])
+        table = self.create([{'id': 'team', 'name': 'Team', 'type': 'text'}],
+                            [{'kind': 'table', 'name': 'Grid', 'groupBy': 'team'}, {'kind': 'chart', 'name': 'Chart', 'groupBy': 'team', 'valueField': 'a'}])
         WorkRecord.objects.bulk_create([WorkRecord(table_id=table['id'], cells={'title': f'Item {i}', 'a': i, 'team': 'odd' if i % 2 else 'even'},
                                                    position=i, created_at=1, updated_at=1) for i in range(205)])
         path = f"{self.base}/{table['id']}"
-        page = self.client.get(path + '?groupBy=team&sort=a&direction=desc').json()
+        page = self.client.get(path + '?view=table&sort=a&direction=desc').json()
         self.assertEqual(page['groups'], [{'value': 'even', 'count': 103}, {'value': 'odd', 'count': 102}])
         self.assertEqual(len(page['records']), 200)
         self.assertEqual([r['cells']['a'] for r in page['records'][:2]], [204, 202])
         self.assertEqual([r['cells']['team'] for r in page['records']].index('odd'), 103)
-        complete = self.client.get(path + '?all=1&groupBy=team&q=Item').json()
+        complete = self.client.get(path + '?all=1&view=table&q=Item').json()
         self.assertEqual((len(complete['records']), complete['total'], complete['limit']), (205, 205, 205))
         self.assertEqual(complete['aggregates']['a_sum'], sum(range(205)))
-        filtered = self.client.get(path + '?filterField=team&filterValue=odd&groupBy=team').json()
+        filtered = self.client.get(path + '?filterField=team&filterValue=odd&view=table').json()
         self.assertEqual(filtered['groups'], [{'value': 'odd', 'count': 102}])
+        preview = self.client.get(path + '?view=chart&limit=12').json()
+        self.assertEqual((len(preview['records']), preview['total'], preview['limit']), (12, 205, 12))
+        evens = sum(range(0, 205, 2))
+        self.assertEqual(preview['groups'], [{'value': 'even', 'count': 103, 'sum': evens}, {'value': 'odd', 'count': 102, 'sum': sum(range(205)) - evens}])
+        self.assertEqual(self.client.get(path + '?view=kanban').json()['groups'], [])
+        self.assertEqual(self.client.get(path + '?limit=999').json()['limit'], 200)
+        self.assertEqual(self.client.get(path + '?limit=few').status_code, 400)
         wanted = [str(r.id) for r in WorkRecord.objects.filter(table_id=table['id'], cells__a__in=[0, 204])]
         found = self.client.get(path + '?ids=' + ','.join(wanted)).json()['records']
         self.assertEqual({r['id'] for r in found}, set(wanted))

@@ -123,7 +123,7 @@ def record_json(record, schema):
     for field in schema:
         if field['type'] == 'formula': result[field['id']] = calculate(field['expression'], record.cells, numeric)
     return {'id': str(record.id), 'cells': result, 'parentId': str(record.parent_id) if record.parent_id else None,
-            'blockedBy': [str(r.target_id) for r in record.dependencies.all()], 'position': record.position, 'version': record.version}
+            'blockedBy': [str(r.target_id) for r in record.dependencies.all() if r.kind == 'blocked_by'], 'position': record.position, 'version': record.version}
 
 
 def history(table, user, target, action, before, after):
@@ -167,7 +167,8 @@ def query(table, params):
     if params.get('ids'):
         records = records.filter(id__in=[identifier(v) for v in params['ids'].split(',')[:200]])
     filtered = records
-    group_by = params.get('groupBy') if params.get('groupBy') in schema else None
+    view = next((v for v in table.views if v['kind'] == params.get('view')), {})
+    group_by = view.get('groupBy') if view.get('groupBy') in schema else None
     group_order = ['cells__' + group_by] if group_by else []
     sort = params.get('sort')
     direction = '-' if params.get('direction') == 'desc' else ''
@@ -177,21 +178,25 @@ def query(table, params):
         if schema[sort]['type'] in ('number', 'points'): expr = Cast(expr, FloatField())
         records = records.annotate(sort_value=expr).order_by(*group_order, direction + 'sort_value', 'id')
     else: records = records.order_by(*group_order, 'position', 'id')
-    aggregations = {}
+    aggregations, values = {}, {}
     numeric = {k for k, f in schema.items() if f['type'] in ('number', 'points')}
     for key, field in schema.items():
         if field['type'] in ('number', 'points', 'formula'):
-            expr = sql_expression(field['expression'], numeric) if field['type'] == 'formula' else Cast(KeyTextTransform(key, 'cells'), FloatField())
-            aggregations[key + '_sum'] = Sum(expr)
-            aggregations[key + '_avg'] = Avg(expr)
+            values[key] = sql_expression(field['expression'], numeric) if field['type'] == 'formula' else Cast(KeyTextTransform(key, 'cells'), FloatField())
+            aggregations[key + '_sum'] = Sum(values[key])
+            aggregations[key + '_avg'] = Avg(values[key])
     groups = []
     if group_by:
-        rows = filtered.order_by().values('cells__' + group_by).annotate(count=Count('id')).order_by('cells__' + group_by)[:100]
-        groups = [{'value': row['cells__' + group_by], 'count': row['count']} for row in rows]
-    try: offset = max(0, min(100000, int(params.get('offset', 0))))
-    except (ValueError, TypeError) as error: raise WorkError('Invalid page offset.') from error
+        value_field = (view.get('valueField') if view.get('valueField') in values else next(iter(values), None)) if view.get('kind') == 'chart' else None
+        sums = {'sum': Sum(values[value_field])} if value_field else {}
+        rows = filtered.order_by().values('cells__' + group_by).annotate(count=Count('id'), **sums).order_by('cells__' + group_by)[:100]
+        groups = [{'value': row['cells__' + group_by], 'count': row['count'], **({'sum': row['sum']} if value_field else {})} for row in rows]
+    try:
+        offset = max(0, min(100000, int(params.get('offset', 0))))
+        limit = max(1, min(200, int(params.get('limit', 200))))
+    except (ValueError, TypeError) as error: raise WorkError('Invalid page offset or limit.') from error
     total = filtered.count()
-    limit = max(total, 1) if params.get('all') == '1' else 200
+    if params.get('all') == '1': limit = max(total, 1)
     page = list(records.prefetch_related('dependencies')[offset:offset + limit])
     return {'records': [record_json(r, table.fields) for r in page], 'total': total, 'offset': offset, 'limit': limit,
             'aggregates': filtered.aggregate(**aggregations) if aggregations else {}, 'groups': groups}
@@ -253,28 +258,31 @@ def mutate(user, board, table_id, data):
             before = record_json(record, table.fields) if record else None
             if op == 'delete':
                 history(table, user, record.id, op, before, None)
-                target = str(record.id)
+                deleted, target = record.id, str(record.id)
                 relations = [f['id'] for f in table.fields if f['type'] == 'relation']
                 linked = Q(parent=record) | Q(id__in=WorkRelation.objects.filter(target=record).values('source_id'))
                 for key in relations: linked |= Q(cells__contains={key: [target]})
-                for other in table.records.filter(linked).exclude(id=record.id):
+                others = list(table.records.filter(linked).exclude(id=deleted).prefetch_related('dependencies'))
+                previous = {other.id: record_json(other, table.fields) for other in others}
+                record.delete()
+                for other in others:
                     other.cells = {k: [v for v in value if v != target] if k in relations and isinstance(value, list) else value
                                    for k, value in other.cells.items()}
-                    if other.parent_id == record.id: other.parent_id = None
+                    if other.parent_id == deleted: other.parent_id = None
                     other.version += 1
                     other.updated_at = now
                     other.save()
-                record.delete()
+                for other in table.records.filter(id__in=list(previous)).prefetch_related('dependencies'):
+                    history(table, user, other.id, 'update', previous[other.id], record_json(other, table.fields))
             else:
                 if op == 'add' and table.records.count() >= 10000: raise WorkError('Table record limit is 10000.')
                 values = cells(data.get('cells', record.cells if record else {}), table.fields, record.cells if record else None)
                 parent = data.get('parentId', str(record.parent_id) if record and record.parent_id else None)
                 blocked = data.get('blockedBy', before['blockedBy'] if before else [])
                 if not isinstance(blocked, list) or len(blocked) > 64 or any(not isinstance(v, str) for v in blocked): raise WorkError('Use at most 64 dependency record ids.')
-                # Typed relation columns also use validated relation rows for dependencies.
-                previous = set(relation_targets(record.cells, table.fields)) if record else set()
-                blocked = list(dict.fromkeys([v for v in blocked if v not in previous] + relation_targets(values, table.fields)))
-                validate_links(table, record, parent, blocked)
+                blocked = list(dict.fromkeys(str(identifier(v)) for v in blocked))
+                related = list(dict.fromkeys(relation_targets(values, table.fields)))
+                validate_links(table, record, parent, blocked + related)
                 position = data.get('position', record.position if record else table.records.count())
                 if type(position) not in (int, float) or int(position) != position or not 0 <= position <= 100000: raise WorkError('Invalid record position.')
                 if record:
@@ -286,7 +294,8 @@ def mutate(user, board, table_id, data):
                     record = WorkRecord.objects.create(table=table, cells=values, parent_id=identifier(parent) if parent else None,
                                                        position=int(position), created_at=now, updated_at=now)
                 WorkRelation.objects.filter(source=record).delete()
-                WorkRelation.objects.bulk_create([WorkRelation(source=record, target_id=identifier(target)) for target in blocked])
+                WorkRelation.objects.bulk_create([WorkRelation(source=record, target_id=identifier(target), kind=kind)
+                                                  for kind, targets in (('blocked_by', blocked), ('relation', related)) for target in targets])
                 record = table.records.prefetch_related('dependencies').get(id=record.id)
                 after = record_json(record, table.fields)
                 history(table, user, record.id, op, before, after)

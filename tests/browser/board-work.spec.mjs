@@ -245,12 +245,23 @@ test('Board work: data widgets group and load the whole table, link off-page rec
   await details.getByRole('button', { name: 'Save record', exact: true }).click();
   const [blocker, parent] = [await id('Item 204'), await id('Item 203')];
   await expect.poll(async () => { const r = await id('Item 000'); return [r.parentId, r.blockedBy]; }).toEqual([parent.id, [blocker.id]]);
+  // Relation-field blockers are read-only in the picker; removing the explicit dependency never touches the relation cell.
+  const current = (await (await context.request.get(path)).json()).table;
+  expect((await context.request.post(path, { headers: { Origin: baseURL }, data: { op: 'settings', version: current.version, fields: [...current.fields, { id: 'needs', name: 'Needs', type: 'relation' }] } })).ok()).toBeTruthy();
+  const linked = await id('Item 000');
+  expect((await context.request.post(path, { headers: { Origin: baseURL }, data: { op: 'update', id: linked.id, version: linked.version, cells: { ...linked.cells, needs: [parent.id] } } })).ok()).toBeTruthy();
   await details.getByRole('button', { name: 'Close', exact: true }).click();
+  await records.getByRole('button', { name: 'Refresh', exact: true }).click();
   await workspace.getByRole('button', { name: '↳ Item 000', exact: true }).click();
-  await expect(details.getByRole('list', { name: 'Blocked by records' })).toContainText('Item 204');
+  const blockers = details.getByRole('list', { name: 'Blocked by records' });
+  await expect(blockers).toContainText('Item 204');
+  await expect(blockers.getByRole('listitem').filter({ hasText: 'From Needs field' })).toContainText('Item 203');
+  await expect(blockers.getByRole('button', { name: 'Remove Item 203 from Blocked by' })).toHaveCount(0);
   await details.getByRole('button', { name: 'Remove Item 204 from Blocked by' }).click();
   await details.getByRole('button', { name: 'Save record', exact: true }).click();
-  await expect.poll(async () => (await id('Item 000')).blockedBy).toEqual([]);
+  await expect.poll(async () => { const r = await id('Item 000'); return [r.blockedBy, r.cells.needs]; }).toEqual([[], [parent.id]]);
+  await expect(blockers.getByRole('button', { name: /^Remove / })).toHaveCount(0);
+  await expect(blockers.getByRole('listitem').filter({ hasText: 'From Needs field' })).toContainText('Item 203');
 
   // Every non-table view receives the complete query result.
   const view = records.getByRole('combobox', { name: 'Work view', exact: true });
@@ -264,6 +275,15 @@ test('Board work: data widgets group and load the whole table, link off-page rec
   await expect(workspace.getByText('↳ Item 000 ◆', { exact: true })).toBeVisible();
   await view.selectOption('chart');
   await expect(workspace.locator('svg title, svg text').filter({ hasText: 'Item 204' }).first()).toBeAttached();
+
+  // The canvas preview shares the panel's query but renders a bounded page and says so; grouped charts use server counts over every record.
+  const preview = page.locator('[data-work-kind="chart"]');
+  await expect(preview.getByText(/^Showing \d+ of 205 records$/)).toBeVisible();
+  await records.getByRole('combobox', { name: 'Group by', exact: true }).selectOption({ label: 'Status' });
+  await expect(workspace.getByText('Legend: Done · To do', { exact: true })).toBeVisible();
+  await expect(workspace.locator('svg title').filter({ hasText: /^Done: 102$/ })).toBeAttached();
+  await expect(preview.getByText('205 records in 2 groups', { exact: true })).toBeVisible();
+  await expect(preview.locator('svg title').filter({ hasText: /^To do: 103$/ })).toBeAttached();
 
   // Story maps place stories by activity, task and release, and keyboard entry keeps that context.
   await records.getByRole('button', { name: 'Close records', exact: true }).click();

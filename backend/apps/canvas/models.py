@@ -175,7 +175,7 @@ class WorkRelation(models.Model):
         db_table = 'canvas_work_relations'
         constraints = [models.UniqueConstraint(fields=['source', 'target', 'kind'], name='work_relation_unique'),
                        models.CheckConstraint(condition=~models.Q(source=models.F('target')), name='work_relation_not_self'),
-                       models.CheckConstraint(condition=models.Q(kind='blocked_by'), name='work_relation_kind_check')]
+                       models.CheckConstraint(condition=models.Q(kind__in=['blocked_by', 'relation']), name='work_relation_kind_check')]
 
 
 class WorkHistory(models.Model):

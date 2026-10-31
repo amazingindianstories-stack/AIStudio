@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch } from '../api';
-import { viewFor } from './work-records';
 
 export async function workRequest(path, data) {
   const response = await apiFetch(path, data ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) } : { cache: 'no-store' });
@@ -9,39 +8,74 @@ export async function workRequest(path, data) {
   return result;
 }
 export const tablePath = (boardId, tableId = '') => `/api/canvas-boards/${boardId}/work${tableId ? `/${tableId}` : ''}`;
-/** Query string for a widget: tables page through records, every other view receives the complete query result. */
-export function workQuery(kind, query, groupBy) {
-  return new URLSearchParams({ ...query, groupBy, ...(kind === 'table' ? {} : { all: '1', offset: '0' }) }).toString();
+/** How many records a compact canvas preview can show: kanban-width columns of table-height rows. */
+export function previewLimit(node) {
+  return Math.min(200, Math.max(10, Math.ceil(node.w / 224) * Math.ceil(node.h / 30)));
 }
-const NO_QUERY = {};
-/** Polls one widget's records, grouped by its saved view on the server. */
-export function useWorkRecords(boardId, node, query = NO_QUERY) {
-  const [data, setData] = useState(null);
-  const [error, setError] = useState('');
-  const generation = useRef(0);
-  const groupBy = useRef('');
-  const path = tablePath(boardId, node.datasetId);
-  const enabled = Boolean(boardId && node.datasetId);
-  const kind = node.kind;
-  const load = useCallback(async () => {
-    const id = ++generation.current;
-    try {
-      let result;
-      for (let attempt = 0; attempt < 2; attempt++) {
-        const sent = groupBy.current;
-        result = await workRequest(`${path}?${workQuery(kind, query, sent)}`);
-        if (id !== generation.current) return;
-        groupBy.current = viewFor(result.table, kind).groupBy || '';
-        if (groupBy.current === sent) break;
+/** Query string for a widget. The server groups by the saved view; previews ask for a bounded page, the open panel for its page (tables) or the complete result. */
+export function workQuery(kind, query, limit) {
+  const params = { ...query, view: kind };
+  if (limit) Object.assign(params, { offset: '0', limit: String(limit) });
+  else if (kind !== 'table') Object.assign(params, { all: '1', offset: '0' });
+  return new URLSearchParams(params).toString();
+}
+const feeds = new Map();
+/** Shares one polled query per widget between its canvas preview and its open panel; the panel's query wins while it is open. */
+export function watchWork({ path, nodeId, kind }, subscriber) {
+  const key = `${path}#${nodeId}#${kind}`;
+  let feed = feeds.get(key);
+  if (!feed) {
+    feed = { subscribers: new Set(), generation: 0, state: null, scheduled: false };
+    feed.refresh = async () => {
+      const subscribers = [...feed.subscribers];
+      if (!subscribers.length) return;
+      const panel = subscribers.find(s => s.query);
+      const id = ++feed.generation;
+      const complete = Boolean(panel);
+      try {
+        const data = await workRequest(`${path}?${workQuery(kind, panel?.query, complete ? 0 : Math.max(...subscribers.map(s => s.limit)))}`);
+        if (id === feed.generation) feed.state = { data, error: '', complete };
+      } catch (e) {
+        if (id === feed.generation) feed.state = { ...feed.state, error: e.message };
       }
-      setData(result); setError('');
-    } catch (e) { if (id === generation.current) setError(e.message); }
-  }, [path, query, kind]);
+      if (id === feed.generation) for (const s of feed.subscribers) s.update(feed.state);
+    };
+    feed.schedule = () => {
+      if (feed.scheduled) return;
+      feed.scheduled = true;
+      queueMicrotask(() => { feed.scheduled = false; if (feed.subscribers.size) void feed.refresh(); });
+    };
+    feed.timer = setInterval(() => { if (!globalThis.document?.hidden) void feed.refresh(); }, 15000);
+    feeds.set(key, feed);
+  }
+  feed.subscribers.add(subscriber);
+  if (feed.state && (feed.state.complete || !subscriber.query)) subscriber.update(feed.state);
+  feed.schedule();
+  return {
+    refresh: () => feed.refresh(),
+    close() {
+      feed.subscribers.delete(subscriber);
+      if (feed.subscribers.size) return;
+      clearInterval(feed.timer);
+      feeds.delete(key);
+    },
+  };
+}
+/** Polls one widget's records. The open panel passes its query and receives its complete result; previews pass a record limit. */
+export function useWorkRecords(boardId, node, { query = null, limit = 0 } = {}) {
+  const [state, setState] = useState(null);
+  const subscriber = useRef({ query, limit, update: setState });
+  const subscription = useRef(null);
+  const path = boardId && node.datasetId ? tablePath(boardId, node.datasetId) : '';
+  const { id: nodeId, kind } = node;
+  useEffect(() => { subscriber.current.limit = limit; }, [limit]);
   useEffect(() => {
-    if (!enabled) return undefined;
-    void load();
-    const timer = setInterval(() => { if (!document.hidden) void load(); }, 15000);
-    return () => clearInterval(timer);
-  }, [load, enabled]);
-  return { data, error, load };
+    if (!path) return undefined;
+    subscriber.current.query = query;
+    const current = watchWork({ path, nodeId, kind }, subscriber.current);
+    subscription.current = current;
+    return () => current.close();
+  }, [path, nodeId, kind, query]);
+  const load = useCallback(async () => subscription.current?.refresh(), []);
+  return { data: state?.data || null, error: state?.error || '', load };
 }

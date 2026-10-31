@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { newCard, newColumns, layoutColumns, cleanRecord, viewFor } from './work-records.js';
+import { newCard, newColumns, layoutColumns, cleanRecord, viewFor, blockersOf } from './work-records.js';
 import { validateCanvasState, emptyCanvasState } from './serialization.js';
 import { useCanvasStore } from '../canvas-store.js';
 
@@ -33,6 +33,11 @@ test('columns grow so every card in a crowded cell stays inside its swimlane', (
   assert.ok(placed[4].y + placed[4].h <= container.y + container.h);
   const roomy = layoutColumns({ nodes: [columns, lower] }, columns.id);
   assert.equal(roomy.nodes[0].h, columns.h);
+});
+test('a record waits on its explicit dependencies and every relation field target', () => {
+  const fields = [{ id: 'title', type: 'text' }, { id: 'needs', type: 'relation' }, { id: 'after', type: 'relation' }];
+  assert.deepEqual(blockersOf({ blockedBy: ['a', 'b'], cells: { title: 'x', needs: ['b', 'c'], after: ['d'] } }, fields), ['a', 'b', 'c', 'd']);
+  assert.deepEqual(blockersOf({ cells: { needs: 'not a list' } }, fields), []);
 });
 test('views fall back to a named default for the widget kind', () => {
   const table = { views: [{ id: 'v', kind: 'timeline', name: 'Plan', groupBy: 'team' }] };

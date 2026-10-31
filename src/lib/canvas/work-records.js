@@ -5,6 +5,10 @@ export const WORK_VIEW_NAMES = { table: 'Table', kanban: 'Kanban', timeline: 'Ti
 export function viewFor(table, kind) {
   return table?.views.find(v => v.kind === kind) || { id: kind, kind, name: WORK_VIEW_NAMES[kind] };
 }
+/** Every record a record waits on: explicit dependencies plus the targets of its relation fields. */
+export function blockersOf(record, fields) {
+  return [...new Set([...(record.blockedBy || []), ...fields.filter(f => f.type === 'relation').flatMap(f => Array.isArray(record.cells[f.id]) ? record.cells[f.id] : [])])];
+}
 export const DEFAULT_FIELDS = [
   { id: 'title', name: 'Title', type: 'text' },
   { id: 'description', name: 'Description', type: 'text' },
