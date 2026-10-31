@@ -10,10 +10,9 @@ from django.conf import settings
 from PIL import Image
 
 from apps.assets.models import Asset
-from apps.assets.views import serialize
 from apps.assets.portrait_db import get_portrait_asset_by_image_url
 from apps.common.leases import now_ms
-from apps.generation.model_registry import is_provider_model, capability
+from apps.generation.model_registry import is_provider_model
 from apps.generation.prompting.assembler import assemble_prompt
 from apps.generation.prompting.image_prep import prep_reference
 from apps.generation.providers import gemini, omni, seedance, omnihuman

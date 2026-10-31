@@ -13,7 +13,7 @@ Nothing is deployed. Every production step below needs explicit owner approval.
   then fails **without any paid submission**.
 - ACTIVE assets are re-confirmed with BytePlus (unbilled GetAsset) at most 60 s before a submission,
   and after any failed job; a vanished asset is registered again automatically.
-- The Portrait Gallery (v2) is one shared, flat grid: artists upload one or many images (they are
+- The Portrait Gallery (v2) is one shared, flat grid: artists upload one or many images or short videos (they are
   prompt-ready after a short preparation), rename, delete (anyone may delete), select several and add them to
   a prompt. Faces found automatically in prompt references appear there while their asset is live and
   disappear when it expires or is deleted. Uploads are pool assets too: unused ones expire after the TTL.
