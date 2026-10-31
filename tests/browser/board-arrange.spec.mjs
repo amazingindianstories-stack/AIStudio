@@ -30,6 +30,7 @@ const isSave = (response) => /\/api\/canvas-boards\/[^/]+$/.test(new URL(respons
 const centerOf = (box) => ({ x: box.x + box.width / 2, y: box.y + box.height / 2 });
 
 test('Board arrange: lasso, precise marquee, filter, align, guides, ruler, smart duplicate, clear content and auto layout', async ({ browser, baseURL }, info) => {
+  test.setTimeout(120000);
   const db = fixtureDatabase(process.env.E2E_DATABASE_URL);
   await db`INSERT INTO users (id, email, password_hash, password_salt, created_at, name, role, is_active, auth_version)
     VALUES (${OWNER.id}, ${OWNER.email}, 'unused', 'unused', 1, ${OWNER.name}, 'user', true, 0)
@@ -190,5 +191,129 @@ test('Board arrange: lasso, precise marquee, filter, align, guides, ruler, smart
   await expect.poll(async () => (await storedNode(copy.id)).x).toBe(440);
 
   await info.attach('arranged', { body: await page.screenshot(), contentType: 'image/png' });
+  await context.close();
+});
+
+test('Board arrange: aligning and turning objects inside a swimlane keeps them in it, and containers have no rotation handle', async ({ browser, baseURL }, info) => {
+  test.setTimeout(120000);
+  const db = fixtureDatabase(process.env.E2E_DATABASE_URL);
+  await db`INSERT INTO users (id, email, password_hash, password_salt, created_at, name, role, is_active, auth_version)
+    VALUES (${OWNER.id}, ${OWNER.email}, 'unused', 'unused', 1, ${OWNER.name}, 'user', true, 0)
+    ON CONFLICT (id) DO UPDATE SET role = 'user', is_active = true, auth_version = 0`;
+  const setup = await signIn(browser, baseURL, null);
+  const created = await setup.context.request.post('/api/projects', {
+    data: { op: 'createProject', name: `Board containers ${randomUUID()}` }, headers: { Origin: baseURL } });
+  expect(created.ok()).toBeTruthy();
+  const { project } = await created.json();
+  await setup.context.close();
+
+  const { context, page } = await signIn(browser, baseURL, project.id);
+  await page.goto('/');
+  const canvas = await openBoard(page);
+  const placed = page.waitForResponse(isSave);
+  await page.getByRole('button', { name: 'Sticky note', exact: true }).click();
+  await canvas.click({ position: { x: 300, y: 300 } });
+  const boardPath = new URL((await placed).url()).pathname;
+  await page.keyboard.press('Escape');
+  await expect.poll(async () => (await (await page.request.get(boardPath)).json()).data.nodes.length).toBe(1);
+  const stored = await (await page.request.get(boardPath)).json();
+  const [template] = stored.data.nodes;
+  const sticky = (id, x, y, text, parentId) => ({ ...template, id, x, y, w: 120, h: 120, text, parentId, groupId: null });
+  const nodes = [
+    { id: 'lane', type: 'swimlane', x: 300, y: 200, w: 600, h: 360, name: 'Pool', orientation: 'horizontal',
+      lanes: [{ id: 'lane-1', name: 'Lane 1', size: 180 }, { id: 'lane-2', name: 'Lane 2', size: 180 }], parentId: null, groupId: null },
+    sticky('in-a', 360, 230, 'Alpha', 'lane'),
+    sticky('in-b', 560, 400, 'Beta', 'lane'),
+    { id: 'dia', type: 'diagram', x: 1000, y: 200, w: 320, h: 320, name: 'Container', parentId: null, groupId: null },
+  ];
+  // The asset panel covers the canvas's left edge: the board starts scrolled so everything sits right of it.
+  const seeded = await context.request.put(boardPath, {
+    data: { data: { ...stored.data, viewport: { x: -250, y: 0, zoom: 1 }, nodes, connectors: [] }, baseVersion: stored.version, saveId: randomUUID() },
+    headers: { Origin: baseURL } });
+  expect(seeded.status()).toBe(200);
+  await page.reload();
+  await openBoard(page);
+  const node = (id) => page.locator(`[data-node-id="${id}"]`);
+  await expect(node('in-a')).toBeVisible();
+  await expect(node('lane')).toBeVisible();
+  await expect(node('dia')).toBeVisible();
+
+  const board = async () => (await (await page.request.get(boardPath)).json()).data;
+  const storedNode = async (id) => (await board()).nodes.find((n) => n.id === id);
+  const aBox = await node('in-a').boundingBox();
+  const zoom = aBox.width / 120;
+  const screenOf = (x, y) => ({ x: aBox.x + (x - 360) * zoom, y: aBox.y + (y - 230) * zoom });
+  const empty = screenOf(1150, 700);
+  const rotateOne = page.getByRole('button', { name: 'Rotate', exact: true });
+  const rotateMany = page.getByRole('button', { name: 'Rotate selection', exact: true });
+
+  // Align left from the context menu: Beta lines up with Alpha and both stay in the swimlane.
+  const aCenter = centerOf(aBox);
+  const bCenter = centerOf(await node('in-b').boundingBox());
+  await page.mouse.click(aCenter.x, aCenter.y);
+  await page.keyboard.down('Shift');
+  await page.mouse.click(bCenter.x, bCenter.y);
+  await page.keyboard.up('Shift');
+  await page.mouse.click(bCenter.x, bCenter.y, { button: 'right' });
+  await page.getByRole('menuitem', { name: 'Align', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Align left' }).click();
+  await expect.poll(async () => (await storedNode('in-b')).x).toBe(360);
+  expect((await board()).nodes.filter((n) => n.id.startsWith('in-')).map((n) => n.parentId)).toEqual(['lane', 'lane']);
+
+  // Turning the pair a quarter turn about its middle keeps both in the swimlane too.
+  await expect(rotateMany).toBeVisible();
+  const handle = centerOf(await rotateMany.boundingBox());
+  const pair = centerOf({ x: screenOf(360, 230).x, y: screenOf(360, 230).y, width: 120 * zoom, height: 290 * zoom });
+  await page.keyboard.down('Shift');
+  await page.mouse.move(handle.x, handle.y);
+  await page.mouse.down();
+  await page.mouse.move(pair.x + 150, pair.y - 150, { steps: 6 });
+  await page.mouse.move(pair.x + 300, pair.y + 2, { steps: 6 });
+  await page.mouse.up();
+  await page.keyboard.up('Shift');
+  await expect.poll(async () => (await storedNode('in-a')).rotation ?? 0).toBe(90);
+  const turned = (await board()).nodes.filter((n) => n.id.startsWith('in-'));
+  expect(turned.map((n) => [n.rotation, n.parentId])).toEqual([[90, 'lane'], [90, 'lane']]);
+  await info.attach('swimlane-aligned-turned', { body: await page.screenshot(), contentType: 'image/png' });
+
+  // The swimlane has no rotation handle and no angle field; a sticky inside it still has one.
+  await page.mouse.click(empty.x, empty.y);
+  const laneSpot = screenOf(860, 530);
+  await page.mouse.click(laneSpot.x, laneSpot.y);
+  await expect(page.getByRole('button', { name: 'Size and rotation', exact: true })).toBeVisible();
+  await expect(rotateOne).toHaveCount(0);
+  await page.getByRole('button', { name: 'Size and rotation', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Width', exact: true })).toHaveValue('600');
+  await expect(page.getByRole('textbox', { name: 'Rotation', exact: true })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await info.attach('swimlane-selected-no-rotate', { body: await page.screenshot(), contentType: 'image/png' });
+
+  // Moving the swimlane carries the aligned stickies with it.
+  const before = { lane: await storedNode('lane'), a: await storedNode('in-a'), b: await storedNode('in-b') };
+  await page.mouse.click(laneSpot.x, laneSpot.y);
+  await page.mouse.move(laneSpot.x, laneSpot.y);
+  await page.mouse.down();
+  await page.mouse.move(laneSpot.x + 80 * zoom, laneSpot.y + 40 * zoom, { steps: 10 });
+  await page.mouse.up();
+  await expect.poll(async () => (await storedNode('lane')).x).not.toBe(before.lane.x);
+  const after = { lane: await storedNode('lane'), a: await storedNode('in-a'), b: await storedNode('in-b') };
+  const dx = after.lane.x - before.lane.x;
+  const dy = after.lane.y - before.lane.y;
+  expect([after.a.x - before.a.x, after.a.y - before.a.y, after.b.x - before.b.x, after.b.y - before.b.y]).toEqual([dx, dy, dx, dy]);
+  expect([after.a.parentId, after.b.parentId]).toEqual(['lane', 'lane']);
+
+  await page.mouse.click(empty.x, empty.y);
+  const inside = centerOf(await node('in-a').boundingBox());
+  await page.mouse.click(inside.x, inside.y);
+  await expect(rotateOne).toBeVisible();
+
+  // A diagram container does not turn either.
+  await page.mouse.click(empty.x, empty.y);
+  const diaSpot = screenOf(1160, 480);
+  await page.mouse.click(diaSpot.x, diaSpot.y);
+  await expect(page.getByRole('button', { name: 'Size and rotation', exact: true })).toBeVisible();
+  await expect(rotateOne).toHaveCount(0);
+  await info.attach('diagram-selected-no-rotate', { body: await page.screenshot(), contentType: 'image/png' });
+  expect([(await storedNode('lane')).rotation ?? 0, (await storedNode('dia')).rotation ?? 0]).toEqual([0, 0]);
   await context.close();
 });
