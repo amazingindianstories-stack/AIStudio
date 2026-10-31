@@ -9,6 +9,7 @@ import { WorkDataPanel } from './WorkDataPanel';
 import { WorkInbox } from './WorkInbox';
 import { TimelineBuilder } from './TimelineBuilder';
 import { workRequest, tablePath } from '@/lib/canvas/work-api';
+import { isEditingTarget } from '@/lib/canvas/shortcut-target';
 
 const inputClass = 'w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 disabled:bg-slate-100';
 export function WorkTools({ viewCenter, viewOnly }) {
@@ -28,7 +29,7 @@ export function WorkTools({ viewCenter, viewOnly }) {
   useEffect(() => {
     const show = e => { setActiveId(e.detail); setOpen(true); };
     const keyboard = e => {
-      if (e.target.closest?.('input,textarea,select,[contenteditable="true"]')) return;
+      if (isEditingTarget(e.target)) return;
       const state = useCanvasStore.getState();
       if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'Enter') {
         const card = state.history.present.nodes.find(n => n.id === state.selection[0] && n.type === 'card');

@@ -2,7 +2,7 @@
 import datetime
 from apps.authentication.models import User
 from . import access, services
-from .models import BoardNotification, BoardNotificationPreference, WorkRecord, CanvasBoard
+from .models import BoardNotification, BoardNotificationPreference, WorkRecord, WorkTable, CanvasBoard
 
 KINDS = ('table_assignment', 'table_due', 'table_change')
 DEFAULTS = {kind: True for kind in KINDS}
@@ -23,31 +23,44 @@ def deliver(user_id, actor_id, board, kind, target_id, payload, event):
     return created
 
 
+def assignees(schema, cells):
+    return {cells[f['id']] for f in schema if f['type'] == 'people' and isinstance(cells.get(f['id']), str) and cells[f['id']]}
+
+
+def end_field(table):
+    dates = {f['id'] for f in table.fields if f['type'] == 'date'}
+    return next((v['endField'] for v in table.views if v.get('kind') == 'timeline' and v.get('endField') in dates), 'end')
+
+
 def changed(actor, board, table, before, after):
-    assignee = after['cells'].get('assignee')
+    people = assignees(table.fields, after['cells'])
     payload = {'tableId': str(table.id), 'tableName': table.name, 'title': after['cells'].get('title', 'Untitled record')}
     event = f"{after['id']}:{after['version']}"
-    assigned = bool(assignee and (not before or before['cells'].get('assignee') != assignee))
-    if assigned:
-        deliver(assignee, actor.id, board, 'table_assignment', after['id'], payload, event)
-    # Changes go to the record assignee and table owner, respecting personal preferences.
-    for user_id in {str(table.owner_id), assignee} - {None, '', str(actor.id)}:
-        if assigned and user_id == assignee: continue
+    assigned = people - (assignees(table.fields, before['cells']) if before else set())
+    for user_id in assigned:
+        deliver(user_id, actor.id, board, 'table_assignment', after['id'], payload, event)
+    # Changes go to the record's people and table owner, respecting personal preferences.
+    for user_id in ({str(table.owner_id)} | people) - assigned - {str(actor.id)}:
         deliver(user_id, actor.id, board, 'table_change', after['id'], payload, event)
 
 
 def reminders(*, today=None):
     today = (today or datetime.datetime.now(datetime.timezone.utc).date()).isoformat()
     delivered = 0
+    tables = {}
+    for table in WorkTable.objects.only('id', 'fields', 'views').iterator(chunk_size=500):
+        tables.setdefault(end_field(table), []).append(table.id)
+    boards = {}
     # Record ids and the due date form stable idempotency keys across scheduler retries.
-    for record in WorkRecord.objects.filter(cells__contains={'end': today}).select_related('table').iterator(chunk_size=200):
-        assignee = record.cells.get('assignee')
-        if not assignee: continue
-        board = access.board_row(record.table.board_id)
-        if board:
-            delivered += deliver(assignee, None, board, 'table_due', record.id,
-                                 {'tableId': str(record.table_id), 'tableName': record.table.name,
-                                  'title': record.cells.get('title', 'Untitled record'), 'end': today}, f'{record.id}:{today}')
+    for field, ids in tables.items():
+        for record in WorkRecord.objects.filter(table_id__in=ids, cells__contains={field: today}).select_related('table').iterator(chunk_size=200):
+            board_id = record.table.board_id
+            if board_id not in boards: boards[board_id] = access.board_row(board_id)
+            if not boards[board_id]: continue
+            for user_id in assignees(record.table.fields, record.cells):
+                delivered += deliver(user_id, None, boards[board_id], 'table_due', record.id,
+                                     {'tableId': str(record.table_id), 'tableName': record.table.name,
+                                      'title': record.cells.get('title', 'Untitled record'), 'end': today}, f'{record.id}:{today}')
     return {'delivered': delivered}
 
 

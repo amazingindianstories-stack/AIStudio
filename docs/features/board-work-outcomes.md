@@ -13,21 +13,21 @@ No feature is skipped or needs a product decision at this point.
 | Line | Feature | Size | Outcome | Evidence and remaining acceptance work |
 | --- | --- | --- | --- | --- |
 | 216 | Cards | M | Built | `WorkTools` implements structured fields, existing-user assignees, D and Cmd/Ctrl+Shift+Enter; `WorkNode` renders cards. Existing browser spec covers details and reload. Browser verified D creation, Ctrl+Shift+Enter details, all fields and reload persistence in iteration 3. Iteration 4 verified viewer/commenter inspection, disabled fields, blocked D creation, no browser board saves, and direct API save rejection (403), with unchanged persisted data. Iteration 5 verified Meta/Cmd details and editing through the widget selector after the card DOM node is culled, with API persistence and reload acceptance. Cards acceptance is complete. |
-| 217 | Columns | M | Pending verification | `work-records.layoutColumns` uses board data; `WorkTools` adds, renames, recolors and moves lanes upward. Iteration 6 browser verified adding, renaming, recoloring and reordering columns and swimlanes, selecting both for a child card, saved cell geometry/containment and reload persistence. Iteration 7 browser verified viewer/commenter inspection of widget title, every lane/swimlane name and color, disabled reordering/add/arrange controls and child placement selectors, no browser writes and API save rejection. Remaining: reorder with existing children and offscreen operations. |
-| 218 | Tables | XL | Pending verification | Django `WorkTable`/`WorkRecord` and `work_tables` own data; board widgets hold dataset IDs. `WorkDataPanel` has fields, card/sticky copying, CSV/Excel and owner-only editing. Verify schema migrations, indexed queries, roles and file round trips. |
-| 219 | Filter, sort, search, grouping | M | Pending completion | SQL search/filter/sort and SQL group counts exist. Panel never sends `groupBy`; rendering groups only its current page. Complete grouping across pagination and add browser coverage. |
+| 217 | Columns | M | Pending verification | `work-records.layoutColumns` uses board data; `WorkTools` adds, renames, recolors and moves lanes upward. Iteration 6 browser verified adding, renaming, recoloring and reordering columns and swimlanes, selecting both for a child card, saved cell geometry/containment and reload persistence. Iteration 7 browser verified viewer/commenter inspection of widget title, every lane/swimlane name and color, disabled reordering/add/arrange controls and child placement selectors, no browser writes and API save rejection. Remaining: reorder with existing children and offscreen operations. Iteration 8 made `layoutColumns` stack cards by their real heights and grow every swimlane (and the widget) so crowded cells no longer overflow; unit coverage checks containment. |
+| 218 | Tables | XL | Pending verification | Django `WorkTable`/`WorkRecord` and `work_tables` own data; board widgets hold dataset IDs. `WorkDataPanel` has fields, card/sticky copying, CSV/Excel and owner-only editing. Iteration 8: editors can save settings without touching `ownerOnly` (only changing it needs the owner); records keep a deactivated assignee they already had; deleting a record removes it from relation cells and parents of linked records and bumps their versions. Verify schema migrations, roles in the browser and file round trips. |
+| 219 | Filter, sort, search, grouping | M | Pending verification | Iteration 8: widgets send the saved view's `groupBy`; the server orders every page by the group and returns SQL counts for the whole query, which the table headers show. Numeric filters reject non-finite values with 400. Browser verified group counts across both pages of a 205-record table. Remaining: browser coverage of search, filter and sort combined with grouping. |
 | 220 | Formulas and calculations | L | Pending verification | `work_formulas` uses an AST allowlist and SQL expressions; `work_tables.query` computes sums/averages across the query. Verify invalid expressions, nulls, numeric sorting and UI flows. |
-| 221 | Relations and hierarchy | L | Pending completion | Parent IDs and dependency rows have server validation; detail panel selects links from current page only. Verify nesting semantics and make off-page relation targets available. |
-| 222 | Notifications | M | Pending verification | Generic notification models, per-user preferences, viewer checks, polling inbox and scheduler reminders exist. Changes target assignee and table owner. Verify permissions, idempotency, preferences and scheduler delivery with disposable PostgreSQL. In-app only. |
+| 221 | Relations and hierarchy | L | Pending verification | Parent IDs and dependency rows have server validation. Iteration 8: Parent and Blocked by pickers search every record on the server and resolve labels by id; clearing a relation cell removes its dependency. Browser verified linking a record to off-page parent and blocker records, removal and persistence. Remaining: nesting depth limits in the browser. |
+| 222 | Notifications | M | Pending verification | Generic notification models, per-user preferences, viewer checks, polling inbox and scheduler reminders exist. Iteration 8: assignment, change and due notifications use every people field; due reminders use the table's timeline end field (default `end`). Backend tests cover both. Verify permissions, idempotency, preferences and scheduler delivery with disposable PostgreSQL. In-app only. |
 | 223 | History | M | Pending verification | API writes before/after history and panel reads it. Load-earlier button is shown only at exactly 100 loaded rows, so verify pagination beyond two pages and actor/read permissions. |
 | 224 | Visual numbers | S | Pending verification | `numberPresentation` and field settings support currency, percent, progress and thresholds; unit coverage exists. Verify empty values, formatting controls, conditional colors and persistence in browser. |
-| 225 | Kanban view | L | Pending completion | Shared records, drag reclassification, hidden columns, swimlanes and view switching exist. Renderer only receives current page; establish complete-board behavior above 200 records. |
-| 226 | Timeline | L | Pending completion | Date bars, drag/resize, milestones and dependency paths exist. `timelineLayout` ignores grouping and only marks nesting with an arrow in the label; complete grouping/nesting and pagination behavior. |
+| 225 | Kanban view | L | Pending verification | Shared records, drag reclassification, hidden columns, swimlanes and view switching exist. Iteration 8: every non-table view loads the complete query result (`all=1`, bounded by the 10000-record table limit); browser verified all 205 cards render. Remaining: drag, hidden column and swimlane browser coverage. |
+| 226 | Timeline | L | Pending verification | Date bars, drag/resize, milestones and dependency paths exist. Iteration 8: `timelineLayout` groups rows under headers by the view's group field and places children under their parent with depth markers; unit and browser coverage (205 records, two status groups, nested child). Remaining: drag/resize browser coverage. |
 | 227 | Timeline Builder | S | Pending verification | `TimelineBuilder` and `buildTimeline` generate frames and labeled shapes from dates, interval, swimlanes and color; unit coverage round-trips serialization. Add browser generation, reload and role coverage. |
-| 228 | User story mapping | M | Pending completion | Activity/release grouping exists; task field is created but does not participate in layout. Keyboard creation uses generic parent/sibling logic rather than activity/task/story/release context. Complete those semantics. |
-| 229 | Mind map | L | Pending completion | Tree layout, collapse, colors, node styles and export exist; generated board output uses native shapes/connectors. Panel uses current page, so parents/descendants can disappear across pages. Verify keyboard focus and complete full-tree loading. |
-| 230 | Org chart | L | Pending completion | Role/team fields, branch layout, hidden fields and stable-ID CSV import/export exist. Rendering uses current page; verify re-import hierarchy, clear-parent behavior, full-tree loading and import failures. |
-| 231 | Charts | M | Pending completion | Shared numeric records drive SVG bar/line/pie and legend; table title is editable. Only current page is charted; define and implement complete-query data loading, then verify editing and reload. |
+| 228 | User story mapping | M | Pending verification | Iteration 8: the story map is an activity, task and release grid; dropping a story into a cell sets all three. Tab adds a story under a new task in the same activity and release, Enter adds one in the same cell. Unit and browser coverage, including reload. Remaining: drag between cells in the browser. |
+| 229 | Mind map | L | Pending completion | Tree layout, collapse, colors, node styles and export exist; generated board output uses native shapes/connectors. Iteration 8: loads the complete query result, like every non-table view. Remaining: browser keyboard focus and a large-tree check. |
+| 230 | Org chart | L | Pending completion | Role/team fields, branch layout, hidden fields and stable-ID CSV import/export exist. Iteration 8: loads the complete query result. Remaining: browser re-import hierarchy, clear-parent behavior and import failures. |
+| 231 | Charts | M | Pending verification | Shared numeric records drive SVG bar/line/pie and legend; table title is editable. Iteration 8: charts use the complete query result; browser verified a record beyond the first 200 is charted. Remaining: editing and reload browser coverage. |
 
 ## Verification baseline
 
@@ -83,9 +83,8 @@ present. No production code changed and no feature row is promoted yet.
 Validation: permanent `Board work:` browser spec passed (1 test, 14.8 seconds)
 through the shared heavy lock and `scripts/dev/test-db.sh`, with disposable
 PostgreSQL, mock providers and harness-owned Django/workers/Next. The harness
-stopped its processes and removed its database on exit. Evidence:
-`/var/folders/wk/zf7bhzvs7fs230wlhb95b2900000gn/T/veevee-test.KWiP/browser-qualification`
-(ephemeral). `npm test` passed all 936 tests; `npm run lint` passed;
+stopped its processes and removed its database on exit. Evidence stayed in the
+harness's ephemeral `browser-qualification` directory. `npm test` passed all 936 tests; `npm run lint` passed;
 `git diff --check` passed. No commit, push or deployment.
 
 Next smallest increment: finish Cards role and offscreen-edit browser acceptance,
@@ -145,8 +144,8 @@ heavy lock and disposable PostgreSQL harness with mock providers. All 936 unit
 tests and lint passed; git diff checks passed. Harness-owned servers, workers,
 browser and database were cleaned up on exit. No commit, push or deployment.
 
-The first browser attempt used system Python without Django; use
-`/Users/rohit/Projects/firstmate/data/veevee-board-1b-shapes/venv/bin/python`.
+The first browser attempt used system Python without Django; pass an
+interpreter with `backend/requirements.txt` installed as `PYTHON`.
 A subsequent selector failure established that CSS-capitalized lane labels
 retain lowercase accessible names (`lane`, `swimlane`); corrected selectors
 then passed. Next increment: finish Columns acceptance before Tables.
@@ -167,3 +166,34 @@ through the shared heavy lock and disposable PostgreSQL harness with explicit
 mock providers. All 936 unit tests and lint passed; git diff checks passed.
 The harness exited successfully and cleaned up its owned servers, workers,
 browser and database. No commit, push or deployment.
+
+
+## Iteration 8: review fixes and complete data views
+
+Review findings F1 to F9 were fixed in one pass:
+
+- Data widgets share `useWorkRecords`: tables page 200 records at a time with
+  the saved view's `groupBy`; Kanban, Timeline, Story map, Mind map, Org chart
+  and Charts request the complete query result (`all=1`). The query API also
+  accepts `ids` for picker labels.
+- Timeline grouping and nesting, the story activity/task/release grid and story
+  keyboard entry are described in the ledger rows above.
+- Server-side Parent and Blocked by pickers replace page-limited selects.
+- Records: relation cells drive dependencies in both directions, deleted
+  targets are pruned from linked records, stale people values do not block
+  saves, numeric filters reject `nan`/`inf`, and only changing `ownerOnly`
+  needs the table or board owner.
+- Notifications use every people field and the timeline end field.
+- The D shortcut uses the same editing-target guard as the board shortcuts.
+- Columns grow to fit stacked cards.
+
+Validation: `apps.canvas.test_work_tables` passed (12 tests) on disposable
+PostgreSQL through the heavy lock. Work layout, records, API query, shortcut
+target and BoardSwitcher unit suites passed (21 tests); ESLint passed on the
+changed files. The new permanent `Board work: data widgets` browser test passed
+(1 test, 36.1 seconds) through the heavy lock with mock providers. Its first two
+runs failed on test timing (Group by changed before Refresh returned) and on a
+milestone marker in the expected label; both were assertion fixes. The earlier
+`Board work` cards/columns test passed in the same suite before those fixes.
+Full `npm test`, `npm run lint` and the full backend suite were not run in this
+iteration. No commit, push or deployment.

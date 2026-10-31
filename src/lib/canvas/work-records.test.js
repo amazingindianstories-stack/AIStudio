@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { newCard, newColumns, layoutColumns, cleanRecord } from './work-records.js';
+import { newCard, newColumns, layoutColumns, cleanRecord, viewFor } from './work-records.js';
 import { validateCanvasState, emptyCanvasState } from './serialization.js';
 import { useCanvasStore } from '../canvas-store.js';
 
@@ -18,6 +18,27 @@ test('columns lay out offscreen cards using lanes and swimlanes from data', () =
   assert.ok(board.nodes[2].x > board.nodes[1].x);
   assert.equal(board.nodes[1].record.swimlane, columns.swimlanes[0].id);
   assert.deepEqual(validateCanvasState(board).nodes, board.nodes);
+});
+test('columns grow so every card in a crowded cell stays inside its swimlane', () => {
+  const columns = { ...newColumns({ x: 0, y: 0 }), swimlanes: [{ id: 'top', name: 'Top', color: '#f1f5f9' }, { id: 'bottom', name: 'Bottom', color: '#f1f5f9' }] };
+  const cards = Array.from({ length: 4 }, (_, i) => ({ ...newCard({ x: 0, y: 0 }), parentId: columns.id, record: { title: `Card ${i}`, lane: columns.lanes[0].id, swimlane: 'top' } }));
+  const lower = { ...newCard({ x: 0, y: 0 }), parentId: columns.id, record: { title: 'Lower', lane: columns.lanes[1].id, swimlane: 'bottom' } };
+  const board = layoutColumns({ nodes: [columns, ...cards, lower] }, columns.id);
+  const [container, ...placed] = board.nodes;
+  const row = (container.h - 72) / 2;
+  assert.ok(container.h > columns.h);
+  for (const card of placed.slice(0, 4)) assert.ok(card.y >= container.y + 72 && card.y + card.h <= container.y + 72 + row, card.record.title);
+  for (let i = 1; i < 4; i++) assert.ok(placed[i].y >= placed[i - 1].y + placed[i - 1].h);
+  assert.equal(placed[4].y, container.y + 84 + row);
+  assert.ok(placed[4].y + placed[4].h <= container.y + container.h);
+  const roomy = layoutColumns({ nodes: [columns, lower] }, columns.id);
+  assert.equal(roomy.nodes[0].h, columns.h);
+});
+test('views fall back to a named default for the widget kind', () => {
+  const table = { views: [{ id: 'v', kind: 'timeline', name: 'Plan', groupBy: 'team' }] };
+  assert.equal(viewFor(table, 'timeline').groupBy, 'team');
+  assert.deepEqual(viewFor(table, 'story'), { id: 'story', kind: 'story', name: 'Story map' });
+  assert.deepEqual(viewFor(undefined, 'chart'), { id: 'chart', kind: 'chart', name: 'Chart' });
 });
 test('card editing is undoable and ignored for viewers and commenters', async t => {
   const card = newCard({ x: 0, y: 0 });

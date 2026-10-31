@@ -1,6 +1,10 @@
 /** Shared field/record/view vocabulary for cards and data-backed work widgets. */
 export const WORK_KINDS = ['columns', 'table', 'kanban', 'timeline', 'story', 'mindmap', 'org', 'chart'];
 export const FIELD_TYPES = ['text', 'number', 'select', 'date', 'people', 'points', 'formula', 'relation'];
+export const WORK_VIEW_NAMES = { table: 'Table', kanban: 'Kanban', timeline: 'Timeline', story: 'Story map', mindmap: 'Mind map', org: 'Org chart', chart: 'Chart' };
+export function viewFor(table, kind) {
+  return table?.views.find(v => v.kind === kind) || { id: kind, kind, name: WORK_VIEW_NAMES[kind] };
+}
 export const DEFAULT_FIELDS = [
   { id: 'title', name: 'Title', type: 'text' },
   { id: 'description', name: 'Description', type: 'text' },
@@ -49,15 +53,22 @@ export function layoutColumns(board, columnId) {
   const container = board.nodes.find(n => n.id === columnId && n.kind === 'columns');
   if (!container || !container.lanes.length || !container.swimlanes.length) return board;
   const width = (container.w - 20) / container.lanes.length;
-  const height = (container.h - 72) / container.swimlanes.length;
-  const counts = new Map();
-  return { ...board, nodes: board.nodes.map(n => {
-    if (n.type !== 'card' || n.parentId !== columnId) return n;
+  const cells = new Map(), offsets = new Map();
+  for (const n of board.nodes) {
+    if (n.type !== 'card' || n.parentId !== columnId) continue;
     const laneIndex = Math.max(0, container.lanes.findIndex(v => v.id === n.record.lane));
     const rowIndex = Math.max(0, container.swimlanes.findIndex(v => v.id === n.record.swimlane));
     const key = `${laneIndex}:${rowIndex}`;
-    const index = counts.get(key) || 0; counts.set(key, index + 1);
-    return { ...n, x: container.x + 16 + laneIndex * width, y: container.y + 84 + rowIndex * height + index * 184,
-      w: Math.max(100, width - 20), record: { ...n.record, lane: container.lanes[laneIndex].id, swimlane: container.swimlanes[rowIndex].id } };
+    const offset = offsets.get(key) || 0;
+    offsets.set(key, offset + n.h + 14);
+    cells.set(n.id, { laneIndex, rowIndex, offset });
+  }
+  const height = Math.max((container.h - 72) / container.swimlanes.length, 12 + Math.max(0, ...offsets.values()));
+  return { ...board, nodes: board.nodes.map(n => {
+    if (n.id === columnId) return { ...n, h: 72 + height * container.swimlanes.length };
+    const cell = cells.get(n.id);
+    if (!cell) return n;
+    return { ...n, x: container.x + 16 + cell.laneIndex * width, y: container.y + 84 + cell.rowIndex * height + cell.offset,
+      w: Math.max(100, width - 20), record: { ...n.record, lane: container.lanes[cell.laneIndex].id, swimlane: container.swimlanes[cell.rowIndex].id } };
   }) };
 }

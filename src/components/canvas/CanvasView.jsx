@@ -31,6 +31,7 @@ import { useLockShortcut } from "./use-lock-shortcut";
 import { useArrangeShortcuts } from "./use-arrange-shortcuts";
 import { layeredView } from "@/lib/canvas/layers";
 import { WorkTools } from "./WorkTools";
+import { isEditingTarget } from "@/lib/canvas/shortcut-target";
 import { ObjectInfo } from "./ObjectInfo";
 import { BoardViewOverlays } from "./BoardViewOverlays";
 import { useBoardView } from "./use-board-view";
@@ -229,11 +230,7 @@ export function CanvasView() {
   // ── document-level keyboard shortcuts (ui-spec §11) ─────────────────
   useEffect(() => {
     const onKeyDown = (e) => {
-      const target = e.target ;
-      const editing =
-        target?.isContentEditable || target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.tagName === "SELECT" ||
-        target?.closest?.('[data-crop-controls], [role="dialog"], [role="alertdialog"]');
-      if (editing) return;
+      if (isEditingTarget(e.target)) return;
 
       const canvasState = useCanvasStore.getState();
       if (canvasState.croppingImageId && (e.key === "Enter" || e.key === "Escape")) {
