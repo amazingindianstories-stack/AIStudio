@@ -1,4 +1,6 @@
 /** Shared field/record/view vocabulary for cards and data-backed work widgets. */
+import { inFreeSpace } from './ai-formats';
+
 export const WORK_KINDS = ['columns', 'table', 'kanban', 'timeline', 'story', 'mindmap', 'org', 'chart'];
 export const FIELD_TYPES = ['text', 'number', 'select', 'date', 'people', 'points', 'formula', 'relation'];
 export const WORK_VIEW_NAMES = { table: 'Table', kanban: 'Kanban', timeline: 'Timeline', story: 'Story map', mindmap: 'Mind map', org: 'Org chart', chart: 'Chart' };
@@ -51,6 +53,10 @@ export function newColumns(point) {
   return { id: crypto.randomUUID(), type: 'work', kind: 'columns', title: 'Team board', x: point.x, y: point.y, w: 960, h: 560,
     parentId: null, groupId: null, lanes: ['To do', 'In progress', 'Done'].map(name => ({ id: crypto.randomUUID(), name, color: '#dbeafe' })),
     swimlanes: [{ id: crypto.randomUUID(), name: 'Team', color: '#f1f5f9' }] };
+}
+/** `node` centred on `point`, or moved to the nearest free board space so it never lands on existing `nodes`. */
+export function placeWorkNode(node, point, nodes) {
+  return inFreeSpace([{ ...node, x: point.x - node.w / 2, y: point.y - node.h / 2 }], nodes)[0];
 }
 /** Compute every card position from board data, including off-screen cards. */
 export function layoutColumns(board, columnId) {

@@ -211,6 +211,12 @@ test('Board work: data widgets group and load the whole table, link off-page rec
   await page.getByRole('dialog', { name: 'Cards and work' }).getByRole('button', { name: 'Add Table', exact: true }).click();
   const records = page.getByRole('dialog', { name: 'Work records' });
   await expect(records.getByRole('heading', { name: 'New table' })).toBeVisible();
+  // The new widget stays selected, but its style toolbar never covers the records dialog.
+  const inspector = await page.locator('[data-center-x]').boundingBox();
+  const dialog = await records.boundingBox();
+  const overlap = { x0: Math.max(inspector.x, dialog.x), y0: Math.max(inspector.y, dialog.y), x1: Math.min(inspector.x + inspector.width, dialog.x + dialog.width), y1: Math.min(inspector.y + inspector.height, dialog.y + dialog.height) };
+  expect(overlap.x0 < overlap.x1 && overlap.y0 < overlap.y1).toBe(true);
+  expect(await page.evaluate(({ x0, y0, x1, y1 }) => Boolean(document.elementFromPoint((x0 + x1) / 2, (y0 + y1) / 2)?.closest('[role="dialog"][aria-label="Work records"]')), overlap)).toBe(true);
   const boardId = (await (await context.request.get(`/api/canvas-boards?projectId=${project.id}`)).json()).boards[0].id;
   const table = (await (await context.request.get(`/api/canvas-boards/${boardId}/work`)).json()).tables[0];
   const path = `/api/canvas-boards/${boardId}/work/${table.id}`;
@@ -298,6 +304,11 @@ test('Board work: data widgets group and load the whole table, link off-page rec
   await page.keyboard.press('Enter');
   await expect(workspace.locator('td[aria-label="New activity / New task / Release 1"]').getByRole('button')).toHaveCount(2);
   await expect(workspace.getByRole('table', { name: 'Story map' }).getByRole('columnheader', { name: 'New task', exact: true })).toBeVisible();
+  // Each new widget lands in free board space instead of on the one before it.
+  const widgets = async () => (await (await context.request.get(`/api/canvas-boards/${boardId}`)).json()).data.nodes.filter(n => n.type === 'work');
+  await expect.poll(async () => (await widgets()).length).toBe(2);
+  const [first, second] = await widgets();
+  expect(first.x >= second.x + second.w || second.x >= first.x + first.w || first.y >= second.y + second.h || second.y >= first.y + first.h).toBe(true);
   await page.reload();
   await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Board', exact: true }).click();
   await page.getByRole('button', { name: 'Cards and work', exact: true }).click();
