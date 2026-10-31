@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { newCard, newColumns, layoutColumns, cleanRecord, viewFor, blockersOf } from './work-records.js';
+import { newCard, newColumns, layoutColumns, cleanRecord, viewFor, blockersOf, placeWorkNode } from './work-records.js';
 import { validateCanvasState, emptyCanvasState } from './serialization.js';
 import { useCanvasStore } from '../canvas-store.js';
 
@@ -33,6 +33,16 @@ test('columns grow so every card in a crowded cell stays inside its swimlane', (
   assert.ok(placed[4].y + placed[4].h <= container.y + container.h);
   const roomy = layoutColumns({ nodes: [columns, lower] }, columns.id);
   assert.equal(roomy.nodes[0].h, columns.h);
+});
+test('new work widgets centre on the viewport and never stack on existing board content', () => {
+  const center = { x: 1000, y: 500 };
+  const first = placeWorkNode(newColumns({ x: 0, y: 0 }), center, []);
+  assert.deepEqual([first.x, first.y], [520, 220]);
+  const nodes = [first];
+  for (let i = 0; i < 3; i++) nodes.push(placeWorkNode({ id: `w${i}`, type: 'work', kind: 'chart', x: 0, y: 0, w: 640, h: 420 }, center, nodes));
+  nodes.push(placeWorkNode(newCard({ x: 0, y: 0 }), center, nodes));
+  const apart = (a, b) => a.x >= b.x + b.w || b.x >= a.x + a.w || a.y >= b.y + b.h || b.y >= a.y + a.h;
+  for (let i = 0; i < nodes.length; i++) for (let j = i + 1; j < nodes.length; j++) assert.ok(apart(nodes[i], nodes[j]), `${i} overlaps ${j}`);
 });
 test('a record waits on its explicit dependencies and every relation field target', () => {
   const fields = [{ id: 'title', type: 'text' }, { id: 'needs', type: 'relation' }, { id: 'after', type: 'relation' }];

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { treeLayout, timelineLayout, storyLayout, csvParse, csvStringify, numberPresentation } from './work-layouts.js';
+import { treeLayout, timelineLayout, storyLayout, csvParse, csvStringify, numberPresentation, cellText, chartAxisLabels } from './work-layouts.js';
 import { treeToBoard, buildTimeline } from './work-generators.js';
 import { validateCanvasState } from './serialization.js';
 import { readWorkFile } from './work-files.js';
@@ -30,6 +30,13 @@ test('timeline dates, milestones and invalid intervals are deterministic', () =>
   assert.equal(generated.nodes.length, 12);
   assert.equal(validateCanvasState(generated).nodes.length, 12);
   assert.throws(() => buildTimeline({ nodes: [] }, { start: '2026-01-01', end: '2026-12-31', interval: 'day', lanes: 'Team' }, { x: 0, y: 0 }), /120/);
+  // Built where an existing widget sits, the timeline moves as a whole to free space beside it.
+  const chart = { id: 'chart', type: 'work', kind: 'chart', x: 0, y: 0, w: 640, h: 420 };
+  const beside = buildTimeline({ nodes: [chart], connectors: [] }, { start: '2026-01-31', end: '2026-04-01', interval: 'month', lanes: 'Design\nBuild' }, { x: 0, y: 0 });
+  const [frame, ...cells] = beside.nodes.slice(1);
+  assert.ok(frame.x >= 640 || frame.y >= 420 || frame.x + frame.w <= 0 || frame.y + frame.h <= 0);
+  assert.equal(cells[0].x - frame.x, generated.nodes[1].x - generated.nodes[0].x);
+  assert.ok(cells.every(cell => cell.parentId === frame.id));
 });
 test('timeline groups roots by the view field and nests children under their parent', () => {
   const rows = [
@@ -73,6 +80,25 @@ test('number fields format currency, percent, progress and conditional colors', 
   assert.equal(numberPresentation(12, { format: 'currency' }).text, '$12.00');
   assert.equal(numberPresentation(150, { format: 'progress', colors: [{ min: 10, color: '#ff0000' }] }).progress, 100);
   assert.equal(numberPresentation(150, { colors: [{ min: 10, color: '#ff0000' }] }).color, '#ff0000');
+  assert.equal(numberPresentation(100 / 3, { type: 'formula' }).text, '33.33');
+  assert.equal(numberPresentation(88500, { type: 'number' }).text, '88,500');
+});
+test('cells show people by name or email, a short id until names load, and rounded numbers', () => {
+  const people = new Map([['u1', { id: 'u1', name: 'Ada' }], ['u2', { id: 'u2', name: '', email: 'grace@example.test' }]]);
+  const person = { type: 'people' };
+  assert.equal(cellText('u1', person, people), 'Ada');
+  assert.equal(cellText('u2', person, people), 'grace@example.test');
+  assert.equal(cellText('b0a2d000-0000-4000-8000-000000000041', person, people), 'b0a2d000');
+  assert.equal(cellText('', person, people), '');
+  assert.equal(cellText(350 / 3, { type: 'formula' }), '116.67');
+  assert.equal(cellText(undefined, { type: 'text' }), '');
+});
+test('chart category labels stay whole and level when they fit, and turn to fit narrow bars', () => {
+  assert.deepEqual(chartAxisLabels(['In progress', 'Done'], 270), { rotated: false, text: ['In progress', 'Done'], space: 30 });
+  const narrow = chartAxisLabels(['In progress', 'A very long category name for this chart'], 40);
+  assert.equal(narrow.rotated, true);
+  assert.deepEqual(narrow.text, ['In progress', 'A very long category na…']);
+  assert.equal(narrow.space, 24 * 6 + 24);
 });
 test('Excel import reads native workbook values without executing formulas', async () => {
   const { default: ExcelJS } = await import('exceljs');

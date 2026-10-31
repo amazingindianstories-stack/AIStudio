@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useCanvasStore, selectReadOnly } from '@/lib/canvas-store';
 import { usePeople } from '@/lib/canvas/use-people';
-import { DEFAULT_FIELDS, newCard, newColumns, layoutColumns } from '@/lib/canvas/work-records';
+import { DEFAULT_FIELDS, newCard, newColumns, layoutColumns, placeWorkNode } from '@/lib/canvas/work-records';
 
 import { WorkDataPanel } from './WorkDataPanel';
 import { WorkInbox } from './WorkInbox';
@@ -35,7 +35,7 @@ export function WorkTools({ viewCenter, viewOnly }) {
         const card = state.history.present.nodes.find(n => n.id === state.selection[0] && n.type === 'card');
         if (card) { e.preventDefault(); e.stopPropagation(); setActiveId(card.id); setOpen(true); }
       } else if (e.key.toLowerCase() === 'd' && !e.metaKey && !e.ctrlKey && !e.altKey && !selectReadOnly(state) && !viewOnly) {
-        e.preventDefault(); e.stopPropagation(); const card = newCard(viewCenter()); state.addNode(card); setActiveId(card.id); setOpen(true);
+        e.preventDefault(); e.stopPropagation(); const card = placeWorkNode(newCard({ x: 0, y: 0 }), viewCenter(), state.history.present.nodes); state.addNode(card); setActiveId(card.id); setOpen(true);
       }
     };
     window.addEventListener('board-work-open', show);
@@ -45,8 +45,9 @@ export function WorkTools({ viewCenter, viewOnly }) {
   function update(patch) { if (!readOnly) useCanvasStore.getState().updateNodeFields(activeId, patch); }
   function record(key, value) { update({ record: { ...active.record, [key]: value } }); }
   function create(kind) {
-    const node = kind === 'card' ? newCard(viewCenter()) : newColumns(viewCenter());
-    useCanvasStore.getState().addNode(node); setActiveId(node.id); setOpen(true);
+    const state = useCanvasStore.getState();
+    const node = placeWorkNode(kind === 'card' ? newCard({ x: 0, y: 0 }) : newColumns({ x: 0, y: 0 }), viewCenter(), state.history.present.nodes);
+    state.addNode(node); setActiveId(node.id); setOpen(true);
   }
   async function createDataset(kind, datasetId) {
     if (readOnly || busy) return;
@@ -58,9 +59,9 @@ export function WorkTools({ viewCenter, viewOnly }) {
         const result = await workRequest(tablePath(boardId), { name: 'New ' + kind, fields: [...DEFAULT_FIELDS, ...extras], views: [{ id: kind, name: kind, kind }] });
         id = result.table.id;
       }
-      const point = viewCenter();
-      const node = { id: crypto.randomUUID(), type: 'work', kind, title: datasets.find(t => t.id === id)?.name || 'New ' + kind, datasetId: id, x: point.x, y: point.y, w: 640, h: 420, parentId: null, groupId: null };
-      useCanvasStore.getState().addNode(node); setActiveId(node.id);
+      const state = useCanvasStore.getState();
+      const node = placeWorkNode({ id: crypto.randomUUID(), type: 'work', kind, title: datasets.find(t => t.id === id)?.name || 'New ' + kind, datasetId: id, x: 0, y: 0, w: 640, h: 420, parentId: null, groupId: null }, viewCenter(), state.history.present.nodes);
+      state.addNode(node); setActiveId(node.id);
     } catch (e) { setError(e.message); } finally { setBusy(false); }
   }
   function changeLane(key, id, patch) {

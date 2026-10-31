@@ -1,4 +1,5 @@
 import { treeLayout } from './work-layouts';
+import { inFreeSpace } from './ai-formats';
 
 const COLORS = ['#dbeafe', '#fce7f3', '#dcfce7', '#fef3c7', '#ede9fe'];
 function box(point, w, h, extra) {
@@ -14,6 +15,7 @@ export function treeToBoard(board, records, view, origin, kind = 'mindmap') {
   const connectors = placed.filter(r => ids.has(r.parentId)).map(r => ({ id: crypto.randomUUID(), from: { nodeId: ids.get(r.parentId), anchor: 'right' }, to: { nodeId: ids.get(r.id), anchor: 'left' }, kind: 'line', shape: 'orthogonal', stroke: '#64748b', strokeWidth: 2 }));
   return { ...board, nodes: [...board.nodes, ...nodes], connectors: [...board.connectors, ...connectors] };
 }
+/** A timeline frame starting at `origin`, moved to the nearest free board space. */
 export function buildTimeline(board, { start, end, interval = 'month', lanes, color = '#dbeafe' }, origin) {
   const a = Date.parse(start + 'T00:00:00Z'), b = Date.parse(end + 'T00:00:00Z');
   if (!Number.isFinite(a) || !Number.isFinite(b) || b < a) throw new Error('Choose valid start and end dates in order.');
@@ -37,5 +39,5 @@ export function buildTimeline(board, { start, end, interval = 'month', lanes, co
     label(name, origin.x + 10, origin.y + 80 + row * 100, 140, 100, '#f1f5f9');
     periods.forEach((_, column) => label('', origin.x + 150 + column * 140, origin.y + 80 + row * 100, 140, 100, '#ffffff'));
   });
-  return { ...board, nodes: [...board.nodes, ...nodes] };
+  return { ...board, nodes: [...board.nodes, ...inFreeSpace(nodes, board.nodes)] };
 }

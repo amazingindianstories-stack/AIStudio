@@ -68,11 +68,33 @@ export function storyLayout(records, { activityField = 'activity', taskField = '
 export function numberPresentation(value, field) {
   const number = Number(value);
   if (value == null || !Number.isFinite(number)) return { text: '', color: undefined };
-  let text = String(number);
+  // Plain numbers keep at most two decimals so formula results such as 100 / 3 fit their cell.
+  let text = new Intl.NumberFormat('en', { maximumFractionDigits: 2 }).format(number);
   if (field.format === 'currency') text = new Intl.NumberFormat('en', { style: 'currency', currency: field.currency || 'USD' }).format(number);
   if (field.format === 'percent') text = new Intl.NumberFormat('en', { style: 'percent', maximumFractionDigits: 2 }).format(number);
   const color = [...(field.colors || [])].sort((a, b) => a.min - b.min).filter(r => number >= r.min).at(-1)?.color;
   return { text, color, progress: field.format === 'progress' ? Math.max(0, Math.min(100, number)) : null };
+}
+const NUMBER_TYPES = ['number', 'points', 'formula'];
+/** A cell as display text: numbers formatted, people by name (a short id until names load), anything else as text. */
+export function cellText(value, field, people = new Map()) {
+  if (NUMBER_TYPES.includes(field?.type)) return numberPresentation(value, field).text;
+  if (field?.type === 'people' && value) {
+    const person = people.get(value);
+    return person?.name || person?.email || String(value).slice(0, 8);
+  }
+  return String(value ?? '');
+}
+const LABEL_CHAR = 6, LABEL_MAX = 24;
+/**
+ * Bar chart category labels for bars `slot` px apart: level and whole when every name fits its bar, otherwise
+ * upright (so none spills past the chart edge) and capped at 24 characters. `space` is the height they need below the axis.
+ */
+export function chartAxisLabels(names, slot) {
+  const level = names.every(name => name.length * LABEL_CHAR <= slot - 4);
+  const text = names.map(name => level || name.length <= LABEL_MAX ? name : name.slice(0, LABEL_MAX - 1) + '…');
+  const longest = Math.max(0, ...text.map(t => t.length));
+  return { rotated: !level, text, space: level ? 30 : longest * LABEL_CHAR + 24 };
 }
 export function csvParse(source) {
   if (source.length > 5_000_000) throw new Error('Import files must be under 5 MB.');

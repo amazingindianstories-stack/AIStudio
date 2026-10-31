@@ -121,7 +121,7 @@ export function WorkDataPanel({ node, readOnly, onClose }) {
       if (target) select(target);
     }
   }
-  return <section role="dialog" aria-label="Work records" className="absolute inset-x-4 bottom-4 top-16 z-40 flex flex-col overflow-hidden rounded-xl border border-slate-300 bg-white text-slate-800 shadow-2xl md:left-[20%]" onKeyDown={e => { e.stopPropagation(); keyboard(e); }}>
+  return <section role="dialog" aria-label="Work records" className="absolute inset-x-4 bottom-4 top-16 z-[46] flex flex-col overflow-hidden rounded-xl border border-slate-300 bg-white text-slate-800 shadow-2xl md:left-[20%]" onKeyDown={e => { e.stopPropagation(); keyboard(e); }}>
     <header className="flex flex-wrap items-center gap-2 border-b bg-slate-50 p-3"><h2 className="mr-auto font-semibold">{table?.name || 'Loading records'}</h2><button className={input} onClick={() => void load()}>Refresh</button><button className={input} onClick={onClose}>Close records</button></header>
     {(error || loadError) && <p role="alert" className="bg-red-50 p-3 text-sm text-red-800">{error || loadError}</p>}
     {table && <>
