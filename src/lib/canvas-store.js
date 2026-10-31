@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { create, } from "zustand";
 import { DRAFT_SYNC_MAX_AGE_MS, clearPendingDraft, readPendingDraft, savePendingDraft, shouldUseKeepalive } from "./canvas-pending-draft";
 
@@ -23,7 +24,7 @@ import {
   connectorPointAt,
 } from "./canvas/geometry";
 import { getDiagramTheme, loadDiagramThemeId, saveDiagramThemeId } from "./canvas/diagram-themes";
-import { hiddenBoardIds } from "./canvas/culling";
+import { hiddenBoardIds, visibleGraph } from "./canvas/culling";
 import {
   bringToFront as zBringToFront,
   sendToBack as zSendToBack,
@@ -1107,6 +1108,8 @@ export const useCanvasStore = create((set, get) => ({
 
   /** The visible canvas's measured size in pixels. */
   viewportSize: () => ({ ...viewportPx }),
+  /** The board as the user sees it: the current graph less what the board hides (hidden layers, outside Focus mode). */
+  visibleBoard: () => visibleGraph(get().history.present, get().focusedDiagramId),
 
   /** Insert generated nodes (a "Create with AI" result) as one undo step and select them. `replaceIds` are the
    * nodes of the result this one refines: they leave in the same step (with connectors that referenced them), so
@@ -1828,6 +1831,13 @@ export function hasClipboard() {
 }
 
 /** The objects last copied or cut on the board. */
+/** visibleBoard() for components, recomputed when the graph or Focus mode changes. */
+export function useVisibleBoard() {
+  const present = useCanvasStore((s) => s.history.present);
+  const focusedDiagramId = useCanvasStore((s) => s.focusedDiagramId);
+  return useMemo(() => visibleGraph(present, focusedDiagramId), [present, focusedDiagramId]);
+}
+
 export function clipboardNodes() {
   return clipboard;
 }

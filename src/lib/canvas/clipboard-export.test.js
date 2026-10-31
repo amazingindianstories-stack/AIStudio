@@ -103,3 +103,33 @@ test("the image draws ERD tables, swimlanes, diagrams, custom shapes, callout ta
   const bubble = /<path transform="translate\(1000 500\)" d="([^"]+)"/.exec(svg)[1];
   assert.match(bubble, /L150 300 Z$/);
 });
+
+test("the image is big enough for callout tails and connector labels past the selected objects", () => {
+  const measure = (s, size) => s.length * size * 0.5;
+  const tailed = {
+    nodes: [
+      node("bubble", "shape", 0, 0, { shape: "callout", tail: { nodeId: "far", anchor: "auto" }, fill: "#fff", stroke: "#000", strokeWidth: 1 }),
+      node("far", "sticky", 0, 300, { text: "", fill: "#fde68a" }),
+    ],
+    connectors: [],
+  };
+  // The tail ends on the top of the note 300 below; the image keeps its padding below that.
+  const alone = selectionSvg(tailed, ["bubble"], { measure, images: new Map() });
+  assert.equal(alone.height, 24 + 300 + 24);
+  const linked = {
+    nodes: [node("a", "sticky", 0, 0, { fill: "#fde68a" }), node("b", "sticky", 0, 400, { fill: "#fde68a" })],
+    connectors: [{ id: "c", from: { nodeId: "a", anchor: "bottom" }, to: { nodeId: "b", anchor: "top" }, kind: "line", shape: "straight", stroke: "#fff", strokeWidth: 2, labels: [{ id: "l", text: "a long label that is wider than the note", position: 0.5 }] }],
+  };
+  // Only the connector is selected with "a": its line and label reach below "a" and out past its sides.
+  const { svg, width, height } = selectionSvg(linked, ["a"], { measure, images: new Map(), selectedConnectorIds: ["c"] });
+  assert.match(svg, />a long label that is wider than the note</);
+  const labelWidth = Math.max(36, "a long label that is wider than the note".length * 6.8 + 14);
+  assert.ok(width >= labelWidth + 48, `width ${width}`);
+  assert.ok(height >= 400 + 48, `height ${height}`);
+});
+
+test("a callout whose tail points at an object that is not drawn is drawn without the tail", () => {
+  const board = { nodes: [node("bubble", "shape", 500, 500, { shape: "callout", tail: { nodeId: "hidden", anchor: "auto" }, fill: "#fff", stroke: "#000", strokeWidth: 1 })], connectors: [] };
+  const { width, height } = selectionSvg(board, ["bubble"], { measure: () => 0, images: new Map() });
+  assert.deepEqual([width, height], [148, 148]);
+});

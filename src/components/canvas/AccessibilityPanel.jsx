@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { CheckCircle2, Contrast, ImageOff, Type } from "lucide-react";
-import { useCanvasStore } from "@/lib/canvas-store";
+import { useCanvasStore, useVisibleBoard } from "@/lib/canvas-store";
 import { accessibilityIssues, describeObject } from "@/lib/canvas/a11y-check";
 import { BoardPanel } from "./BoardPanel";
 import { jumpToObject } from "./BoardOutline";
@@ -23,7 +23,7 @@ function fixField(id, field, value) {
  * missing description or title right here.
  */
 export function AccessibilityPanel({ canEdit, onClose }) {
-  const present = useCanvasStore((s) => s.history.present);
+  const present = useVisibleBoard();
   const issues = useMemo(() => accessibilityIssues(present), [present]);
   const nodesById = useMemo(() => new Map(present.nodes.map((n) => [n.id, n])), [present]);
 

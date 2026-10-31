@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useCanvasStore } from "@/lib/canvas-store";
+import { useCanvasStore, useVisibleBoard } from "@/lib/canvas-store";
 import { useBoardUi } from "@/lib/canvas/board-ui";
 import { boardSummary, describeObject } from "@/lib/canvas/a11y-check";
 import { readingOrder } from "@/lib/canvas/keyboard-nav";
@@ -17,8 +17,9 @@ const ROW =
 export function jumpToObject(id) {
   const store = useCanvasStore.getState();
   if (!store.focusObject(id)) return;
-  const node = store.history.present.nodes.find((n) => n.id === id);
-  if (node) useBoardUi.getState().announce(describeObject(node, store.history.present));
+  const present = store.visibleBoard();
+  const node = present.nodes.find((n) => n.id === id);
+  if (node) useBoardUi.getState().announce(describeObject(node, present));
 }
 
 /**
@@ -28,7 +29,7 @@ export function jumpToObject(id) {
  * so it lists everything, on screen or not.
  */
 export function BoardOutline({ onClose }) {
-  const present = useCanvasStore((s) => s.history.present);
+  const present = useVisibleBoard();
   const [showAll, setShowAll] = useState(false);
 
   const { frames, loose } = useMemo(() => {

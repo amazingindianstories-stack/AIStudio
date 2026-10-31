@@ -88,7 +88,7 @@ export function BoardSkipLink() {
       onClick={(e) => {
         e.preventDefault();
         const store = useCanvasStore.getState();
-        const first = edgeStop(store.history.present, [], "first");
+        const first = edgeStop(store.visibleBoard(), [], "first");
         focusBoardSurface();
         if (first) selectFromKeyboard(first);
         else useBoardUi.getState().announce("The board is empty.");

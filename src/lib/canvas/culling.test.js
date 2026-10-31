@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cullBoard, cullRect, CULL_OVERSCAN_PX } from "./culling.js";
+import { cullBoard, cullRect, CULL_OVERSCAN_PX, visibleGraph } from "./culling.js";
 
 const rect = (id, x, y, extra = {}) => ({ id, type: "rect", x, y, w: 100, h: 100, ...extra });
 const line = (id, from, to) => ({ id, from: typeof from === "string" ? { nodeId: from, anchor: "auto" } : from, to: typeof to === "string" ? { nodeId: to, anchor: "auto" } : to });
@@ -62,4 +62,24 @@ test("culling a 5,000-object board is cheap enough for every pan frame", () => {
   for (let frame = 0; frame < 60; frame += 1) mounted = cullBoard({ nodes, connectors }, map, { x: frame * 10, y: 0, zoom: 1 }, size);
   assert.ok((performance.now() - started) / 60 < 8, "under 8 ms a frame");
   assert.ok(mounted.nodes.length < 400);
+});
+
+test("the visible graph leaves out hidden diagram layers, what Focus mode hides and their connectors", () => {
+  const nodes = [
+    rect("plan", 0, 0, { type: "diagram", w: 600, h: 400, layers: [{ id: "main", visible: true }, { id: "notes", visible: false }] }),
+    rect("shown", 50, 50, { parentId: "plan", diagramLayerId: "main" }),
+    rect("note", 300, 50, { parentId: "plan", diagramLayerId: "notes" }),
+    rect("away", 2000, 0),
+  ];
+  const connectors = [line("to-note", "shown", "note"), line("to-away", "shown", "away"), line("free", { x: 10, y: 10 }, { x: 3000, y: 0 })];
+  const graph = { nodes, connectors, viewport };
+  const visible = visibleGraph(graph);
+  assert.deepEqual(ids(visible.nodes), ["plan", "shown", "away"]);
+  assert.deepEqual(ids(visible.connectors), ["to-away", "free"]);
+  assert.equal(visible.viewport, viewport);
+  const focused = visibleGraph(graph, "plan");
+  assert.deepEqual(ids(focused.nodes), ["plan", "shown"]);
+  assert.deepEqual(ids(focused.connectors), []);
+  const plain = { nodes: [rect("a", 0, 0)], connectors: [] };
+  assert.equal(visibleGraph(plain), plain);
 });

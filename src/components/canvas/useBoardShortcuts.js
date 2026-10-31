@@ -30,7 +30,7 @@ function inView(node, viewport, size) {
  */
 export function selectFromKeyboard(ids, focusId = ids[0]) {
   const store = useCanvasStore.getState();
-  const { present } = store.history;
+  const present = store.visibleBoard();
   const node = present.nodes.find((n) => n.id === focusId);
   store.setSelection(ids);
   if (!node) return;
@@ -64,7 +64,7 @@ export async function copySelection() {
   const store = useCanvasStore.getState();
   if (!store.selection.length) return;
   store.copy();
-  const text = selectionText(store.history.present, store.selection);
+  const text = selectionText(store.visibleBoard(), store.selection);
   if (text && (await writeClipboardText(text))) useBoardUi.getState().notify("Copied");
 }
 
@@ -85,7 +85,7 @@ export async function copySelectionAsImage() {
     useBoardUi.getState().notify("Select something to copy as an image");
     return;
   }
-  const ok = await writeClipboardImage(store.history.present, store.selection, store.selectedConnectorIds);
+  const ok = await writeClipboardImage(store.visibleBoard(), store.selection, store.selectedConnectorIds);
   useBoardUi.getState().notify(ok ? "Copied as image" : "Could not copy as an image in this browser");
 }
 

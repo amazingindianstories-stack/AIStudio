@@ -6,7 +6,9 @@
  * nearby objects at once and off-screen media never loads. Culling only
  * decides what is mounted: every feature that works on the board (select all,
  * marquee, align, copy, export, fit, minimap, search, jump-to-object, AI
- * placement) reads the whole graph from the store.
+ * placement) reads the whole graph from the store, not just what is mounted.
+ * Find, copy, keyboard navigation and the screen-reader outline read it less
+ * what hiddenBoardIds hides (visibleGraph).
  *
  * Always mounted, wherever they are: the selection (so dragging, resizing and
  * keyboard moves keep their element), the node being text-edited or cropped,
@@ -122,6 +124,17 @@ export function hiddenBoardIds(graph, focusDiagramId = null) {
     if (endHidden(connector.from) || endHidden(connector.to)) connectors.add(connector.id);
   }
   return { nodes, connectors };
+}
+
+/** `graph` without what the board hides (see hiddenBoardIds): the objects a user sees, finds and reaches. */
+export function visibleGraph(graph, focusDiagramId = null) {
+  const hidden = hiddenBoardIds(graph, focusDiagramId);
+  if (!hidden.nodes.size && !hidden.connectors.size) return graph;
+  return {
+    ...graph,
+    nodes: graph.nodes.filter((node) => !hidden.nodes.has(node.id)),
+    connectors: graph.connectors.filter((connector) => !hidden.connectors.has(connector.id)),
+  };
 }
 
 /**

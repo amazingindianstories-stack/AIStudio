@@ -9,6 +9,7 @@ import {
   ERD_ROW_HEIGHT,
   connectorPath,
   connectorPointAt,
+  connectorPoints,
   isContainerNode,
   nodeBounds,
   resolveEndpoint,
@@ -110,6 +111,13 @@ function label(text, x, y, width, measure, { size = 12, weight = 400, fill = "#f
   return `<text x="${x}" y="${y}" font-family="Inter, system-ui, sans-serif" font-size="${size}" font-weight="${weight}" fill="${esc(fill)}" text-anchor="${anchor}">${fitted}</text>`;
 }
 
+/** Where a callout's tail points; null without a tail or when the object it points at is not drawn. */
+function calloutTip(node, nodesById) {
+  if (!isCalloutKind(node.shape) || !node.tail) return null;
+  if ("nodeId" in node.tail && !nodesById[node.tail.nodeId]) return null;
+  return resolveEndpoint(node.tail, nodesById);
+}
+
 function shapeMarkup(node, measure, nodesById) {
   const paint = `fill="${esc(node.fill ?? "#ffffff")}" stroke="${esc(node.stroke ?? "#000000")}" stroke-width="${node.strokeWidth ?? 1}"`;
   let outline;
@@ -121,13 +129,12 @@ function shapeMarkup(node, measure, nodesById) {
     outline = `<rect x="${node.x}" y="${node.y}" width="${node.w}" height="${node.h}" rx="${node.cornerRadius ?? 4}" ${paint}/>`
       + `<image href="${esc(href)}" x="${node.x + node.w * 0.08}" y="${node.y + node.h * 0.08}" width="${node.w * 0.84}" height="${node.h * 0.84}"/>`;
   } else {
+    const tip = calloutTip(node, nodesById);
     let points;
     if (node.type === "triangle") points = [[node.w / 2, 0], [node.w, node.h], [0, node.h]];
     else if (node.type === "diamond") points = [[node.w / 2, 0], [node.w, node.h / 2], [node.w / 2, node.h], [0, node.h / 2]];
-    else if (isCalloutKind(node.shape) && node.tail) {
-      const tip = resolveEndpoint(node.tail, nodesById);
-      points = calloutOutlineWithTail(node.shape, node.w, node.h, { x: tip.x - node.x, y: tip.y - node.y });
-    } else points = shapeOutline(node.shape, node.w, node.h);
+    else if (tip) points = calloutOutlineWithTail(node.shape, node.w, node.h, { x: tip.x - node.x, y: tip.y - node.y });
+    else points = shapeOutline(node.shape, node.w, node.h);
     outline = `<path transform="translate(${node.x} ${node.y})" d="${pointsToPath(points)}" ${paint}/>`;
   }
   return outline + textBlock(node, nodeBounds(node), measure, { align: "center", valign: "middle", inset: 8 });
@@ -209,19 +216,24 @@ function diagramMarkup(node, measure) {
 }
 
 /** A connector's text labels, boxed at their place along it as the board shows them. */
-function connectorLabelsMarkup(c, nodesById) {
-  if (!Array.isArray(c.labels)) return "";
+/** Each label of connector `c` with where its box sits: center `pt`, rotation `rot` and width `boxW` (20 high). */
+function connectorLabels(c, nodesById) {
+  if (!Array.isArray(c.labels)) return [];
   return c.labels.map((item) => {
     const pt = connectorPointAt(c, nodesById, item.position ?? 0.5);
     let rot = item.orientation === "aligned" ? pt.angle : 0;
     if (rot > 90) rot -= 180;
     if (rot < -90) rot += 180;
     const text = item.text || "";
-    const boxW = Math.max(36, text.length * 6.8 + 14);
-    return `<g transform="translate(${pt.x} ${pt.y}) rotate(${rot})">`
+    return { text, pt, rot, boxW: Math.max(36, text.length * 6.8 + 14) };
+  });
+}
+
+function connectorLabelsMarkup(c, nodesById) {
+  return connectorLabels(c, nodesById).map(({ text, pt, rot, boxW }) =>
+    `<g transform="translate(${pt.x} ${pt.y}) rotate(${rot})">`
       + `<rect x="${-boxW / 2}" y="-10" width="${boxW}" height="20" rx="4" fill="#18181b" stroke="rgba(255,255,255,0.25)"/>`
-      + `<text x="0" y="4" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" fill="#f4f4f5">${esc(text)}</text></g>`;
-  }).join("");
+      + `<text x="0" y="4" text-anchor="middle" font-family="Inter, system-ui, sans-serif" font-size="11" fill="#f4f4f5">${esc(text)}</text></g>`).join("");
 }
 
 function nodeMarkup(node, measure, images, nodesById) {
@@ -275,13 +287,29 @@ export function selectionSvg(present, selection, { measure, images, selectedConn
   const connectorSet = new Set(selectedConnectorIds);
   const connectors = present.connectors.filter((c) =>
     connectorSet.has(c.id) || ("nodeId" in c.from && ids.has(c.from.nodeId) && "nodeId" in c.to && ids.has(c.to.nodeId)));
+  // The image spans everything drawn: the objects, callout tails, connector lines and their labels.
+  let [left, top, right, bottom] = [Infinity, Infinity, -Infinity, -Infinity];
+  const include = (x, y, r = 0) => {
+    left = Math.min(left, x - r);
+    top = Math.min(top, y - r);
+    right = Math.max(right, x + r);
+    bottom = Math.max(bottom, y + r);
+  };
+  for (const n of nodes) {
+    include(n.x, n.y);
+    include(n.x + n.w, n.y + n.h);
+    const tip = calloutTip(n, nodesById);
+    if (tip) include(tip.x, tip.y);
+  }
+  for (const c of connectors) {
+    for (const p of connectorPoints(c, nodesById)) include(p.x, p.y);
+    for (const { pt, boxW } of connectorLabels(c, nodesById)) include(pt.x, pt.y, Math.hypot(boxW / 2, 10));
+  }
   const frameLabel = nodes.some((n) => n.type === "frame") ? 24 : 0;
-  const x0 = Math.min(...nodes.map((n) => n.x)) - PAD;
-  const y0 = Math.min(...nodes.map((n) => n.y)) - PAD - frameLabel;
-  const x1 = Math.max(...nodes.map((n) => n.x + n.w)) + PAD;
-  const y1 = Math.max(...nodes.map((n) => n.y + n.h)) + PAD;
-  const width = Math.ceil(x1 - x0);
-  const height = Math.ceil(y1 - y0);
+  const x0 = left - PAD;
+  const y0 = top - PAD - frameLabel;
+  const width = Math.ceil(right + PAD - x0);
+  const height = Math.ceil(bottom + PAD - y0);
   const body = nodes.map((n) => nodeMarkup(n, measure, images, nodesById)).join("");
   const lines = connectors.map((c) => {
     const marker = c.kind === "arrow" ? ` marker-end="url(#arrow-${esc(c.id)})"` : "";

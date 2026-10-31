@@ -61,6 +61,21 @@ test("replace all edits sticky text and connector labels in one undo step", asyn
   assert.equal(store.getState().history.present.connectors[0].labels[0].text, "cat path");
 });
 
+test("find searches the board as the user sees it, without hidden layers or what Focus mode hides", async (t) => {
+  const store = await loadAs(t, "edit");
+  store.getState().setSelection(["b"]);
+  const diagram = store.getState().convertSelectionToDiagram("Plan");
+  const found = () => findOnBoard(store.getState().visibleBoard(), "cat").map((hit) => hit.id);
+  assert.deepEqual(found(), ["a", "b"]);
+  store.getState().setFocusedDiagramId(diagram);
+  assert.deepEqual(found(), ["b"]);
+  store.getState().setFocusedDiagramId(null);
+  const { layers } = store.getState().history.present.nodes.find((n) => n.id === diagram);
+  store.getState().updateNodeFields(diagram, { layers: layers.map((layer) => ({ ...layer, visible: layer.id !== "layer-main" })) });
+  assert.deepEqual(found(), ["a"]);
+  assert.equal(store.getState().history.present.nodes.length, 3);
+});
+
 test("connecting selected objects adds arrows in one undo step and selects them", async (t) => {
   const store = await loadAs(t, "edit");
   store.getState().connectNodes([["a", "b"]]);

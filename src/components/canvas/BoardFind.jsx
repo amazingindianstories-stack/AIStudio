@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronUp, ChevronRight, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useCanvasStore } from "@/lib/canvas-store";
+import { useCanvasStore, useVisibleBoard } from "@/lib/canvas-store";
 import { useBoardUi } from "@/lib/canvas/board-ui";
 import { FIND_TYPES, findOnBoard, matchCount, replaceMatches, replaceOneMatch } from "@/lib/canvas/find";
 import { connectorBounds, nodeBounds, worldToScreen } from "@/lib/canvas/geometry";
@@ -21,7 +21,7 @@ const TEXT_BUTTON =
  * and brings it into view; the overlay dims everything else.
  */
 export function BoardFind({ canEdit, onClose }) {
-  const present = useCanvasStore((s) => s.history.present);
+  const present = useVisibleBoard();
   const [query, setQuery] = useState("");
   const [types, setTypes] = useState([]);
   const [matchCase, setMatchCase] = useState(false);
@@ -70,7 +70,7 @@ export function BoardFind({ canEdit, onClose }) {
   const replaceOne = () => {
     if (index < 0) return;
     const store = useCanvasStore.getState();
-    const done = replaceOneMatch(store.history.present, hits, { hit: index, range: rangeIndex }, replacement, query, { types, matchCase });
+    const done = replaceOneMatch(store.visibleBoard(), hits, { hit: index, range: rangeIndex }, replacement, query, { types, matchCase });
     store.replaceNodes(done.edits);
     setCurrent(done.at?.hit ?? 0);
     setCurrentRange(done.at?.range ?? 0);
@@ -80,7 +80,7 @@ export function BoardFind({ canEdit, onClose }) {
   };
   const replaceAll = () => {
     const store = useCanvasStore.getState();
-    const edits = replaceMatches(store.history.present, hits, replacement);
+    const edits = replaceMatches(store.visibleBoard(), hits, replacement);
     store.replaceNodes(edits);
     useBoardUi.getState().notify(`Replaced ${matchCount(hits)} ${matchCount(hits) === 1 ? "match" : "matches"}`);
     replaceRef.current?.focus();
