@@ -32,6 +32,7 @@ import { ShapeGlyph } from "./ShapeGlyph";
 import { ShapesPanel } from "./ShapesPanel";
 import { StickyMenu } from "./StickyMenu";
 import { ACTIVE_STATUSES, useBoardAi } from "@/lib/board-ai";
+import { MediaMenu } from "./MediaMenu";
 
 /**
  * Bottom-center floating tool dock (ui-spec §3) + bottom-right zoom control
@@ -50,6 +51,7 @@ export function CanvasToolbar({
   onShapesOpenChange,
   onToggleLock,
   onAddImageClick,
+  onUrl,
   aiOpen,
   onAiClick,
   /** World point at the middle of the view, where bulk stickies and stacks go. */
@@ -192,12 +194,13 @@ export function CanvasToolbar({
           <button
             type="button"
             className="grid h-9 w-9 cursor-pointer place-items-center rounded-lg text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white max-sm:h-8 max-sm:w-8"
-            title="Add image (⇧I)"
+            title="Add image or file (⇧I)"
             aria-label="Add image"
             onClick={onAddImageClick}
           >
             <ImagePlus className="h-4 w-4" />
           </button>
+          {!readOnly && !viewOnly && <MediaMenu onUploadClick={onAddImageClick} onUrl={onUrl} viewCenter={viewCenter} />}
         </ToolGroup>
 
         <Divider />

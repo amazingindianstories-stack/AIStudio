@@ -88,7 +88,7 @@ export function AudioNode({ node, selected }) {
 }
 
 /** One page of a PDF at a time: the page images were rendered by the worker next to the stored original. */
-export function PdfNode({ node, selected, readOnly }) {
+export function PdfNode({ node, selected }) {
   const page = Math.min(Math.max(node.page ?? 1, 1), node.pages);
   const go = (delta) => setPdfPage(node.id, page + delta);
   return (

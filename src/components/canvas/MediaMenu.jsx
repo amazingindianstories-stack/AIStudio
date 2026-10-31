@@ -10,7 +10,7 @@ import { CODE_LANGUAGES } from "@/lib/canvas/media-nodes";
 import { LANGUAGE_LABELS } from "@/lib/canvas/code-highlight";
 import { EMOJI, SKIN_TONES, readRecents, readTone, rememberRecent, saveTone, searchEmoji } from "@/lib/canvas/emoji-set";
 import { ICON_COLORS, ICONS, searchIcons } from "@/lib/canvas/icon-set";
-import { addCodeBlock, addEmoji, addFromLink, addIcon, addMedia, updateCodeBlock } from "@/lib/canvas/media-actions";
+import { addCodeBlock, addEmoji, addIcon, addMedia, updateCodeBlock } from "@/lib/canvas/media-actions";
 import { mediaNodeFields } from "@/lib/canvas/media-upload";
 import { useCanvasStore } from "@/lib/canvas-store";
 
