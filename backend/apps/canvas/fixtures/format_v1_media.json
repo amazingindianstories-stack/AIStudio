@@ -1,0 +1,701 @@
+{
+ "description": "Format v1 media objects (video, PDF, embed, link card, code block, emoji, icon) and the per-object link: the frontend (src/lib/canvas/media-nodes.js) and backend (media_nodes.py) serializers must both turn each input into its expected board.",
+ "cases": {
+  "video_pdf_and_captions": {
+   "input": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [
+     {
+      "id": "v1",
+      "type": "video",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "src": "/api/media/canvas/b/a.mov",
+      "title": "Demo",
+      "naturalW": 1920,
+      "naturalH": 1080,
+      "captions": "/api/media/canvas/b/a.vtt"
+     },
+     {
+      "id": "v2",
+      "type": "video",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "src": "https://evil.example/a.mp4"
+     },
+     {
+      "id": "v3",
+      "type": "video",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "src": "/api/media/canvas/b/b.mp4",
+      "aspectLocked": false,
+      "title": 5
+     },
+     {
+      "id": "p1",
+      "type": "pdf",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "src": "/api/media/canvas/b/d.pdf",
+      "name": "Deck",
+      "pages": 12,
+      "page": 40
+     },
+     {
+      "id": "p2",
+      "type": "pdf",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "src": "/api/media/canvas/b/d.pdf",
+      "pages": 0
+     },
+     {
+      "id": "p3",
+      "type": "pdf",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "src": "/api/media/canvas/b/d.pdf",
+      "pages": 3,
+      "page": 2
+     }
+    ],
+    "connectors": []
+   },
+   "expected": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [
+     {
+      "id": "v1",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "video",
+      "src": "/api/media/canvas/b/a.mov",
+      "aspectLocked": true,
+      "title": "Demo",
+      "naturalW": 1920,
+      "naturalH": 1080,
+      "captions": "/api/media/canvas/b/a.vtt"
+     },
+     {
+      "id": "v3",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "video",
+      "src": "/api/media/canvas/b/b.mp4",
+      "aspectLocked": false,
+      "title": ""
+     },
+     {
+      "id": "p1",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "pdf",
+      "src": "/api/media/canvas/b/d.pdf",
+      "name": "Deck",
+      "pages": 12,
+      "page": 1,
+      "aspectLocked": true
+     },
+     {
+      "id": "p3",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "pdf",
+      "src": "/api/media/canvas/b/d.pdf",
+      "name": "Document",
+      "pages": 3,
+      "page": 2,
+      "aspectLocked": true
+     }
+    ],
+    "connectors": []
+   }
+  },
+  "embeds_keep_only_provider_addresses": {
+   "input": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [
+     {
+      "id": "e1",
+      "type": "embed",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "src": "https://www.youtube.com/embed/dQw4w9WgXcQ",
+      "title": "Clip"
+     },
+     {
+      "id": "e2",
+      "type": "embed",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "src": "https://player.vimeo.com/video/12345?h=abcdef12"
+     },
+     {
+      "id": "e3",
+      "type": "embed",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "src": "https://evil.example/embed/dQw4w9WgXcQ"
+     },
+     {
+      "id": "e4",
+      "type": "embed",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "src": "http://www.youtube.com/embed/dQw4w9WgXcQ"
+     },
+     {
+      "id": "e5",
+      "type": "embed",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "src": "javascript:alert(1)"
+     },
+     {
+      "id": "e6",
+      "type": "embed",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "src": "https://open.spotify.com/embed/track/4uLU6hMCjMI75M1A2tKUQC"
+     },
+     {
+      "id": "e7",
+      "type": "embed",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "src": "https://w.soundcloud.com/player/"
+     },
+     {
+      "id": "e8",
+      "type": "embed",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "src": "https://www.youtube.com.evil.example/embed/dQw4w9WgXcQ"
+     }
+    ],
+    "connectors": []
+   },
+   "expected": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [
+     {
+      "id": "e1",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "embed",
+      "src": "https://www.youtube.com/embed/dQw4w9WgXcQ",
+      "provider": "youtube",
+      "kind": "video",
+      "title": "Clip"
+     },
+     {
+      "id": "e2",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "embed",
+      "src": "https://player.vimeo.com/video/12345?h=abcdef12",
+      "provider": "vimeo",
+      "kind": "video",
+      "title": ""
+     },
+     {
+      "id": "e6",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "embed",
+      "src": "https://open.spotify.com/embed/track/4uLU6hMCjMI75M1A2tKUQC",
+      "provider": "spotify",
+      "kind": "audio",
+      "title": ""
+     }
+    ],
+    "connectors": []
+   }
+  },
+  "link_cards_and_object_links": {
+   "input": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [
+     {
+      "id": "l1",
+      "type": "linkcard",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "url": "https://example.com/a?b=1",
+      "title": "Example",
+      "description": "A page",
+      "site": "example.com",
+      "image": "/api/media/canvas/b/link/x.png",
+      "favicon": "https://example.com/favicon.ico"
+     },
+     {
+      "id": "l2",
+      "type": "linkcard",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "url": "javascript:alert(1)"
+     },
+     {
+      "id": "l3",
+      "type": "linkcard",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "url": "ftp://example.com/file"
+     },
+     {
+      "id": "t1",
+      "type": "text",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "text": "hi",
+      "link": {
+       "url": "https://example.com"
+      }
+     },
+     {
+      "id": "t2",
+      "type": "text",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "text": "hi",
+      "link": {
+       "url": "javascript:alert(1)"
+      }
+     },
+     {
+      "id": "t3",
+      "type": "text",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "text": "hi",
+      "link": {
+       "boardId": "123e4567-e89b-12d3-a456-426614174000"
+      }
+     },
+     {
+      "id": "t4",
+      "type": "text",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "text": "hi",
+      "link": {
+       "nodeId": "t1",
+       "boardId": "123e4567-e89b-12d3-a456-426614174000"
+      }
+     },
+     {
+      "id": "t5",
+      "type": "text",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "text": "hi",
+      "link": {
+       "boardId": "not-a-uuid"
+      }
+     },
+     {
+      "id": "t6",
+      "type": "text",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "text": "hi",
+      "link": [
+       "https://example.com"
+      ]
+     }
+    ],
+    "connectors": []
+   },
+   "expected": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [
+     {
+      "id": "l1",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "linkcard",
+      "url": "https://example.com/a?b=1",
+      "title": "Example",
+      "description": "A page",
+      "site": "example.com",
+      "image": "/api/media/canvas/b/link/x.png"
+     },
+     {
+      "id": "t1",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "text",
+      "text": "hi",
+      "fontSize": 16,
+      "align": "left",
+      "color": "#000000",
+      "link": {
+       "url": "https://example.com"
+      }
+     },
+     {
+      "id": "t2",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "text",
+      "text": "hi",
+      "fontSize": 16,
+      "align": "left",
+      "color": "#000000"
+     },
+     {
+      "id": "t3",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "text",
+      "text": "hi",
+      "fontSize": 16,
+      "align": "left",
+      "color": "#000000",
+      "link": {
+       "boardId": "123e4567-e89b-12d3-a456-426614174000"
+      }
+     },
+     {
+      "id": "t4",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "text",
+      "text": "hi",
+      "fontSize": 16,
+      "align": "left",
+      "color": "#000000",
+      "link": {
+       "nodeId": "t1",
+       "boardId": "123e4567-e89b-12d3-a456-426614174000"
+      }
+     },
+     {
+      "id": "t5",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "text",
+      "text": "hi",
+      "fontSize": 16,
+      "align": "left",
+      "color": "#000000"
+     },
+     {
+      "id": "t6",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "text",
+      "text": "hi",
+      "fontSize": 16,
+      "align": "left",
+      "color": "#000000"
+     }
+    ],
+    "connectors": []
+   }
+  },
+  "code_emoji_and_icons": {
+   "input": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [
+     {
+      "id": "c1",
+      "type": "code",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "code": "print(1)",
+      "language": "python",
+      "fontSize": 200,
+      "lineNumbers": false
+     },
+     {
+      "id": "c2",
+      "type": "code",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "language": "cobol"
+     },
+     {
+      "id": "m1",
+      "type": "emoji",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "emoji": "👍",
+      "style": "sticker",
+      "interactive": true,
+      "agreedBy": [
+       "u1",
+       "u2",
+       "u1",
+       5
+      ]
+     },
+     {
+      "id": "m2",
+      "type": "emoji",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "emoji": "x",
+      "agreedBy": [
+       "u1"
+      ]
+     },
+     {
+      "id": "m3",
+      "type": "emoji",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "emoji": ""
+     },
+     {
+      "id": "i1",
+      "type": "icon",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "icon": "heart",
+      "color": "#ff0000"
+     },
+     {
+      "id": "i2",
+      "type": "icon",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "icon": "Not Valid!"
+     }
+    ],
+    "connectors": []
+   },
+   "expected": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [
+     {
+      "id": "c1",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "code",
+      "code": "print(1)",
+      "language": "python",
+      "fontSize": 64,
+      "lineNumbers": false
+     },
+     {
+      "id": "c2",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "code",
+      "code": "",
+      "language": "text",
+      "fontSize": 14,
+      "lineNumbers": true
+     },
+     {
+      "id": "m1",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "emoji",
+      "emoji": "👍",
+      "style": "sticker",
+      "interactive": true,
+      "agreedBy": [
+       "u1",
+       "u2"
+      ]
+     },
+     {
+      "id": "m2",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "emoji",
+      "emoji": "x"
+     },
+     {
+      "id": "i1",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "icon",
+      "icon": "heart",
+      "color": "#ff0000"
+     }
+    ],
+    "connectors": []
+   }
+  }
+ }
+}

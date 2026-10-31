@@ -17,6 +17,7 @@ import { SHAPE_KIND_PATTERN } from "./shapes";
 import { FONT_FAMILY_PATTERN } from "./fonts";
 import { uniqueStrings, validateReactions } from "./reactions";
 import { MAX_NODE_TAGS, MAX_TAG_ID, validateTags } from "./tags";
+import { MEDIA_NODE_TYPES, validateLink, validateMediaNode } from "./media-nodes";
 
 export function emptyCanvasState() {
   return {
@@ -41,6 +42,7 @@ const NODE_TYPES = new Set([
   "erd",
   "swimlane",
   "diagram",
+  ...MEDIA_NODE_TYPES,
 ]);
 const TEXT_ALIGNS = ["left", "center", "right"];
 
@@ -208,7 +210,11 @@ function withStickyExtras(node, r) {
 
 function validateNode(raw) {
   if (raw == null || typeof raw !== "object") return null;
-  return withStamps(validateNodeContent(raw), raw);
+  const node = validateNodeContent(raw);
+  // Any object may carry one link (a website, a board or an object).
+  const link = node ? validateLink(raw.link) : null;
+  if (link) node.link = link;
+  return withStamps(node, raw);
 }
 
 function validateNodeContent(raw) {
@@ -217,6 +223,8 @@ function validateNodeContent(raw) {
   const base = validateBase(r);
   if (!base) return null;
   const type = r.type ;
+
+  if (MEDIA_NODE_TYPES.includes(type)) return validateMediaNode(type, r, base);
 
   switch (type) {
     case "rect":

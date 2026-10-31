@@ -3,9 +3,10 @@ import json
 import math
 import re
 
+from . import media_nodes
 from .svg_sanitize import sanitize_svg
 
-NODE_TYPES = {'rect', 'ellipse', 'triangle', 'diamond', 'shape', 'text', 'sticky', 'stack', 'frame', 'image', 'erd', 'swimlane', 'diagram'}
+NODE_TYPES = {'rect', 'ellipse', 'triangle', 'diamond', 'shape', 'text', 'sticky', 'stack', 'frame', 'image', 'erd', 'swimlane', 'diagram'} | media_nodes.TYPES
 SHAPE_TYPES = ('rect', 'ellipse', 'triangle', 'diamond', 'shape')
 # Mirrors src/lib/canvas/shapes.js and src/lib/canvas/rich-text.js.
 SHAPE_KIND = re.compile(r'[a-z][a-z0-9-]{0,39}')
@@ -302,6 +303,9 @@ def node(raw):
         if isinstance(r.get('crop'), (dict, list)):
             crop = object_value(r['crop'])
             result['crop'] = {'x': clamp(num(crop.get('x'), .5)), 'y': clamp(num(crop.get('y'), .5)), 'zoom': clamp(num(crop.get('zoom'), 1), 1, 8)}
+    elif kind in media_nodes.TYPES:
+        if media_nodes.coerce(kind, r, result) is None:
+            return None
     elif kind == 'erd':
         cols = int(r['columns']) if r.get('columns') in (1, 2, 3) else 3
         raw_rows = r.get('rows') if isinstance(r.get('rows'), list) else []
@@ -365,6 +369,10 @@ def node(raw):
                 })
             if containers:
                 result['containers'] = containers
+    # Any object may carry one link (a website, a board or an object).
+    valid_link = media_nodes.link(r.get('link'))
+    if valid_link:
+        result['link'] = valid_link
     return with_stamps(result, r)
 
 
