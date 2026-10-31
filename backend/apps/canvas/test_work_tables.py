@@ -37,8 +37,8 @@ class WorkTableTests(TransactionTestCase):
         self.row = access.board_row(self.board.id)
         self.base = f'/api/canvas-boards/{self.board.id}/work'
 
-    def create(self):
-        response = self.client.post(self.base, {'name': 'Plan', 'fields': FIELDS}, content_type='application/json')
+    def create(self, extra=(), views=()):
+        response = self.client.post(self.base, {'name': 'Plan', 'fields': FIELDS + list(extra), 'views': list(views)}, content_type='application/json')
         self.assertEqual(response.status_code, 201, response.content)
         return response.json()['table']
 
@@ -106,3 +106,92 @@ class WorkTableTests(TransactionTestCase):
         from unittest.mock import patch
         with patch('apps.canvas.access.roles_for', return_value={}):
             self.assertEqual(notifications.inbox(recipient), [])
+
+    def editor(self, email='work-editor@example.test'):
+        user = User.objects.create(email=email, password_hash='x', password_salt='x', name='Editor', created_at=1)
+        self.board.created_by = None
+        self.board.team_role = 'edit'; self.board.save()
+        return user, access.board_row(self.board.id)
+
+    def test_editor_saves_settings_but_cannot_change_owner_only(self):
+        table = self.create()
+        editor, row = self.editor()
+        saved = work.mutate(editor, row, table['id'], {'op': 'settings', 'version': table['version'], 'name': 'Renamed', 'ownerOnly': False})['table']
+        self.assertEqual((saved['name'], saved['ownerOnly']), ('Renamed', False))
+        with self.assertRaises(access.AccessError) as raised:
+            work.mutate(editor, row, table['id'], {'op': 'settings', 'version': saved['version'], 'ownerOnly': True})
+        self.assertEqual(raised.exception.status, 403)
+        self.assertFalse(WorkTable.objects.get(id=table['id']).owner_only)
+
+    def test_relation_cells_drive_dependencies_and_deleted_targets_are_pruned(self):
+        table = self.create([{'id': 'needs', 'name': 'Needs', 'type': 'relation'}])
+        first = self.mutate(table, {'op': 'add', 'cells': {'title': 'First'}})['record']
+        second = self.mutate(table, {'op': 'add', 'cells': {'title': 'Second'}})['record']
+        third = self.mutate(table, {'op': 'add', 'cells': {'title': 'Third', 'needs': [first['id'], second['id']]}})['record']
+        self.assertEqual(set(third['blockedBy']), {first['id'], second['id']})
+        third = self.mutate(table, {'op': 'update', 'id': third['id'], 'version': third['version'],
+                                    'cells': {'title': 'Third', 'needs': [second['id']]}, 'blockedBy': third['blockedBy']})['record']
+        self.assertEqual(third['blockedBy'], [second['id']])
+        child = self.mutate(table, {'op': 'add', 'cells': {'title': 'Child'}, 'parentId': second['id']})['record']
+        self.mutate(table, {'op': 'delete', 'id': second['id'], 'version': second['version']})
+        stale = self.mutate(table, {'op': 'update', 'id': third['id'], 'version': third['version'], 'cells': {'title': 'Stale', 'needs': [second['id']]}}, 409)
+        self.assertIn('error', stale)
+        records = {r['id']: r for r in self.client.get(f"{self.base}/{table['id']}").json()['records']}
+        self.assertEqual((records[third['id']]['cells']['needs'], records[third['id']]['blockedBy']), ([], []))
+        self.assertIsNone(records[child['id']]['parentId'])
+        saved = self.mutate(table, {'op': 'update', 'id': third['id'], 'version': records[third['id']]['version'], 'cells': {**records[third['id']]['cells'], 'title': 'Saved'}})['record']
+        self.assertEqual(saved['cells']['title'], 'Saved')
+
+    def test_record_with_deactivated_assignee_remains_editable(self):
+        table = self.create()
+        person = User.objects.create(email='leaver@example.test', name='Leaver', password_hash='x', password_salt='x', created_at=1)
+        record = self.mutate(table, {'op': 'add', 'cells': {'title': 'Owned', 'assignee': str(person.id)}})['record']
+        User.objects.filter(id=person.id).update(is_active=False)
+        saved = self.mutate(table, {'op': 'update', 'id': record['id'], 'version': record['version'], 'cells': {**record['cells'], 'title': 'Renamed'}})['record']
+        self.assertEqual((saved['cells']['title'], saved['cells']['assignee']), ('Renamed', str(person.id)))
+        self.mutate(table, {'op': 'add', 'cells': {'title': 'New', 'assignee': str(person.id)}}, 404)
+
+    def test_numeric_filter_rejects_non_finite_values(self):
+        table = self.create()
+        path = f"{self.base}/{table['id']}"
+        for value in ('nan', 'inf', '-Infinity'):
+            response = self.client.get(f'{path}?filterField=a&filterValue={value}')
+            self.assertEqual(response.status_code, 400, value)
+            self.assertEqual(response.json()['error'], 'Numeric filter requires a finite number.')
+
+    def test_grouping_complete_loading_and_id_lookup_cover_the_whole_query(self):
+        table = self.create([{'id': 'team', 'name': 'Team', 'type': 'text'}])
+        WorkRecord.objects.bulk_create([WorkRecord(table_id=table['id'], cells={'title': f'Item {i}', 'a': i, 'team': 'odd' if i % 2 else 'even'},
+                                                   position=i, created_at=1, updated_at=1) for i in range(205)])
+        path = f"{self.base}/{table['id']}"
+        page = self.client.get(path + '?groupBy=team&sort=a&direction=desc').json()
+        self.assertEqual(page['groups'], [{'value': 'even', 'count': 103}, {'value': 'odd', 'count': 102}])
+        self.assertEqual(len(page['records']), 200)
+        self.assertEqual([r['cells']['a'] for r in page['records'][:2]], [204, 202])
+        self.assertEqual([r['cells']['team'] for r in page['records']].index('odd'), 103)
+        complete = self.client.get(path + '?all=1&groupBy=team&q=Item').json()
+        self.assertEqual((len(complete['records']), complete['total'], complete['limit']), (205, 205, 205))
+        self.assertEqual(complete['aggregates']['a_sum'], sum(range(205)))
+        filtered = self.client.get(path + '?filterField=team&filterValue=odd&groupBy=team').json()
+        self.assertEqual(filtered['groups'], [{'value': 'odd', 'count': 102}])
+        wanted = [str(r.id) for r in WorkRecord.objects.filter(table_id=table['id'], cells__a__in=[0, 204])]
+        found = self.client.get(path + '?ids=' + ','.join(wanted)).json()['records']
+        self.assertEqual({r['id'] for r in found}, set(wanted))
+        self.assertEqual(self.client.get(path + '?ids=not-a-uuid').status_code, 400)
+
+    def test_notifications_use_every_people_field_and_timeline_end_field(self):
+        table = self.create([{'id': 'reviewer', 'name': 'Reviewer', 'type': 'people'}, {'id': 'due', 'name': 'Deadline', 'type': 'date'}],
+                            [{'kind': 'timeline', 'name': 'Plan', 'startField': 'due', 'endField': 'due'}])
+        reviewer = User.objects.create(email='reviewer@example.test', name='Reviewer', password_hash='x', password_salt='x', created_at=1)
+        assignee = User.objects.create(email='assignee@example.test', name='Assignee', password_hash='x', password_salt='x', created_at=1)
+        today = datetime.date(2026, 10, 31)
+        record = self.mutate(table, {'op': 'add', 'cells': {'title': 'Check', 'reviewer': str(reviewer.id), 'due': today.isoformat(), 'end': '2026-11-02'}})['record']
+        self.assertEqual(BoardNotification.objects.filter(user=reviewer, kind='table_assignment').count(), 1)
+        self.mutate(table, {'op': 'update', 'id': record['id'], 'version': record['version'], 'cells': {**record['cells'], 'assignee': str(assignee.id)}})
+        self.assertEqual(BoardNotification.objects.filter(user=assignee, kind='table_assignment').count(), 1)
+        self.assertEqual(BoardNotification.objects.filter(user=reviewer, kind='table_assignment').count(), 1)
+        self.assertEqual(BoardNotification.objects.filter(user=reviewer, kind='table_change').count(), 1)
+        self.assertEqual(notifications.reminders(today=datetime.date(2026, 11, 2))['delivered'], 0)
+        self.assertEqual(notifications.reminders(today=today)['delivered'], 2)
+        self.assertEqual(set(BoardNotification.objects.filter(kind='table_due').values_list('user_id', flat=True)), {reviewer.id, assignee.id})
+        self.assertEqual(notifications.reminders(today=today)['delivered'], 0)

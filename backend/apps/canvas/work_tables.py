@@ -1,5 +1,6 @@
 """Board-authorized table/record API. All mutations lock the table and append history."""
 import datetime
+import math
 import re
 import uuid
 from django.db import transaction
@@ -77,7 +78,11 @@ def views(raw, schema):
     return result
 
 
-def cells(raw, schema):
+def relation_targets(values, schema):
+    return [v for f in schema if f['type'] == 'relation' and isinstance(values.get(f['id']), list) for v in values[f['id']]]
+
+
+def cells(raw, schema, previous=None):
     if not isinstance(raw, dict): raise WorkError('Record cells must be an object.')
     if len(raw) > 64: raise WorkError('Too many record fields.')
     result = {}
@@ -95,7 +100,7 @@ def cells(raw, schema):
                 datetime.date.fromisoformat(value)
             except ValueError as error: raise WorkError(f'{key} must be an ISO date.') from error
         elif kind == 'people':
-            value = str(access.active_user(value))
+            value = value if previous and previous.get(key) == value else str(access.active_user(value))
         elif kind == 'relation':
             if not isinstance(value, list) or len(value) > 64: raise WorkError('Relations must be a list of record ids.')
             value = list(dict.fromkeys(str(identifier(v)) for v in value))
@@ -157,15 +162,21 @@ def query(table, params):
         if kind in ('number', 'points'):
             try: value = float(value)
             except ValueError as error: raise WorkError('Numeric filter requires a number.') from error
+            if not math.isfinite(value): raise WorkError('Numeric filter requires a finite number.')
         records = records.filter(**{f'cells__{key}': value})
+    if params.get('ids'):
+        records = records.filter(id__in=[identifier(v) for v in params['ids'].split(',')[:200]])
+    filtered = records
+    group_by = params.get('groupBy') if params.get('groupBy') in schema else None
+    group_order = ['cells__' + group_by] if group_by else []
     sort = params.get('sort')
     direction = '-' if params.get('direction') == 'desc' else ''
     if sort in schema:
         numeric = {k for k, f in schema.items() if f['type'] in ('number', 'points')}
         expr = sql_expression(schema[sort]['expression'], numeric) if schema[sort]['type'] == 'formula' else KeyTextTransform(sort, 'cells')
         if schema[sort]['type'] in ('number', 'points'): expr = Cast(expr, FloatField())
-        records = records.annotate(sort_value=expr).order_by(direction + 'sort_value', 'id')
-    else: records = records.order_by('position', 'id')
+        records = records.annotate(sort_value=expr).order_by(*group_order, direction + 'sort_value', 'id')
+    else: records = records.order_by(*group_order, 'position', 'id')
     aggregations = {}
     numeric = {k for k, f in schema.items() if f['type'] in ('number', 'points')}
     for key, field in schema.items():
@@ -174,15 +185,16 @@ def query(table, params):
             aggregations[key + '_sum'] = Sum(expr)
             aggregations[key + '_avg'] = Avg(expr)
     groups = []
-    group_by = params.get('groupBy')
-    if group_by in schema:
-        groups = list(records.order_by().values('cells__' + group_by).annotate(count=Count('id')).order_by('cells__' + group_by)[:100])
+    if group_by:
+        rows = filtered.order_by().values('cells__' + group_by).annotate(count=Count('id')).order_by('cells__' + group_by)[:100]
+        groups = [{'value': row['cells__' + group_by], 'count': row['count']} for row in rows]
     try: offset = max(0, min(100000, int(params.get('offset', 0))))
     except (ValueError, TypeError) as error: raise WorkError('Invalid page offset.') from error
-    total = records.count()
-    page = list(records.prefetch_related('dependencies')[offset:offset + 200])
-    return {'records': [record_json(r, table.fields) for r in page], 'total': total, 'offset': offset, 'limit': 200,
-            'aggregates': records.aggregate(**aggregations) if aggregations else {}, 'groups': groups}
+    total = filtered.count()
+    limit = max(total, 1) if params.get('all') == '1' else 200
+    page = list(records.prefetch_related('dependencies')[offset:offset + limit])
+    return {'records': [record_json(r, table.fields) for r in page], 'total': total, 'offset': offset, 'limit': limit,
+            'aggregates': filtered.aggregate(**aggregations) if aggregations else {}, 'groups': groups}
 
 
 def validate_links(table, record, parent, blocked):
@@ -218,9 +230,10 @@ def mutate(user, board, table_id, data):
             if data.get('version') != table.version: raise access.AccessError('Table changed. Refresh before saving.', 409)
             before = describe(table, user, board)
             if 'ownerOnly' in data:
-                if str(table.owner_id) != str(user.id) and access.role_for(user, board) < access.OWN: raise access.AccessError('Only the owner can change table permissions.', 403)
                 if type(data['ownerOnly']) is not bool: raise WorkError('ownerOnly must be boolean.')
-                table.owner_only = data['ownerOnly']
+                if data['ownerOnly'] != table.owner_only:
+                    if str(table.owner_id) != str(user.id) and access.role_for(user, board) < access.OWN: raise access.AccessError('Only the owner can change table permissions.', 403)
+                    table.owner_only = data['ownerOnly']
             if 'name' in data: table.name = text(data['name'], 120) or 'Untitled table'
             if 'fields' in data:
                 new_fields = fields(data['fields'])
@@ -240,17 +253,27 @@ def mutate(user, board, table_id, data):
             before = record_json(record, table.fields) if record else None
             if op == 'delete':
                 history(table, user, record.id, op, before, None)
+                target = str(record.id)
+                relations = [f['id'] for f in table.fields if f['type'] == 'relation']
+                linked = Q(parent=record) | Q(id__in=WorkRelation.objects.filter(target=record).values('source_id'))
+                for key in relations: linked |= Q(cells__contains={key: [target]})
+                for other in table.records.filter(linked).exclude(id=record.id):
+                    other.cells = {k: [v for v in value if v != target] if k in relations and isinstance(value, list) else value
+                                   for k, value in other.cells.items()}
+                    if other.parent_id == record.id: other.parent_id = None
+                    other.version += 1
+                    other.updated_at = now
+                    other.save()
                 record.delete()
             else:
                 if op == 'add' and table.records.count() >= 10000: raise WorkError('Table record limit is 10000.')
-                values = cells(data.get('cells', record.cells if record else {}), table.fields)
+                values = cells(data.get('cells', record.cells if record else {}), table.fields, record.cells if record else None)
                 parent = data.get('parentId', str(record.parent_id) if record and record.parent_id else None)
                 blocked = data.get('blockedBy', before['blockedBy'] if before else [])
-                if not isinstance(blocked, list) or len(blocked) > 64: raise WorkError('Use at most 64 dependencies.')
+                if not isinstance(blocked, list) or len(blocked) > 64 or any(not isinstance(v, str) for v in blocked): raise WorkError('Use at most 64 dependency record ids.')
                 # Typed relation columns also use validated relation rows for dependencies.
-                for field in table.fields:
-                    if field['type'] == 'relation': blocked += values.get(field['id'], [])
-                blocked = list(dict.fromkeys(blocked))
+                previous = set(relation_targets(record.cells, table.fields)) if record else set()
+                blocked = list(dict.fromkeys([v for v in blocked if v not in previous] + relation_targets(values, table.fields)))
                 validate_links(table, record, parent, blocked)
                 position = data.get('position', record.position if record else table.records.count())
                 if type(position) not in (int, float) or int(position) != position or not 0 <= position <= 100000: raise WorkError('Invalid record position.')

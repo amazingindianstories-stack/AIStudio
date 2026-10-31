@@ -27,6 +27,7 @@ import { CanvasAiPanel } from "./CanvasAiPanel";
 import { useBoardAi } from "@/lib/board-ai";
 import { BoardHistoryPanel } from "./BoardHistoryPanel";
 import { WorkTools } from "./WorkTools";
+import { isEditingTarget } from "@/lib/canvas/shortcut-target";
 import { ObjectInfo } from "./ObjectInfo";
 
 // Miro's keys: N sticky note, T text, F frame; S opens the shapes panel.
@@ -217,11 +218,7 @@ export function CanvasView() {
   // ── document-level keyboard shortcuts (ui-spec §11) ─────────────────
   useEffect(() => {
     const onKeyDown = (e) => {
-      const target = e.target ;
-      const editing =
-        target?.isContentEditable || target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.tagName === "SELECT" ||
-        target?.closest?.('[data-crop-controls], [role="dialog"], [role="alertdialog"]');
-      if (editing) return;
+      if (isEditingTarget(e.target)) return;
 
       const canvasState = useCanvasStore.getState();
       if (canvasState.croppingImageId && (e.key === "Enter" || e.key === "Escape")) {

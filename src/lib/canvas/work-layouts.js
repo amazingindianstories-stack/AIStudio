@@ -20,16 +20,50 @@ export function treeLayout(records, { collapsed = [], width = 240, rowHeight = 1
   (children.get(null) || []).forEach((r, index) => visit(r, 0, index));
   return placed;
 }
-export function timelineLayout(records, { startField = 'start', endField = 'end', dayWidth = 24 } = {}) {
+export function timelineLayout(records, { startField = 'start', endField = 'end', groupBy = '', dayWidth = 24, rowHeight = 48, headerHeight = 28 } = {}) {
   const parse = value => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? Date.parse(value + 'T00:00:00Z') : NaN;
   const dated = records.filter(r => Number.isFinite(parse(r.cells[startField])));
   const start = dated.length ? Math.min(...dated.map(r => parse(r.cells[startField]))) : Date.UTC(2026, 0, 1);
-  return { start, records: dated.map((r, index) => {
+  const byId = new Map(dated.map(r => [r.id, r]));
+  const children = new Map();
+  for (const record of dated) {
+    const parent = byId.has(record.parentId) ? record.parentId : null;
+    if (!children.has(parent)) children.set(parent, []);
+    children.get(parent).push(record);
+  }
+  const group = record => groupBy ? String(record.cells[groupBy] ?? '') || 'Unassigned' : '';
+  const roots = children.get(null) || [];
+  const groups = [], placed = [], seen = new Set();
+  let y = 0;
+  function visit(r, depth) {
+    if (seen.has(r.id)) return;
+    seen.add(r.id);
     const a = parse(r.cells[startField]);
     const b = parse(r.cells[endField]);
-    return { ...r, x: (a - start) / DAY * dayWidth, y: index * 48,
-      w: Math.max(dayWidth, (Math.max(a, Number.isFinite(b) ? b : a) - a) / DAY * dayWidth + dayWidth), milestone: a === b };
-  }) };
+    placed.push({ ...r, depth, x: (a - start) / DAY * dayWidth, y,
+      w: Math.max(dayWidth, (Math.max(a, Number.isFinite(b) ? b : a) - a) / DAY * dayWidth + dayWidth), milestone: a === b });
+    y += rowHeight;
+    for (const child of children.get(r.id) || []) visit(child, depth + 1);
+  }
+  for (const label of [...new Set(roots.map(group))]) {
+    if (groupBy) { groups.push({ label, y }); y += headerHeight; }
+    for (const root of roots.filter(r => group(r) === label)) visit(root, 0);
+  }
+  return { start, groups, height: y, records: placed };
+}
+export function storyLayout(records, { activityField = 'activity', taskField = 'task', releaseField = 'release' } = {}) {
+  const value = (record, key) => String(record.cells[key] ?? '') || 'Unassigned';
+  const releases = [...new Set(records.map(r => value(r, releaseField)))];
+  const activities = [];
+  for (const record of records) {
+    const name = value(record, activityField), taskName = value(record, taskField);
+    let activity = activities.find(a => a.name === name);
+    if (!activity) activities.push(activity = { name, tasks: [] });
+    let task = activity.tasks.find(t => t.name === taskName);
+    if (!task) activity.tasks.push(task = { name: taskName, stories: new Map(releases.map(release => [release, []])) });
+    task.stories.get(value(record, releaseField)).push(record);
+  }
+  return { activities, releases };
 }
 export function numberPresentation(value, field) {
   const number = Number(value);

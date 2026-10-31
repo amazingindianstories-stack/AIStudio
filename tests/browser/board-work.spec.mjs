@@ -192,3 +192,96 @@ test('Board work: create cards, edit details, arrange columns, reload persisted 
   }
   await context.close();
 });
+
+test('Board work: data widgets group and load the whole table, link off-page records and build story maps', async ({ browser, baseURL }) => {
+  test.setTimeout(240000);
+  const owner = 'b0a2d000-0000-4000-8000-000000000043';
+  const db = fixtureDatabase(process.env.E2E_DATABASE_URL);
+  await db`INSERT INTO users (id,email,password_hash,password_salt,created_at,name,role,is_active,auth_version)
+    VALUES (${owner},'work-data@example.test','unused','unused',1,'Data owner','user',true,0)
+    ON CONFLICT (id) DO UPDATE SET is_active=true, auth_version=0`;
+  const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+  await context.addCookies([{ name: 'veevee_session', value: cookie(owner), url: baseURL }]);
+  const { project } = await (await context.request.post('/api/projects', { data: { op: 'createProject', name: `Work data ${randomUUID()}` }, headers: { Origin: baseURL } })).json();
+  await context.addInitScript(id => localStorage.setItem('veevee-draft-settings-v1', JSON.stringify({ activeProjectId: id })), project.id);
+  const page = await context.newPage();
+  await page.goto('/');
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Board', exact: true }).click();
+  await page.getByRole('button', { name: 'Cards and work', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Cards and work' }).getByRole('button', { name: 'Add Table', exact: true }).click();
+  const records = page.getByRole('dialog', { name: 'Work records' });
+  await expect(records.getByRole('heading', { name: 'New table' })).toBeVisible();
+  const boardId = (await (await context.request.get(`/api/canvas-boards?projectId=${project.id}`)).json()).boards[0].id;
+  const table = (await (await context.request.get(`/api/canvas-boards/${boardId}/work`)).json()).tables[0];
+  const path = `/api/canvas-boards/${boardId}/work/${table.id}`;
+  for (let i = 0; i < 205; i++) {
+    const day = String(1 + i % 20).padStart(2, '0');
+    const added = await context.request.post(path, { headers: { Origin: baseURL }, data: { op: 'add', cells: {
+      title: `Item ${String(i).padStart(3, '0')}`, status: i % 2 ? 'Done' : 'To do', start: `2026-11-${day}`, end: `2026-11-${day}` } } });
+    expect(added.ok()).toBeTruthy();
+  }
+  const id = async title => (await (await context.request.get(`${path}?q=${encodeURIComponent(title)}`)).json()).records.find(r => r.cells.title === title);
+  await records.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(records.getByText('205 records · showing 1-200', { exact: true })).toBeVisible();
+  await records.getByRole('combobox', { name: 'Group by', exact: true }).selectOption({ label: 'Status' });
+  const workspace = records.getByLabel('Record workspace', { exact: true });
+  await expect(workspace.getByRole('heading', { name: 'Done · 102 records', exact: true })).toBeVisible();
+  await expect(workspace.getByRole('heading', { name: 'To do · 103 records', exact: true })).toBeVisible();
+  await expect(workspace.getByRole('region', { name: 'Group To do' }).getByRole('row')).toHaveCount(99);
+  await records.getByRole('button', { name: 'Next', exact: true }).click();
+  await expect(workspace.getByRole('heading', { name: 'Done · 102 records', exact: true })).toHaveCount(0);
+  await expect(workspace.getByRole('region', { name: 'Group To do' }).getByRole('row')).toHaveCount(6);
+  await records.getByRole('button', { name: 'Previous', exact: true }).click();
+
+  // Parent and dependency pickers search the whole table, not the loaded page.
+  await workspace.getByRole('button', { name: 'Item 000', exact: true }).click();
+  const details = records.getByRole('form', { name: 'Record details' });
+  await details.getByRole('textbox', { name: 'Search Blocked by records' }).fill('Item 204');
+  await details.getByRole('list', { name: 'Blocked by search results' }).getByRole('button', { name: 'Item 204', exact: true }).click();
+  await details.getByRole('textbox', { name: 'Search Parent records' }).fill('Item 203');
+  await expect(details.getByRole('list', { name: 'Parent search results' })).toContainText('Item 203');
+  await details.getByRole('textbox', { name: 'Search Parent records' }).press('Enter');
+  await expect(details.getByRole('list', { name: 'Parent records' })).toContainText('Item 203');
+  await details.getByRole('button', { name: 'Save record', exact: true }).click();
+  const [blocker, parent] = [await id('Item 204'), await id('Item 203')];
+  await expect.poll(async () => { const r = await id('Item 000'); return [r.parentId, r.blockedBy]; }).toEqual([parent.id, [blocker.id]]);
+  await details.getByRole('button', { name: 'Close', exact: true }).click();
+  await workspace.getByRole('button', { name: '↳ Item 000', exact: true }).click();
+  await expect(details.getByRole('list', { name: 'Blocked by records' })).toContainText('Item 204');
+  await details.getByRole('button', { name: 'Remove Item 204 from Blocked by' }).click();
+  await details.getByRole('button', { name: 'Save record', exact: true }).click();
+  await expect.poll(async () => (await id('Item 000')).blockedBy).toEqual([]);
+
+  // Every non-table view receives the complete query result.
+  const view = records.getByRole('combobox', { name: 'Work view', exact: true });
+  await view.selectOption('kanban');
+  await expect(workspace.getByRole('button', { name: /^Item \d{3}/ })).toHaveCount(205);
+  await view.selectOption('timeline');
+  await records.getByRole('combobox', { name: 'Group by', exact: true }).selectOption({ label: 'Status' });
+  await expect(workspace.getByRole('button', { name: /^Item \d{3}$/ })).toHaveCount(205);
+  await expect(workspace.getByLabel('Timeline group Done', { exact: true })).toBeVisible();
+  await expect(workspace.getByLabel('Timeline group To do', { exact: true })).toBeVisible();
+  await expect(workspace.getByText('↳ Item 000 ◆', { exact: true })).toBeVisible();
+  await view.selectOption('chart');
+  await expect(workspace.locator('svg title, svg text').filter({ hasText: 'Item 204' }).first()).toBeAttached();
+
+  // Story maps place stories by activity, task and release, and keyboard entry keeps that context.
+  await records.getByRole('button', { name: 'Close records', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Cards and work' }).getByRole('button', { name: 'Add Story map', exact: true }).click();
+  await expect(records.getByRole('heading', { name: 'New story' })).toBeVisible();
+  await records.getByRole('button', { name: 'Add record', exact: true }).click();
+  await records.getByRole('form', { name: 'Record details' }).getByRole('button', { name: 'Close', exact: true }).click();
+  await workspace.focus();
+  await page.keyboard.press('Tab');
+  await expect(workspace.locator('td[aria-label="New activity / New task / Release 1"]').getByRole('button')).toHaveCount(1);
+  await workspace.focus();
+  await page.keyboard.press('Enter');
+  await expect(workspace.locator('td[aria-label="New activity / New task / Release 1"]').getByRole('button')).toHaveCount(2);
+  await expect(workspace.getByRole('table', { name: 'Story map' }).getByRole('columnheader', { name: 'New task', exact: true })).toBeVisible();
+  await page.reload();
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Board', exact: true }).click();
+  await page.getByRole('button', { name: 'Cards and work', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Cards and work' }).getByRole('combobox', { name: 'Selected widget', exact: true }).selectOption({ label: 'New story' });
+  await expect(workspace.locator('td[aria-label="New activity / New task / Release 1"]').getByRole('button')).toHaveCount(2);
+  await context.close();
+});

@@ -1,20 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { useCanvasStore } from '@/lib/canvas-store';
 import { usePeople } from '@/lib/canvas/use-people';
-import { FIELD_TYPES, WORK_KINDS } from '@/lib/canvas/work-records';
-import { workRequest, tablePath } from '@/lib/canvas/work-api';
+import { FIELD_TYPES, WORK_KINDS, WORK_VIEW_NAMES, viewFor } from '@/lib/canvas/work-records';
+import { workRequest, tablePath, useWorkRecords } from '@/lib/canvas/work-api';
 import { readWorkFile, exportWorkFile } from '@/lib/canvas/work-files';
 import { downloadWork } from '@/lib/canvas/work-layouts';
 import { WorkRecordViews } from './WorkRecordViews';
+import { WorkRecordPicker } from './WorkRecordPicker';
 
 const input = 'rounded border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 disabled:bg-slate-100';
-const names = { table: 'Table', kanban: 'Kanban', timeline: 'Timeline', story: 'Story map', mindmap: 'Mind map', org: 'Org chart', chart: 'Chart' };
 export function WorkDataPanel({ node, readOnly, onClose }) {
   const boardId = useCanvasStore(s => s.boardId);
   const people = usePeople();
-  const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [query, setQuery] = useState({ q: '', sort: '', direction: 'asc', filterField: '', filterValue: '', offset: 0 });
@@ -22,23 +21,11 @@ export function WorkDataPanel({ node, readOnly, onClose }) {
   const [draft, setDraft] = useState(null);
   const [configuration, setConfiguration] = useState(null);
   const [history, setHistory] = useState(null);
-  const requestGeneration = useRef(0);
   const path = tablePath(boardId, node.datasetId);
-  const load = useCallback(async () => {
-    const generation = ++requestGeneration.current;
-    try {
-      const result = await workRequest(`${path}?${new URLSearchParams(query)}`);
-      if (generation === requestGeneration.current) { setData(result); setError(''); }
-    } catch (e) { if (generation === requestGeneration.current) setError(e.message); }
-  }, [path, query]);
-  useEffect(() => {
-    void load();
-    const timer = setInterval(() => { if (!document.hidden) void load(); }, 15000);
-    return () => { clearInterval(timer); };
-  }, [load]);
+  const { data, error: loadError, load } = useWorkRecords(boardId, node, query);
   const table = data?.table;
   const canEdit = Boolean(table?.canEdit && !readOnly);
-  const view = table?.views.find(v => v.kind === node.kind) || { id: node.kind, kind: node.kind, name: names[node.kind] };
+  const view = viewFor(table, node.kind);
   async function change(operation) {
     if (!canEdit || busy) return null;
     setBusy(true); setError('');
@@ -47,8 +34,8 @@ export function WorkDataPanel({ node, readOnly, onClose }) {
     finally { setBusy(false); }
   }
   function select(record) { setSelected(record); setDraft({ cells: { ...record.cells }, parentId: record.parentId, blockedBy: record.blockedBy || [] }); }
-  async function add(parentId = null) {
-    const response = await change({ op: 'add', cells: { title: 'Untitled record' }, parentId });
+  async function add(parentId = null, cells = {}) {
+    const response = await change({ op: 'add', cells: { title: 'Untitled record', ...cells }, parentId });
     if (response?.record) select(response.record);
   }
   async function viewChange(patch) {
@@ -56,13 +43,7 @@ export function WorkDataPanel({ node, readOnly, onClose }) {
     await change({ op: 'settings', version: table.version, views: [...table.views.filter(v => v.id !== view.id && v.kind !== view.kind), next] });
   }
   async function allRecords() {
-    const records = [];
-    for (let offset = 0; ; offset += 200) {
-      const page = await workRequest(`${path}?offset=${offset}`);
-      records.push(...page.records);
-      if (offset + page.limit >= page.total) break;
-    }
-    return records;
+    return (await workRequest(`${path}?all=1`)).records;
   }
   async function exportFile(excel) {
     setBusy(true);
@@ -126,7 +107,12 @@ export function WorkDataPanel({ node, readOnly, onClose }) {
   }
   function keyboard(e) {
     if (!e.target.closest('[aria-label="Record workspace"]') || e.target.closest('input,textarea,select') || !canEdit || !['mindmap', 'org', 'story'].includes(node.kind)) return;
-    if (e.key === 'Tab' || e.key === 'Enter') {
+    if ((e.key === 'Tab' || e.key === 'Enter') && node.kind === 'story') {
+      e.preventDefault();
+      const activityKey = view.groupBy || 'activity', releaseKey = view.swimlaneBy || 'release';
+      const story = { [activityKey]: selected?.cells[activityKey] || 'New activity', [releaseKey]: selected?.cells[releaseKey] || 'Release 1' };
+      void add(null, e.key === 'Tab' ? { ...story, task: 'New task' } : { ...story, task: selected?.cells.task || 'New task' });
+    } else if (e.key === 'Tab' || e.key === 'Enter') {
       e.preventDefault(); void add(e.key === 'Tab' ? selected?.id || null : selected?.parentId || null);
     } else if (e.key.startsWith('Arrow')) {
       e.preventDefault();
@@ -137,10 +123,10 @@ export function WorkDataPanel({ node, readOnly, onClose }) {
   }
   return <section role="dialog" aria-label="Work records" className="absolute inset-x-4 bottom-4 top-16 z-40 flex flex-col overflow-hidden rounded-xl border border-slate-300 bg-white text-slate-800 shadow-2xl md:left-[20%]" onKeyDown={e => { e.stopPropagation(); keyboard(e); }}>
     <header className="flex flex-wrap items-center gap-2 border-b bg-slate-50 p-3"><h2 className="mr-auto font-semibold">{table?.name || 'Loading records'}</h2><button className={input} onClick={() => void load()}>Refresh</button><button className={input} onClick={onClose}>Close records</button></header>
-    {error && <p role="alert" className="bg-red-50 p-3 text-sm text-red-800">{error}</p>}
+    {(error || loadError) && <p role="alert" className="bg-red-50 p-3 text-sm text-red-800">{error || loadError}</p>}
     {table && <>
       <div className="flex flex-wrap items-center gap-2 border-b p-3">
-        <label className="text-xs">View <select aria-label="Work view" className={input} disabled={!canEdit || busy} value={node.kind} onChange={e => useCanvasStore.getState().updateNodeFields(node.id, { kind: e.target.value })}>{WORK_KINDS.filter(k => k !== 'columns').map(k => <option key={k} value={k}>{names[k]}</option>)}</select></label>
+        <label className="text-xs">View <select aria-label="Work view" className={input} disabled={!canEdit || busy} value={node.kind} onChange={e => useCanvasStore.getState().updateNodeFields(node.id, { kind: e.target.value })}>{WORK_KINDS.filter(k => k !== 'columns').map(k => <option key={k} value={k}>{WORK_VIEW_NAMES[k]}</option>)}</select></label>
         <input aria-label="Search table" placeholder="Search records" className={input} value={query.q} onChange={e => setQuery({ ...query, q: e.target.value, offset: 0 })} />
         <select aria-label="Sort field" className={input} value={query.sort} onChange={e => setQuery({ ...query, sort: e.target.value, offset: 0 })}><option value="">Record order</option>{table.fields.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}</select>
         <select aria-label="Sort direction" className={input} value={query.direction} onChange={e => setQuery({ ...query, direction: e.target.value })}><option value="asc">Ascending</option><option value="desc">Descending</option></select>
@@ -163,7 +149,7 @@ export function WorkDataPanel({ node, readOnly, onClose }) {
         <details><summary className="cursor-pointer py-2">Visible fields and columns</summary><div className="flex flex-wrap gap-2">{table.fields.map(f => <label key={f.id}><input type="checkbox" disabled={!canEdit || busy} checked={!view.hiddenFields?.includes(f.id)} onChange={e => void viewChange({ hiddenFields: e.target.checked ? (view.hiddenFields || []).filter(id => id !== f.id) : [...(view.hiddenFields || []), f.id] })} /> {f.name}</label>)}{node.kind === 'kanban' && (table.fields.find(f => f.id === (view.groupBy || 'status'))?.options || []).map(column => <label key={column}><input type="checkbox" disabled={!canEdit || busy} checked={!view.hiddenColumns?.includes(column)} onChange={e => void viewChange({ hiddenColumns: e.target.checked ? (view.hiddenColumns || []).filter(v => v !== column) : [...(view.hiddenColumns || []), column] })} /> {column}</label>)}</div></details>
       </div>
       <div className="flex min-h-0 flex-1">
-        <div className="min-w-0 flex-1 overflow-auto p-4" tabIndex={0} aria-label="Record workspace"><WorkRecordViews kind={node.kind} records={data.records} fields={table.fields} view={view} selectedId={selected?.id} onSelect={select} onReclassify={canEdit && !busy ? (record, patch) => void change({ op: 'update', id: record.id, version: record.version, cells: { ...record.cells, ...patch } }) : undefined} onDateMove={canEdit && !busy ? (record, days, edge) => {
+        <div className="min-w-0 flex-1 overflow-auto p-4" tabIndex={0} aria-label="Record workspace"><WorkRecordViews kind={node.kind} records={data.records} fields={table.fields} groups={data.groups} view={view} selectedId={selected?.id} onSelect={select} onReclassify={canEdit && !busy ? (record, patch) => void change({ op: 'update', id: record.id, version: record.version, cells: { ...record.cells, ...patch } }) : undefined} onDateMove={canEdit && !busy ? (record, days, edge) => {
           const startKey = view.startField || 'start', endKey = view.endField || 'end';
           const shift = value => new Date(Date.parse(value + 'T00:00:00Z') + days * 86400000).toISOString().slice(0, 10);
           const cells = { ...record.cells };
@@ -175,13 +161,13 @@ export function WorkDataPanel({ node, readOnly, onClose }) {
         {draft && selected && <form className="w-72 shrink-0 space-y-3 overflow-auto border-l bg-slate-50 p-3" aria-label="Record details" onSubmit={async e => { e.preventDefault(); const result = await change({ op: 'update', id: selected.id, version: selected.version, ...draft }); if (result?.record) select(result.record); }}>
           <div className="flex justify-between"><h3 className="font-semibold">Record details</h3><button type="button" onClick={() => setDraft(null)}>Close</button></div>
           <fieldset disabled={!canEdit || busy} className="space-y-3">{table.fields.filter(f => f.type !== 'formula').map(f => <label key={f.id} className="block text-xs">{f.name}{f.type === 'select' || f.type === 'people' ? <select className={`${input} w-full`} value={draft.cells[f.id] || ''} onChange={e => setDraft({ ...draft, cells: { ...draft.cells, [f.id]: e.target.value } })}><option value="">None</option>{f.type === 'select' ? f.options.map(v => <option key={v}>{v}</option>) : [...people.values()].map(p => <option key={p.id} value={p.id}>{p.name || p.email}</option>)}</select> : <input className={`${input} w-full`} type={['number', 'points'].includes(f.type) ? 'number' : f.type === 'date' ? 'date' : 'text'} step="any" maxLength={2000} value={Array.isArray(draft.cells[f.id]) ? draft.cells[f.id].join(';') : draft.cells[f.id] ?? ''} onChange={e => setDraft({ ...draft, cells: { ...draft.cells, [f.id]: ['number', 'points'].includes(f.type) ? (e.target.value === '' ? '' : Number(e.target.value)) : f.type === 'relation' ? e.target.value.split(';').filter(Boolean) : e.target.value } })} />}</label>)}
-          <label className="block text-xs">Parent<select className={`${input} w-full`} value={draft.parentId || ''} onChange={e => setDraft({ ...draft, parentId: e.target.value || null })}><option value="">None</option>{data.records.filter(r => r.id !== selected.id).map(r => <option key={r.id} value={r.id}>{r.cells.title || r.id}</option>)}</select></label>
-          <label className="block text-xs">Blocked by<select multiple className={`${input} w-full`} value={draft.blockedBy} onChange={e => setDraft({ ...draft, blockedBy: [...e.target.selectedOptions].map(o => o.value) })}>{data.records.filter(r => r.id !== selected.id).map(r => <option key={r.id} value={r.id}>{r.cells.title || r.id}</option>)}</select></label>
+          <WorkRecordPicker path={path} label="Parent" value={draft.parentId} excludeId={selected.id} onChange={parentId => setDraft({ ...draft, parentId })} />
+          <WorkRecordPicker path={path} label="Blocked by" multiple value={draft.blockedBy} excludeId={selected.id} onChange={blockedBy => setDraft({ ...draft, blockedBy })} />
           <button className={`${input} bg-blue-50`} type="submit">Save record</button><button className={input} type="button" onClick={async () => { const result = await change({ op: 'delete', id: selected.id, version: selected.version }); if (result) { setSelected(null); setDraft(null); } }}>Delete record</button>
           </fieldset>
         </form>}
       </div>
-      <footer className="flex flex-wrap gap-3 border-t p-3 text-xs"><span>{data.total} records · showing {data.offset + (data.records.length ? 1 : 0)}-{data.offset + data.records.length}</span><button disabled={!query.offset || busy} onClick={() => setQuery({ ...query, offset: Math.max(0, query.offset - 200) })}>Previous</button><button disabled={data.offset + 200 >= data.total || busy} onClick={() => setQuery({ ...query, offset: query.offset + 200 })}>Next</button>{Object.entries(data.aggregates).map(([key, value]) => <span key={key}>{key}: {value == null ? 'Empty' : Number(value).toLocaleString('en', { maximumFractionDigits: 2 })}</span>)}</footer>
+      <footer className="flex flex-wrap gap-3 border-t p-3 text-xs"><span>{data.total} records · showing {data.offset + (data.records.length ? 1 : 0)}-{data.offset + data.records.length}</span>{node.kind === 'table' && <><button disabled={!query.offset || busy} onClick={() => setQuery({ ...query, offset: Math.max(0, query.offset - data.limit) })}>Previous</button><button disabled={data.offset + data.limit >= data.total || busy} onClick={() => setQuery({ ...query, offset: query.offset + data.limit })}>Next</button></>}{Object.entries(data.aggregates).map(([key, value]) => <span key={key}>{key}: {value == null ? 'Empty' : Number(value).toLocaleString('en', { maximumFractionDigits: 2 })}</span>)}</footer>
     </>}
     {configuration && <section role="dialog" aria-label="Table fields and settings" className="absolute inset-4 overflow-auto rounded-xl border bg-white p-4 shadow-xl"><h3 className="mb-3 font-semibold">Fields and settings</h3><fieldset disabled={!canEdit || busy} className="space-y-3"><label className="block text-sm">Table title <input className={input} value={configuration.name} onChange={e => setConfiguration({ ...configuration, name: e.target.value })} /></label><label className="block text-sm"><input type="checkbox" checked={configuration.ownerOnly} onChange={e => setConfiguration({ ...configuration, ownerOnly: e.target.checked })} /> Only the table owner and board owner can edit this table</label>{configuration.fields.map((field, index) => <div key={field.id} className="flex flex-wrap items-center gap-2 rounded border p-2"><span className="text-xs text-slate-500">{field.id}</span><input aria-label={`Field name ${index + 1}`} className={input} value={field.name} onChange={e => setConfiguration({ ...configuration, fields: configuration.fields.map((f, i) => i === index ? { ...f, name: e.target.value } : f) })} /><select aria-label={`Field type ${index + 1}`} className={input} value={field.type} onChange={e => setConfiguration({ ...configuration, fields: configuration.fields.map((f, i) => i === index ? { ...f, type: e.target.value, options: [], expression: '0' } : f) })}>{FIELD_TYPES.map(type => <option key={type}>{type}</option>)}</select>{['select', 'formula'].includes(field.type) && <input aria-label={`Field ${field.type} ${index + 1}`} placeholder={field.type === 'select' ? 'Options separated by commas' : 'Example: points * estimate'} className={input} value={field.type === 'select' ? field.options?.join(',') : field.expression || ''} onChange={e => setConfiguration({ ...configuration, fields: configuration.fields.map((f, i) => i === index ? { ...f, [field.type === 'select' ? 'options' : 'expression']: field.type === 'select' ? e.target.value.split(',') : e.target.value } : f) })} />}{['number', 'points', 'formula'].includes(field.type) && <><select aria-label={`Number format ${index + 1}`} className={input} value={field.format || 'number'} onChange={e => setConfiguration({ ...configuration, fields: configuration.fields.map((f, i) => i === index ? { ...f, format: e.target.value } : f) })}>{['number', 'currency', 'percent', 'progress'].map(format => <option key={format}>{format}</option>)}</select><input aria-label={`Color threshold ${index + 1}`} type="number" placeholder="Color at or above" className={input} value={field.colors?.[0]?.min ?? ''} onChange={e => setConfiguration({ ...configuration, fields: configuration.fields.map((f, i) => i === index ? { ...f, colors: e.target.value === '' ? [] : [{ min: Number(e.target.value), color: f.colors?.[0]?.color || '#15803d' }] } : f) })} /><input aria-label={`Conditional color ${index + 1}`} type="color" value={field.colors?.[0]?.color || '#15803d'} onChange={e => setConfiguration({ ...configuration, fields: configuration.fields.map((f, i) => i === index ? { ...f, colors: [{ min: f.colors?.[0]?.min || 0, color: e.target.value }] } : f) })} /></>}<button className={input} onClick={() => setConfiguration({ ...configuration, fields: configuration.fields.filter((_, i) => i !== index) })}>Remove field</button></div>)}<button className={input} onClick={() => { const id = `field_${crypto.randomUUID().slice(0, 8)}`; setConfiguration({ ...configuration, fields: [...configuration.fields, { id, name: 'New field', type: 'text' }] }); }}>Add field</button><button className={input} onClick={async () => { const result = await change({ op: 'settings', version: table.version, ...configuration }); if (result) setConfiguration(null); }}>Save fields and settings</button></fieldset><button className={`${input} mt-3`} onClick={() => setConfiguration(null)}>Close settings</button></section>}
     {history && <section role="dialog" aria-label="Table history" className="absolute inset-4 overflow-auto rounded-xl border bg-white p-4 shadow-xl"><div className="mb-4 flex justify-between"><h3 className="font-semibold">Table history</h3><button className={input} onClick={() => setHistory(null)}>Close history</button></div>{history.map(row => <details key={row.id} className="border-b py-2 text-sm"><summary>{row.action} · {people.get(row.actorId)?.name || row.actorId.slice(0, 8)} · {new Date(row.createdAt).toLocaleString()}</summary><div className="grid grid-cols-2 gap-3 p-2"><div><strong>Before</strong><pre className="whitespace-pre-wrap text-xs">{Object.entries(row.before?.cells || row.before || {}).filter(([, value]) => typeof value !== 'object').map(([key, value]) => `${table?.fields.find(f => f.id === key)?.name || key}: ${value}`).join('\n') || 'No record'}</pre></div><div><strong>After</strong><pre className="whitespace-pre-wrap text-xs">{Object.entries(row.after?.cells || row.after || {}).filter(([, value]) => typeof value !== 'object').map(([key, value]) => `${table?.fields.find(f => f.id === key)?.name || key}: ${value}`).join('\n') || 'No record'}</pre></div></div></details>)}{history.length === 100 && <button className={input} onClick={async () => { try { setHistory([...history, ...(await workRequest(`${path}/history?offset=${history.length}`)).history]); } catch (e) { setError(e.message); } }}>Load earlier changes</button>}</section>}
