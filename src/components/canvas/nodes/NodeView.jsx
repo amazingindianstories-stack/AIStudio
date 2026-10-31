@@ -17,6 +17,8 @@ import { ImageNode } from "./ImageNode";
 import { ErdNode } from "./ErdNode";
 import { SwimlaneNode } from "./SwimlaneNode";
 import { DiagramNode } from "./DiagramNode";
+import { MEDIA_RENDERERS, LinkBadge } from "./MediaNodes";
+import { objectLinkHref, openObjectLink } from "@/lib/canvas/media-actions";
 
 ;
 
@@ -202,8 +204,14 @@ export function NodeView({
             return <DiagramNode node={node} selected={showRing} readOnly={readOnly} />;
           case "image":
             return <ImageNode node={node} cropMode={cropMode} cropDraft={cropDraft} onCropChange={onCropChange} onApplyCrop={onApplyCrop} onCancelCrop={onCancelCrop} onResetCrop={onResetCrop} />;
+          default: {
+            const Media = MEDIA_RENDERERS[node.type];
+            return Media ? <Media node={node} selected={showRing} readOnly={readOnly} /> : null;
+          }
         }
       })()}
+
+      {node.link && <LinkBadge node={node} href={objectLinkHref(node.link, null)} onOpen={openObjectLink} />}
 
       {showRing && (
         <div

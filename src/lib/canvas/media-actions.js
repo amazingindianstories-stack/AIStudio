@@ -2,7 +2,8 @@
 import { useCanvasStore, selectReadOnly } from '../canvas-store';
 import { currentUserId } from './sticky-actions';
 import { mediaRef, validateLink } from './media-nodes';
-import { mediaNodeFields } from './media-upload';
+import { mediaNodeFields, importBoardUrl } from './media-upload';
+import { embedFromIframe, embedFromUrl } from './embeds';
 
 export function addMedia(fields, center) {
   const state = useCanvasStore.getState();
@@ -64,10 +65,81 @@ export function setObjectLink(id, raw) {
   return true;
 }
 
-export function objectLinkHref(link, boardId) {
+export function objectLinkHref(link, boardId = useCanvasStore.getState().boardId) {
   if (link?.url) return link.url;
   if (!link?.boardId && !link?.nodeId) return null;
   const params = new URLSearchParams({ board: link.boardId || boardId });
   if (link.nodeId) params.set('object', link.nodeId);
   return `#${params}`;
+}
+
+/** Flipping a PDF page is a board edit (one page shown to everyone), so viewers cannot do it. */
+export function setPdfPage(id, page) {
+  const state = useCanvasStore.getState();
+  const node = state.history.present.nodes.find((n) => n.id === id && n.type === 'pdf');
+  if (!node || selectReadOnly(state) || !Number.isInteger(page) || page < 1 || page > node.pages) return false;
+  state.updateNodeFields(id, { page });
+  return true;
+}
+
+export function renameMedia(id, title) {
+  const state = useCanvasStore.getState();
+  const node = state.history.present.nodes.find((n) => n.id === id);
+  if (!node || selectReadOnly(state)) return false;
+  const field = node.type === 'pdf' ? 'name' : 'title';
+  state.updateNodeFields(id, { [field]: String(title).slice(0, 200) });
+  return true;
+}
+
+/** Follows an in-board object link, or opens the other board in this tab. */
+export function openObjectLink(link) {
+  const state = useCanvasStore.getState();
+  if (!link) return false;
+  if (link.nodeId && (!link.boardId || link.boardId === state.boardId)) return state.focusObject(link.nodeId);
+  if (link.boardId) {
+    window.location.hash = new URLSearchParams({ board: link.boardId, ...(link.nodeId ? { object: link.nodeId } : {}) }).toString();
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Adds what a pasted or typed link or iframe code stands for: a provider embed (decided locally, nothing
+ * fetched), a link preview card, or a stored file the server imported. Resolves to the new node id, or throws
+ * with a message to show.
+ */
+export async function addFromLink(text, boardId, center, options = {}) {
+  const input = String(text || '').trim();
+  if (!input) throw new Error('Enter a link or iframe code.');
+  const embed = embedFromIframe(input) || embedFromUrl(input);
+  if (embed) return addMedia({ type: 'embed', src: embed.src, provider: embed.provider, kind: embed.kind, title: embed.title }, center);
+  const result = await importBoardUrl(input, boardId, options);
+  const fields = mediaNodeFields(result);
+  return addMedia(fields, center);
+}
+
+export function addCodeBlock({ code, language, fontSize = 14, lineNumbers = true }, center) {
+  return addMedia({ type: 'code', code, language, fontSize, lineNumbers }, center);
+}
+
+export function addEmoji(emoji, { sticker = false, interactive = false } = {}, center) {
+  return addMedia({ type: 'emoji', emoji, ...(sticker ? { style: 'sticker' } : {}), ...(interactive ? { interactive: true } : {}) }, center);
+}
+
+export function addIcon(icon, color = '#e5e7eb', center) {
+  return addMedia({ type: 'icon', icon, color }, center);
+}
+
+/** True for text a person pasted that should become a link, embed or imported file instead of text. */
+export function looksLikeLink(text) {
+  const value = String(text || '').trim();
+  return /^https:\/\/[^\s]+$/.test(value) || /^<iframe\b/i.test(value);
+}
+
+export function updateCodeBlock(id, { code, language }) {
+  const state = useCanvasStore.getState();
+  const node = state.history.present.nodes.find((n) => n.id === id && n.type === 'code');
+  if (!node || selectReadOnly(state)) return false;
+  state.updateNodeFields(id, { code: String(code).slice(0, 20000), language });
+  return true;
 }
