@@ -22,7 +22,7 @@ export function WorkDataPanel({ node, readOnly, onClose }) {
   const [configuration, setConfiguration] = useState(null);
   const [history, setHistory] = useState(null);
   const path = tablePath(boardId, node.datasetId);
-  const { data, error: loadError, load } = useWorkRecords(boardId, node, query);
+  const { data, error: loadError, load } = useWorkRecords(boardId, node, { query });
   const table = data?.table;
   const canEdit = Boolean(table?.canEdit && !readOnly);
   const view = viewFor(table, node.kind);
@@ -162,7 +162,8 @@ export function WorkDataPanel({ node, readOnly, onClose }) {
           <div className="flex justify-between"><h3 className="font-semibold">Record details</h3><button type="button" onClick={() => setDraft(null)}>Close</button></div>
           <fieldset disabled={!canEdit || busy} className="space-y-3">{table.fields.filter(f => f.type !== 'formula').map(f => <label key={f.id} className="block text-xs">{f.name}{f.type === 'select' || f.type === 'people' ? <select className={`${input} w-full`} value={draft.cells[f.id] || ''} onChange={e => setDraft({ ...draft, cells: { ...draft.cells, [f.id]: e.target.value } })}><option value="">None</option>{f.type === 'select' ? f.options.map(v => <option key={v}>{v}</option>) : [...people.values()].map(p => <option key={p.id} value={p.id}>{p.name || p.email}</option>)}</select> : <input className={`${input} w-full`} type={['number', 'points'].includes(f.type) ? 'number' : f.type === 'date' ? 'date' : 'text'} step="any" maxLength={2000} value={Array.isArray(draft.cells[f.id]) ? draft.cells[f.id].join(';') : draft.cells[f.id] ?? ''} onChange={e => setDraft({ ...draft, cells: { ...draft.cells, [f.id]: ['number', 'points'].includes(f.type) ? (e.target.value === '' ? '' : Number(e.target.value)) : f.type === 'relation' ? e.target.value.split(';').filter(Boolean) : e.target.value } })} />}</label>)}
           <WorkRecordPicker path={path} label="Parent" value={draft.parentId} excludeId={selected.id} onChange={parentId => setDraft({ ...draft, parentId })} />
-          <WorkRecordPicker path={path} label="Blocked by" multiple value={draft.blockedBy} excludeId={selected.id} onChange={blockedBy => setDraft({ ...draft, blockedBy })} />
+          <WorkRecordPicker path={path} label="Blocked by" multiple value={draft.blockedBy} excludeId={selected.id} onChange={blockedBy => setDraft({ ...draft, blockedBy })}
+            fixed={table.fields.filter(f => f.type === 'relation').flatMap(f => (Array.isArray(draft.cells[f.id]) ? draft.cells[f.id] : []).map(id => ({ id, source: f.name })))} />
           <button className={`${input} bg-blue-50`} type="submit">Save record</button><button className={input} type="button" onClick={async () => { const result = await change({ op: 'delete', id: selected.id, version: selected.version }); if (result) { setSelected(null); setDraft(null); } }}>Delete record</button>
           </fieldset>
         </form>}

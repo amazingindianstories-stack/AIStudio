@@ -1,6 +1,7 @@
 "use client";
 
 import { treeLayout, timelineLayout, storyLayout, numberPresentation } from '@/lib/canvas/work-layouts';
+import { blockersOf } from '@/lib/canvas/work-records';
 
 const COLORS = ['#dbeafe', '#fce7f3', '#dcfce7', '#fef3c7', '#ede9fe'];
 export function WorkRecordViews({ kind, records, fields, groups = [], view = {}, onSelect = () => {}, selectedId, compact = false, onDateMove, onReclassify }) {
@@ -38,7 +39,7 @@ export function WorkRecordViews({ kind, records, fields, groups = [], view = {},
     const width = Math.min(100000, Math.max(600, ...layout.records.map(r => r.x + r.w + 100)));
     return <div><p className="mb-2 text-xs text-slate-500">Start {new Date(layout.start).toISOString().slice(0, 10)} · 24 px per day · records without start dates are omitted</p><svg aria-label="Timeline" width={width} height={Math.max(100, layout.height + 20)}>
       {layout.groups.map(g => <g key={g.label} aria-label={`Timeline group ${g.label}`}><line x1="0" x2={width} y1={g.y + 26} y2={g.y + 26} stroke="#e2e8f0" /><text x="4" y={g.y + 18} fontSize="12" fontWeight="600" fill="#334155">{g.label}</text></g>)}
-      {layout.records.flatMap(r => (r.blockedBy || []).filter(id => byId.has(id)).map(id => { const source = byId.get(id); return <path key={`${r.id}:${id}`} d={`M${source.x + source.w},${source.y + 15} L${r.x},${r.y + 15}`} stroke="#64748b" strokeWidth="2" />; }))}
+      {layout.records.flatMap(r => blockersOf(r, fields).filter(id => byId.has(id)).map(id => { const source = byId.get(id); return <path key={`${r.id}:${id}`} d={`M${source.x + source.w},${source.y + 15} L${r.x},${r.y + 15}`} stroke="#64748b" strokeWidth="2" />; }))}
       {layout.records.map(r => <g key={r.id} role="button" tabIndex={compact ? -1 : 0} aria-label={label(r)} onClick={() => onSelect(r)} onKeyDown={e => { if (e.key === 'Enter') onSelect(r); }}>
         <rect x={r.x} y={r.y} width={r.w} height="30" rx={r.milestone ? 15 : 4} fill={selectedId === r.id ? '#2563eb' : '#93c5fd'} onPointerDown={e => dragDates(e, r, 'both')} style={{ cursor: onDateMove ? 'ew-resize' : undefined }} />
         {onDateMove && <rect aria-label={`Resize ${label(r)} end date`} x={r.x + r.w - 6} y={r.y} width="6" height="30" fill="#1d4ed8" onPointerDown={e => dragDates(e, r, 'end')} style={{ cursor: 'ew-resize' }} />}
@@ -73,18 +74,20 @@ export function WorkRecordViews({ kind, records, fields, groups = [], view = {},
   }
   if (kind === 'chart') {
     const valueField = view.valueField || fields.find(f => ['number', 'points', 'formula'].includes(f.type))?.id;
-    const values = records.map(r => Math.max(0, Number(r.cells[valueField]) || 0));
-    const max = Math.max(1, ...values), sum = values.reduce((a, b) => a + b, 0) || 1;
+    const bars = view.groupBy ? groups.map(g => ({ id: String(g.value ?? ''), name: String(g.value ?? '') || 'Unassigned', value: Math.max(0, Number('sum' in g ? g.sum : g.count) || 0) }))
+      : records.map(r => ({ id: r.id, name: label(r), value: Math.max(0, Number(r.cells[valueField]) || 0), record: r }));
+    const max = Math.max(1, ...bars.map(b => b.value)), sum = bars.reduce((a, b) => a + b.value, 0) || 1;
+    const choose = bar => { if (bar.record) onSelect(bar.record); };
     let angle = 0;
-    return <div><div className="mb-2 text-xs text-slate-500">Legend: {records.map(label).join(' · ') || 'Add numeric records to draw a chart'}</div><svg aria-label="Chart" width="600" height="300" viewBox="0 0 600 300">
-      {view.chartType === 'line' ? <polyline fill="none" stroke="#2563eb" strokeWidth="3" points={values.map((v, i) => `${30 + i * (540 / Math.max(1, values.length - 1))},${250 - v / max * 220}`).join(' ')} /> : records.map((r, i) => {
+    return <div><div className="mb-2 text-xs text-slate-500">Legend: {bars.map(b => b.name).join(' · ') || 'Add numeric records to draw a chart'}</div><svg aria-label="Chart" width="600" height="300" viewBox="0 0 600 300">
+      {view.chartType === 'line' ? <polyline fill="none" stroke="#2563eb" strokeWidth="3" points={bars.map((b, i) => `${30 + i * (540 / Math.max(1, bars.length - 1))},${250 - b.value / max * 220}`).join(' ')} /> : bars.map((b, i) => {
         if (view.chartType === 'pie') {
-          const start = angle; angle += values[i] / sum * Math.PI * 2;
+          const start = angle; angle += b.value / sum * Math.PI * 2;
           const end = Math.min(angle, start + Math.PI * 2 - 0.0001);
-          return <path key={r.id} d={`M300,145 L${300 + 120 * Math.cos(start)},${145 + 120 * Math.sin(start)} A120,120 0 ${end - start > Math.PI ? 1 : 0},1 ${300 + 120 * Math.cos(end)},${145 + 120 * Math.sin(end)} Z`} fill={COLORS[i % COLORS.length]} stroke="#94a3b8" onClick={() => onSelect(r)}><title>{label(r)}: {values[i]}</title></path>;
+          return <path key={b.id} d={`M300,145 L${300 + 120 * Math.cos(start)},${145 + 120 * Math.sin(start)} A120,120 0 ${end - start > Math.PI ? 1 : 0},1 ${300 + 120 * Math.cos(end)},${145 + 120 * Math.sin(end)} Z`} fill={COLORS[i % COLORS.length]} stroke="#94a3b8" onClick={() => choose(b)}><title>{b.name}: {b.value}</title></path>;
         }
-        const width = 540 / Math.max(1, records.length);
-        return <g key={r.id} onClick={() => onSelect(r)}><rect x={30 + i * width} y={250 - values[i] / max * 220} width={Math.max(1, width - 4)} height={values[i] / max * 220} fill="#60a5fa" /><text x={30 + i * width} y="275" fontSize="10">{label(r).slice(0, 10)}</text><title>{label(r)}: {values[i]}</title></g>;
+        const width = 540 / Math.max(1, bars.length);
+        return <g key={b.id} onClick={() => choose(b)}><rect x={30 + i * width} y={250 - b.value / max * 220} width={Math.max(1, width - 4)} height={b.value / max * 220} fill="#60a5fa" /><text x={30 + i * width} y="275" fontSize="10">{b.name.slice(0, 10)}</text><title>{b.name}: {b.value}</title></g>;
       })}
     </svg></div>;
   }
