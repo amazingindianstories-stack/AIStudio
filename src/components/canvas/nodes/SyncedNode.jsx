@@ -20,7 +20,7 @@ export function SyncedNode({ node }) {
   const scale = frame ? Math.min(node.w / frame.w, node.h / frame.h) : 1;
   const layerHidden = frame ? hiddenBoardIds(result.data) : null;
   const nodes = frame ? result.data.nodes.filter((n) => !layerHidden.nodes.has(n.id)) : [];
-  const nodesById = new Map(nodes.map((n) => [n.id, n]));
+  const nodesById = Object.fromEntries(nodes.map((n) => [n.id, n]));
   return (
     <div className="relative h-full w-full overflow-hidden rounded-sm border border-dashed border-brand/50 bg-ink-800/40" data-synced-id={node.id}>
       <button

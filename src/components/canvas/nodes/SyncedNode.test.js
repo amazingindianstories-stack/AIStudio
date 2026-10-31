@@ -59,7 +59,10 @@ test("a synced copy of a diagram draws its content and connectors without what i
     assert.deepEqual([...document.querySelectorAll("[data-node-id]")].map((el) => el.getAttribute("data-node-id")), ["d", "shown", "next"]);
     const drawn = [...document.querySelectorAll("[data-connector-id]")];
     assert.deepEqual(drawn.map((el) => el.getAttribute("data-connector-id")), ["c1"]);
-    assert.match(drawn[0].querySelector("path").getAttribute("d"), /^M/);
+    const points = drawn[0].querySelector("path").getAttribute("d").match(/-?\d+(\.\d+)?/g).map(Number);
+    const [startX, startY] = points.slice(0, 2);
+    const [endX, endY] = points.slice(-2);
+    assert.deepEqual([startX, startY, endX, endY].map(Math.round), [100, 20, 260, 20]);
   } finally {
     await act(async () => root.unmount());
     clearSyncedCache();
