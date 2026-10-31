@@ -17,6 +17,7 @@ import { ImageNode } from "./ImageNode";
 import { ErdNode } from "./ErdNode";
 import { SwimlaneNode } from "./SwimlaneNode";
 import { DiagramNode } from "./DiagramNode";
+import { FormatNode } from "../formats/FormatNode";
 
 ;
 
@@ -136,6 +137,8 @@ export function NodeView({
         // checks) is what TypeScript narrows reliably across every branch,
         // including the final one.
         switch (node.type) {
+          case "format":
+            return <FormatNode node={node} />;
           case "rect":
           case "ellipse":
           case "triangle":

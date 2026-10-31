@@ -34,6 +34,7 @@ import { ObjectInfo } from "./ObjectInfo";
 import { BoardViewOverlays } from "./BoardViewOverlays";
 import { useBoardView } from "./use-board-view";
 import { zoomToLevel } from "@/lib/canvas/viewport-nav";
+import { FormatsPanel } from "./formats/FormatsPanel";
 
 // Miro's keys: N sticky note, T text, F frame; S opens the shapes panel.
 const TOOL_SHORTCUTS = {
@@ -47,7 +48,7 @@ export function CanvasView() {
   const projects = useStore((s) => s.projects);
   const setActiveProject = useStore((s) => s.setActiveProject);
 
-  const [boardId, setBoardId] = useState(null);
+  const [boardId, setBoardId] = useState(() => typeof window === "undefined" ? null : new URL(window.location.href).searchParams.get("board"));
   const [boardsLoading, setBoardsLoading] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [toolLocked, setToolLocked] = useState(false);
@@ -441,6 +442,7 @@ export function CanvasView() {
         touchViewOnly={touchViewOnly}
       />
       <BoardViewOverlays insetLeft={narrow ? 0 : assetPanelWidth} gestureActive={transientActive} />
+      <FormatsPanel boardId={boardId} touchViewOnly={touchViewOnly} />
 
       {noBoards && (
         <div
