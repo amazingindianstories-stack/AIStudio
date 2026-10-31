@@ -231,6 +231,10 @@ def _sniff(data, mime):
     if mime == 'image/webp': return data[:4] == b'RIFF' and data[8:12] == b'WEBP'
     if mime == 'image/tiff': return data.startswith((b'II*\x00', b'MM\x00*'))
     if mime == 'image/bmp': return data.startswith(b'BM')
+    if mime in ('image/vnd.adobe.photoshop', 'image/x-photoshop'): return data.startswith(b'8BPS')
+    if mime == 'application/pdf': return data.startswith(b'%PDF-')
+    if mime == 'image/svg+xml':  # Text: the board media worker parses and sanitizes the whole document.
+        return data.lstrip(b'\xef\xbb\xbf \t\r\n').startswith((b'<svg', b'<?xml', b'<!'))
     if mime in ('image/heic', 'image/heif', 'image/avif'):
         brands = data[8:128] if data[4:8] == b'ftyp' else b''
         return any(brand in brands for brand in ((b'avif', b'avis') if mime == 'image/avif'

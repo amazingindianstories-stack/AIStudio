@@ -189,7 +189,7 @@ function EmojiDialog({ onClose, viewCenter }) {
 
 function EmojiButton({ emoji, name, onPick }) {
   return (
-    <button type="button" aria-label={name ? name.split(" ")[0] + " " + emoji : emoji} title={name} onClick={() => onPick(emoji)} className="grid h-10 w-10 place-items-center rounded-lg text-2xl hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-brand">
+    <button type="button" aria-label={name ? name.split(" ").slice(0, 2).join(" ") + " " + emoji : emoji} title={name} onClick={() => onPick(emoji)} className="grid h-10 w-10 place-items-center rounded-lg text-2xl hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-brand">
       {emoji}
     </button>
   );

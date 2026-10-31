@@ -1,8 +1,11 @@
 import { test, expect } from '@playwright/test';
 import { createHmac, randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { fixtureDatabase } from './fixture-db.mjs';
 
 const OWNER = { id: 'b0a2d000-0000-4000-8000-000000000041', name: 'Media owner', email: 'media-owner@example.test' };
+// SVG, PSD and PDF are converted with libvips, which a laptop without it cannot do; CI installs it.
+const HAS_VIPS = ['/opt/homebrew/lib/libvips.42.dylib', '/usr/local/lib/libvips.42.dylib', '/usr/lib/x86_64-linux-gnu/libvips.so.42', '/usr/lib/aarch64-linux-gnu/libvips.so.42'].some((path) => existsSync(path));
 // A 1x1 PNG, and a tiny MP4 header the server stores byte for byte (no transcoding).
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==', 'base64');
 const SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="30"><rect width="40" height="30" fill="#c33"/><script>alert(1)</script></svg>';
@@ -86,6 +89,14 @@ test('Board media: embed code, code block, emoji, interactive sticker, icon, upl
   await dialog.getByRole('button', { name: 'Add code block' }).click();
   await expect(page.locator('[data-media="code"]')).toContainText('const answer = 42;');
 
+  // Object link on the selected code block, (a new object stays selected, so its actions show).
+  await page.getByRole('button', { name: 'Add link' }).click();
+  await page.getByLabel('Link address').fill('https://example.com/docs');
+  await page.getByRole('button', { name: 'Save link' }).click();
+  await storedBoard(context, boardId, (b) => ofType(b, 'code')[0]?.link?.url === 'https://example.com/docs');
+  await expect(page.getByRole('link', { name: /Open link https:\/\/example\.com\/docs/ })).toBeVisible();
+
+
   // Emoji sticker, made interactive.
   await media('Emoji and stickers');
   dialog = page.getByRole('dialog', { name: 'Emoji and stickers' });
@@ -93,6 +104,10 @@ test('Board media: embed code, code block, emoji, interactive sticker, icon, upl
   await dialog.getByRole('button', { name: /thumbs up/i }).first().click();
   await page.keyboard.press('Escape');
   await expect(page.locator('[data-media="emoji"]')).toHaveCount(1);
+  await page.locator('[data-media="emoji"]').click();
+  await page.getByLabel('Click to agree').check();
+  await page.locator('[data-media="emoji"]').click();
+  await expect(page.locator('[data-media="emoji"]')).toContainText('1');
 
   // Icon.
   await media('Icons');
@@ -113,15 +128,14 @@ test('Board media: embed code, code block, emoji, interactive sticker, icon, upl
   await dialog.getByLabel('Link or iframe code').fill('<iframe src="http://localhost:9/evil"></iframe>');
   await dialog.getByRole('button', { name: /^Add/ }).click();
   await expect(dialog.getByRole('alert')).toBeVisible();
-  await page.keyboard.press('Escape');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
 
   // Uploads through the file picker: image, SVG (sanitized to PNG) and video.
   const picker = page.locator('input[type="file"][multiple]');
-  await picker.setInputFiles([
-    { name: 'dot.png', mimeType: 'image/png', buffer: PNG },
-    { name: 'shape.svg', mimeType: 'image/svg+xml', buffer: Buffer.from(SVG) },
-  ]);
-  board = await storedBoard(context, boardId, (b) => ofType(b, 'image').length === 2);
+  const files = [{ name: 'dot.png', mimeType: 'image/png', buffer: PNG }];
+  if (HAS_VIPS) files.push({ name: 'shape.svg', mimeType: 'image/svg+xml', buffer: Buffer.from(SVG) });
+  await picker.setInputFiles(files);
+  board = await storedBoard(context, boardId, (b) => ofType(b, 'image').length === files.length);
   for (const image of ofType(board, 'image')) expect(image.src).toMatch(/^\/api\/media\//);
   await picker.setInputFiles({ name: 'clip.mp4', mimeType: 'video/mp4', buffer: Buffer.from('00000018667479706d703432', 'hex') });
   board = await storedBoard(context, boardId, (b) => ofType(b, 'video').length === 1);
@@ -133,19 +147,11 @@ test('Board media: embed code, code block, emoji, interactive sticker, icon, upl
   dialog = page.getByRole('dialog', { name: 'Saved files' });
   await expect(dialog.getByRole('button', { name: /Place dot\.png/ }).first()).toBeVisible();
   await dialog.getByRole('button', { name: /Place dot\.png/ }).first().click();
-  board = await storedBoard(context, boardId, (b) => ofType(b, 'image').length === 3);
+  board = await storedBoard(context, boardId, (b) => ofType(b, 'image').length === files.length + 1);
   await page.keyboard.press('Escape');
 
-  // Object link on the selected code block, then replace an image.
-  await page.locator('[data-media="code"]').click();
-  await page.getByRole('button', { name: 'Add link' }).click();
-  await page.getByLabel('Link address').fill('https://example.com/docs');
-  await page.getByRole('button', { name: 'Save link' }).click();
-  board = await storedBoard(context, boardId, (b) => ofType(b, 'code')[0].link?.url === 'https://example.com/docs');
-  await expect(page.getByRole('link', { name: /Open link https:\/\/example\.com\/docs/ })).toBeVisible();
-
-  const before = ofType(board, 'image')[0];
-  await page.locator(`[data-node-id="${before.id}"]`).first().click();
+  // The image placed from Saved files is selected: replace it.
+  const before = ofType(board, 'image').at(-1);
   await page.getByLabel('Replacement image').setInputFiles({ name: 'other.png', mimeType: 'image/png', buffer: Buffer.concat([PNG, Buffer.from('x')]) });
   board = await storedBoard(context, boardId, (b) => ofType(b, 'image').find((n) => n.id === before.id)?.src !== before.src);
 
