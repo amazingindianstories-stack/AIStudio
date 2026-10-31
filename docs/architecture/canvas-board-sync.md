@@ -37,7 +37,9 @@ merge per node on the client and poll for other people's saves.
   graph against the saved one per node and connector id, stamps each added or edited object with
   `createdBy`/`createdAt`/`updatedBy`/`updatedAt` and appends `board_activity` rows; stamps a client sends are
   ignored (`../features/board-history.md`). The reply carries `stamps` for the objects this save added or
-  edited, which the client adopts into its graph, sync base and undo snapshots without an undo step.
+  edited, and `notesStamp` (`{updatedBy, updatedAt}`) when it changed the visual notes
+  (`extras.stamp_notes`), which the client adopts into its graph, sync base and undo snapshots without an
+  undo step.
 - The size limit (2,097,152 UTF-16 units of the graph's JSON) counts content only: both the request check and
   the check on the normalized graph leave out the stamps, so stamping never costs a board room. A patch is
   measured only as the whole board it produces, never by its own size. A save over it
