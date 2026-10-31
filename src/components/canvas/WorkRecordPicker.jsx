@@ -5,19 +5,21 @@ import { workRequest } from '@/lib/canvas/work-api';
 
 const input = 'rounded border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 disabled:bg-slate-100';
 const title = record => String(record.cells.title || record.id);
+const recordId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Chooses parent or dependency records by searching the whole table on the server. Fixed entries come from elsewhere and are shown read-only. */
-export function WorkRecordPicker({ path, label, value, multiple = false, excludeId, onChange, fixed = [] }) {
+export function WorkRecordPicker({ path, label, value, multiple = false, excludeId, onChange, fixed: entries = [] }) {
+  const fixed = entries.filter(f => recordId.test(f.id));
   const selected = multiple ? value : value ? [value] : [];
   const [term, setTerm] = useState('');
   const [results, setResults] = useState([]);
   const [names, setNames] = useState(() => new Map());
   const [error, setError] = useState('');
-  const missing = [...new Set([...selected, ...fixed.map(f => f.id)])].filter(id => !names.has(id)).join(',');
+  const missing = [...new Set([...selected, ...fixed.map(f => f.id)])].filter(id => recordId.test(id) && !names.has(id)).join(',');
   useEffect(() => {
     if (!missing) return undefined;
     let live = true;
     workRequest(`${path}?${new URLSearchParams({ ids: missing, all: '1' })}`)
-      .then(result => { if (live) setNames(map => new Map([...map, ...missing.split(',').map(id => [id, id.slice(0, 8)]), ...result.records.map(r => [r.id, title(r)])])); })
+      .then(result => { if (live) { setNames(map => new Map([...map, ...missing.split(',').map(id => [id, id.slice(0, 8)]), ...result.records.map(r => [r.id, title(r)])])); setError(''); } })
       .catch(e => { if (live) setError(e.message); });
     return () => { live = false; };
   }, [path, missing]);

@@ -39,8 +39,10 @@ test('a widget preview and its open panel share one polled query', async t => {
   assert.equal(seen.preview.at(-1), seen.panel.at(-1));
   assert.equal(seen.panel.at(-1).complete, true);
   panel.close();
-  await preview.refresh();
+  await settle();
+  assert.equal(urls.length, 3);
   assert.deepEqual(params(urls.at(-1).split('?')[1]), { view: 'kanban', offset: '0', limit: '40' });
+  assert.equal(seen.preview.at(-1).complete, false);
   preview.close();
   const reopened = watchWork(source, { query: { q: '' }, limit: 0, update: () => {} });
   const again = watchWork(source, { query: null, limit: 40, update: () => {} });
@@ -48,4 +50,29 @@ test('a widget preview and its open panel share one polled query', async t => {
   assert.equal(urls.length, 4);
   assert.equal(params(urls.at(-1).split('?')[1]).all, '1');
   reopened.close(); again.close();
+});
+
+test('a preview refetches when it grows but not when it shrinks or the panel already loads everything', async t => {
+  const urls = [];
+  t.mock.method(globalThis, 'fetch', async url => {
+    urls.push(String(url));
+    return new Response(JSON.stringify({ table: { views: [] }, records: [], total: 0, offset: 0, limit: 1, aggregates: {}, groups: [] }));
+  });
+  const source = { path: '/api/canvas-boards/board/work/table', nodeId: 'resized', kind: 'timeline' };
+  const preview = watchWork(source, { query: null, limit: 20, update: () => {} });
+  await settle();
+  preview.resize(60);
+  await settle();
+  preview.resize(30);
+  await settle();
+  assert.deepEqual(urls.map(url => params(url.split('?')[1]).limit), ['20', '60']);
+  const panel = watchWork(source, { query: { q: '' }, limit: 0, update: () => {} });
+  await settle();
+  preview.resize(90);
+  await settle();
+  assert.equal(urls.length, 3);
+  panel.close();
+  await settle();
+  assert.equal(params(urls.at(-1).split('?')[1]).limit, '90');
+  preview.close();
 });
