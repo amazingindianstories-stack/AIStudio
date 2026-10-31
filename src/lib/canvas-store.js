@@ -1830,7 +1830,6 @@ export function hasClipboard() {
   return clipboard.length > 0;
 }
 
-/** The objects last copied or cut on the board. */
 /** visibleBoard() for components, recomputed when the graph or Focus mode changes. */
 export function useVisibleBoard() {
   const present = useCanvasStore((s) => s.history.present);
@@ -1838,6 +1837,7 @@ export function useVisibleBoard() {
   return useMemo(() => visibleGraph(present, focusedDiagramId), [present, focusedDiagramId]);
 }
 
+/** The objects last copied or cut on the board. */
 export function clipboardNodes() {
   return clipboard;
 }

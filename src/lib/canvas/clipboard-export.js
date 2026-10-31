@@ -215,7 +215,6 @@ function diagramMarkup(node, measure) {
     + label(node.name || "System Diagram", node.x + 80, node.y + DIAGRAM_HEADER / 2 + 4, node.w - 92, measure, { weight: 600, fill: "#ffffff" });
 }
 
-/** A connector's text labels, boxed at their place along it as the board shows them. */
 /** Each label of connector `c` with where its box sits: center `pt`, rotation `rot` and width `boxW` (20 high). */
 function connectorLabels(c, nodesById) {
   if (!Array.isArray(c.labels)) return [];
@@ -229,6 +228,7 @@ function connectorLabels(c, nodesById) {
   });
 }
 
+/** A connector's text labels, boxed at their place along it as the board shows them. */
 function connectorLabelsMarkup(c, nodesById) {
   return connectorLabels(c, nodesById).map(({ text, pt, rot, boxW }) =>
     `<g transform="translate(${pt.x} ${pt.y}) rotate(${rot})">`
