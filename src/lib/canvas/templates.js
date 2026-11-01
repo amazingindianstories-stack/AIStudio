@@ -10,9 +10,8 @@ import { unstamped } from "./stamps";
 
 /** A board's data may not exceed 2 Mi UTF-16 units of JSON (backend MAX_BOARD_JSON_UNITS). */
 export const MAX_BOARD_UNITS = 2 * 1024 * 1024;
-/** Clearing a selection blanks these; a blank template only blanks stickies. */
+/** Clearing a selection blanks these (a blank template, which only blanks stickies, is made on the server). */
 export const CLEAR_TYPES = ["sticky", "text", "shape"];
-export const BLANK_TYPES = ["sticky"];
 const CLEAR_KEYS = ["tagIds", "reactions", "marks", "showAuthor", ...STAMP_KEYS];
 export const TEMPLATE_CATEGORY_LABELS = {
   "research-design": "Research and design",
@@ -36,7 +35,7 @@ export const TEMPLATE_COLLECTIONS = [
 export const SHOW_PICKER_KEY = "veevee.canvas.showTemplatePicker";
 
 /** `nodes` with the text, tags, emoji votes and stamps of those of `types` removed, styles kept. */
-export function clearNodeContent(nodes, types = BLANK_TYPES) {
+export function clearNodeContent(nodes, types) {
   return nodes.map((node) => {
     if (!types.includes(node.type)) return node;
     if (!node.text && !CLEAR_KEYS.some((key) => key in node)) return node;
@@ -45,11 +44,6 @@ export function clearNodeContent(nodes, types = BLANK_TYPES) {
     if ("text" in next) next.text = "";
     return next;
   });
-}
-
-/** The graph with every sticky cleared (what "Blank" starts from). */
-export function blankGraph(graph) {
-  return { ...graph, nodes: clearNodeContent(graph.nodes) };
 }
 
 function bounds(nodes) {
@@ -111,7 +105,7 @@ export function templateInsertion(present, graph, center, newId = () => crypto.r
   return { nodes, connectors, tags, ids: nodes.map((node) => node.id) };
 }
 
-/** The board after inserting a template, or `null` when the result would pass the 2 Mi board size cap. */
+/** The board after inserting a template (`next`, the new node `ids`), and whether it would pass the 2 Mi board size cap. */
 export function insertTemplate(present, graph, center, newId) {
   const added = templateInsertion(present, graph, center, newId);
   const next = {
@@ -120,12 +114,7 @@ export function insertTemplate(present, graph, center, newId) {
     connectors: [...present.connectors, ...added.connectors],
     ...(added.tags.length ? { tags: added.tags } : {}),
   };
-  return { next, ids: added.ids, units: JSON.stringify(next).length, tooLarge: JSON.stringify(next).length > MAX_BOARD_UNITS };
-}
-
-/** Whether adding `graph` to `present` stays under the cap (the "mix and match" check). */
-export function fitsBoard(present, graph) {
-  return JSON.stringify(present).length + JSON.stringify(graph).length <= MAX_BOARD_UNITS;
+  return { next, ids: added.ids, tooLarge: JSON.stringify(next).length > MAX_BOARD_UNITS };
 }
 
 /**
@@ -156,7 +145,7 @@ export function selectionGraph(present, selection) {
   return { version: 1, nodes, connectors, ...(tags.length ? { tags } : {}) };
 }
 
-/** `present` with the text of the selected sticky, text and shape objects (and frames' children) cleared. */
+/** `present` with the text, tags and votes of the selected sticky, text and shape objects cleared; other selected objects stay as they are. */
 export function clearSelection(present, selection) {
   const wanted = new Set(selection);
   const nodes = present.nodes.map((node) => (wanted.has(node.id) ? clearNodeContent([node], CLEAR_TYPES)[0] : node));
@@ -212,7 +201,7 @@ async function call(path, { method = "GET", body } = {}) {
 
 export const templateApi = {
   list: (projectId) => call(`/api/canvas-templates${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ""}`),
-  get: (ref, projectId) => call(`/api/canvas-templates/${encodeURIComponent(ref)}${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ""}`),
+  get: (ref) => call(`/api/canvas-templates/${encodeURIComponent(ref)}`),
   create: (body) => call("/api/canvas-templates", { method: "POST", body }),
   update: (ref, body) => call(`/api/canvas-templates/${encodeURIComponent(ref)}`, { method: "PATCH", body }),
   remove: (ref) => call(`/api/canvas-templates/${encodeURIComponent(ref)}`, { method: "DELETE" }),

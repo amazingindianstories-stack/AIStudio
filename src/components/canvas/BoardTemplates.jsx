@@ -40,16 +40,17 @@ export function BoardTemplates({ boardId, projectId, viewCenter, onOpenBoard }) 
     () =>
       onTemplatesRequest((detail) => {
         if (detail.action === "open") setPicker({ tool: detail.tool ?? null, ref: detail.ref ?? null });
-        else if (detail.action === "save-board" && boardId) setDialog({ source: { boardId } });
+        else if (detail.action === "save-board" && boardId && !selectReadOnly(useCanvasStore.getState())) setDialog({ source: { boardId } });
         else if (detail.action === "save-selection") saveSelection();
         else if (detail.action === "scratch") setDialog({ scratch: true });
       }),
     [boardId]
   );
 
+  // Saving the board or part of it needs edit rights on it.
   const saveSelection = () => {
     const state = useCanvasStore.getState();
-    if (!state.selection.length) return;
+    if (!state.selection.length || selectReadOnly(state)) return;
     const graph = selectionGraph(state.history.present, state.selection);
     if (graph.nodes.length) setDialog({ source: { graph } });
   };
@@ -83,7 +84,7 @@ export function BoardTemplates({ boardId, projectId, viewCenter, onOpenBoard }) 
   const use = useCallback(
     async (template, blank) => {
       try {
-        const full = await templateApi.get(template.id, projectId);
+        const full = await templateApi.get(template.id);
         const graph = blank ? full.template.blankGraph : full.template.graph;
         const state = useCanvasStore.getState();
         const result = insertTemplate(state.history.present, graph, viewCenter());
@@ -100,14 +101,14 @@ export function BoardTemplates({ boardId, projectId, viewCenter, onOpenBoard }) 
         notify(failure.message);
       }
     },
-    [boardId, projectId, viewCenter]
+    [boardId, viewCenter]
   );
 
   const editContent = async (template) => {
     try {
       const result = await templateApi.editBoard(template.id, projectId);
       setPicker(null);
-      onOpenBoard(result.boardId);
+      onOpenBoard(result.boardId, result.projectId);
     } catch (failure) {
       notify(failure.message);
     }
@@ -166,7 +167,7 @@ export function BoardTemplates({ boardId, projectId, viewCenter, onOpenBoard }) 
           onSaved={(template) => {
             setDialog(null);
             notify(dialog.scratch ? "Template created." : "Template saved.", { tone: "info" });
-            if (dialog.scratch && template.boardId) onOpenBoard(template.boardId);
+            if (dialog.scratch && template.boardId) onOpenBoard(template.boardId, projectId);
           }}
         />
       )}

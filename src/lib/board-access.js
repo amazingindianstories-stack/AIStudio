@@ -60,6 +60,11 @@ export async function changeBoardAccess(boardId, change) {
   }));
 }
 
+/** The caller's role in a project (`role` is null for someone who is not a member). */
+export async function fetchProjectAccess(projectId) {
+  return readJson(await apiFetch(`/api/projects/${projectId}/members`, { cache: "no-store" }));
+}
+
 export async function changeProjectMembers(projectId, change) {
   return readJson(await apiFetch(`/api/projects/${projectId}/members`, {
     method: "POST",

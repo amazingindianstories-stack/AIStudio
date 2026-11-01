@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Loader2, X } from "lucide-react";
 import { TEMPLATE_CATEGORY_LABELS, templateApi } from "@/lib/canvas/templates";
+import { fetchProjectAccess } from "@/lib/board-access";
 
 const field =
   "w-full rounded-lg border border-line bg-ink-700 px-3 py-2 text-sm text-white outline-none transition placeholder:text-white/30 focus:border-white/25 focus:ring-2 focus:ring-white/10";
@@ -16,6 +17,8 @@ const SCOPES = [
 /**
  * Names and shares a template: saving the whole board, the selection, a new template from scratch, or editing the details of
  * an existing one (`template`). `source` is `{ boardId }` or `{ graph }`; `scratch` makes an empty template edited on its own board.
+ * Only an admin shares with everyone and only a project member with the project, so the other choices are not offered; editing
+ * details sends the access only when it changes, so a template never moves to the project that happens to be open.
  */
 export function SaveTemplateDialog({ template, source, scratch = false, projectId, isAdmin, defaultName = "", onClose, onSaved }) {
   const titleId = useId();
@@ -28,8 +31,17 @@ export function SaveTemplateDialog({ template, source, scratch = false, projectI
   const [featured, setFeatured] = useState(Boolean(template?.featured));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [member, setMember] = useState(false);
 
   useEffect(() => nameRef.current?.focus(), []);
+  useEffect(() => {
+    if (!projectId) return undefined;
+    let cancelled = false;
+    fetchProjectAccess(projectId).then((access) => !cancelled && setMember(Boolean(access.role)), () => {});
+    return () => { cancelled = true; };
+  }, [projectId]);
+  const scopes = SCOPES.filter((item) =>
+    item.id === template?.scope || item.id === "personal" || (item.id === "project" ? member : isAdmin));
 
   const submit = async (event) => {
     event.preventDefault();
@@ -37,7 +49,8 @@ export function SaveTemplateDialog({ template, source, scratch = false, projectI
     setBusy(true);
     setError("");
     const details = {
-      name, description, category, scope, projectId,
+      name, description, category,
+      ...(!template || scope !== template.scope ? { scope, projectId } : {}),
       tags: tags.split(",").map((tag) => tag.trim()).filter(Boolean),
       ...(isAdmin ? { featured } : {}),
     };
@@ -90,7 +103,7 @@ export function SaveTemplateDialog({ template, source, scratch = false, projectI
             <label className="flex flex-col gap-1 text-xs text-white/60">
               Who can use it
               <select value={scope} onChange={(e) => setScope(e.target.value)} className={field}>
-                {SCOPES.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+                {scopes.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
               </select>
             </label>
           </div>
