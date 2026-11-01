@@ -7,6 +7,7 @@
  * strokes that viewport culling has not mounted.
  */
 
+import { fromNodeLocal, nodeBounds, withRotation } from "./geometry";
 import { unstamped } from "./stamps";
 
 /** Most points one stroke keeps; longer strokes are simplified harder. */
@@ -128,13 +129,13 @@ export function inkNodeFromPoints(points, style, id = crypto.randomUUID()) {
   return node;
 }
 
-/** A node's stroke as world points, following any resize of its box. */
+/** A node's stroke as world points, following any resize and rotation of its box. */
 export function inkWorldPoints(node) {
   const pts = Array.isArray(node.pts) ? node.pts : [];
   const sx = node.vw > 0 ? node.w / node.vw : 1;
   const sy = node.vh > 0 ? node.h / node.vh : 1;
   const out = [];
-  for (let i = 0; i + 1 < pts.length; i += 2) out.push({ x: node.x + pts[i] * sx, y: node.y + pts[i + 1] * sy });
+  for (let i = 0; i + 1 < pts.length; i += 2) out.push(fromNodeLocal(node, { x: node.x + pts[i] * sx, y: node.y + pts[i + 1] * sy }));
   return out;
 }
 
@@ -164,8 +165,8 @@ export function inkIdsAt(nodes, point, radius) {
   for (const node of nodes) {
     if (node.type !== "ink") continue;
     const reach = radius + (node.strokeWidth ?? 2) / 2;
-    const b = { x: node.x - reach, y: node.y - reach, w: node.w + reach * 2, h: node.h + reach * 2 };
-    if (point.x < b.x || point.x > b.x + b.w || point.y < b.y || point.y > b.y + b.h) continue;
+    const b = nodeBounds(node);
+    if (point.x < b.x - reach || point.x > b.x + b.w + reach || point.y < b.y - reach || point.y > b.y + b.h + reach) continue;
     if (distanceToInk(node, point) <= reach) ids.push(node.id);
   }
   return ids;
@@ -213,8 +214,8 @@ export function eraseInkPart(node, point, radius) {
   const pieces = runs.filter((r) => r.length >= 2);
   return pieces.map((piece, index) => {
     const { x, y, w, h, vw, vh, pts } = inkNodeFromPoints(simplifyPoints(piece, 0.5), node);
-    if (index === 0) return { ...node, x, y, w, h, vw, vh, pts };
-    return { ...unstamped(node), id: crypto.randomUUID(), x, y, w, h, vw, vh, pts };
+    if (index === 0) return withRotation({ ...node, x, y, w, h, vw, vh, pts }, 0);
+    return withRotation({ ...unstamped(node), id: crypto.randomUUID(), x, y, w, h, vw, vh, pts }, 0);
   });
 }
 

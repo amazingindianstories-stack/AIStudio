@@ -89,6 +89,26 @@ test("the precision eraser keeps the stroke's layer, tags and other fields on ev
   assert.deepEqual(state.nodes.map((n) => n.layerId), ["sketch", "sketch"]);
 });
 
+test("the eraser hits a rotated stroke where it is drawn and its pieces stay in place", () => {
+  const drawn = inkNodeFromPoints(Array.from({ length: 201 }, (_, i) => ({ x: i, y: 0 })), style, "s");
+  const node = { ...drawn, y: -drawn.h / 2, rotation: 90 };
+  const state = { nodes: [node], connectors: [] };
+  const lineX = inkWorldPoints(node)[0].x;
+  assert.ok(Math.abs(lineX - 100) <= 1);
+  assert.deepEqual(inkIdsAt([node], { x: 100, y: -80 }, 6), ["s"], "the visible vertical line is hit");
+  assert.deepEqual(inkIdsAt([node], { x: 20, y: 0 }, 6), [], "where the upright stroke would be is empty");
+  assert.equal(eraseAt(state, { x: 20, y: 0 }, 6, true), state);
+  const pieces = eraseAt(state, { x: 100, y: 0 }, 6, true).nodes;
+  assert.equal(pieces.length, 2);
+  for (const piece of pieces) {
+    assert.equal("rotation" in piece, false);
+    for (const p of inkWorldPoints(piece)) {
+      assert.ok(Math.abs(p.x - lineX) < 0.5, "every piece stays on the vertical line");
+      assert.ok(Math.abs(p.y) > 6 && Math.abs(p.y) <= 100.5);
+    }
+  }
+});
+
 test("the precision eraser leaves nothing when it covers a short stroke", () => {
   const node = inkNodeFromPoints(line(5), style, "s");
   assert.deepEqual(eraseInkPart(node, { x: 2, y: 0 }, 20), []);
