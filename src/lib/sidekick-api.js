@@ -1,3 +1,4 @@
+import { apiFetch } from "./api";
 import { getJson, send } from "./board-ai";
 
 // The Sidekick, Flow, Catch up and AI search endpoints (backend/apps/canvas/views_sidekick.py). Board routes live
@@ -30,7 +31,8 @@ export const submitStep = (boardId, request, key) => send(board(boardId, "flows/
 export const fetchVersions = (boardId, nodeId) => getJson(board(boardId, `flow-versions?nodeId=${part(nodeId)}`)).then((json) => json.versions);
 export const recordVersion = (boardId, nodeId, text) => send(board(boardId, "flow-versions"), "POST", { nodeId, text });
 
-export const recordVisit = (boardId) => send(board(boardId, "visit"), "POST", {});
+/** Mark the board as seen now. Sent when a board is left, so the next visit's Catch up counts from this one; keepalive lets it finish while the page unloads. */
+export const recordVisit = (boardId) => apiFetch(board(boardId, "visit"), { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}", keepalive: true }).catch(() => {});
 export const fetchCatchUp = (boardId, period) => getJson(board(boardId, `catch-up${period ? `?period=${part(period)}` : ""}`)).then((json) => json.catchUp);
 export const quoteCatchUp = (boardId, request) => send(board(boardId, "catch-up/quote"), "POST", request).then((json) => json.quote);
 export const submitCatchUp = (boardId, request, key) => send(board(boardId, "catch-up/jobs"), "POST", request, { "Idempotency-Key": key }).then((json) => json.job);

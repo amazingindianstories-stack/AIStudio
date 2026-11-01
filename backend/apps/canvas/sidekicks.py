@@ -302,6 +302,8 @@ def create_chat(actor, board, body):
         raise _error('Choose a Sidekick.')
     sidekick = resolve(actor, key)
     now = now_ms()
+    asked = BoardAiJob.objects.filter(chat_id=models.OuterRef('pk'))
+    BoardSidekickChat.objects.filter(board=board, user_id=actor.id).exclude(models.Exists(asked)).delete()
     if BoardSidekickChat.objects.filter(board=board, user_id=actor.id).count() >= MAX_CHATS:
         oldest = BoardSidekickChat.objects.filter(board=board, user_id=actor.id).order_by('updated_at').first()
         oldest.delete()
@@ -311,7 +313,9 @@ def create_chat(actor, board, body):
 
 
 def list_chats(actor, board):
-    rows = BoardSidekickChat.objects.filter(board=board, user_id=actor.id).order_by('-updated_at')[:MAX_CHATS]
+    # A chat opened for a price quote but never sent has no history to show.
+    asked = BoardAiJob.objects.filter(chat_id=models.OuterRef('pk'))
+    rows = BoardSidekickChat.objects.filter(board=board, user_id=actor.id).filter(models.Exists(asked)).order_by('-updated_at')[:MAX_CHATS]
     return [chat_json(row) for row in rows]
 
 

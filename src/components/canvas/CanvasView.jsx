@@ -24,6 +24,8 @@ import { BoardProjectSelector } from "./BoardProjectSelector";
 import { CanvasAssetPanel } from "./CanvasAssetPanel";
 import { BoardShareDialog } from "./BoardShareDialog";
 import { CanvasAiPanel } from "./CanvasAiPanel";
+import { SidekickPanel } from "./SidekickPanel";
+import { CatchUpChip } from "./CatchUpChip";
 import { useBoardAi } from "@/lib/board-ai";
 import { BoardHistoryPanel } from "./BoardHistoryPanel";
 import { LayersPanel } from "./LayersPanel";
@@ -63,6 +65,7 @@ export function CanvasView() {
   const [boardsReload, setBoardsReload] = useState(0);
   const [noBoards, setNoBoards] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
+  const [sidekick, setSidekick] = useState(null); // null, or the tab the Sidekick panel opens on
 
   const surfaceRef = useRef(null);
 
@@ -574,10 +577,14 @@ export function CanvasView() {
             onAddImageClick={openImagePicker}
             aiOpen={aiOpen && Boolean(boardId)}
             onAiClick={() => setAiOpen((v) => !v)}
+            sidekickOpen={sidekick !== null && Boolean(boardId)}
+            onSidekickClick={() => setSidekick((v) => (v === null ? "chat" : null))}
             viewCenter={viewCenter}
           />
         )}
         {aiOpen && boardId && !readOnly && !touchViewOnly && <CanvasAiPanel boardId={boardId} leftInset={assetPanelWidth} onClose={() => setAiOpen(false)} />}
+        {sidekick !== null && boardId && !touchViewOnly && <SidekickPanel boardId={boardId} initialTab={sidekick} readOnly={readOnly} onClose={() => setSidekick(null)} />}
+        {boardId && loaded && !touchViewOnly && sidekick === null && <CatchUpChip boardId={boardId} onOpen={() => setSidekick("catchup")} />}
       </div>
 
       <input
