@@ -323,7 +323,7 @@ def _board_graph(user, board_id, level):
 
 
 def create_template(user, data):
-    """From a whole board (`boardId`), from a selection (`graph`), or from scratch (`fromScratch` with a `projectId`:
+    """From a whole board (`boardId`), from a selection of it (`graph` with its `boardId`), or from scratch (`fromScratch` with a `projectId`:
     an empty template and the ordinary board it is edited in)."""
     name = clean_name(data.get('name'))
     scope, project_id = clean_scope(data.get('scope', 'personal'), data.get('projectId'), user)
@@ -337,11 +337,10 @@ def create_template(user, data):
         access.require_board_creator(user, project)
         graph = snapshot(empty_state())
     elif data.get('boardId') is not None:
-        graph = snapshot(_board_graph(user, data['boardId'], access.WRITE))
-    elif isinstance(data.get('graph'), dict):
-        graph = snapshot(data['graph'])
+        board = _board_graph(user, data['boardId'], access.WRITE)
+        graph = snapshot(data.get('graph', board))
     else:
-        raise TemplateError('A board or a selection is required.')
+        raise TemplateError('A board is required.')
     if not graph['nodes'] and data.get('fromScratch') is not True:
         raise TemplateError('Nothing to save: the template would be empty.')
     with transaction.atomic():
