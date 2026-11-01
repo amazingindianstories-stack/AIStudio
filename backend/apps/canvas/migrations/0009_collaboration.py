@@ -95,4 +95,23 @@ class Migration(migrations.Migration):
             ('created_at', models.BigIntegerField()),
         ], options={'db_table': 'push_subscriptions', 'managed': True,
                     'indexes': [models.Index(fields=['user_id'], name='push_subscriptions_user_idx')]}),
+        migrations.RunSQL("""
+DO $$
+DECLARE
+    r TEXT;
+    t TEXT;
+BEGIN
+    FOREACH t IN ARRAY ARRAY['board_comments', 'board_comment_reactions', 'board_comment_reads', 'board_comment_follows',
+                             'board_notifications', 'board_presence', 'push_subscriptions'] LOOP
+        FOREACH r IN ARRAY ARRAY['goal4_green_preview_api', 'goal4_green_preview_worker'] LOOP
+            IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname=r) THEN
+                EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON %I TO %I', t, r);
+            END IF;
+        END LOOP;
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='goal4_green_history_writer') THEN
+            EXECUTE format('GRANT SELECT ON %I TO goal4_green_history_writer', t);
+        END IF;
+    END LOOP;
+END $$;
+""", migrations.RunSQL.noop),
     ]
