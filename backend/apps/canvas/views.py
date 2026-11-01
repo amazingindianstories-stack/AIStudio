@@ -167,7 +167,7 @@ def board_detail(request, identifier):
             save_id = save_id_of(request.GET.dict())
             if save_id is False:
                 return reply(request, {'error': 'Invalid save id.'}, 400)
-            board = services.get_board(identifier, save_id)
+            board = services.get_board(identifier, save_id, viewer=user.id)
             return reply(request, {**board, 'role': access.LEVEL_NAMES[level]}) if board else reply(request, {'error': 'Board not found.'}, 404)
         # A missing board keeps the frozen validate-then-404 order; an existing one checks the role first,
         # so a read-only user is refused before any version check and never receives a 409 with the graph.
@@ -256,7 +256,7 @@ def board_changes(request, identifier):
         since = request.GET.get('since', '')
         if not re.fullmatch(r'[0-9]{1,16}', since):
             return reply(request, {'error': 'Invalid version.'}, 400)
-        changes = services.board_changes(identifier, int(since))
+        changes = services.board_changes(identifier, int(since), viewer=user.id)
         return reply(request, changes) if changes else reply(request, {'error': 'Board not found.'}, 404)
     except access.AccessError as error:
         return reply(request, {'error': str(error)}, error.status)

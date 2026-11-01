@@ -61,8 +61,10 @@ def with_structured_theme(result, r):
 # server stamps (content_length).
 MAX_BOARD_JSON_UNITS = 2 * 1024 * 1024
 # Per-object author and time fields the server owns (apps.canvas.activity).
-# `textBy` is who last replaced the text (sticky author labels).
-STAMP_KEYS = ('createdBy', 'createdAt', 'updatedBy', 'updatedAt', 'textBy')
+# `textBy` is who last replaced the text (sticky author labels). `privateBy` and `anonBy` mark a sticky note
+# written in private mode (apps.canvas.private_mode) and `hiddenText` a note whose text is withheld from the
+# reader, so a client can never set or clear them.
+STAMP_KEYS = ('createdBy', 'createdAt', 'updatedBy', 'updatedAt', 'textBy', 'privateBy', 'anonBy', 'hiddenText')
 JS_WHITESPACE = '\u0009\u000a\u000b\u000c\u000d\u0020\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff'
 
 
@@ -137,6 +139,11 @@ def with_stamps(result, raw):
     for key in ('createdAt', 'updatedAt'):
         if finite(raw.get(key)):
             result[key] = raw[key]
+    for key in ('anonBy', 'hiddenText'):
+        if raw.get(key) is True:
+            result[key] = True
+    if isinstance(raw.get('privateBy'), str):
+        result['privateBy'] = raw['privateBy']
     return result
 
 
