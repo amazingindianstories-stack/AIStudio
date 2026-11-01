@@ -61,22 +61,23 @@ def request_values(body):
     if processing not in PROCESSING:
         raise JobError(400, 'Unknown processing.', 'UNKNOWN_PROCESSING')
     values = {'format': name, 'prompt': prompt.strip(), 'processing': processing}
-    context = body.get('context')
-    if context is not None:
-        if ENGINES[name] != 'text':
-            raise JobError(400, 'Only text formats take board context.')
-        from apps.agents.board import context_text
-        try:
-            values['context'] = context_text(context)
-        except ValueError as error:
-            raise JobError(400, str(error), 'INVALID_CONTEXT') from None
-    elif name in SELECTION_FORMATS:
-        raise JobError(400, 'Select board objects first.', 'SELECTION_REQUIRED')
     parent = body.get('parentJobId')
     if parent is not None:
         if not isinstance(parent, str) or not UUID.fullmatch(parent):
             raise JobError(400, 'Invalid parentJobId.')
         values['parentJobId'] = parent.lower()
+    if parent is None:
+        context = body.get('context')
+        if context is not None:
+            if ENGINES[name] != 'text':
+                raise JobError(400, 'Only text formats take board context.')
+            from apps.agents.board import context_text
+            try:
+                values['context'] = context_text(context)
+            except ValueError as error:
+                raise JobError(400, str(error), 'INVALID_CONTEXT') from None
+        elif name in SELECTION_FORMATS:
+            raise JobError(400, 'Select board objects first.', 'SELECTION_REQUIRED')
     if name == 'image':
         references = body.get('referenceImages')
         if references is not None:

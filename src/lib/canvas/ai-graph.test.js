@@ -70,6 +70,21 @@ test("clustering moves unlocked stickies into titled columns", () => {
   assert.equal(applyCluster(present, { groups: [] }).touched.length, 0);
 });
 
+test("placing the same cluster twice leaves one title per group", () => {
+  const result = { groups: [{ title: "Pets", ids: ["s1"] }, { title: "Things", ids: ["s3"] }] };
+  const board = { nodes: [
+    { id: "s1", type: "sticky", x: 0, y: 0, w: 200, h: 200, text: "cat" },
+    { id: "s3", type: "sticky", x: 600, y: 300, w: 200, h: 200, text: "lamp" },
+  ] };
+  const once = applyCluster(board, result).present;
+  const twice = applyCluster(once, result);
+  const titles = (state) => state.nodes.filter((node) => node.type === "text").map((node) => node.text).sort();
+  assert.deepEqual(titles(once), ["Pets", "Things"]);
+  assert.deepEqual(titles(twice.present), ["Pets", "Things"]);
+  assert.deepEqual(twice.present.nodes, once.nodes);
+  assert.equal(twice.touched.length, 4);
+});
+
 test("a summary is one note to the right of the selection and nodes validate as board content", () => {
   const { nodes } = summaryGraph({ title: "Recap", body: "Points" }, present, ["s1", "s2"], C);
   assert.equal(nodes.length, 1);

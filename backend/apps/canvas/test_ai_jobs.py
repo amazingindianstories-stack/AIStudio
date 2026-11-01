@@ -456,6 +456,17 @@ class BoardAiSelectionTests(BoardFixture):
         self.assertEqual([turn['role'] for turn in turns], ['user', 'model', 'user'])
         self.assertEqual((turns[0]['text'], turns[2]['text']), ('a workshop', 'add risks'))
 
+    def test_a_refinement_of_a_summary_needs_no_selection_and_keeps_the_original_one(self):
+        first, _ = self.run_job({'format': 'summary', 'prompt': 'sum up', 'context': self.ITEMS}, 'board-key-summary-1')
+        body = {'format': 'summary', 'prompt': 'make it shorter', 'parentJobId': first['id']}
+        self.assertEqual(self.quote(body).status_code, 200)
+        refined = self.submit(body, key='board-key-summary-2')
+        self.assertEqual(refined.status_code, 201, refined.content)
+        turns = Generation.objects.get(pk=refined.json()['job']['generationId']).submission_input['turns']
+        self.assertEqual([turn['role'] for turn in turns], ['user', 'model', 'user'])
+        self.assertIn('teh cat', turns[0]['text'])
+        self.assertEqual(turns[2]['text'], 'make it shorter')
+
     def test_an_image_job_takes_up_to_four_board_images_as_references(self):
         refs = ['/api/media/generations/a/master.png', '/api/media/generations/b/master.png']
         created = self.submit({'format': 'image', 'prompt': 'blend these', 'referenceImages': refs}, key='board-key-refs-1')

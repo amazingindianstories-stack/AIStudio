@@ -119,11 +119,12 @@ from the panel's selection strip or the context menu's AI rows, not the format t
   DOM, so viewport culling does not matter) and sends `context: [{id, type, text}]`. The server bounds it
   (`context_text`: 60 items, 2000 characters each, 12000 in all; `INVALID_CONTEXT` otherwise) and appends it to the
   first user turn, so the text-only allowlist and the paid-guard body match are unchanged. The prompt limit applies
-  to the user's own words only. A selection format without context is `SELECTION_REQUIRED`.
+  to the user's own words only. A selection format without context is `SELECTION_REQUIRED`. A refinement sends no
+  context: it reuses the first turn of the job it refines, which already holds the original selection.
 - **Image references.** `referenceImages` (up to 4 URLs under `/api/media/`) on an `image` request are validated
   by the existing enqueue path. Selected board images become references of a new image, so the original stays.
 - **Placement kinds** in `AI_FORMATS`: `nodes` (new objects), `graph` (new objects and connectors, placed with
-  `placeGeneratedNodes`; `diagram` and `layout` replace their previous result when refined) and `edit` (rewrites
+  `placeGeneratedNodes`; a refined result replaces the result it refines) and `edit` (rewrites
   selected objects in place with `applyBoardAiEdit`, one undo step; locked objects are skipped). An `edit` format
   claims the ids it changed, never becomes the refine target and never deletes anything.
 - **Entry points** follow a per-browser preference (`veevee.board.aiInputs`, `src/lib/board-ai-panel.js`; the app has

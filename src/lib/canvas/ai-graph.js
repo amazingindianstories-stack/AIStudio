@@ -196,10 +196,13 @@ export function applyCluster(present, result) {
   const top = Math.min(...moved.map((node) => node.y));
   const positions = new Map();
   const titles = [];
+  const kept = [];
   let x = left;
   for (const group of members.filter((entry) => entry.nodes.length)) {
     const width = Math.max(...group.nodes.map((node) => node.w));
-    titles.push({ id: newId(), type: "text", x, y: top - 56, w: Math.max(width, 200), h: 40, text: group.title, fontSize: 20, align: "left",
+    const existing = present.nodes.find((node) => node.type === "text" && node.text === group.title && node.x === x && node.y === top - 56);
+    if (existing) kept.push(existing.id);
+    else titles.push({ id: newId(), type: "text", x, y: top - 56, w: Math.max(width, 200), h: 40, text: group.title, fontSize: 20, align: "left",
       color: "#f1f5f9", opacity: 1, parentId: null, groupId: null });
     let y = top;
     for (const node of group.nodes) {
@@ -209,5 +212,5 @@ export function applyCluster(present, result) {
     x += width + 48;
   }
   const nodes = present.nodes.map((node) => (positions.has(node.id) ? { ...node, ...positions.get(node.id), parentId: null } : node));
-  return { present: { ...present, nodes: [...nodes, ...titles] }, touched: [...positions.keys(), ...titles.map((title) => title.id)] };
+  return { present: { ...present, nodes: [...nodes, ...titles] }, touched: [...positions.keys(), ...kept, ...titles.map((title) => title.id)] };
 }

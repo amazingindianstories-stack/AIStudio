@@ -106,7 +106,7 @@ const countLabel = (count, noun) => `${count} ${noun}${count === 1 ? "" : "s"}`;
 
 // Formats that act on the selected objects take their context from the selection when the job is submitted
 // (ai-selection.js). A `graph` format places new objects (and connectors); an `edit` format rewrites the selection in
-// place; `replaces` marks the formats whose refinement takes the place of the result it refines.
+// place.
 Object.assign(AI_FORMATS, {
   layout: {
     id: "layout",
