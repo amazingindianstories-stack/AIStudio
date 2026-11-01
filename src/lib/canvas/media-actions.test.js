@@ -37,9 +37,10 @@ test("embed codes and links become embeds locally and unknown hosts are refused"
   await openBoard(t, "edit");
   const id = await addFromLink("https://www.youtube.com/watch?v=dQw4w9WgXcQ", "board-1", { x: 0, y: 0 });
   assert.equal(nodes().find((n) => n.id === id).type, "embed");
-  t.mock.method(globalThis, "fetch", async () => json(400, { error: "That address is not supported." }));
+  const fetched = t.mock.method(globalThis, "fetch", async () => json(400, { error: "Use a public HTTPS link." }));
   const iframe = await addFromLink('<iframe src="https://evil.example/x"></iframe>', "board-1", { x: 0, y: 0 }).catch((e) => e);
-  assert.ok(iframe instanceof Error);
+  assert.equal(iframe.message, "This embed is not supported. Paste a YouTube, Vimeo, Loom, Dailymotion, Spotify, SoundCloud, Figma or Google Drive embed.");
+  assert.equal(fetched.mock.callCount(), 0);
   assert.equal(nodes().length, 1);
 });
 

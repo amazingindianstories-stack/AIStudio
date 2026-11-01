@@ -3,6 +3,7 @@
 Sources are the board's team access (what every signed-in teammate gets), the user's board
 membership, the user's project membership, board ownership (`created_by`) and the admin role.
 Every board route asks `role_for`/`roles_for` and compares levels; nothing else decides access.
+`readable_boards` is the SQL twin of `_level(...) >= READ` for listing queries; change the two together.
 """
 from django.db.models import Q
 from apps.authentication.models import User

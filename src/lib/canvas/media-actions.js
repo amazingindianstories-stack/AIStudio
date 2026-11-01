@@ -3,7 +3,7 @@ import { useCanvasStore, selectReadOnly } from '../canvas-store';
 import { currentUserId } from './sticky-actions';
 import { mediaRef, validateLink } from './media-nodes';
 import { mediaNodeFields, importBoardUrl } from './media-upload';
-import { embedFromIframe, embedFromUrl } from './embeds';
+import { PROVIDER_NAMES, embedFromIframe, embedFromUrl } from './embeds';
 
 export function addMedia(fields, center) {
   const state = useCanvasStore.getState();
@@ -113,6 +113,10 @@ export async function addFromLink(text, boardId, center, options = {}) {
   if (!input) throw new Error('Enter a link or iframe code.');
   const embed = embedFromIframe(input) || embedFromUrl(input);
   if (embed) return addMedia({ type: 'embed', src: embed.src, provider: embed.provider, kind: embed.kind, title: embed.title }, center);
+  if (/^<iframe\b/i.test(input)) {
+    const names = Object.values(PROVIDER_NAMES);
+    throw new Error(`This embed is not supported. Paste a ${names.slice(0, -1).join(', ')} or ${names.at(-1)} embed.`);
+  }
   const result = await importBoardUrl(input, boardId, options);
   const fields = mediaNodeFields(result);
   return addMedia(fields, center);

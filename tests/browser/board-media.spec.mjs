@@ -171,7 +171,8 @@ test('Board media: embed code, code block, emoji, interactive sticker, icon, upl
   dialog = page.getByRole('dialog', { name: 'Link or embed' });
   await dialog.getByLabel('Link or iframe code').fill('<iframe src="http://localhost:9/evil"></iframe>');
   await dialog.getByRole('button', { name: /^Add/ }).click();
-  await expect(dialog.getByRole('alert')).toBeVisible();
+  await expect(dialog.getByRole('alert')).toContainText('This embed is not supported.');
+  expect(imports).toEqual([]);
   await dialog.getByRole('button', { name: 'Cancel' }).click();
 
   // Plain-HTTP and private-address links are refused by the server, and the dialog says why.
