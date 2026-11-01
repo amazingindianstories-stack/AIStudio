@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Eye, EyeOff, Link2 } from "lucide-react";
-import { useCanvasStore, selectReadOnly } from "@/lib/canvas-store";
+import { isLocked, useCanvasStore, selectReadOnly } from "@/lib/canvas-store";
 import { FRAME_PRESETS, presetOfFrame } from "@/lib/canvas/frames";
 import { canHideFrames, setFrameHidden, setFramePreset } from "@/lib/frame-actions";
 import { listCopies } from "@/lib/synced-frames";
@@ -17,6 +17,7 @@ export function FrameControls() {
   const selection = useCanvasStore((s) => s.selection);
   const viewport = useCanvasStore((s) => s.history.present.viewport);
   const nodes = useCanvasStore((s) => s.history.present.nodes);
+  const settings = useCanvasStore((s) => s.history.present.settings);
   const boardId = useCanvasStore((s) => s.boardId);
   const role = useCanvasStore((s) => s.boardRole);
   const readOnly = useCanvasStore(selectReadOnly);
@@ -34,6 +35,8 @@ export function FrameControls() {
   // A hidden frame is a fixed placeholder for people who cannot manage it.
   if (!frame || readOnly || (frame.hidden && !manage)) return null;
   const isFrame = frame.type === "frame";
+  // A locked frame keeps its size and visibility; its copies can still be listed.
+  const editable = isFrame && !isLocked({ nodes, settings }, frame);
   const preset = isFrame ? presetOfFrame(frame) : null;
   const left = (frame.x - viewport.x) * viewport.zoom;
   // Below the frame: the style bar of the selection sits above it.
@@ -52,7 +55,7 @@ export function FrameControls() {
       style={{ left: Math.max(8, left), top: Math.max(8, top) }}
       onPointerDown={(e) => e.stopPropagation()}
     >
-      {isFrame && (
+      {editable && (
         <select
           aria-label="Frame size"
           value={preset?.id ?? "custom"}
@@ -68,7 +71,7 @@ export function FrameControls() {
           ))}
         </select>
       )}
-      {isFrame && manage && (
+      {editable && manage && (
         <button
           type="button"
           onClick={() => setFrameHidden(frame.id, !frame.hidden)}

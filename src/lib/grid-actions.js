@@ -1,6 +1,7 @@
 "use client";
 
 import { useCanvasStore } from "./canvas-store";
+import { isLocked } from "./canvas/locks";
 import { GRID_FILLS, createGrid, gridFromDelimited, insertColumn, insertRow, mergeRange, removeColumn, removeRow, setCellText, setRangeStyle, unmergeRange } from "./canvas/grid";
 
 // Editing a grid widget: every change replaces the grid node whole through the board store, so it is one undo
@@ -10,7 +11,7 @@ import { GRID_FILLS, createGrid, gridFromDelimited, insertColumn, insertRow, mer
 export function editGrid(id, change, opts) {
   useCanvasStore.getState().editBoard((graph) => ({
     ...graph,
-    nodes: graph.nodes.map((n) => (n.id === id && n.type === "grid" ? change(n) : n)),
+    nodes: graph.nodes.map((n) => (n.id === id && n.type === "grid" && !isLocked(graph, n) ? change(n) : n)),
   }), opts);
 }
 

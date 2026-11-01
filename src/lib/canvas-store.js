@@ -1215,7 +1215,7 @@ export const useCanvasStore = create((set, get) => ({
           }),
         };
         // A dragged frame joins the smallest frame it now sits wholly inside (frames nest to any depth).
-        next = renestFrames(next, selection);
+        next = renestFrames(next, [...movable]);
         if (selectedConnectorIds.length) {
           next = {
             ...next,

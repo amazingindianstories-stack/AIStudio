@@ -54,6 +54,13 @@ test("a frame takes a size preset and can be hidden and revealed", async (t) => 
   assert.equal("hidden" in get(store, "f"), false);
 });
 
+test("a locked frame keeps its size and visibility", async (t) => {
+  const store = await board(t, [{ ...frame("f", 10, 20, 300, 300), locked: true }], "co_owner");
+  setFramePreset("f", { id: "slide-16-9", w: 1280, h: 720 });
+  setFrameHidden("f", true);
+  assert.deepEqual([get(store, "f").w, get(store, "f").h, "hidden" in get(store, "f")], [300, 300, false]);
+});
+
 test("moving a frame carries nested frames and their contents", async (t) => {
   const store = await board(t, [
     frame("outer", 0, 0, 800, 600, "Outer"),

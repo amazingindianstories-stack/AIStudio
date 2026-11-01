@@ -209,7 +209,7 @@ export function NodeView({
           case "ink":
             return <InkNode node={node} />;
           case "grid":
-            return <GridNode node={node} selected={showRing} readOnly={readOnly || viewOnly} />;
+            return <GridNode node={node} selected={showRing} readOnly={readOnly || viewOnly || locked} />;
           case "synced":
             return <SyncedNode node={node} />;
           case "image":

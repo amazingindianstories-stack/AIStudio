@@ -3,6 +3,7 @@
 import { useCanvasStore } from "./canvas-store";
 import { applyFramePreset, frameAroundSelection } from "./canvas/frames";
 import { canShareRole } from "./board-access";
+import { isLocked } from "./canvas/locks";
 
 // Frame commands. Each is one board edit through the store (one undo step, one saved change per object).
 
@@ -32,7 +33,7 @@ export function frameSelection() {
 export function setFramePreset(id, preset) {
   useCanvasStore.getState().editBoard((graph) => ({
     ...graph,
-    nodes: graph.nodes.map((n) => (n.id === id && n.type === "frame" ? applyFramePreset(n, preset) : n)),
+    nodes: graph.nodes.map((n) => (n.id === id && n.type === "frame" && !isLocked(graph, n) ? applyFramePreset(n, preset) : n)),
   }));
 }
 
@@ -41,7 +42,7 @@ export function setFrameHidden(id, hidden) {
   useCanvasStore.getState().editBoard((graph) => ({
     ...graph,
     nodes: graph.nodes.map((n) => {
-      if (n.id !== id || n.type !== "frame") return n;
+      if (n.id !== id || n.type !== "frame" || isLocked(graph, n)) return n;
       if (hidden) return { ...n, hidden: true };
       const { hidden: _hidden, ...rest } = n;
       return rest;

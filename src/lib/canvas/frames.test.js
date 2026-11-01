@@ -148,3 +148,21 @@ test("a synced copy node keeps the frame's size and points at the source", async
   const node = syncedNodeFor("b1", { id: "f1", name: "Scene", w: 400, h: 200 }, { x: 0, y: 0 }, "n1");
   assert.deepEqual([node.type, node.x, node.y, node.sourceBoardId, node.sourceNodeId], ["synced", -200, -100, "b1", "f1"]);
 });
+
+test("moving a frame leaves a locked nested frame in place together with its contents", () => {
+  const nodes = [
+    frame("outer", 0, 0, 800, 600),
+    frame("locked", 50, 50, 300, 300, { parentId: "outer", locked: true }),
+    box("inLocked", 60, 60, 50, 50, { parentId: "locked" }),
+    box("loose", 500, 500, 50, 50, { parentId: "outer" }),
+  ];
+  const at = Object.fromEntries(moveNodesBy({ nodes, connectors: [] }, ["outer"], 100, 0).nodes.map((n) => [n.id, n.x]));
+  assert.deepEqual(at, { outer: 100, locked: 50, inLocked: 60, loose: 600 });
+});
+
+test("framing a selection leaves locked objects where they belong", () => {
+  const state = { nodes: [box("a", 100, 100), box("b", 300, 100, 50, 50, { locked: true })], connectors: [] };
+  const { state: next } = frameAroundSelection(state, ["a", "b"], 10, "f");
+  assert.equal(next.nodes.find((n) => n.id === "a").parentId, "f");
+  assert.equal(next.nodes.find((n) => n.id === "b").parentId, null);
+});

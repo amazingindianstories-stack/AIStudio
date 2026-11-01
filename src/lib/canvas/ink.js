@@ -222,18 +222,19 @@ export function eraseInkPart(node, point, radius) {
 
 /**
  * The graph after the eraser circle at `point` touches it: whole strokes disappear, or (`precise`) only the
- * touched part of each stroke does. Returns the same object when nothing was hit.
+ * touched part of each stroke does. Strokes in `fixed` (locked, or on a hidden layer) stay. Returns the same
+ * object when nothing was hit.
  */
-export function eraseAt(state, point, radius, precise) {
+export function eraseAt(state, point, radius, precise, fixed = new Set()) {
   if (!precise) {
-    const gone = new Set(inkIdsAt(state.nodes, point, radius));
+    const gone = new Set(inkIdsAt(state.nodes, point, radius).filter((id) => !fixed.has(id)));
     if (!gone.size) return state;
     return { ...state, nodes: state.nodes.filter((n) => !gone.has(n.id)) };
   }
   let changed = false;
   const nodes = [];
   for (const node of state.nodes) {
-    const pieces = node.type === "ink" ? eraseInkPart(node, point, radius) : null;
+    const pieces = node.type === "ink" && !fixed.has(node.id) ? eraseInkPart(node, point, radius) : null;
     if (pieces === null) {
       nodes.push(node);
       continue;

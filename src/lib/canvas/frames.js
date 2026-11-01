@@ -3,6 +3,7 @@
  * and pasting into frames at the same position. Pure functions over the board graph.
  */
 import { descendantIds } from "./geometry";
+import { lockedIdSet } from "./locks";
 
 export const FRAME_PADDING = 40;
 
@@ -69,7 +70,8 @@ export function frameAroundSelection(state, ids, padding = FRAME_PADDING, id = c
     parentId: sharedParent,
     groupId: null,
   };
-  const topIds = new Set(tops.map((n) => n.id));
+  const locked = lockedIdSet(state);
+  const topIds = new Set(tops.filter((n) => !locked.has(n.id)).map((n) => n.id));
   const firstIndex = state.nodes.findIndex((n) => selected.has(n.id));
   const nodes = state.nodes.map((n) => (topIds.has(n.id) ? { ...n, parentId: id } : n));
   nodes.splice(firstIndex, 0, frame);

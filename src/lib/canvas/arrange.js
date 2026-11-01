@@ -12,7 +12,7 @@
  * - Moving a container carries its unselected children along, and a moved object
  *   joins whichever container its center lands in, as with a drag.
  */
-import { computeFrameMembership, isContainerNode, nodeBounds, unionBounds } from "./geometry";
+import { computeFrameMembership, descendantIds, isContainerNode, nodeBounds, unionBounds } from "./geometry";
 import { lockedIdSet } from "./locks";
 import { isShapeNode } from "./shapes";
 
@@ -166,19 +166,19 @@ export function autoLayoutDeltas(state, ids, axis, gap) {
 }
 
 /**
- * Applies per-node moves to the board: a moved container's unselected, unlocked
- * children follow it, and every moved object other than a container joins the
+ * Applies per-node moves to the board: a moved container's contents follow it
+ * at any depth, except locked objects (which keep theirs) and objects with a
+ * move of their own, and every moved object other than a container joins the
  * container (frame, swimlane, diagram) its center now sits in (or leaves one),
  * as after a drag.
  */
 export function applyDeltas(state, deltas) {
   if (!deltas.size) return state;
-  const locked = lockedIdSet(state);
+  const fixed = lockedIdSet(state);
+  for (const id of deltas.keys()) fixed.add(id);
   const moves = new Map(deltas);
-  for (const node of state.nodes) {
-    if (!node.parentId || moves.has(node.id) || locked.has(node.id)) continue;
-    const parentMove = deltas.get(node.parentId);
-    if (parentMove) moves.set(node.id, parentMove);
+  for (const [id, move] of deltas) {
+    for (const carried of descendantIds(state.nodes, [id], fixed)) moves.set(carried, move);
   }
   let nodes = state.nodes.map((n) => {
     const move = moves.get(n.id);

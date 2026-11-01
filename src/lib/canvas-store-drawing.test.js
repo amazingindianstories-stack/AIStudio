@@ -3,15 +3,15 @@ import test from "node:test";
 import { useCanvasStore } from "./canvas-store.js";
 import { emptyCanvasState, validateCanvasState } from "./canvas/serialization.js";
 import { PEN_COLORS, PEN_WIDTHS } from "./canvas/ink.js";
-import { commitStroke, eraseStep } from "./ink-actions.js";
+import { commitSmartStroke, commitStroke, eraseStep } from "./ink-actions.js";
 import { addEmptyGrid, addGridFromText, gridOps } from "./grid-actions.js";
 import { addSyncedCopy } from "./synced-actions.js";
 
 const json = (body) => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
 
-async function board(t, role = "edit") {
+async function board(t, role = "edit", data = emptyCanvasState()) {
   t.mock.method(globalThis, "fetch", async (url, init = {}) =>
-    (init.method || "GET") === "PUT" ? json({ ok: true, updatedAt: Date.now() }) : json({ id: "board-1", name: "B", data: emptyCanvasState(), updatedAt: 1, role }));
+    (init.method || "GET") === "PUT" ? json({ ok: true, updatedAt: Date.now() }) : json({ id: "board-1", name: "B", data, updatedAt: 1, role }));
   useCanvasStore.getState().reset();
   await useCanvasStore.getState().loadBoard("board-1");
   t.after(() => useCanvasStore.getState().reset());
@@ -47,6 +47,44 @@ test("the precision eraser cuts a stroke in two instead of removing it", async (
   commitStroke(line, style, 1);
   eraseStep({ x: 200, y: 100 }, 1, true);
   assert.equal(nodes(store).length, 2);
+});
+
+test("the eraser and a scribble leave locked objects and those on a hidden layer", async (t) => {
+  const rect = (id, y, extra = {}) => ({ id, type: "rect", x: 0, y, w: 100, h: 100, fill: "#fff", stroke: "#000", strokeWidth: 1, opacity: 1, parentId: null, groupId: null, ...extra });
+  const store = await board(t, "edit", {
+    ...emptyCanvasState(),
+    nodes: [rect("locked", 0, { locked: true }), rect("hidden", 200, { layerId: "L" }), rect("open", 400)],
+    settings: { layers: [{ id: "L", name: "Top" }] },
+  });
+  store.getState().setLayerHidden("L", true);
+  for (const y of [0, 200, 400]) {
+    const zigzag = [];
+    for (let i = 0; i <= 80; i += 1) zigzag.push({ x: 10 + 70 * Math.abs(((i / 10) % 2) - 1), y: y + 10 + i });
+    commitSmartStroke(zigzag, 1);
+  }
+  assert.deepEqual(nodes(store).filter((n) => n.type !== "ink").map((n) => n.id), ["locked", "hidden"]);
+
+  const strokes = await board(t);
+  commitStroke(line, style, 1);
+  commitStroke(line.map((p) => ({ x: p.x, y: p.y + 500 })), style, 1);
+  const [first] = nodes(strokes);
+  strokes.getState().setSelection([first.id]);
+  strokes.getState().lockSelection("me");
+  eraseStep({ x: 100, y: 100 }, 1, false);
+  eraseStep({ x: 100, y: 100 }, 1, true);
+  eraseStep({ x: 100, y: 600 }, 1, false);
+  assert.deepEqual(nodes(strokes).map((n) => n.id), [first.id]);
+  assert.deepEqual(nodes(strokes)[0].pts, first.pts);
+});
+
+test("a locked grid's cells cannot be edited", async (t) => {
+  const store = await board(t);
+  const grid = addEmptyGrid(2, 2);
+  store.getState().setSelection([grid.id]);
+  store.getState().lockSelection("me");
+  gridOps.text(grid.id, 0, 0, "x");
+  gridOps.addRow(grid.id, 1);
+  assert.deepEqual([nodes(store)[0].rows, nodes(store)[0].cells], [2, grid.cells]);
 });
 
 test("viewers cannot draw", async (t) => {

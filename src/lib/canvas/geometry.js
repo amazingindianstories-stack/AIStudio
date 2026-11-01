@@ -168,8 +168,8 @@ export function boundsContain(outer, innerCenter) {
 // ---- move ----
 
 /**
- * Moves the given node ids by (dx,dy). If a selected id is a frame, its
- * children (nodes with parentId === frame.id) move by the same delta too,
+ * Moves the given node ids by (dx,dy). If a selected id is a container, its
+ * contents at any depth move by the same delta too (see descendantIds),
  * so a multi-select drag that includes a frame carries its contents — a
  * child that's ALSO directly selected only ever moves once (Set dedupe).
  */
@@ -179,20 +179,22 @@ export function moveNodesBy(
   dx,
   dy
 ) {
-  // Unlocked containers carry descendants recursively; locked objects stay put.
+  // Unlocked containers carry their contents at any depth; locked objects stay put with theirs.
   const locked = lockedIdSet(state);
   const idSet = new Set(ids.filter((id) => !locked.has(id)));
-  for (const id of descendantIds(state.nodes, [...idSet])) {
-    if (!locked.has(id)) idSet.add(id);
-  }
+  for (const id of descendantIds(state.nodes, [...idSet], locked)) idSet.add(id);
   const nodes = state.nodes.map((n) =>
     idSet.has(n.id) ? { ...n, x: n.x + dx, y: n.y + dy } : n
   );
   return { ...state, nodes };
 }
 
-/** Ids of everything inside the containers among `ids`, at any depth (`ids` themselves excluded unless nested). */
-export function descendantIds(nodes, ids) {
+/**
+ * Ids of everything inside the containers among `ids`, at any depth (`ids` themselves excluded unless
+ * nested). The walk neither includes nor enters anything in `stop`: a move passes its locked objects, which
+ * stay put together with their own contents.
+ */
+export function descendantIds(nodes, ids, stop = null) {
   const frames = new Set(ids.filter((id) => nodes.some((n) => n.id === id && isContainerNode(n))));
   const out = new Set();
   const childrenOf = new Map();
@@ -205,7 +207,7 @@ export function descendantIds(nodes, ids) {
   while (queue.length) {
     const parent = queue.pop();
     for (const child of childrenOf.get(parent) ?? []) {
-      if (out.has(child.id)) continue;
+      if (out.has(child.id) || stop?.has(child.id)) continue;
       out.add(child.id);
       if (isContainerNode(child)) queue.push(child.id);
     }

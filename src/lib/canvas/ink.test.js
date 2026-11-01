@@ -77,3 +77,14 @@ test("a stylus varies width with pressure and a mouse keeps the preset", () => {
   assert.equal(pressureWidth(4, "pen", [0]), 2);
   assert.equal(pressureWidth(4, "pen", []), 4);
 });
+
+test("the eraser leaves strokes it must not remove, whole or in part", () => {
+  const stroke = (id) => inkNodeFromPoints(Array.from({ length: 20 }, (_, i) => ({ x: i * 10, y: 6 })), { stroke: "#fff", strokeWidth: 4, highlighter: false }, id);
+  const state = { nodes: [stroke("kept"), stroke("gone")], connectors: [] };
+  const fixed = new Set(["kept"]);
+  assert.deepEqual(eraseAt(state, { x: 50, y: 6 }, 6, false, fixed).nodes.map((n) => n.id), ["kept"]);
+  const precise = eraseAt(state, { x: 50, y: 6 }, 6, true, fixed).nodes;
+  assert.equal(precise.filter((n) => n.id === "kept").length, 1);
+  assert.deepEqual(precise.find((n) => n.id === "kept"), state.nodes[0]);
+  assert.equal(precise.length, 3, "only the other stroke is cut in two");
+});

@@ -2,10 +2,19 @@
 
 import { useCanvasStore } from "./canvas-store";
 import { eraseAt, inkNodeFromPoints, pressureWidth, simplifyStroke } from "./canvas/ink";
+import { hiddenNodeIds } from "./canvas/layers";
+import { lockedIdSet } from "./canvas/locks";
 import { recognizeStroke, scribbleTargets } from "./canvas/smart-draw";
 
 // What a finished drawing gesture does to the board. Each is one board edit, so one undo step, one saved
 // change per object and the board role is enforced by the store like for any other edit.
+
+/** Objects a drawing gesture may not remove: locked ones, and those on layers this person hides. */
+function fixedIds(graph, hiddenLayerIds) {
+  const fixed = lockedIdSet(graph);
+  for (const id of hiddenNodeIds(graph, hiddenLayerIds)) fixed.add(id);
+  return fixed;
+}
 
 /** Saves a pen or highlighter stroke (world points) as an `ink` node. */
 export function commitStroke(points, style, zoom, pointerType = "mouse", pressures = []) {
@@ -26,7 +35,8 @@ export function commitSmartStroke(points, zoom) {
   if (!result) return false;
   const store = useCanvasStore.getState();
   if (result.kind === "erase") {
-    const targets = new Set(scribbleTargets(store.history.present.nodes, points));
+    const fixed = fixedIds(store.history.present, store.hiddenLayerIds);
+    const targets = new Set(scribbleTargets(store.history.present.nodes, points).filter((id) => !fixed.has(id)));
     if (!targets.size) return false;
     store.editBoard((graph) => ({
       ...graph,
@@ -53,5 +63,6 @@ export function commitSmartStroke(points, zoom) {
 /** One step of the eraser at a world point: whole strokes, or only the touched part of each stroke when `precise`. */
 export function eraseStep(point, zoom, precise) {
   const radius = (precise ? 6 : 10) / Math.max(zoom, 0.1);
-  useCanvasStore.getState().editBoard((graph) => eraseAt(graph, point, radius, precise), { coalesce: true });
+  const store = useCanvasStore.getState();
+  store.editBoard((graph) => eraseAt(graph, point, radius, precise, fixedIds(graph, store.hiddenLayerIds)), { coalesce: true });
 }
