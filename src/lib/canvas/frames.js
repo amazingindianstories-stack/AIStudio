@@ -2,7 +2,7 @@
  * Frame structure helpers: wrap a selection in a frame, size presets, nesting, date-aware duplicate names
  * and pasting into frames at the same position. Pure functions over the board graph.
  */
-import { descendantIds, isContainerNode } from "./geometry";
+import { boundsContain, descendantIds, isContainerNode, nodeBounds } from "./geometry";
 import { lockedIdSet } from "./locks";
 
 export const FRAME_PADDING = 40;
@@ -80,15 +80,18 @@ export function frameAroundSelection(state, ids, padding = FRAME_PADDING, id = c
 
 /**
  * The container a frame belongs in after it was dragged: the smallest other frame, swimlane or diagram that
- * wholly contains it and is not one of its own descendants, or null. Frames nest to any depth.
+ * wholly contains it, or its current parent while that still holds its center (the rule every other object
+ * follows), and is not one of its own descendants, or null. Frames nest to any depth.
  */
 export function enclosingContainerId(frame, nodes) {
   const own = descendantIds(nodes, [frame.id]);
+  const center = { x: frame.x + frame.w / 2, y: frame.y + frame.h / 2 };
   let best = null;
   for (const other of nodes) {
     if (!isContainerNode(other) || other.id === frame.id || own.has(other.id)) continue;
     const contains = other.x <= frame.x && other.y <= frame.y && other.x + other.w >= frame.x + frame.w && other.y + other.h >= frame.y + frame.h;
-    if (!contains) continue;
+    const holds = other.id === frame.parentId && boundsContain(nodeBounds(other), center);
+    if (!contains && !holds) continue;
     if (!best || other.w * other.h < best.w * best.h) best = other;
   }
   return best ? best.id : null;

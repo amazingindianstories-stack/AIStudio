@@ -81,6 +81,18 @@ test("a dragged frame nests in the smallest frame that wholly contains it, never
   assert.equal(renestFrames(after, ["small", "mid"]), after, "settled nesting changes nothing");
 });
 
+test("a dragged frame keeps its parent while the parent holds its center, and still nests deeper inside it", () => {
+  const nodes = [
+    frame("outer", 0, 0, 1000, 1000),
+    frame("inner", 500, 500, 400, 400, { parentId: "outer" }),
+    frame("edge", -100, 100, 300, 200, { parentId: "outer" }),
+    frame("moved", 550, 550, 100, 100, { parentId: "outer" }),
+  ];
+  assert.equal(enclosingContainerId(nodes[2], nodes), "outer");
+  assert.equal(enclosingContainerId({ ...nodes[2], x: -200 }, nodes), null);
+  assert.equal(enclosingContainerId(nodes[3], nodes), "inner");
+});
+
 test("dates in a duplicated frame title move on a day", () => {
   assert.equal(incrementDates("Standup 2026-03-31"), "Standup 2026-04-01");
   assert.equal(incrementDates("Sprint review 2026-12-31"), "Sprint review 2027-01-01");

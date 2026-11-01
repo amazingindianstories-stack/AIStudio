@@ -95,6 +95,24 @@ test("a frame made inside a diagram or swimlane stays in it when nudged, and lea
   }
 });
 
+test("a frame made around objects at a container's edge stays in it while its center does", async (t) => {
+  for (const [type, extra] of [["diagram", { containers: [], layers: [] }], ["swimlane", {}], ["frame", {}]]) {
+    const store = await board(t, [
+      { ...frame("box", 0, 0, 1000, 800, "Box"), type, ...extra },
+      { ...sticky("a", -60, 100), w: 200, parentId: "box" },
+      { ...sticky("b", 300, 100), parentId: "box" },
+    ]);
+    store.getState().setSelection(["a", "b"]);
+    assert.equal(frameSelection(), true);
+    const [id] = store.getState().selection;
+    assert.deepEqual([get(store, id).x, get(store, id).parentId], [-100, "box"]);
+    store.getState().moveSelectionBy(1, 0);
+    assert.equal(get(store, id).parentId, "box", `a nudged frame overhanging the ${type} stays in it`);
+    store.getState().moveSelectionBy(-400, 0);
+    assert.equal(get(store, id).parentId, null, `a frame whose center leaves the ${type} leaves it`);
+  }
+});
+
 test("copies pasted into a frame do not start out on a locked layer", async (t) => {
   const layers = [{ id: "L", name: "Open" }, { id: "K", name: "Kept", locked: true }];
   const store = await board(t, [frame("f", 1000, 0, 400, 400), { ...sticky("s", 50, 60), layerId: "K" }], "edit", { settings: { layers } });
