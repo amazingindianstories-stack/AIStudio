@@ -48,6 +48,7 @@ import { apiFetch } from "@/lib/api";
 import { AccountSettings } from "./AccountSettings";
 import { AdminErrorsTab } from "./AdminErrorsTab";
 import { AdminWorkspaceTab } from "./AdminWorkspaceTab";
+import { AdminBoardLogsTab } from "./AdminBoardLogsTab";
 import { apiErrorMessage } from "@/lib/api-error";
 
 /** Mirrors ACTIVITY_PAGE_SIZE in admin-activity.ts. Copied rather than imported
@@ -136,6 +137,7 @@ export function AdminDashboard() {
               ["pricing", "Pricing", DollarSign],
               ["limits", "Limits", SlidersHorizontal],
               ["workspace", "Workspace", Settings],
+              ["boardlogs", "Board logs", ScrollText],
               ["status", "Status", Activity],
             ] 
           ).map(([id, label, Icon]) => (
@@ -158,6 +160,8 @@ export function AdminDashboard() {
 
         {tab === "status" ? (
           <StatusTab operations={data?.operations} />
+        ) : tab === "boardlogs" ? (
+          <AdminBoardLogsTab />
         ) : !data ? (
           <p className="py-20 text-center text-white/40">Loading…</p>
         ) : tab === "overview" ? (
