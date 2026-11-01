@@ -41,3 +41,14 @@ test("text csv neutralizes formulas and covers frames", () => {
   assert.ok(csv.includes("frame,Frame <1>"));
   assert.equal(boardTextCsv({ nodes: [] }), null);
 });
+
+test("exportScope maps a lone selected frame to a frame export", async () => {
+  const { exportScope, exportFileName } = await import("./board-export-run.js");
+  const state = { nodes: [{ id: "f", type: "frame" }, { id: "s", type: "sticky" }] };
+  assert.deepEqual(exportScope(state, ["f"], "selection"), { frameId: "f" });
+  assert.deepEqual(exportScope(state, ["s", "f"], "selection"), { nodeIds: ["s", "f"] });
+  assert.deepEqual(exportScope(state, ["s"], "board"), {});
+  assert.deepEqual(exportScope(state, [], "selection"), {});
+  assert.equal(exportFileName("My / Board!", "jpg"), "My-Board.jpg");
+  assert.equal(exportFileName("", "svg", "p1"), "board-p1.svg");
+});
