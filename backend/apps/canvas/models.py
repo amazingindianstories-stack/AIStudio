@@ -18,12 +18,15 @@ class CanvasBoard(models.Model):
     team_role = models.TextField(db_default='edit')
     # Bumped by every graph save; editors send the version they started from.
     version = models.BigIntegerField(db_default=1)
+    # Who may start collaboration tools (timer, voting, attention): every editor, or owners and co-owners.
+    collab_tools = models.TextField(db_default='edit')
 
     class Meta:
         managed = True
         db_table = 'canvas_boards'
         indexes = [models.Index(fields=['project_id'], name='canvas_boards_project_id_idx')]
-        constraints = [models.CheckConstraint(condition=models.Q(team_role__in=BOARD_ROLES), name='canvas_boards_team_role_check')]
+        constraints = [models.CheckConstraint(condition=models.Q(team_role__in=BOARD_ROLES), name='canvas_boards_team_role_check'),
+                       models.CheckConstraint(condition=models.Q(collab_tools__in=('edit', 'owner')), name='canvas_boards_collab_tools_check')]
 
 
 class BoardMember(models.Model):
@@ -129,3 +132,6 @@ class CustomShapePack(models.Model):
         db_table = 'canvas_custom_shape_packs'
         indexes = [models.Index(fields=['created_by'], name='canvas_shape_packs_creator_idx'),
                    models.Index(fields=['shared', 'updated_at'], name='canvas_shape_packs_shared_idx')]
+
+
+from .collab_models import (BoardComment, BoardPresence, CommentFollow, CommentRead, CommentReaction, Notification, PushSubscription)  # noqa: E402,F401

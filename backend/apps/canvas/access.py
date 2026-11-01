@@ -56,7 +56,7 @@ def require(user, board, needed):
 
 
 def board_row(identifier):
-    return CanvasBoard.objects.filter(pk=identifier).values('id', 'project_id', 'created_by', 'team_role').first()
+    return CanvasBoard.objects.filter(pk=identifier).values('id', 'project_id', 'created_by', 'team_role', 'collab_tools').first()
 
 
 def project_level(user, project_id):
@@ -98,7 +98,7 @@ def describe(user, board):
     mine = project_level(user, board['project_id']) if project else NONE
     return {'boardId': str(board['id']), 'projectId': str(board['project_id']),
             'ownerId': str(board['created_by']) if board['created_by'] else None,
-            'teamRole': board['team_role'], 'role': LEVEL_NAMES[level],
+            'teamRole': board['team_role'], 'collabTools': board.get('collab_tools', 'edit'), 'role': LEVEL_NAMES[level],
             'members': [{'userId': str(row['user_id']), 'role': row['role']} for row in
                         BoardMember.objects.filter(board_id=board['id']).order_by('created_at').values('user_id', 'role')],
             'projectMembers': [{'userId': str(row['user_id']), 'role': row['role']} for row in project_members],
@@ -134,6 +134,20 @@ def set_team_role(actor, board, role):
         raise AccessError('Invalid role.', 400)
     # Access changes leave updated_at and version alone: they track the graph, not its sharing.
     CanvasBoard.objects.filter(pk=board['id']).update(team_role=role)
+
+
+def set_collab_tools(actor, board, who):
+    """Whether every editor or only owners and co-owners may start collaboration tools (timer, voting, attention)."""
+    require(actor, board, SHARE)
+    if who not in ('edit', 'owner'):
+        raise AccessError('Invalid setting.', 400)
+    CanvasBoard.objects.filter(pk=board['id']).update(collab_tools=who)
+
+
+def can_start_collab_tools(user, board):
+    """The server-side check for starting a collaboration tool, per the board's setting."""
+    level = role_for(user, board)
+    return level >= (CO_OWNER if board.get('collab_tools') == 'owner' else EDIT)
 
 
 def transfer_owner(actor, board, user_id):

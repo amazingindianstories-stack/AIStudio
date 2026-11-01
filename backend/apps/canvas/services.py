@@ -68,6 +68,10 @@ def delete_board(identifier):
         CanvasBoard.objects.filter(pk=identifier).delete()
         CanvasBoardSave.objects.filter(board_id=identifier).delete()
         BoardActivity.objects.filter(board_id=identifier).delete()
+        from .collab_models import BoardComment, BoardPresence, Notification
+        BoardComment.objects.filter(board_id=identifier).delete()
+        BoardPresence.objects.filter(board_id=identifier).delete()
+        Notification.objects.filter(board_id=identifier).delete()
 
 
 class VersionConflict(Exception):
