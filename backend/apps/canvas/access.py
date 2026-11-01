@@ -102,7 +102,7 @@ def describe(user, board):
             'members': [{'userId': str(row['user_id']), 'role': row['role']} for row in
                         BoardMember.objects.filter(board_id=board['id']).order_by('created_at').values('user_id', 'role')],
             'projectMembers': [{'userId': str(row['user_id']), 'role': row['role']} for row in project_members],
-            'canShare': level >= SHARE, 'canOwn': level >= OWN,
+            'canShare': level >= SHARE, 'canOwn': level >= OWN, 'canStartCollabTools': can_start_collab_tools(user, board),
             'canManageProject': bool(project) and mine >= CO_OWNER, 'projectRole': LEVEL_NAMES.get(mine)}
 
 

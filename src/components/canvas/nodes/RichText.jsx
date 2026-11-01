@@ -4,7 +4,9 @@ import { Fragment, useLayoutEffect, useRef } from "react";
 import {
   clipRichText,
   highlightBackground,
+  MENTION_CHIP_CLASS,
   isHighlightColor,
+  isMentionId,
   isSafeHref,
   plainTextFromClipboard,
   readRichDom,
@@ -15,6 +17,7 @@ import { FORMAT_CONTROL_SELECTOR, requestLink, toggleFormat } from "@/lib/canvas
 import { handleListKey } from "@/lib/canvas/list-commands";
 import { displayLines, renumberLists } from "@/lib/canvas/lists";
 import { cn } from "@/lib/utils";
+import { TextMentionPicker } from "../collab/TextMentionPicker";
 
 /**
  * Formatted text as React elements: no HTML strings are ever rendered.
@@ -93,6 +96,7 @@ function renderSegments(segments, openLinks) {
         </a>
       );
     }
+    if (isMentionId(segment.m)) content = <span data-mention={segment.m} className={MENTION_CHIP_CLASS}>{content}</span>;
     return <Fragment key={segment.start}>{content}</Fragment>;
   });
 }
@@ -157,6 +161,7 @@ export function RichTextEditor({ text, marks, onCommit, onCancel, onInput, class
   }, []);
 
   return (
+    <>
     <div
       ref={ref}
       data-rich-editor=""
@@ -212,6 +217,8 @@ export function RichTextEditor({ text, marks, onCommit, onCancel, onInput, class
       className={cn("select-text", className)}
       style={{ tabSize: `${LIST_INDENT_EM}em`, ...style }}
     />
+    <TextMentionPicker editorRef={ref} />
+    </>
   );
 }
 

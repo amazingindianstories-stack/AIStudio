@@ -148,7 +148,7 @@ class BoardRoleTests(TransactionTestCase):
         described = self.client.get(path).json()
         self.assertEqual(described, {'boardId': BOARD, 'projectId': PROJECT, 'ownerId': str(self.owner.id), 'teamRole': 'edit',
             'collabTools': 'edit', 'role': 'owner', 'members': [], 'projectMembers': [], 'canShare': True, 'canOwn': True,
-            'canManageProject': False, 'projectRole': None})
+            'canStartCollabTools': True, 'canManageProject': False, 'projectRole': None})
         added = self.send('post', path, {'op': 'setMember', 'userId': str(self.mate.id), 'role': 'comment'}).json()
         self.assertEqual(added['members'], [{'userId': str(self.mate.id), 'role': 'comment'}])
         changed = self.send('post', path, {'op': 'setMember', 'userId': str(self.mate.id), 'role': 'view'}).json()

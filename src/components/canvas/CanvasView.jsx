@@ -34,6 +34,7 @@ import { ObjectInfo } from "./ObjectInfo";
 import { BoardViewOverlays } from "./BoardViewOverlays";
 import { useBoardView } from "./use-board-view";
 import { zoomToLevel } from "@/lib/canvas/viewport-nav";
+import { CollabLayer } from "./collab/CollabLayer";
 
 // Miro's keys: N sticky note, T text, F frame; S opens the shapes panel.
 const TOOL_SHORTCUTS = {
@@ -181,6 +182,18 @@ export function CanvasView() {
       setActiveProject(projectId);
     },
     [activeProjectId, flushSave, reset, setActiveProject]
+  );
+
+  // A notification or link for another board: the board of this project opens directly; a board of another
+  // project switches project first and BoardSwitcher then prefers that board.
+  const [preferredBoardId, setPreferredBoardId] = useState(null);
+  const openBoard = useCallback(
+    ({ boardId: target, projectId }) => {
+      setPreferredBoardId(target);
+      if (projectId && projectId !== activeProjectId) handleBoardProjectChange(projectId);
+      else setBoardId(target);
+    },
+    [activeProjectId, handleBoardProjectChange]
   );
 
   const placeAsset = useCallback(
@@ -486,6 +499,7 @@ export function CanvasView() {
             projectId={activeProjectId}
             boardId={boardId}
             onBoardIdChange={setBoardId}
+            preferredBoardId={preferredBoardId}
             onLoadingChange={setBoardsLoading}
             onEmptyChange={setNoBoards}
             reloadToken={boardsReload}
@@ -593,6 +607,8 @@ export function CanvasView() {
           e.target.value = "";
         }}
       />
+
+      {!noBoards && <CollabLayer boardId={boardId} onOpenBoard={openBoard} />}
 
       {shareOpen && boardId && (
         <BoardShareDialog

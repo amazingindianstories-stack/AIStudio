@@ -96,8 +96,9 @@ def feed(user, board_id=None, before=None, unread_only=False):
     page = list(rows.order_by('-created_at', '-id').values('id', 'board_id', 'kind', 'comment_id', 'thread_id', 'actor_id', 'snippet', 'created_at', 'read_at')[:PAGE + 1])
     more = len(page) > PAGE
     page = page[:PAGE]
-    boards = dict(CanvasBoard.objects.filter(pk__in={row['board_id'] for row in page}).values_list('id', 'name'))
-    items = [{'id': str(row['id']), 'boardId': str(row['board_id']), 'boardName': boards.get(row['board_id']), 'kind': row['kind'],
+    boards = {pk: (name, project) for pk, name, project in CanvasBoard.objects.filter(pk__in={row['board_id'] for row in page}).values_list('id', 'name', 'project_id')}
+    items = [{'id': str(row['id']), 'boardId': str(row['board_id']), 'boardName': boards.get(row['board_id'], (None, None))[0],
+              'projectId': str(boards[row['board_id']][1]) if row['board_id'] in boards else None, 'kind': row['kind'],
               'commentId': str(row['comment_id']) if row['comment_id'] else None, 'threadId': str(row['thread_id']) if row['thread_id'] else None,
               'actorId': str(row['actor_id']) if row['actor_id'] else None, 'snippet': row['snippet'], 'at': row['created_at'],
               'read': row['read_at'] is not None} for row in page]
@@ -108,8 +109,9 @@ def boards_with_activity(user):
     """The boards the caller has notifications on, with unread counts: the bell's tab per board."""
     rows = Notification.objects.filter(user_id=user.id).values('board_id').annotate(
         total=models.Count('id'), unread=models.Count('id', filter=models.Q(read_at__isnull=True)), latest=models.Max('created_at')).order_by('-latest')[:30]
-    names = dict(CanvasBoard.objects.filter(pk__in=[row['board_id'] for row in rows]).values_list('id', 'name'))
-    return [{'boardId': str(row['board_id']), 'name': names[row['board_id']], 'unread': row['unread']} for row in rows if row['board_id'] in names]
+    names = {pk: (name, project) for pk, name, project in CanvasBoard.objects.filter(pk__in=[row['board_id'] for row in rows]).values_list('id', 'name', 'project_id')}
+    return [{'boardId': str(row['board_id']), 'name': names[row['board_id']][0], 'projectId': str(names[row['board_id']][1]), 'unread': row['unread']}
+            for row in rows if row['board_id'] in names]
 
 
 def mark_read(user, ids=None, board_id=None):

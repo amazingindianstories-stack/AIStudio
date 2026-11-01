@@ -36,6 +36,7 @@ export function BoardSwitcher({
   projectId,
   boardId,
   onBoardIdChange,
+  preferredBoardId = null,
   onLoadingChange,
   onEmptyChange,
   reloadToken = 0,
@@ -89,7 +90,7 @@ export function BoardSwitcher({
         if (list.length === 0) {
           onBoardIdChange(null);
         } else if (!boardId || !list.some((b) => b.id === boardId)) {
-          onBoardIdChange(list[0].id);
+          onBoardIdChange(list.find((b) => b.id === preferredBoardId)?.id ?? list[0].id);
         }
       } catch {
         if (requestIdRef.current !== requestId) return;

@@ -6,7 +6,8 @@
  *
  * Offsets are UTF-16 code units (JS string indices), `end` exclusive. Kinds:
  * b bold, i italic, u underline, s strikethrough, h highlight (#rrggbb),
- * a link (http, https or mailto). Boards without formatting carry no `marks`.
+ * a link (http, https or mailto), m a mention of a teammate ([start, end, "m", userId]; a chip,
+ * it notifies no one). Boards without formatting carry no `marks`.
  *
  * Nothing here ever produces or stores HTML: the editor's DOM is read back
  * through `readRichDom`, which keeps only text and these marks, and display
@@ -16,13 +17,14 @@
 export const MAX_MARKS = 4000;
 export const MAX_HREF_LENGTH = 2048;
 export const SIMPLE_MARKS = ["b", "i", "u", "s"];
-const KIND_ORDER = ["b", "i", "u", "s", "h", "a"];
+const KIND_ORDER = ["b", "i", "u", "s", "h", "a", "m"];
 
 // ASCII-only scheme match without the /i flag: case-insensitive regexes fold
 // some non-ASCII letters differently in JS and Python, and the backend
 // serializer must accept exactly the same links.
 const SAFE_HREF = /^(?:[hH][tT][tT][pP][sS]?:\/\/|[mM][aA][iI][lL][tT][oO]:)[^\u0000- \u007f]+$/;
 const HIGHLIGHT = /^#[0-9a-fA-F]{6}$/;
+const MENTION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 export const HIGHLIGHT_COLORS = [
   { value: "#fde047", name: "Yellow" },
@@ -40,6 +42,11 @@ export function highlightBackground(hex) {
 
 export function isSafeHref(href) {
   return typeof href === "string" && href.length <= MAX_HREF_LENGTH && SAFE_HREF.test(href);
+}
+
+/** A teammate's id as a mention mark stores it: a lowercase UUID. */
+export function isMentionId(value) {
+  return typeof value === "string" && MENTION_ID.test(value);
 }
 
 export function isHighlightColor(value) {
@@ -66,6 +73,7 @@ export function validateMarks(raw, text) {
     if (SIMPLE_MARKS.includes(kind)) out.push([start, end, kind]);
     else if (kind === "h" && isHighlightColor(entry[3])) out.push([start, end, "h", entry[3]]);
     else if (kind === "a" && isSafeHref(entry[3])) out.push([start, end, "a", entry[3]]);
+    else if (kind === "m" && isMentionId(entry[3])) out.push([start, end, "m", entry[3]]);
   }
   return out.length ? out : null;
 }
@@ -210,6 +218,8 @@ function elementFormat(el, inherited) {
     if (isSafeHref(href)) format.a = href;
     else delete format.a;
   }
+  const mention = el.getAttribute?.("data-mention");
+  if (isMentionId(mention)) format.m = mention;
   const style = el.style;
   if (style) {
     const weight = style.fontWeight;
@@ -280,9 +290,19 @@ export function writeRichDom(root, text, marks) {
       wrapper.appendChild(node);
       node = wrapper;
     }
+    if (isMentionId(segment.m)) {
+      const wrapper = doc.createElement("span");
+      wrapper.setAttribute("data-mention", segment.m);
+      wrapper.className = MENTION_CHIP_CLASS;
+      wrapper.appendChild(node);
+      node = wrapper;
+    }
     root.appendChild(node);
   }
 }
+
+/** How a mention chip looks, in the editor (written as DOM) and on display (rendered by React). */
+export const MENTION_CHIP_CLASS = "rounded-[3px] bg-mention/25 px-0.5 text-mention";
 
 /** Plain-text paste: the only way clipboard content enters an editor. */
 export function plainTextFromClipboard(data) {

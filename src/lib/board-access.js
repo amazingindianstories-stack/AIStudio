@@ -34,6 +34,7 @@ const rank = (role) => RANK[role] ?? 0;
 
 /** Unknown (not yet loaded) roles stay editable so loading never flashes a read-only UI. */
 export const canEditRole = (role) => role == null || rank(role) >= RANK.edit;
+export const canCommentRole = (role) => role == null || rank(role) >= RANK.comment;
 export const canShareRole = (role) => rank(role) >= RANK.co_owner;
 export const canOwnRole = (role) => rank(role) >= RANK.owner;
 
