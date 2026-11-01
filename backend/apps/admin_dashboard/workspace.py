@@ -15,6 +15,7 @@ from .models import AppSetting
 
 NAME_KEY, LOGO_KEY, BETA_KEY = 'workspace.name', 'workspace.logoUrl', 'workspace.betaOptIn'
 FEATURES_KEY, ANNOUNCEMENTS_KEY = 'workspace.features', 'workspace.announcements'
+AI_BLOCKED_KEY = 'workspace.aiBlocked'
 DEFAULT_NAME = 'Veevee'
 MAX_NAME, MAX_URL, MAX_ANNOUNCEMENTS, MAX_TEXT = 80, 2000, 20, 500
 # Features an admin can switch. `beta` ones also need the public beta opt-in.
@@ -81,6 +82,28 @@ def clean_features(value):
     return current
 
 
+def ai_blocked():
+    """Providers and model ids an admin blocked for new AI jobs."""
+    value = stored(AI_BLOCKED_KEY, {})
+    value = value if isinstance(value, dict) else {}
+    return {'providers': [x for x in value.get('providers', []) if isinstance(x, str)],
+            'models': [x for x in value.get('models', []) if isinstance(x, str)]}
+
+
+def clean_ai_blocked(value):
+    from apps.generation.model_registry import MODEL_REGISTRY
+    if not isinstance(value, dict): raise Invalid('aiBlocked must be an object.')
+    known = {'providers': {m.get('provider') for m in MODEL_REGISTRY}, 'models': {m['id'] for m in MODEL_REGISTRY}}
+    out = ai_blocked()
+    for field in ('providers', 'models'):
+        if field not in value: continue
+        items = value[field]
+        if not isinstance(items, list) or any(not isinstance(i, str) or i not in known[field] for i in items):
+            raise Invalid(f'aiBlocked.{field} must list known {field}.')
+        out[field] = sorted(set(items))
+    return out
+
+
 def optional_time(value, field):
     if value is None: return None
     if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0 or value != int(value):
@@ -111,7 +134,7 @@ def config():
     features = stored(FEATURES_KEY, {})
     return {'name': stored(NAME_KEY, DEFAULT_NAME), 'logoUrl': stored(LOGO_KEY, ''), 'betaOptIn': stored(BETA_KEY, False) is True,
             'features': {feature['id']: features.get(feature['id'], {'mode': 'all', 'userIds': []}) for feature in FEATURES},
-            'announcements': stored(ANNOUNCEMENTS_KEY, [])}
+            'announcements': stored(ANNOUNCEMENTS_KEY, []), 'aiBlocked': ai_blocked()}
 
 
 def feature_enabled(feature_id, user_id, settings=None):
@@ -160,6 +183,7 @@ def workspace_admin(request):
                 if not isinstance(data['betaOptIn'], bool): raise Invalid('betaOptIn must be true or false.')
                 updates.append((BETA_KEY, data['betaOptIn'], 'betaOptIn'))
             if 'features' in data: updates.append((FEATURES_KEY, clean_features(data['features']), 'features'))
+            if 'aiBlocked' in data: updates.append((AI_BLOCKED_KEY, clean_ai_blocked(data['aiBlocked']), 'aiBlocked'))
             if 'announcements' in data: updates.append((ANNOUNCEMENTS_KEY, clean_announcements(data['announcements']), 'announcements'))
         except Invalid as problem:
             return reply(request, {'error': str(problem)}, 400)

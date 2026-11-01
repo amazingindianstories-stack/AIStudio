@@ -36,7 +36,7 @@ def node(script, values):
     return json.loads(result.stdout)
 
 
-class EnqueueOracleTests(SimpleTestCase):
+class EnqueueOracleTests(TransactionTestCase):
     def test_seedream_empty_references_need_no_native_runtime_or_io(self):
         import sys
         from unittest.mock import Mock

@@ -36,7 +36,7 @@ def valid_contract(model):
     return contract(kind='image', model=model['name'], resolution='2K', aspect_ratio='1:1')
 
 
-class AvailabilityTests(SimpleTestCase):
+class AvailabilityTests(TransactionTestCase):
     def test_each_switch_shows_and_hides_exactly_its_own_models(self):
         with override_settings(**ALL_OFF):
             self.assertEqual(availability(), {'models': ALWAYS})

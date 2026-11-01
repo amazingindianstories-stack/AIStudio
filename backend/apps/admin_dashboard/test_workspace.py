@@ -56,6 +56,24 @@ class WorkspaceTests(TransactionTestCase):
         self.assertEqual(self.post({'betaOptIn': 'yes'}).status_code, 400)
         self.assertFalse(workspace.feature_enabled('unknown', fixtures.UID))
 
+    def test_ai_provider_and_model_blocking_reaches_availability(self):
+        from apps.generation import availability
+        from apps.generation.model_registry import MODEL_REGISTRY
+        self.make_admin()
+        with override_settings(VEEVEE_KLING=True, VEEVEE_OMNIHUMAN=True, VEEVEE_GEMINI_OMNI=True, VEEVEE_MAGNIFIC_UPSCALE=True):
+            before = availability.availability()['models']
+            self.assertTrue(before)
+            target = next(m for m in MODEL_REGISTRY if m['id'] in before)
+            self.assertEqual(self.post({'aiBlocked': {'models': [target['id']]}}).status_code, 200)
+            self.assertNotIn(target['id'], availability.availability()['models'])
+            self.assertEqual(self.post({'aiBlocked': {'models': [], 'providers': [target['provider']]}}).status_code, 200)
+            after = availability.availability()['models']
+            self.assertFalse([m for m in MODEL_REGISTRY if m['provider'] == target['provider'] and m['id'] in after])
+            self.assertEqual(self.client.get('/api/admin/workspace').json()['aiBlocked']['providers'], [target['provider']])
+            self.assertEqual(self.post({'aiBlocked': {'models': ['nope']}}).status_code, 400)
+            self.post({'aiBlocked': {'providers': []}})
+            self.assertEqual(availability.availability()['models'], before)
+
     def test_announcements_schedule_audience_and_priority(self):
         self.make_admin()
         now = int(time.time() * 1000)

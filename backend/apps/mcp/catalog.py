@@ -10,6 +10,7 @@ import time
 from django.db import connection
 
 from apps.common.leases import now_ms
+from apps.admin_dashboard.workspace import ai_blocked
 from apps.generation.availability import available
 from apps.generation.model_registry import MODEL_REGISTRY, model_definition
 from apps.generation.providers.magnific import (ENGINES, PRESETS, TOPAZ_INTERPOLATIONS, TOPAZ_MODELS, VIDEO_FLAVORS,
@@ -72,7 +73,8 @@ _typical = {'values': {}, 'expires': 0.0}
 
 def offered():
     """Registry entries the agent tools can run now: available image, video and upscale models."""
-    return [model for model in MODEL_REGISTRY if model['kind'] in TOOLS and available(model)]
+    blocked = ai_blocked()
+    return [model for model in MODEL_REGISTRY if model['kind'] in TOOLS and available(model, blocked)]
 
 
 def pick(choices, preferred):
