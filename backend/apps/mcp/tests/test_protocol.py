@@ -72,12 +72,12 @@ class ProtocolTests(McpCase):
     def test_tools_list_is_filtered_by_scope_and_admin_role(self):
         with patch.dict(REGISTRY):
             read, paid = read_tools(), scoped('veevee.read', 'veevee.generate')
-            organized, admin = scoped('veevee.read', 'veevee.generate', 'veevee.organize'), scoped(*policy.SCOPES, admin=True)
+            organized, admin = scoped('veevee.read', 'veevee.generate', 'veevee.organize', 'veevee.boards.read', 'veevee.boards.write'), scoped(*policy.SCOPES, admin=True)
             fake_tools()
             for mode in ERAS:
                 self.assertEqual(sorted(self.tool_names(self.token(scopes=('veevee.read',)), mode)), read)
                 self.assertEqual(sorted(self.tool_names(self.token(), mode)), sorted(paid + ['fake_paid']))
-                everything = ('veevee.read', 'veevee.generate', 'veevee.organize', 'veevee.admin')
+                everything = tuple(policy.SCOPES)
                 # The admin scope is dropped for a non-admin even when the token row lists it.
                 self.assertEqual(sorted(self.tool_names(self.token(scopes=everything), mode)), sorted(organized + ['fake_organize', 'fake_paid']))
                 self.assertEqual(sorted(self.tool_names(self.token(self.admin, scopes=everything), mode)),
@@ -101,7 +101,7 @@ class ProtocolTests(McpCase):
             for mode in ERAS:
                 error = self.assert_tool_error(self.call(reader, 'fake_paid', mode=mode), 'INSUFFICIENT_SCOPE')
                 self.assertIn('veevee.generate', error['message'])
-            everything = ('veevee.read', 'veevee.generate', 'veevee.organize', 'veevee.admin')
+            everything = tuple(policy.SCOPES)
             self.assert_tool_error(self.call(self.token(scopes=everything), 'fake_admin'), 'INSUFFICIENT_SCOPE')
             self.assertEqual(self.call(self.token(self.admin, scopes=everything), 'fake_admin').structured_content, {'echo': ''})
 

@@ -21,7 +21,8 @@ ITEM_OBJECT = {'type': 'object', 'description': 'An item in the board JSON shape
 LIST_BOARDS = {'tool': 'list_boards', 'arguments': {}, 'why': 'Shows the boards you can use and their ids.'}
 ANY_OBJECT = {'type': 'object'}
 BOARD_SCHEMA = obj({'id': STRING, 'name': STRING, 'projectId': STRING, 'role': STRING, 'version': INTEGER,
-                    'itemCount': INTEGER, 'connectorCount': INTEGER, 'updatedAt': INTEGER}, ('id', 'name', 'role'))
+                    'itemCount': INTEGER, 'connectorCount': INTEGER, 'updatedAt': INTEGER,
+                    'createdAt': INTEGER, 'createdBy': {'type': ['string', 'null']}, 'teamRole': STRING}, ('id', 'name', 'role'))
 ITEMS_RESULT = obj({'version': INTEGER, 'items': {'type': 'array', 'items': ANY_OBJECT}, 'total': INTEGER,
                     'nextCursor': {'type': ['string', 'null']}})
 

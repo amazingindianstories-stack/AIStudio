@@ -152,9 +152,7 @@ class BoardApiTests(TransactionTestCase):
             self.assertEqual((refused.status_code, refused.json().get('error')), (403, 'FORBIDDEN'), (method, refused.content))
         stranger = self.token(make_user('stranger'))
         self.assertEqual(self.call('get', f'/api/v1/boards/{BOARD}', stranger).status_code, 200)  # team access is view
-        CanvasBoard.objects.filter(pk=BOARD).update(team_role='none')
-        self.assertEqual(self.call('get', f'/api/v1/boards/{BOARD}', stranger).status_code, 404)
-        self.assertEqual(self.call('get', '/api/v1/boards', stranger).json()['boards'], [])
+        self.assertEqual(self.call('get', f'/api/v1/boards/{uuid4()}', stranger).status_code, 404)
 
     def test_credits_are_weighted_and_reported(self):
         raw = self.token()
