@@ -372,6 +372,16 @@ class BoardAiJobTests(BoardFixture):
         self.assertEqual(self.submit({'format': 'stickies', 'prompt': 'x'}).status_code, 401)
         self.assertEqual(self.client.get(self.base).status_code, 401)
 
+    def test_an_admin_can_switch_board_ai_off_and_nothing_is_queued(self):
+        from apps.admin_dashboard import workspace
+        workspace.save(workspace.FEATURES_KEY, {'board_ai': {'mode': 'none', 'userIds': []}})
+        for response in (self.quote({'format': 'stickies', 'prompt': 'x'}), self.submit({'format': 'stickies', 'prompt': 'x'})):
+            self.assertEqual(response.status_code, 403)
+            self.assertEqual(response.json()['code'], 'FEATURE_DISABLED')
+        self.assertEqual(BoardAiJob.objects.count(), 0)
+        workspace.save(workspace.FEATURES_KEY, {'board_ai': {'mode': 'users', 'userIds': [str(self.actor_id)]}})
+        self.assertEqual(self.submit({'format': 'stickies', 'prompt': 'x'}).status_code, 201)
+
     def test_only_a_user_who_can_edit_the_board_may_use_its_ai_jobs(self):
         job = self.submit({'format': 'stickies', 'prompt': 'ideas'}).json()['job']
         # Another user owns the board and gives the team view or comment access only.
