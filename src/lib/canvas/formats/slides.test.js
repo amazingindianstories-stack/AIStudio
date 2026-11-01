@@ -57,3 +57,10 @@ test("every wireframe component is a persistable native node with readable text"
     }
   }
 });
+
+test("a locked object stays where it is, and slide titles fit a name", () => {
+  const frame = { id: "f", type: "frame", x: 0, y: 0, w: 400, h: 300, name: "F".repeat(500) };
+  const graph = { nodes: [frame, { id: "s", type: "sticky", x: 900, y: 0, w: 50, h: 50, locked: true }], connectors: [] };
+  assert.equal(moveIntoFrame(graph, "s", frame), graph);
+  assert.equal(addSlide([], frame)[0].title.length, 120);
+});

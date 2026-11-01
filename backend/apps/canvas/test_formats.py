@@ -29,8 +29,14 @@ class FormatSerializationTests(SimpleTestCase):
         self.assertEqual(state['nodes'], [])
 
     def test_an_oversized_html_embed_is_emptied(self):
-        node = {'id': 'a', 'type': 'format', 'format': 'html', 'x': 0, 'y': 0, 'w': 1, 'h': 1, 'html': 'x' * 100001}
+        node = {'id': 'a', 'type': 'format', 'format': 'html', 'x': 0, 'y': 0, 'w': 1, 'h': 1, 'html': 'x' * 50001}
         self.assertEqual(validate_state({'nodes': [node]})['nodes'][0]['html'], '')
+
+    def test_format_text_ending_in_half_an_emoji_is_kept(self):
+        text = 'x\ud83d'
+        node = {'id': 'a', 'type': 'format', 'format': 'html', 'x': 0, 'y': 0, 'w': 1, 'h': 1, 'html': text, 'name': text}
+        saved = validate_state({'nodes': [node]})['nodes'][0]
+        self.assertEqual((saved['html'], saved['name']), (text, text))
 
 
 class FormatSaveTests(SimpleTestCase):

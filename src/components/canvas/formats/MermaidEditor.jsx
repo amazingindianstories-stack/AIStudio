@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { useCanvasStore } from "@/lib/canvas-store";
-import { diagramToMermaid, mermaidToBoardObjects, parseMermaid, replaceDiagramContent } from "@/lib/canvas/formats/mermaid";
+import { placeOnLayer } from "@/lib/canvas/layers";
+import { diagramLocked, diagramToMermaid, mermaidToBoardObjects, parseMermaid, replaceDiagramContent } from "@/lib/canvas/formats/mermaid";
 
 export function MermaidEditor({ node, readOnly, onCreated }) {
   const [source, setSource] = useState(node?.source || "flowchart TD\n  A[Start] --> B{Ready?}\n  B -->|Yes| C[Finish]");
@@ -11,10 +12,11 @@ export function MermaidEditor({ node, readOnly, onCreated }) {
     const parsed = parseMermaid(source);
     if (!parsed.ok || parsed.warnings.length) { setNotice(parsed.error || `Unsupported statements: ${parsed.warnings.join("; ")}`); return; }
     const store = useCanvasStore.getState();
+    if (node && diagramLocked(store.history.present, node.id)) { setNotice("Unlock this diagram and its shapes before updating it from code."); return; }
     if (node) store.editBoard((g) => replaceDiagramContent(g, node.id, parsed, source));
     else {
       const built = mermaidToBoardObjects(parsed, store.viewportCenter(), { source });
-      store.editBoard((g) => ({ ...g, nodes: [...g.nodes, built.diagram, ...built.nodes], connectors: [...g.connectors, ...built.connectors] }));
+      store.editBoard((g) => ({ ...g, nodes: [...g.nodes, ...placeOnLayer(g, [built.diagram, ...built.nodes], store.activeLayerId)], connectors: [...g.connectors, ...built.connectors] }));
       onCreated?.(built.diagram.id);
     }
     setNotice("Diagram saved as editable board shapes and lines.");

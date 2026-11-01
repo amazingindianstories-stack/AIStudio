@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { patchFormat } from "@/lib/canvas/formats/actions";
-import { DRAWIO_PREVIEW_PREFIX, MAX_DRAWIO_PREVIEW } from "@/lib/canvas/formats/model";
+import { DRAWIO_PREVIEW_PREFIX, MAX_DRAWIO_PREVIEW, MAX_DRAWIO_XML } from "@/lib/canvas/formats/model";
 
 const ORIGIN = "https://embed.diagrams.net";
 
@@ -33,7 +33,7 @@ export function DrawioEditor({ node, readOnly }) {
       try { message = JSON.parse(e.data); } catch { return; }
       if (message.event === "init") frame.current.contentWindow.postMessage(JSON.stringify({ action: "load", xml: current.current.xml || "<mxGraphModel><root><mxCell id=\"0\"/><mxCell id=\"1\" parent=\"0\"/></root></mxGraphModel>", autosave: 1 }), ORIGIN);
       if (["save", "autosave"].includes(message.event) && typeof message.xml === "string") {
-        if (message.xml.length > 300000) { setError("Diagram exceeds 300,000 characters. Reduce its size before saving."); return; }
+        if (message.xml.length > MAX_DRAWIO_XML) { setError(`This diagram is larger than ${MAX_DRAWIO_XML.toLocaleString()} characters, so it was not saved. Reduce its size before saving.`); return; }
         if (message.xml !== current.current.xml) patchFormat(current.current.id, () => ({ xml: message.xml, preview: undefined }));
         exportFor.current = message.xml;
         frame.current.contentWindow.postMessage(JSON.stringify({ action: "export", format: "svg" }), ORIGIN);
@@ -42,8 +42,9 @@ export function DrawioEditor({ node, readOnly }) {
       }
       if (message.event === "export" && exportFor.current != null && message.xml === exportFor.current) {
         exportFor.current = null;
-        if (typeof message.data === "string" && message.data.startsWith(DRAWIO_PREVIEW_PREFIX) && message.data.length <= MAX_DRAWIO_PREVIEW && message.xml === current.current.xml) {
-          patchFormat(current.current.id, () => ({ preview: message.data }), { coalesce: true });
+        if (typeof message.data === "string" && message.data.startsWith(DRAWIO_PREVIEW_PREFIX) && message.xml === current.current.xml) {
+          if (message.data.length <= MAX_DRAWIO_PREVIEW) patchFormat(current.current.id, () => ({ preview: message.data }), { coalesce: true });
+          else setError(`The diagram was saved, but its preview image is larger than ${MAX_DRAWIO_PREVIEW.toLocaleString()} characters, so the board shows no preview.`);
         }
         if (closing.current) setEditing(false);
       }

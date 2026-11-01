@@ -291,6 +291,13 @@ export function resizeNode(
 
 // ---- frame membership ----
 
+/** `n` moved under `parentId`; its Mermaid key names a shape only in the diagram that keyed it. */
+export function reparented(n, parentId) {
+  const next = { ...n, parentId };
+  if (parentId !== (n.parentId ?? null)) delete next.mermaidKey;
+  return next;
+}
+
 /**
  * The innermost frame whose bounds contain `node`'s center, or null: a
  * containing frame nested (by parentId) inside another containing frame wins.

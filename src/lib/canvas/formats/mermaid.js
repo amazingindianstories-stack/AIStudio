@@ -9,6 +9,7 @@
  */
 
 import { MAX_ID } from "./model";
+import { isLocked } from "../locks";
 
 export const MAX_MERMAID_SOURCE = 20000;
 export const MAX_MERMAID_NODES = 150;
@@ -44,11 +45,36 @@ function unquote(text) {
   return t;
 }
 
+/** Label text without its quotes and markup tags, with `<br>` as a line break and entity codes (`#quot;`, `#59;`) decoded. */
 function cleanLabel(text) {
   return unquote(text)
     .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<[^>]*>/g, "")
+    .replace(/<\/?[a-z][^<>]*>/gi, "")
+    .replace(/#(quot|\d{1,7});/g, (code, value) => (value === "quot" ? '"' : Number(value) <= 0x10ffff ? String.fromCodePoint(Number(value)) : code))
     .trim();
+}
+
+/** The statements of `source`: its lines and `;`-separated parts outside double-quoted text, without `%%` comments. */
+function statements(source) {
+  const out = [];
+  let current = "";
+  let quoted = false;
+  for (let i = 0; i < source.length; i += 1) {
+    const ch = source[i];
+    if (ch === "\n" || (ch === ";" && !quoted)) {
+      out.push(current);
+      current = "";
+      if (ch === "\n") quoted = false;
+    } else if (ch === "%" && source[i + 1] === "%" && !quoted) {
+      const end = source.indexOf("\n", i);
+      i = (end < 0 ? source.length : end) - 1;
+    } else if (ch !== "\r") {
+      if (ch === '"') quoted = !quoted;
+      current += ch;
+    }
+  }
+  out.push(current);
+  return out.map((l) => l.trim()).filter(Boolean);
 }
 
 /** Reads `id`, `id[text]`, `id((text))`... at the start of `text`; returns the node and what is left. */
@@ -61,7 +87,8 @@ function readNode(text) {
   let shape = "rect";
   for (const [open, close, name] of SHAPES) {
     if (rest.startsWith(open)) {
-      const end = rest.indexOf(close, open.length);
+      const quote = rest[open.length] === '"' ? rest.indexOf('"', open.length + 1) : -1;
+      const end = quote > 0 && rest.startsWith(close, quote + 1) ? quote + 1 : rest.indexOf(close, open.length);
       if (end > 0) {
         label = cleanLabel(rest.slice(open.length, end));
         shape = name;
@@ -138,11 +165,7 @@ export function parseMermaid(source) {
   const empty = { ok: false, direction: "TB", nodes: [], edges: [], groups: [], warnings: [] };
   if (typeof source !== "string" || !source.trim()) return { ...empty, error: "Enter some diagram text." };
   if (source.length > MAX_MERMAID_SOURCE) return { ...empty, error: `The text is longer than ${MAX_MERMAID_SOURCE} characters.` };
-  const lines = source
-    .replace(/\r/g, "")
-    .split(/\n|;/)
-    .map((l) => l.replace(/%%.*$/, "").trim())
-    .filter(Boolean);
+  const lines = statements(source);
   const head = /^(graph|flowchart|stateDiagram(?:-v2)?)\b\s*(TB|TD|BT|LR|RL)?/.exec(lines[0] ?? "");
   if (!head) return { ...empty, error: "Start with graph TD, flowchart LR or stateDiagram-v2. Other diagram types are not supported yet." };
   const state = head[1].startsWith("stateDiagram");
@@ -494,10 +517,14 @@ function insideGroup(group, target, groups) {
 
 // ---- visual -> code ----
 
-function safeLabel(text) {
+const LABEL_CODES = { "#": "#35;", '"': "#quot;", "|": "#124;", "<": "#60;", ">": "#62;" };
+
+/** Text for a quoted label that the parser reads back unchanged. */
+function encodeLabel(text) {
   return String(text ?? "")
-    .replace(/["\n]/g, " ")
-    .trim();
+    .trim()
+    .replace(/[#"|<>]/g, (ch) => LABEL_CODES[ch])
+    .replace(/\n/g, "<br>");
 }
 
 const OPEN_CLOSE = { rect: ["[", "]"], round: ["(", ")"], circle: ["((", "))"], rhombus: ["{", "}"] };
@@ -511,17 +538,22 @@ export function diagramToMermaid(state, diagramId) {
   for (const n of nodes) {
     const kind = n.type === "ellipse" ? "circle" : n.type === "diamond" ? "rhombus" : n.cornerRadius ? "round" : "rect";
     const [open, close] = OPEN_CLOSE[kind];
-    out.push(`  ${ids.get(n.id)}${open}"${safeLabel(n.text) || ids.get(n.id)}"${close}`);
+    out.push(`  ${ids.get(n.id)}${open}"${encodeLabel(n.text) || ids.get(n.id)}"${close}`);
   }
   for (const c of state.connectors) {
     const a = ids.get(c.from?.nodeId);
     const b = ids.get(c.to?.nodeId);
     if (!a || !b) continue;
-    const label = safeLabel(c.labels?.[0]?.text);
+    const label = encodeLabel(c.labels?.[0]?.text);
     const arrow = c.kind === "line" ? (c.strokeStyle === "dashed" ? "-.-" : "---") : c.strokeStyle === "dashed" ? "-.->" : c.strokeWidth >= 4 ? "==>" : "-->";
-    out.push(`  ${a} ${arrow}${label ? `|${label}|` : ""} ${b}`);
+    out.push(`  ${a} ${arrow}${label ? `|"${label}"|` : ""} ${b}`);
   }
   return out.join("\n");
+}
+
+/** Whether diagram `diagramId` or a shape its code describes is locked, so new code may not rebuild it. */
+export function diagramLocked(state, diagramId) {
+  return isLocked(state, diagramId) || [...shapeKeys(state.nodes, diagramId).keys()].some((id) => isLocked(state, id));
 }
 
 /**
@@ -532,7 +564,7 @@ export function diagramToMermaid(state, diagramId) {
  */
 export function replaceDiagramContent(state, diagramId, parsed, source) {
   const diagram = state.nodes.find((n) => n.id === diagramId);
-  if (!diagram) return state;
+  if (!diagram || diagramLocked(state, diagramId)) return state;
   const newKeys = new Set(parsed.nodes.map((n) => n.id));
   const described = new Map();
   for (const [id, key] of shapeKeys(state.nodes, diagramId)) {

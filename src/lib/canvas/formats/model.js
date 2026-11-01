@@ -30,9 +30,9 @@ export const MAX_SLIDES = 100;
 export const MAX_LANES = 6;
 export const MAX_LANE_NAME = 60;
 export const MAX_NOTES = 5000;
-export const MAX_HTML = 100000;
-export const MAX_DRAWIO_XML = 300000;
-export const MAX_DRAWIO_PREVIEW = 300000;
+export const MAX_HTML = 50000;
+export const MAX_DRAWIO_XML = 100000;
+export const MAX_DRAWIO_PREVIEW = 100000;
 export const DRAWIO_PREVIEW_PREFIX = "data:image/svg+xml;base64,";
 
 export const FORMAT_DEFAULTS = {

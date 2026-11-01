@@ -173,7 +173,6 @@ test('Board formats: docs, status, focus link, Mermaid code diagrams, HTML embed
   // A focus link opens the board and its format even while another project is active.
   const away = await signIn(browser, baseURL, OWNER, otherProject.id);
   await away.page.goto(`/?board=${boardPath.split('/').pop()}&focus=${doc.id}`);
-  await away.page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Board', exact: true }).click();
   const awayDialog = away.page.getByRole('dialog', { name: 'Format focus mode' });
   await expect(awayDialog).toBeVisible();
   await expect(awayDialog.getByLabel('Format title')).toHaveValue('Launch plan');

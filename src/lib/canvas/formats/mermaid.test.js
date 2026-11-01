@@ -4,6 +4,8 @@ import { emptyCanvasState, validateCanvasState } from "../serialization.js";
 import { useCanvasStore } from "../../canvas-store.js";
 import { diagramToMermaid, layoutMermaid, mermaidToBoardObjects, parseMermaid, replaceDiagramContent } from "./mermaid.js";
 import { moveIntoFrame } from "./slides.js";
+import { applyDeltas } from "../arrange.js";
+import { rotateNodesAbout } from "../transform.js";
 
 test("flowchart nodes, shapes, chains and link labels", () => {
   const p = parseMermaid(`graph TD
@@ -283,4 +285,50 @@ test("a frame wrapped into a diagram stays inside it, and objects dropped on it 
   store.getState().setSelection([sticky.id]);
   store.getState().moveSelectionBy(frame.x + 100 - sticky.x, frame.y + 100 - sticky.y);
   assert.equal(present().nodes.find((n) => n.id === sticky.id).parentId, frame.id);
+});
+
+test("labels with brackets, separators, quotes and line breaks read back unchanged", () => {
+  const source = "graph TD\nA --> B";
+  const built = mermaidToBoardObjects(parseMermaid(source), { x: 0, y: 0 }, { source });
+  const labels = ["List [1] (a) {b}", 'Say "hi"; then | pipe', "a < b > c #1 %% not a comment\nnext line"];
+  const state = {
+    nodes: [built.diagram, ...built.nodes.map((n, i) => ({ ...n, text: labels[i] }))],
+    connectors: built.connectors.map((c) => ({ ...c, labels: [{ id: "l", text: labels[2], t: 0.5 }] })),
+  };
+  const back = parseMermaid(diagramToMermaid(state, built.diagram.id));
+  assert.deepEqual(back.warnings, []);
+  assert.deepEqual(back.nodes.map((n) => n.label), labels.slice(0, 2));
+  assert.deepEqual(back.edges.map((e) => e.label), [labels[2]]);
+});
+
+test("quoted text keeps its semicolons and angle brackets", () => {
+  const p = parseMermaid('graph TD\nA["one; two"] --> B["a < b > c"]');
+  assert.deepEqual(p.warnings, []);
+  assert.deepEqual(p.nodes.map((n) => n.label), ["one; two", "a < b > c"]);
+});
+
+test("new code does not rebuild a locked diagram or one with a locked shape", () => {
+  const source = "graph TD\nA --> B";
+  const built = mermaidToBoardObjects(parseMermaid(source), { x: 0, y: 0 }, { source });
+  const parsed = parseMermaid("graph TD\nX --> Y");
+  const lockedDiagram = { nodes: [{ ...built.diagram, locked: true }, ...built.nodes], connectors: built.connectors };
+  assert.equal(replaceDiagramContent(lockedDiagram, built.diagram.id, parsed, "graph TD\nX --> Y"), lockedDiagram);
+  const lockedShape = { nodes: [built.diagram, { ...built.nodes[0], locked: true }, built.nodes[1]], connectors: built.connectors };
+  assert.equal(replaceDiagramContent(lockedShape, built.diagram.id, parsed, "graph TD\nX --> Y"), lockedShape);
+});
+
+test("rotating or arranging a shape into another diagram drops its code key", () => {
+  const a = mermaidToBoardObjects(parseMermaid("graph TD\nA"), { x: 0, y: 0 }, { source: "graph TD\nA" });
+  const b = mermaidToBoardObjects(parseMermaid("graph TD\nB"), { x: 600, y: 0 }, { source: "graph TD\nB" });
+  const [shape] = a.nodes;
+  const state = { nodes: [a.diagram, b.diagram, shape, ...b.nodes], connectors: [] };
+  const from = { x: shape.x + shape.w / 2, y: shape.y + shape.h / 2 };
+  const to = { x: b.diagram.x + b.diagram.w / 2, y: b.diagram.y + b.diagram.h / 2 };
+  const arranged = applyDeltas(state, new Map([[shape.id, { dx: to.x - from.x, dy: to.y - from.y }]])).nodes.find((n) => n.id === shape.id);
+  assert.equal(arranged.parentId, b.diagram.id);
+  assert.equal(arranged.mermaidKey, undefined);
+  assert.equal(applyDeltas(state, new Map([[shape.id, { dx: 1, dy: 1 }]])).nodes.find((n) => n.id === shape.id).mermaidKey, "A");
+  const rotated = rotateNodesAbout(state, [shape.id], 180, { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 }).nodes.find((n) => n.id === shape.id);
+  assert.equal(rotated.parentId, b.diagram.id);
+  assert.equal(rotated.mermaidKey, undefined);
 });

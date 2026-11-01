@@ -29,6 +29,7 @@ import {
   isContainerNode,
   connectorPointAt,
   resizeAnchored,
+  reparented,
 } from "./canvas/geometry";
 import { getDiagramTheme, loadDiagramThemeId, saveDiagramThemeId } from "./canvas/diagram-themes";
 import { hiddenBoardIds } from "./canvas/culling";
@@ -282,7 +283,9 @@ function shiftFreeEndpoint(ep, dx, dy) {
  * grouped with each other but not with the originals), a `parentId` remap
  * when the parent was ALSO cloned, and a uniform (dx,dy) offset. A copy
  * keeps its Mermaid key only inside a copy of its diagram, so the key still
- * names one shape per diagram.
+ * names one shape per diagram; click-through links and slide frames follow
+ * their targets when those were copied too, and a copy is never the board's
+ * default view.
  *
  * `keepUnmappedParent` preserves the two callers' pre-existing (and
  * different!) behavior when a clone's parent frame ISN'T itself in the
@@ -322,16 +325,13 @@ function buildClones(
     // A copy is a new object: the server stamps it on save.
     const clone = { ...withoutLock(unstamped(n)), id: newId, x: n.x + dx, y: n.y + dy, parentId: newParentId, groupId: newGroupId };
     if (!idMap.has(n.parentId)) delete clone.mermaidKey;
+    if (idMap.has(n.screenLink)) clone.screenLink = idMap.get(n.screenLink);
+    if (n.slides) clone.slides = n.slides.map((slide) => (idMap.has(slide.frameId) ? { ...slide, frameId: idMap.get(slide.frameId) } : slide));
+    delete clone.defaultView;
+    delete clone.viewLocked;
     clones.push(clone);
   }
   return { clones: placeCopies(present, clones, layerId), idMap };
-}
-
-/** `n` moved under `parentId`; its Mermaid key names a shape only in the diagram that keyed it. */
-function reparented(n, parentId) {
-  const next = { ...n, parentId };
-  if (parentId !== (n.parentId ?? null)) delete next.mermaidKey;
-  return next;
 }
 
 /** The selection of `state` limited to the objects `present` has and the board shows. */

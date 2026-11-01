@@ -5,7 +5,10 @@ import { RichTextContent, RichTextEditor } from "../nodes/RichText";
 import { usePeople } from "@/lib/canvas/use-people";
 import { validateMarks } from "@/lib/canvas/rich-text";
 import { useStore } from "@/lib/store";
+import { useCanvasStore } from "@/lib/canvas-store";
 import { patchFormat, openFormat } from "@/lib/canvas/formats/actions";
+import { FormatNode } from "./FormatNode";
+import { FramePreview } from "./FramePreview";
 import { acceptSuggestion, addSuggestion, addTableRow, addTableColumn, applyBlockShortcut, dateChip, formatChipDate, insertBlockAfter, listNumbers, moveBlock, newBlock, parseChips, rejectSuggestion, removeBlock, setTableCell, updateBlock, userChip } from "@/lib/canvas/formats/model";
 
 export function ChipText({ text = "", marks, openLinks = false }) {
@@ -17,6 +20,23 @@ export function ChipText({ text = "", marks, openLinks = false }) {
 /** Keeps focus inside focus mode when the control that held it is about to disappear. */
 function focusDialog(e) {
   e.currentTarget.closest('[role="dialog"]')?.focus();
+}
+
+function embeddable(n, docId) {
+  return n.id !== docId && (n.type === "diagram" || n.type === "format");
+}
+
+/** A doc block showing one of this board's diagrams or formats inline; a card preview names it only. */
+function DiagramBlock({ block, docId, readOnly, preview, onChoose }) {
+  const target = useCanvasStore((s) => s.history.present.nodes.find((n) => n.id === block.ref && embeddable(n, docId)));
+  const graph = useCanvasStore((s) => (preview ? null : s.history.present));
+  return <div className="space-y-2">
+    {!readOnly && !preview && <select aria-label="Embedded diagram" className="max-w-full rounded border p-1 text-sm" value={target?.id ?? ""} onChange={(e) => onChoose(e.target.value)}><option value="">Choose a diagram or format</option>{graph.nodes.filter((n) => embeddable(n, docId)).map((n) => <option key={n.id} value={n.id}>{n.name || n.type}</option>)}</select>}
+    {!target ? <p className="text-sm text-slate-500">{block.ref ? "The embedded diagram is no longer on this board." : "No diagram chosen yet."}</p> :
+      preview ? <p className="text-sm text-slate-500">Diagram: {target.name || target.type}</p> :
+      target.type === "format" ? <div className="relative h-80"><FormatNode node={target} /></div> :
+      <><FramePreview frame={target} graph={graph} /><button className="text-indigo-700 underline" onClick={() => openFormat(target.id)}>Open embedded diagram</button></>}
+  </div>;
 }
 
 export function DocContent({ node, readOnly, preview = false }) {
@@ -67,7 +87,7 @@ export function DocContent({ node, readOnly, preview = false }) {
         <button onClick={(e) => { if (!suggesting) focusDialog(e); patchFormat(node.id, (n) => suggesting ? { suggestions: addSuggestion(n.suggestions ?? [], { blockId: b.id, kind: "delete", by: actor }) } : { blocks: removeBlock(n.blocks, b.id) }); }}>Remove</button>
       </div>}
       {b.type === "table" ? <div className="overflow-x-auto"><table className="w-full border-collapse text-sm"><tbody>{b.rows.map((row, r) => <tr key={r}>{row.map((cell, c) => <td key={c} className="border border-slate-300 p-2">{readOnly || preview || suggesting ? cell : <input className="w-full min-w-16 bg-transparent" aria-label={`Row ${r + 1} column ${c + 1}`} maxLength={500} value={cell} onChange={(e) => patchFormat(node.id, (n) => ({ blocks: n.blocks.map((block) => block.id === b.id ? { ...block, rows: setTableCell(block.rows, r, c, e.target.value) } : block) }), { coalesce: true })} />}</td>)}</tr>)}</tbody></table>{!readOnly && !preview && !suggesting && <div className="flex gap-3 text-xs"><button onClick={() => update(b.id, { rows: addTableRow(b.rows) })}>Add row</button><button onClick={() => update(b.id, { rows: addTableColumn(b.rows) })}>Add column</button></div>}</div> : b.type === "diagram" ?
-        <div>{!readOnly && !preview && <input aria-label="Embedded diagram ID" value={b.ref} maxLength={64} onChange={(e) => patchFormat(node.id, (n) => ({ blocks: updateBlock(n.blocks, b.id, { ref: e.target.value }) }), { coalesce: true })} />}<button className="text-indigo-700 underline" onClick={() => openFormat(b.ref)}>Open embedded diagram</button></div> :
+        <DiagramBlock block={b} docId={node.id} readOnly={readOnly || suggesting} preview={preview} onChoose={(ref) => update(b.id, { ref })} /> :
         <div className={`whitespace-pre-wrap ${b.type === "h1" ? "text-3xl font-bold" : b.type === "h2" ? "text-2xl font-bold" : b.type === "h3" ? "text-xl font-semibold" : b.type === "code" ? "bg-slate-100 p-3 font-mono" : b.type === "quote" ? "border-l-4 pl-3 italic" : "text-base"}`}>
           {b.type === "todo" && <input aria-label={`Checklist ${index + 1}`} type="checkbox" disabled={readOnly || preview || suggesting} checked={!!b.checked} onChange={(e) => update(b.id, { checked: e.target.checked })} />}{b.type === "ul" && "• "}{b.type === "ol" && `${numbers[index]}. `}
           {readOnly || preview ? <ChipText text={b.text} marks={b.marks} openLinks /> : editing === b.id ?

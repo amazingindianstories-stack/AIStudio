@@ -1,4 +1,6 @@
-import { isContainerNode } from "../geometry";
+import { isContainerNode, reparented } from "../geometry";
+import { isLocked } from "../locks";
+import { MAX_NAME, MAX_SLIDES } from "./model";
 
 export function moveSlide(slides, id, delta) {
   const from = slides.findIndex((slide) => slide.id === id);
@@ -21,18 +23,13 @@ export function frameContents(graph, id) {
 }
 
 export function addSlide(slides, frame, lane = "main") {
-  if (!frame || frame.type !== "frame" || slides.length >= 100) return slides;
-  return [...slides, { id: crypto.randomUUID(), title: frame.name || "Slide", frameId: frame.id, lane, notes: "" }];
+  if (!frame || frame.type !== "frame" || slides.length >= MAX_SLIDES) return slides;
+  return [...slides, { id: crypto.randomUUID(), title: (frame.name || "Slide").slice(0, MAX_NAME), frameId: frame.id, lane, notes: "" }];
 }
 
-/** Places plain board object `id` in `frame`; containers and formats never nest inside a slide. */
+/** Places plain, unlocked board object `id` in `frame`; containers and formats never nest inside a slide. */
 export function moveIntoFrame(graph, id, frame) {
   const node = graph.nodes.find((n) => n.id === id);
-  if (!node || !frame || node.type === "format" || isContainerNode(node)) return graph;
-  return { ...graph, nodes: graph.nodes.map((n) => {
-    if (n.id !== id) return n;
-    const next = { ...n, x: frame.x + 40, y: frame.y + 60, parentId: frame.id };
-    delete next.mermaidKey;
-    return next;
-  }) };
+  if (!node || !frame || node.type === "format" || isContainerNode(node) || isLocked(graph, node)) return graph;
+  return { ...graph, nodes: graph.nodes.map((n) => (n.id === id ? { ...reparented(n, frame.id), x: frame.x + 40, y: frame.y + 60 } : n)) };
 }

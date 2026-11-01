@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useCanvasStore, selectReadOnly } from "@/lib/canvas-store";
-import { boardStatus, defaultViewNode, FORMAT_STATUSES, newFormatNode, STATUS_LABELS } from "@/lib/canvas/formats/model";
+import { isLocked } from "@/lib/canvas/locks";
+import { boardStatus, defaultViewNode, FORMAT_STATUSES, MAX_HTML, newFormatNode, STATUS_LABELS } from "@/lib/canvas/formats/model";
 import { formatUrl, openFormat, patchFormat, setDefaultFormat } from "@/lib/canvas/formats/actions";
 import { WIREFRAMES, wireframeNode } from "@/lib/canvas/formats/wireframes";
 import { staticEmbedHtml } from "@/lib/canvas/formats/html-embed";
@@ -18,7 +19,8 @@ export function FormatsPanel({ boardId, touchViewOnly }) {
   const graph = useCanvasStore((s) => s.history.present);
   const loaded = useCanvasStore((s) => s.loaded);
   const loadedBoardId = useCanvasStore((s) => s.boardId);
-  const readOnly = useCanvasStore(selectReadOnly) || touchViewOnly;
+  const viewOnly = useCanvasStore(selectReadOnly);
+  const readOnly = viewOnly || touchViewOnly;
   const selection = useCanvasStore((s) => s.selection);
   const [panel, setPanel] = useState(false);
   const [focusId, setFocusId] = useState(null);
@@ -52,9 +54,12 @@ export function FormatsPanel({ boardId, touchViewOnly }) {
     return () => before?.isConnected && before.focus();
   }, [focusId]);
   const locked = !!focusNode?.viewLocked;
+  const home = defaultViewNode(graph.nodes);
+  const held = viewOnly && !!home?.viewLocked;
+  const editable = !readOnly && !(focusNode && isLocked(graph, focusNode));
   const close = () => {
-    if (locked && readOnly) return;
-    setFocusId(null);
+    if (!held) setFocusId(null);
+    else if (focusId !== home.id) setFocusId(home.id);
   };
   const create = (kind) => {
     if (readOnly) return;
@@ -73,7 +78,7 @@ export function FormatsPanel({ boardId, touchViewOnly }) {
         {!readOnly && <div className="grid grid-cols-2 gap-2">{[["doc", "New doc"], ["deck", "New slides"], ["drawio", "New Draw.io"], ["html", "New HTML embed"]].map(([kind, label]) => <button key={kind} className="rounded border p-2" onClick={() => create(kind)}>{label}</button>)}<button className="rounded border p-2" onClick={() => setFocusId("new-mermaid")}>New Mermaid</button></div>}
         <ul className="space-y-2">{formats.map((n) => <li key={n.id}><button className="w-full rounded border px-3 py-2 text-left" onClick={() => openFormat(n.id)}>{n.name || n.type} <span className="text-xs text-slate-500">{STATUS_LABELS[n.status]}{n.defaultView ? " · Default" : ""}</span></button></li>)}</ul>
         {!readOnly && <><h3 className="font-semibold">Wireframing library</h3><div className="grid grid-cols-2 gap-2">{WIREFRAMES.map((item) => <button className="rounded border p-2 text-xs" key={item.name} onClick={() => { const store = useCanvasStore.getState(); const screen = selected?.type === "frame" && item.type !== "frame" ? selected : null; store.addNode(wireframeNode(item, screen ? { x: screen.x + screen.w / 2, y: screen.y + screen.h / 2 } : store.viewportCenter(), screen?.id ?? null)); }}>{item.name}</button>)}</div>
-          {selected && selected.type !== "frame" && <label className="block">Click-through destination<select className="w-full rounded border p-2" aria-label="Click-through destination" value={selected.screenLink ?? ""} onChange={(e) => useCanvasStore.getState().updateNodeFields(selected.id, { screenLink: e.target.value || undefined })}><option value="">No link</option>{graph.nodes.filter((n) => n.type === "frame").map((n) => <option key={n.id} value={n.id}>{n.name || "Frame"}</option>)}</select></label>}</>}
+          {selected && selected.type !== "frame" && !isLocked(graph, selected) && <label className="block">Click-through destination<select className="w-full rounded border p-2" aria-label="Click-through destination" value={selected.screenLink ?? ""} onChange={(e) => useCanvasStore.getState().updateNodeFields(selected.id, { screenLink: e.target.value || undefined })}><option value="">No link</option>{graph.nodes.filter((n) => n.type === "frame").map((n) => <option key={n.id} value={n.id}>{n.name || "Frame"}</option>)}</select></label>}</>}
         {graph.nodes.filter((n) => n.type === "frame").map((n) => <button key={n.id} className="block rounded border px-3 py-2" onClick={() => setFocusId(`prototype:${n.id}`)}>Preview {n.name || "screen"}</button>)}
       </div>}
     </div>
@@ -90,19 +95,19 @@ export function FormatsPanel({ boardId, touchViewOnly }) {
     }}>
       <header className="flex shrink-0 flex-wrap items-center gap-3 border-b bg-white px-5 py-3">
         <span className="text-xs font-semibold uppercase tracking-wide text-indigo-600">Focus mode</span>
-        {focusNode && <input aria-label="Format title" className="min-w-0 flex-1 bg-transparent text-lg font-semibold" readOnly={readOnly} maxLength={120} value={focusNode.name || ""} onChange={(e) => patchFormat(focusNode.id, () => ({ name: e.target.value }), { coalesce: true })} />}
-        {focusNode && <select aria-label="Format status" disabled={readOnly} value={focusNode.status || ""} onChange={(e) => patchFormat(focusNode.id, () => ({ status: e.target.value || undefined }))}><option value="">Set status</option>{FORMAT_STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}</select>}
-        {focusNode?.type === "format" && !readOnly && <><label className="text-xs"><input type="checkbox" checked={!!focusNode.defaultView} onChange={(e) => setDefaultFormat(focusNode.id, e.target.checked, locked)} /> Board default</label><label className="text-xs"><input type="checkbox" disabled={!focusNode.defaultView} checked={locked} onChange={(e) => setDefaultFormat(focusNode.id, true, e.target.checked)} /> Lock default</label></>}
+        {focusNode && <input aria-label="Format title" className="min-w-0 flex-1 bg-transparent text-lg font-semibold" readOnly={!editable} maxLength={120} value={focusNode.name || ""} onChange={(e) => patchFormat(focusNode.id, () => ({ name: e.target.value }), { coalesce: true })} />}
+        {focusNode && <select aria-label="Format status" disabled={!editable} value={focusNode.status || ""} onChange={(e) => patchFormat(focusNode.id, () => ({ status: e.target.value || undefined }))}><option value="">Set status</option>{FORMAT_STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}</select>}
+        {focusNode?.type === "format" && editable && <><label className="text-xs"><input type="checkbox" checked={!!focusNode.defaultView} onChange={(e) => setDefaultFormat(focusNode.id, e.target.checked, locked)} /> Board default</label><label className="text-xs"><input type="checkbox" disabled={!focusNode.defaultView} checked={locked} onChange={(e) => setDefaultFormat(focusNode.id, true, e.target.checked)} /> Lock default</label></>}
         {focusNode && <button onClick={async () => { try { await navigator.clipboard.writeText(formatUrl(boardId, focusNode.id)); setNotice("Focus link copied"); } catch { setNotice(formatUrl(boardId, focusNode.id)); } }}>Copy focus link</button>}
-        <button disabled={locked && readOnly} className="rounded border px-3 py-2" onClick={close}>Back to board</button>
+        <button disabled={held && focusId === home.id} className="rounded border px-3 py-2" onClick={close}>{held && focusId !== home.id ? "Back to default view" : "Back to board"}</button>
       </header>
       {notice && <p role="status" className="px-5 py-2 text-sm">{notice}</p>}
       <main className="min-h-0 flex-1 overflow-auto p-4 md:p-8"><div className="mx-auto max-w-6xl space-y-5">
-        {focusNode?.format === "doc" && <div className="mx-auto max-w-3xl rounded-xl border bg-white p-6 shadow-sm md:p-10"><DocContent node={focusNode} readOnly={readOnly} /></div>}
-        {focusNode?.format === "deck" && <SlidesEditor node={focusNode} graph={graph} readOnly={readOnly} />}
-        {focusNode?.format === "drawio" && <DrawioEditor node={focusNode} readOnly={readOnly} />}
-        {focusNode?.format === "html" && <>{!readOnly && <label className="block text-sm">HTML source<textarea aria-label="HTML source" className="mt-2 h-48 w-full rounded border bg-white p-3 font-mono" maxLength={100000} value={focusNode.html} onChange={(e) => patchFormat(focusNode.id, () => ({ html: e.target.value }), { coalesce: true })} /></label>}<iframe title="HTML prototype preview" className="h-[60vh] w-full rounded border bg-white" sandbox="" referrerPolicy="no-referrer" srcDoc={staticEmbedHtml(focusNode.html)} /></>}
-        {(focusId === "new-mermaid" || focusNode?.sourceKind === "mermaid") && <MermaidEditor key={focusId} node={focusNode} readOnly={readOnly} onCreated={(id) => setFocusId(id)} />}
+        {focusNode?.format === "doc" && <div className="mx-auto max-w-3xl rounded-xl border bg-white p-6 shadow-sm md:p-10"><DocContent node={focusNode} readOnly={!editable} /></div>}
+        {focusNode?.format === "deck" && <SlidesEditor node={focusNode} graph={graph} readOnly={!editable} />}
+        {focusNode?.format === "drawio" && <DrawioEditor node={focusNode} readOnly={!editable} />}
+        {focusNode?.format === "html" && <>{editable && <label className="block text-sm">HTML source<textarea aria-label="HTML source" className="mt-2 h-48 w-full rounded border bg-white p-3 font-mono" maxLength={MAX_HTML} value={focusNode.html} onChange={(e) => patchFormat(focusNode.id, () => ({ html: e.target.value }), { coalesce: true })} /></label>}{editable && focusNode.html.length >= MAX_HTML && <p role="alert" className="text-sm text-red-700">HTML embeds hold up to {MAX_HTML.toLocaleString()} characters; text beyond that is not saved.</p>}<iframe title="HTML prototype preview" className="h-[60vh] w-full rounded border bg-white" sandbox="" referrerPolicy="no-referrer" srcDoc={staticEmbedHtml(focusNode.html)} /></>}
+        {(focusId === "new-mermaid" || focusNode?.sourceKind === "mermaid") && <MermaidEditor key={focusId} node={focusNode} readOnly={!editable} onCreated={(id) => setFocusId(id)} />}
         {focusNode && focusNode.type !== "format" && <FramePreview frame={focusNode} graph={graph} />}
         {focusId?.startsWith("prototype:") && <PrototypePreview key={focusId} initialId={focusId.slice(10)} graph={graph} />}
       </div></main>

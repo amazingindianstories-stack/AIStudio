@@ -21,16 +21,17 @@ MAX_SLIDES = 100
 MAX_LANES = 6
 MAX_LANE_NAME = 60
 MAX_NOTES = 5000
-MAX_HTML = 100000
-MAX_DRAWIO_XML = 300000
-MAX_DRAWIO_PREVIEW = 300000
+MAX_HTML = 50000
+MAX_DRAWIO_XML = 100000
+MAX_DRAWIO_PREVIEW = 100000
 DRAWIO_PREVIEW_PREFIX = 'data:image/svg+xml;base64,'
 MAX_SOURCE = 20000
 MERMAID_KEY = re.compile(r'[A-Za-z0-9_\u00C0-\U0010FFFF]+(?:-[A-Za-z0-9_\u00C0-\U0010FFFF]+)*')
 
 
 def _utf16(text):
-    return len(text.encode('utf-16-le')) // 2
+    from .serialization import utf16_length
+    return utf16_length(text)
 
 
 def limited(value, maximum, fallback=''):
