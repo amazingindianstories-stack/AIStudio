@@ -109,3 +109,27 @@ class WorkspaceTests(TransactionTestCase):
         self.assertEqual(rows[-3]['time'], '1970-01-01T00:00:00.010Z')
         filtered = b''.join(self.client.get('/api/admin/activity?format=csv&action=other').streaming_content).decode()
         self.assertEqual(len(list(csv.DictReader(io.StringIO(filtered)))), 1)
+
+    def test_content_log_is_admin_only_paged_and_exports_csv(self):
+        import csv, io, uuid
+        from apps.canvas.models import BoardActivity
+        board = uuid.uuid4()
+        for index in range(3):
+            BoardActivity.objects.create(board_id=board, actor_id=fixtures.UID, action='add', node_id=f'n{index}', node_type='sticky',
+                                         snippet='=cmd' if index == 0 else 'hi', created_at=100 + index, ordinal=0)
+        BoardActivity.objects.create(board_id=uuid.uuid4(), action='delete', node_id='z', node_type='shape', created_at=50, ordinal=0)
+        self.assertEqual(self.client.get('/api/admin/content-log').status_code, 403)
+        self.assertEqual(self.client.get('/api/admin/content-log?format=csv').status_code, 403)
+        self.make_admin()
+        data = self.client.get(f'/api/admin/content-log?boardId={board}').json()
+        self.assertEqual([r['nodeId'] for r in data['rows']], ['n2', 'n1', 'n0'])
+        self.assertIsNone(data['nextCursor'])
+        self.assertEqual(self.client.get('/api/admin/content-log?action=bogus').status_code, 400)
+        self.assertEqual(self.client.get('/api/admin/content-log?boardId=nope').status_code, 400)
+        response = self.client.get(f'/api/admin/content-log?format=csv&boardId={board}')
+        self.assertTrue(response.streaming)
+        rows = list(csv.DictReader(io.StringIO(b''.join(response.streaming_content).decode())))
+        self.assertEqual([r['node_id'] for r in rows], ['n2', 'n1', 'n0'])
+        self.assertEqual(rows[-1]['snippet'], "'=cmd")
+        allrows = list(csv.DictReader(io.StringIO(b''.join(self.client.get('/api/admin/content-log?format=csv&action=delete').streaming_content).decode())))
+        self.assertEqual([r['node_id'] for r in allrows], ['z'])
