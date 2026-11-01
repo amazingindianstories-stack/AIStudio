@@ -2,16 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
-import { templateApi } from "@/lib/canvas/templates";
+import { scopeOptions, templateApi } from "@/lib/canvas/templates";
 import { fetchProjectAccess } from "@/lib/board-access";
 import { useStore } from "@/lib/store";
 
 const field = "rounded-lg border border-line bg-ink-800 px-2.5 py-1.5 text-xs text-white outline-none focus:border-white/25";
-const BLUEPRINT_SCOPES = [
-  { id: "personal", label: "Only me" },
-  { id: "project", label: "Everyone in this project" },
-  { id: "everyone", label: "Everyone" },
-];
 
 /**
  * A custom blueprint's details: name, description and who can use it. Projects already made from it stay as they are.
@@ -23,8 +18,7 @@ function BlueprintEditor({ item, projectId, member, isAdmin, onSaved, onCancel }
   const [scope, setScope] = useState(item.scope);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const scopes = BLUEPRINT_SCOPES.filter((option) =>
-    option.id === item.scope || option.id === "personal" || (option.id === "project" ? Boolean(projectId) && member : isAdmin));
+  const scopes = scopeOptions(item, { projectId, member, isAdmin });
   const save = async (event) => {
     event.preventDefault();
     setBusy(true);
