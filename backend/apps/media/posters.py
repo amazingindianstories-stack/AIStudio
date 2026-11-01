@@ -2,7 +2,8 @@
 
 Callers authorize first. The master is never rewritten: ffmpeg reads its first frame in place (a local path, or a
 short signed URL read with HTTP ranges) and the poster is written create-only under ``thumbs/poster/<key>.webp``.
-One ffmpeg runs per process at a time with a 15 s deadline; a busy gate, a failure or a timeout returns None.
+One ffmpeg runs per process at a time with a 15 s deadline; a gate still busy after ``wait`` seconds, a failure or a
+timeout returns None.
 """
 import subprocess
 import tempfile
@@ -55,20 +56,21 @@ def first_frame(source, protocols, *, timeout=DEADLINE_SECONDS):
     return data
 
 
-def bounded_poster(storage, key, *, frame=first_frame, gate=_GATE, seconds=DEADLINE_SECONDS):
+def bounded_poster(storage, key, *, frame=first_frame, gate=_GATE, seconds=DEADLINE_SECONDS, video=False, wait=0):
     """Return ``(poster_key, fresh_bytes_or_None)`` when a poster exists or was just made, else None; never raises.
 
-    ``seconds`` bounds ffmpeg; at 0 an existing poster is used and none is made."""
+    ``seconds`` bounds ffmpeg; at 0 an existing poster is used and none is made. ``video`` is for callers that know the
+    object is a video although its key has no extension (staged uploads). ``wait`` is how long to wait for a busy gate."""
     try:
         validate_key(key)
-        if not is_video_key(key) or is_export_key(key):
+        if not (video or is_video_key(key)) or is_export_key(key):
             return None
         target = poster_key(key)
         if storage.exists(target):
             return target, None
     except Exception:
         return None
-    if seconds <= 0 or not gate.acquire(blocking=False):
+    if seconds <= 0 or not gate.acquire(timeout=wait):
         return None
     try:
         if storage.exists(target):

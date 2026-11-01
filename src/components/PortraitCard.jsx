@@ -1,9 +1,9 @@
 "use client";
 
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import { AlertCircle, Check, Download, Loader2, Maximize2, MoreHorizontal, Pencil, Plus, Trash2 } from "lucide-react";
+import { AlertCircle, Check, Download, Loader2, Maximize2, MoreHorizontal, Pencil, Play, Plus, Trash2 } from "lucide-react";
 import { cn, thumbUrl } from "@/lib/utils";
-import { portraitAttachable, portraitStateLabel } from "@/lib/portraits";
+import { isVideoPortrait, portraitAttachable, portraitPosterUrl, portraitStateLabel } from "@/lib/portraits";
 import { CardContextMenu } from "./CardContextMenu";
 import { CreatorAvatar } from "./GenerationDetails";
 import { ProgressiveImage } from "./ProgressiveImage";
@@ -30,6 +30,7 @@ export const PortraitCard = memo(function PortraitCard({ portrait, selected, tab
   const openedAt = useRef(0);
   const label = portraitStateLabel(portrait);
   const unusable = portrait.state === "unusable";
+  const video = isVideoPortrait(portrait);
   const menuOpen = menu !== null;
 
   const openMenu = useCallback((anchor, { gap = 0, focusFirst = false } = {}) => {
@@ -55,7 +56,7 @@ export const PortraitCard = memo(function PortraitCard({ portrait, selected, tab
   const attachable = targets.every(portraitAttachable);
   const menuGroups = [
     [
-      { key: "add", label: many ? `Add ${targets.length} to prompt` : "Add to prompt", icon: Plus, disabled: !attachable, reason: "This image can't be used as a portrait", onSelect: () => actions.addToPrompt(targets) },
+      { key: "add", label: many ? `Add ${targets.length} to prompt` : "Add to prompt", icon: Plus, disabled: !attachable, reason: video ? "This video can't be used as a portrait" : "This image can't be used as a portrait", onSelect: () => actions.addToPrompt(targets) },
       !many && { key: "view", label: "View full size", icon: Maximize2, onSelect: () => onOpen(portrait.id) },
     ],
     !many && [
@@ -126,15 +127,23 @@ export const PortraitCard = memo(function PortraitCard({ portrait, selected, tab
         )}
       >
         <div style={{ paddingBottom: "125%" }} className="media-card-body relative w-full">
-          <ProgressiveImage
-            src={thumbUrl(portrait.imageUrl, CARD_THUMB_WIDTH)}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            draggable={false}
-            className={cn("absolute inset-0 h-full w-full", unusable && "opacity-40")}
-            imageClassName="object-cover transition-transform duration-500 group-hover:scale-[1.04]"
-          />
+          {(!video || portraitPosterUrl(portrait) || !unusable) && (
+            <ProgressiveImage
+              src={video ? portraitPosterUrl(portrait) : thumbUrl(portrait.imageUrl, CARD_THUMB_WIDTH)}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              draggable={false}
+              className={cn("absolute inset-0 h-full w-full", unusable && "opacity-40")}
+              imageClassName="object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+            />
+          )}
+
+          {video && !unusable && !label && (
+            <span data-portrait-video-badge aria-label="Video" className="pointer-events-none absolute right-[var(--face-inset)] top-[var(--face-inset)] z-10 grid h-6 w-6 place-items-center rounded-full bg-black/60 text-white/90 backdrop-blur-sm">
+              <Play className="h-3 w-3 fill-current" aria-hidden />
+            </span>
+          )}
 
           {label && !unusable && (
             <span data-portrait-chip className="absolute right-[var(--face-inset)] top-[var(--face-inset)] z-10 flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium leading-4 text-white/90 backdrop-blur-sm" title={portrait.message || undefined}>

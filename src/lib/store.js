@@ -30,6 +30,8 @@ import {
   supportsFirstLastFrame,
   supportsVideoReference,
   supportsVideoEditExtend,
+  maxReferenceVideosForVideoModel,
+  MAX_REFERENCE_VIDEOS,
   VIDEO_TASK_MODES,
 } from "./config";
 import { encodeBlobWithBudget } from "./client-image-budget";
@@ -90,7 +92,12 @@ import {
   portraitAttachable,
   portraitDimensionProblem,
   portraitFileProblem,
+  portraitVideoProblem,
+  isPortraitVideoFile,
+  isVideoPortrait,
+  portraitMediaUrl,
   readPortraitDimensions,
+  readPortraitVideoInfo,
   portraitNameFromFile,
   portraitPollDelay,
   runPool,
@@ -2187,7 +2194,7 @@ export const useStore = create((set, get) => ({
           body: JSON.stringify({ uploads: batch.map(({ referenceId, name }) => ({ referenceId, name })) }),
         });
         const json = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(apiErrorMessage(json, res.status, "Could not add these images to the gallery."));
+        if (!res.ok) throw new Error(apiErrorMessage(json, res.status, "Could not add these files to the gallery."));
         const results = Array.isArray(json.results) ? json.results : [];
         const accepted = [];
         batch.forEach((item, position) => {
@@ -2195,7 +2202,7 @@ export const useStore = create((set, get) => ({
           if (result?.ok && result.portrait) {
             accepted.push(result.portrait);
             drop(entries[item.index].key);
-          } else fail(entries[item.index].key, result?.message || "This image couldn't be added.");
+          } else fail(entries[item.index].key, result?.message || "This file couldn't be added.");
         });
         added += accepted.length;
         if (accepted.length) {
@@ -2207,7 +2214,7 @@ export const useStore = create((set, get) => ({
           });
         }
       } catch (error) {
-        for (const item of batch) fail(entries[item.index].key, error?.message || "Could not add this image. Try again.");
+        for (const item of batch) fail(entries[item.index].key, error?.message || "Could not add this file. Try again.");
       }
       schedulePortraitPoll(get);
     }, portraitRuntime.registrationTail);
@@ -2216,7 +2223,9 @@ export const useStore = create((set, get) => ({
     await runPool(list, PORTRAIT_UPLOAD_CONCURRENCY, async (file, index) => {
       const { key, name } = entries[index];
       let problem = portraitFileProblem(file);
-      if (!problem) {
+      if (!problem && isPortraitVideoFile(file)) {
+        problem = portraitVideoProblem(await readPortraitVideoInfo(file));
+      } else if (!problem) {
         const size = await readPortraitDimensions(file);
         if (size) problem = portraitDimensionProblem(size.width, size.height);
       }
@@ -2312,10 +2321,21 @@ export const useStore = create((set, get) => ({
     if (state.referenceImages.length + state.referenceVideos.length + state.referenceAudios.length + unique.length > 50) {
       return { ok: false, error: "Stage at most 50 references; remove some attachments first." };
     }
-    // A portrait already in the prompt can be added again: each occurrence keeps its own reference id.
-    for (const p of unique) get().addReference(p.imageUrl, "portrait", p.name || "Portrait");
+    // An image portrait already in the prompt can be added again (each occurrence keeps its own reference id);
+    // a clip is attached once.
+    const clips = unique.filter(isVideoPortrait);
+    if (clips.length && !supportsVideoReference(state.model)) return { ok: false, error: "Video portraits work with Seedance models. Switch the model to add them." };
+    const newClips = clips.filter((p) => !state.referenceVideos.includes(portraitMediaUrl(p)));
+    const clipRoom = Math.max(0, (maxReferenceVideosForVideoModel(state.model) ?? MAX_REFERENCE_VIDEOS) - state.referenceVideos.length);
+    if (newClips.length > clipRoom) {
+      return { ok: false, error: `This model has room for ${clipRoom} more reference ${clipRoom === 1 ? "clip" : "clips"}. Select fewer video portraits or change model.` };
+    }
+    for (const p of unique) {
+      if (!isVideoPortrait(p)) get().addReference(p.imageUrl, "portrait", p.name || "Portrait");
+    }
+    for (const p of newClips) get().addReferenceVideo(portraitMediaUrl(p), { name: p.name || "Portrait", ref: portraitMediaUrl(p) });
     set({ portraitGalleryOpen: false });
-    return { ok: true, count: unique.length };
+    return { ok: true, count: unique.length - clips.length + newClips.length };
   },
   loadProjects: async () => {
     try {

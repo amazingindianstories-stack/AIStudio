@@ -4,6 +4,11 @@ import { fetchRetryBusy } from "./api";
 /** Helpers for the Portrait Gallery: ordering, paging, upload ordering, copy and download. */
 
 export const PORTRAIT_MAX_BYTES = 30 * 1024 * 1024;
+export const PORTRAIT_VIDEO_MAX_BYTES = 200 * 1024 * 1024;
+export const PORTRAIT_VIDEO_MIN_SECONDS = 2;
+export const PORTRAIT_VIDEO_MAX_SECONDS = 30;
+export const PORTRAIT_VIDEO_MIN_PIXELS = 407696;
+export const PORTRAIT_VIDEO_MAX_PIXELS = 8295044;
 export const PORTRAIT_BATCH_LIMIT = 50;
 export const PORTRAIT_MIN_SIDE = 300;
 export const PORTRAIT_MAX_SIDE = 6000;
@@ -28,9 +33,32 @@ export function isPortraitPending(item) {
   return item?.state === "preparing" || item?.state === "waiting";
 }
 
+/** A Gallery portrait is a still image or a short video clip. */
+export function isVideoPortrait(item) {
+  return item?.kind === "video";
+}
+
+/** The file itself: the image, or the video clip. */
+export function portraitMediaUrl(item) {
+  return (isVideoPortrait(item) ? item?.videoUrl : item?.imageUrl) || null;
+}
+
+/** What a card or a loading player shows first: the image, or the clip's first frame. */
+export function portraitPosterUrl(item) {
+  return (isVideoPortrait(item) ? item?.posterUrl : item?.imageUrl) || null;
+}
+
 /** A portrait can be put in a prompt unless the server marked it unusable. */
 export function portraitAttachable(item) {
-  return Boolean(item?.imageUrl) && item.state !== "unusable";
+  return Boolean(portraitMediaUrl(item)) && item.state !== "unusable";
+}
+
+const VIDEO_FILE = /\.(mp4|mov)$/i;
+
+/** True for a file the Gallery would take as a video portrait (MP4 or MOV). */
+export function isPortraitVideoFile(file) {
+  const type = String(file?.type || "");
+  return type === "video/mp4" || type === "video/quicktime" || (!type && VIDEO_FILE.test(String(file?.name || "")));
 }
 
 /** Delay before the next status poll: 3 s, easing out to 15 s while nothing changes. */
@@ -68,10 +96,12 @@ export function portraitNameFromFile(file) {
 /** Client-side refusal for a file before any bytes are sent; null when acceptable. */
 export function portraitFileProblem(file) {
   const type = String(file?.type || "");
-  if (type && !type.startsWith("image/")) return "Only image files can be portraits.";
-  if (!type && !/\.(jpe?g|png|webp|gif|heic|heif|avif|bmp|tiff?)$/i.test(String(file?.name || ""))) return "Only image files can be portraits.";
+  const video = isPortraitVideoFile(file);
+  if (!video && type && !type.startsWith("image/")) return type.startsWith("video/") ? "Only MP4 and MOV videos can be portraits." : "Only images and MP4 or MOV videos can be portraits.";
+  if (!video && !type && !/\.(jpe?g|png|webp|gif|heic|heif|avif|bmp|tiff?)$/i.test(String(file?.name || ""))) return "Only images and MP4 or MOV videos can be portraits.";
   if (!file?.size) return "This file is empty.";
-  if (file.size > PORTRAIT_MAX_BYTES) return "This image is larger than 30 MB. Use a smaller version.";
+  if (video && file.size > PORTRAIT_VIDEO_MAX_BYTES) return "This video is larger than 200 MB. Use a smaller file.";
+  if (!video && file.size > PORTRAIT_MAX_BYTES) return "This image is larger than 30 MB. Use a smaller version.";
   return null;
 }
 
@@ -145,25 +175,26 @@ export function portraitStateLabel(item) {
   return null;
 }
 
-const EXTENSION_BY_TYPE = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif", "image/avif": "avif" };
+const EXTENSION_BY_TYPE = { "video/mp4": "mp4", "video/quicktime": "mov", "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif", "image/avif": "avif" };
 
 /** Saves the original image under the portrait's name. */
 export async function downloadPortrait(portrait) {
-  if (!portrait?.imageUrl) return;
+  const source = portraitMediaUrl(portrait);
+  if (!source) return;
   try {
-    const res = await fetchRetryBusy(inlineMediaUrl(portrait.imageUrl));
+    const res = await fetchRetryBusy(inlineMediaUrl(source));
     if (!res.ok) throw new Error("Download failed");
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `${(portrait.name || "portrait").replace(/\s+/g, "-")}.${EXTENSION_BY_TYPE[blob.type] || "png"}`;
+    link.download = `${(portrait.name || "portrait").replace(/\s+/g, "-")}.${EXTENSION_BY_TYPE[blob.type] || (isVideoPortrait(portrait) ? "mp4" : "png")}`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
   } catch {
-    window.open(portrait.imageUrl, "_blank");
+    window.open(source, "_blank");
   }
 }
 
@@ -207,4 +238,43 @@ export async function readPortraitDimensions(file) {
     }
   }
   return null;
+}
+
+/** Short copy for a clip the asset library would refuse (duration, size, shape); null when it fits. Frame rate is judged by the server. */
+export function portraitVideoProblem(info) {
+  if (!info) return null;
+  const { seconds, width, height } = info;
+  if (seconds > 0 && seconds < PORTRAIT_VIDEO_MIN_SECONDS) return `Too short (${seconds.toFixed(1)} s). Use a clip of ${PORTRAIT_VIDEO_MIN_SECONDS} to ${PORTRAIT_VIDEO_MAX_SECONDS} seconds.`;
+  if (seconds > PORTRAIT_VIDEO_MAX_SECONDS) return `Too long (${Math.round(seconds)} s). Use a clip of ${PORTRAIT_VIDEO_MIN_SECONDS} to ${PORTRAIT_VIDEO_MAX_SECONDS} seconds.`;
+  if (!(width > 0) || !(height > 0)) return null;
+  const size = `${width} x ${height} px`;
+  if (Math.min(width, height) < PORTRAIT_MIN_SIDE) return `Too small (${size}). Use at least ${PORTRAIT_MIN_SIDE} px on each side.`;
+  if (width * height < PORTRAIT_VIDEO_MIN_PIXELS) return `Too small (${size}). Use at least 640 x 640 px.`;
+  if (Math.max(width, height) > PORTRAIT_MAX_SIDE || width * height > PORTRAIT_VIDEO_MAX_PIXELS) return `Too large (${size}). Use 4K or smaller.`;
+  const ratio = width / height;
+  if (ratio > PORTRAIT_MAX_RATIO) return `Too wide (${size}). Crop it closer to the face.`;
+  if (ratio < PORTRAIT_MIN_RATIO) return `Too tall (${size}). Crop it closer to the face.`;
+  return null;
+}
+
+/** Reads a clip's duration and size from its metadata in the browser; null when it cannot be read here (the server then decides). */
+export async function readPortraitVideoInfo(file) {
+  if (typeof document === "undefined" || typeof URL?.createObjectURL !== "function") return null;
+  const url = URL.createObjectURL(file);
+  try {
+    return await new Promise((resolve) => {
+      const video = document.createElement("video");
+      const timer = setTimeout(() => resolve(null), 8000);
+      video.preload = "metadata";
+      video.muted = true;
+      video.onloadedmetadata = () => {
+        clearTimeout(timer);
+        resolve(Number.isFinite(video.duration) ? { seconds: video.duration, width: video.videoWidth, height: video.videoHeight } : null);
+      };
+      video.onerror = () => { clearTimeout(timer); resolve(null); };
+      video.src = url;
+    });
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }

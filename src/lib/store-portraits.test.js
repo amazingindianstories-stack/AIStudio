@@ -223,3 +223,44 @@ test("the status poll runs only while something is preparing, backs off, pauses 
     globalThis.document = documentBefore;
   }
 });
+
+test("attachPortraitsToComposer sends a video portrait to the reference clips and refuses it on a model without clip references", async () => {
+  await withStore(async () => {
+    const clip = p("c", 3, { name: "Walk", kind: "video", imageUrl: null, videoUrl: "/api/media/uploads/portrait/c", posterUrl: "/api/media/thumbs/poster/uploads/portrait/c.webp" });
+    useStore.setState({ model: "Seedance 2.0", portraitGalleryOpen: true, referenceImages: [], referenceKinds: [], referenceLabels: [], referenceTags: [], referenceIds: [], referenceVideos: [], videoNotes: [], referenceAudios: [] });
+    assert.deepEqual(useStore.getState().attachPortraitsToComposer([clip]), { ok: true, count: 1 });
+    const state = useStore.getState();
+    assert.deepEqual(state.referenceVideos, [clip.videoUrl]);
+    assert.equal(state.videoNotes[0].name, "Walk");
+    assert.deepEqual(state.referenceImages, []);
+    assert.equal(state.portraitGalleryOpen, false);
+    useStore.setState({ model: "Nano Banana 2", portraitGalleryOpen: true, referenceVideos: [], videoNotes: [] });
+    const refused = useStore.getState().attachPortraitsToComposer([clip]);
+    assert.equal(refused.ok, false);
+    assert.match(refused.error, /Seedance/);
+    assert.ok(!refused.error.includes("—"));
+    assert.deepEqual(useStore.getState().referenceVideos, []);
+  });
+});
+
+test("attachPortraitsToComposer keeps clip portraits within the model's reference clip room and attaches a clip once", async () => {
+  await withStore(async () => {
+    const clip = (id) => p(id, 1, { kind: "video", imageUrl: null, videoUrl: `/api/media/uploads/portrait/${id}`, posterUrl: null });
+    const empty = { referenceImages: [], referenceKinds: [], referenceLabels: [], referenceTags: [], referenceIds: [], referenceVideos: [], videoNotes: [], referenceAudios: [] };
+    useStore.setState({ ...empty, model: "Seedance 2.0", portraitGalleryOpen: true });
+    const four = ["a", "b", "c", "d"].map(clip);
+    const refused = useStore.getState().attachPortraitsToComposer(four);
+    assert.equal(refused.ok, false);
+    assert.match(refused.error, /room for 3 more reference clips/);
+    assert.deepEqual(useStore.getState().referenceVideos, []);
+    assert.equal(useStore.getState().portraitGalleryOpen, true);
+
+    assert.deepEqual(useStore.getState().attachPortraitsToComposer(four.slice(0, 2)), { ok: true, count: 2 });
+    assert.deepEqual(useStore.getState().attachPortraitsToComposer(four.slice(0, 3)), { ok: true, count: 1 }, "an attached clip does not use room again");
+    assert.deepEqual(useStore.getState().referenceVideos, four.slice(0, 3).map((c) => c.videoUrl));
+    assert.match(useStore.getState().attachPortraitsToComposer([four[3]]).error, /room for 0 more reference clips/);
+
+    useStore.setState({ ...empty, model: "Seedance 2.5" });
+    assert.deepEqual(useStore.getState().attachPortraitsToComposer(four), { ok: true, count: 4 });
+  });
+});

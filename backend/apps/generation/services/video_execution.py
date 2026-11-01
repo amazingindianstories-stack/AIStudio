@@ -10,10 +10,9 @@ from django.conf import settings
 from PIL import Image
 
 from apps.assets.models import Asset
-from apps.assets.views import serialize
 from apps.assets.portrait_db import get_portrait_asset_by_image_url
 from apps.common.leases import now_ms
-from apps.generation.model_registry import is_provider_model, capability
+from apps.generation.model_registry import is_provider_model
 from apps.generation.prompting.assembler import assemble_prompt
 from apps.generation.prompting.image_prep import prep_reference
 from apps.generation.providers import gemini, omni, seedance, omnihuman
@@ -265,14 +264,18 @@ def submit_video(item, *, signal, on_task, count=1, dependencies=None, env=None)
         on_task(task_id, 0, 1)
         return {**base, **extra, 'task_id': task_id}
     combined = combined_references(item.prompt, deps.assets(item.project_id), item.reference_images or [])
-    from .portrait_prepare import applies as managed_applies, assets_for
+    from .portrait_prepare import applies as managed_applies, assets_for, storage_key, video_assets_for
     verify_reference_image_sizes(item, combined)       # before the first inline read or provider call: nothing is billed
     managed = {'managed': assets_for(item.id)} if managed_applies(item) else {}
     inlined = deps.inline([ref['imageUrl'] for ref in combined], signal, **managed)
     references = [{**ref, 'index': index + 1, 'dataUrl': inlined[index]} for index, ref in enumerate(combined)]
     videos, audios = [], []
+    video_assets = video_assets_for(item) if managed else {}
     for ref in resolve_references(item.prompt, item.reference_videos or [], 'vid'):
         signal.check()
+        if video_assets.get(storage_key(ref)):       # a Gallery video portrait goes as its registered asset, never as a URL
+            videos.append('asset://' + video_assets[storage_key(ref)])
+            continue
         try:
             videos.append(deps.sign(ref) if dependencies is not None else sign_reference(ref, actor_id=item.user_id))
         except Exception as error:

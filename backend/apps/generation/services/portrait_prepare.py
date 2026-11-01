@@ -69,6 +69,9 @@ def prepare(item, *, storage=None, client=None, now=None):
     from apps.media.storage import get_storage
     storage = storage or get_storage()
     worst = managed_pool.ready(None)
+    videos = video_portraits(item)
+    if any(row.status == 'FAILED' for row in videos.values()):
+        return managed_pool.failed(managed_pool.PORTRAIT_UNPREPARED + managed_pool.NOT_CHARGED, 'portrait_rejected')
     for ref in reference_urls(item):
         key = storage_key(ref)
         if not key:
@@ -80,9 +83,29 @@ def prepare(item, *, storage=None, client=None, now=None):
         outcome = managed_pool.ensure(data, key, item.id, item.user_id, storage=storage, client=client, now=now)
         if outcome.kind == 'failed':
             return outcome
-        if outcome.kind == 'wait' and worst.kind != 'wait':
-            worst = outcome
+        worst = _reported(worst, outcome)
+    for key, row in videos.items():
+        outcome = managed_pool.ensure(b'', key, item.id, item.user_id, storage=storage, client=client, now=now, sha=row.content_sha256, media_kind='video')
+        if outcome.kind == 'failed':
+            return outcome
+        worst = _reported(worst, outcome)
     return worst
+
+
+def _reported(worst, outcome):
+    """The wait the job reports: the first one, except that any other wait outranks an asset still processing (whose time
+    counts only against its own processing limit, not the job's wait limit)."""
+    if outcome.kind == 'wait' and (worst.kind != 'wait' or worst.reason == 'portrait_processing'):
+        return outcome
+    return worst
+
+
+def video_portraits(item):
+    """{storage key: Gallery upload row} of the Gallery video portraits among this job's reference videos (sent as BytePlus assets)."""
+    from apps.generation.references import resolve_references
+    keys = {storage_key(ref) for ref in resolve_references(item.prompt, item.reference_videos or [], 'vid')}
+    rows = ManagedPortraitAsset.objects.filter(media_kind='video', origin='upload', source_key__in=[key for key in keys if key]).order_by('created_at', 'id')
+    return {row.source_key: row for row in rows}
 
 
 INPUT_IMAGE_PRIVACY_CODE = 'InputImageSensitiveContentDetected.PrivacyInformation'
@@ -130,9 +153,22 @@ def assets_for(generation_id):
     return dict(rows)
 
 
+def video_assets_for(item):
+    """{storage key: byteplus_asset_id} of this job's Gallery video portraits, matched by content to the ACTIVE video
+    assets it pinned (a pinned asset may have been registered from another upload of the same clip)."""
+    pinned = dict(ManagedPortraitAsset.objects.filter(status='ACTIVE', media_kind='video', id__in=ManagedPortraitPin.objects.filter(generation_id=item.id)
+                                                      .values('asset_id')).values_list('content_sha256', 'byteplus_asset_id'))
+    return {key: pinned[row.content_sha256] for key, row in video_portraits(item).items() if row.content_sha256 in pinned}
+
+
 def wait_started(generation_id, reason, now):
+    """When the job's wait limit started counting. A wait for a registered asset to finish processing is bounded by the
+    asset's own processing limit instead: it never counts, and the job's clock starts again when that wait ends."""
     row, _ = ManagedPortraitWait.objects.get_or_create(generation_id=generation_id, defaults={'started_at': now, 'reason': reason})
-    return row.started_at
+    if reason != 'portrait_processing':
+        return row.started_at
+    ManagedPortraitWait.objects.filter(generation_id=generation_id).update(started_at=now)
+    return now
 
 
 def clear_wait(generation_id):

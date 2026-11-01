@@ -10,15 +10,35 @@ Nothing is deployed. Every production step below needs explicit owner approval.
   are pinned and never expired or evicted. Unused assets expire after `portraitAssetTtlHours` (4).
 - When the pool is full the least recently used unpinned asset is evicted; if everything is pinned
   the job waits (`PORTRAIT_WAITING`, card shows the reason) up to `portraitQueueWaitMinutes` (15),
-  then fails **without any paid submission**.
+  then fails **without any paid submission** ("Portrait storage stayed busy"). Time an asset spends processing at
+  BytePlus counts only against its own processing limit, and the wait limit starts again when that wait ends.
 - ACTIVE assets are re-confirmed with BytePlus (unbilled GetAsset) at most 60 s before a submission,
   and after any failed job; a vanished asset is registered again automatically.
-- The Portrait Gallery (v2) is one shared, flat grid: artists upload one or many images (they are
+- The Portrait Gallery (v2) is one shared, flat grid: artists upload one or many images or short videos (they are
   prompt-ready after a short preparation), rename, delete (anyone may delete), select several and add them to
   a prompt. Faces found automatically in prompt references appear there while their asset is live and
   disappear when it expires or is deleted. Uploads are pool assets too: unused ones expire after the TTL.
   Users never see groups, asset ids, slots or the word BytePlus. The old manual portrait routes
   (`/api/assets/portraits*`) answer 410 `PORTRAITS_ARE_AUTOMATIC` on every method.
+- Gallery video portraits (`media_kind = 'video'`, migration `assets.0007`, additive, defaults to `image`): MP4 or MOV,
+  2-30 s, 24-60 fps, each side 300-6000 px, aspect 0.4-2.5, 407,696-8,295,044 pixels, at most 200 MB (BytePlus
+  "Add real-human assets to asset library"; `apps/assets/video_limits.py`). The browser checks duration and size
+  before uploading. Once a queued clip is first in line, and before it can take a slot (or evict a portrait), the
+  scheduler's upload pass probes the stored clip with ffprobe and makes its card frame (`thumbs/poster/<key>.webp`)
+  with ffmpeg, never in the `POST /api/portraits` request. A clip that breaks a limit, or whose first frame cannot be
+  read, becomes an unusable card with the reason; the card shows a frame only once it exists. The stored master is
+  registered as an `AssetType: Video` asset without being read or re-encoded; processing may take longer
+  (`VIDEO_PROCESSING_LIMIT_MS`, 15 min). A reference video that is a Gallery video portrait is sent to Seedance as
+  `asset://<id>` (registered again if it expired, matched by content to the asset the job pinned), never as a URL;
+  a job that references a clip the Gallery marked unusable fails before admission and is not charged. A Gallery clip
+  is refused as an image reference, a frame or an upscale source.
+  `assets.0007` brings `django_migrations` to 81 rows (`MIGRATION_ROWS` accepts 80 and 81). A pre-0007 build does
+  **not** understand video rows: it would show them as broken image cards, let them be added to a prompt as image
+  references (the generation then fails) and its scheduler would read a queued clip into memory and register it as an
+  Image asset. Its launcher also refuses 81 rows. Before rolling the code back past this change: with this build
+  still running, delete every video portrait from the Gallery and wait until none is left outside `DELETED`
+  (`ManagedPortraitAsset.objects.filter(media_kind='video').exclude(status='DELETED')` is empty; a held one goes once
+  its generation finishes), then `python manage.py migrate assets 0006` (owner DSN; 81 → 80 rows).
 - Pool slots are handed out strictly first come first served: the oldest waiting generation or queued
   upload gets the next free (or evictable) slot; everyone else waits behind it.
 - A face the detector misses never traps an artist: when Seedance refuses an inline reference as a real
@@ -26,13 +46,13 @@ Nothing is deployed. Every production step below needs explicit owner approval.
   **Retry** then registers it and sends `asset://`. There is no automatic resubmission (the paid claim stays
   one-shot). Uploading the same image to the Gallery has the same effect.
 - A slot waiter's place in line is when it started waiting for a slot (not for processing); the overall
-  wait limit still counts from its first wait. No second eviction starts while an earlier delete is
+  wait limit counts from its first wait and starts again after each wait for processing. No second eviction starts while an earlier delete is
   unresolved (DELETING or UNCERTAIN), so a failing DeleteAsset cannot empty the pool.
 - When BytePlus reports a full quota the pool takes what it had accepted as its size (0 when the quota is
   used elsewhere) and starts no registration for 60 s; after that one registration probes again.
-- Processing is timed from the start of registration (3 minutes), not from the upload. A timed-out or failed
-  asset that a generation still pins is not deleted: that generation fails (not charged) and the asset is
-  deleted once nothing holds it.
+- Processing is timed from the start of registration (3 minutes, 15 for video), not from the upload. A timed-out or
+  failed asset that a generation still pins is not deleted: that generation fails (not charged; a timeout says the
+  portrait was still processing) and the asset is deleted once nothing holds it.
 - Old references (a `#bp_asset_id=` marker on an image) are pooled by their bytes and never checked at
   BytePlus; a bare `asset://` link is refused at enqueue ("@imgN is an old portrait link that no longer exists").
 - The detector can take a non-human image (an animal, a sketch, tiny figures) for a face. When BytePlus
@@ -107,14 +127,15 @@ Nothing is deployed. Every production step below needs explicit owner approval.
   three services and redeploy. Face references go inline again as before, and the composer's attachment
   menu hides Portrait Gallery (it follows `enabled` from `GET /api/portraits`). The old portraits **cannot
   come back**: the cutover deleted them at BytePlus (their rows stay as `Retired`).
-- **To an old launcher** (needs the 60-row history):
+- **To an old launcher** (needs a history without the portrait migrations):
   1. Flag off on every service (above); wait until no queued/running generation holds a pin (the command
      itself releases pins of finished or deleted generations and uploads' own pins, and reports them).
   2. Report: `python manage.py managed_portraits_rollback` (owner DSN, flag off in that process).
   3. `python manage.py managed_portraits_rollback --delete-remote --confirm` - deletes every asset in
      Veevee's own pool group at BytePlus **and then the pool group** (irreversible; owner approval), then
-     migrates `assets` back to `0004` (reverses 0006 and 0005; drops only the five pool tables) and
-     verifies both migration rows are gone (62 → 60).
+     migrates `assets` back to `0004` (reverses 0007, 0006 and 0005; drops only the five pool tables) and
+     verifies the three migration rows are gone (`django_migrations` drops by 3, 81 → 78 on this release). The
+     launcher you roll back to must accept the remaining count (`MIGRATION_ROWS`).
   4. Roll the services back per `release-runbook.md`.
   Generations, media, ledger rows and all other tables are untouched.
 

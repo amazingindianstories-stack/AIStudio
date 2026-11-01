@@ -88,7 +88,7 @@ class FailureCopyTests(SimpleTestCase):
             video_execution.FACE_NOT_READY, video_execution.LOOKUP_UNAVAILABLE,
             managed_pool.PORTRAIT_UNPREPARED + managed_pool.NOT_CHARGED,
             managed_pool.PORTRAIT_REFUSED + managed_pool.NOT_CHARGED, managed_pool.PORTRAIT_MISSING,
-            managed_pool.PORTRAIT_BUSY.format(minutes=10),
+            managed_pool.PORTRAIT_BUSY.format(minutes=10), managed_pool.PORTRAIT_STILL_PROCESSING,
             'Portrait "Ana" was removed from the Portrait Gallery. ' + video_execution.PORTRAIT_REMOVE_TAIL,
             'A Gallery portrait is not ready for video yet. ' + video_execution.PORTRAIT_REMOVE_TAIL,
             'Reference image could not be converted to JPEG for Seedance (was image/heic).',

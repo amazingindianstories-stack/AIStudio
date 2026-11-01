@@ -1,4 +1,4 @@
-"""Undo assets.0005_managed_portraits and 0006_portrait_gallery so a pre-portrait launcher (which asserts 60 migration rows) can start again.
+"""Undo assets.0005_managed_portraits, 0006_portrait_gallery and 0007_portrait_media_kind (3 migration rows) so a pre-portrait launcher can start again.
 
     python manage.py managed_portraits_rollback                    report only (default)
     python manage.py managed_portraits_rollback --delete-remote --confirm
@@ -6,7 +6,7 @@
 Run with the database owner's DATABASE_URL (the migration drops tables) after VEEVEE_MANAGED_PORTRAITS has been
 turned off on every service. Releases the pins nobody holds any more (the janitor and the executor no longer run with the flag off:
 finished or deleted generations, and Gallery uploads' own pins), then refuses while a queued or running generation still holds a portrait. Only the five managed-portrait
-tables and their migration rows are removed (migrating assets to 0004 reverses 0006 and 0005); generations, media and every other table are untouched.
+tables and their migration rows are removed (migrating assets to 0004 reverses 0007, 0006 and 0005); generations, media and every other table are untouched.
 """
 from django.conf import settings
 from django.core.management import call_command
@@ -61,7 +61,7 @@ class Command(BaseCommand):
             rows = cursor.fetchone()[0]
             cursor.execute('SELECT count(*) FROM pg_tables WHERE schemaname = current_schema() AND tablename = ANY(%s)', [list(TABLES)])
             remaining = cursor.fetchone()[0]
-        if remaining or MigrationRecorder(connection).migration_qs.filter(app=MIGRATION[0], name__in=(MIGRATION[1], '0006_portrait_gallery')).exists():
+        if remaining or MigrationRecorder(connection).migration_qs.filter(app=MIGRATION[0], name__in=(MIGRATION[1], '0006_portrait_gallery', '0007_portrait_media_kind')).exists():
             raise CommandError('rollback incomplete: managed portrait tables or migration row remain')
         self.stdout.write(f'rolled back: django_migrations rows={rows}')
 

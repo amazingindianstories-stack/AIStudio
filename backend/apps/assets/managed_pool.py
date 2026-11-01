@@ -35,6 +35,7 @@ POOL_GROUP_NAME = 'veevee-portraits'      # the one hidden BytePlus group; adopt
 SETTINGS = {'portraitAssetTtlHours': (4, 1, 72), 'portraitPoolCapacity': (90, 1, 10000), 'portraitQueueWaitMinutes': (15, 1, 240)}
 REFUSED = 'provider_refused_asset'      # ReferenceFaceScan.forced: the detector saw a face but BytePlus refused the asset, so the image goes inline
 PROCESSING_LIMIT_MS = 3 * 60 * 1000
+VIDEO_PROCESSING_LIMIT_MS = 15 * 60 * 1000      # video assets process more slowly than images (BytePlus docs)
 REGISTERING_STALE_MS = 2 * 60 * 1000
 DELETING_STALE_MS = 30 * 1000           # a DELETING row nobody finished (the worker that claimed it died)
 QUOTA_BACKOFF_MS = 60 * 1000             # after BytePlus reports quota, the pool counts what it accepted as its size for this long
@@ -79,6 +80,8 @@ PORTRAIT_UNAVAILABLE = "We couldn't prepare a portrait from one of your referenc
 PORTRAIT_MISSING = 'The portrait disappeared while preparing. Try again.'
 PORTRAIT_BUSY = ('Portrait storage stayed busy for {minutes} minutes, so this generation was stopped.' + NOT_CHARGED.replace('submitted, so this', 'submitted, so it')
                  + ' Try again shortly.')
+PORTRAIT_STILL_PROCESSING = ('The portrait service was still processing a portrait when its time ran out, so this generation was stopped.'
+                             + NOT_CHARGED.replace('submitted, so this', 'submitted, so it') + ' Try again shortly.')
 
 
 def failed(message, reason='failed', detail=None):
@@ -312,7 +315,7 @@ def has_room():
     return not _eviction_unresolved() and ManagedPortraitAsset.objects.filter(status='ACTIVE').exclude(id__in=pinned).exists()
 
 
-def _claim(sha, source_key, generation_id, user_id, now):
+def _claim(sha, source_key, generation_id, user_id, now, media_kind='image'):
     """Under the pool lock: decide what this reference needs. Returns (outcome_or_None, asset, action)."""
     values = setting_values()
     with transaction.atomic():
@@ -353,7 +356,7 @@ def _claim(sha, source_key, generation_id, user_id, now):
         _unclaim(generation_id)
         asset = ManagedPortraitAsset.objects.create(id=uuid.uuid4(), content_sha256=sha, source_key=source_key, status='REGISTERING',
             receipt={'version': 1, 'state': 'CLAIMED', 'attempt': str(uuid.uuid4()), 'registered_at': now}, created_by_id=user_id,
-            created_at=now, updated_at=now, last_used_at=now)
+            created_at=now, updated_at=now, last_used_at=now, media_kind=media_kind)
         pin(generation_id, asset)
         return None, asset, 'register'
 
@@ -424,7 +427,7 @@ def claim_upload(asset_id, now=None):
             return slot, 'delete'
         asset.status, asset.updated_at, asset.last_used_at = 'REGISTERING', now, now
         asset.receipt = {'version': 1, 'state': 'CLAIMED', 'attempt': str(uuid.uuid4()), 'registered_at': now,
-                         **({'throttle': asset.receipt['throttle']} if (asset.receipt or {}).get('throttle') else {})}   # the processing clock starts here, not at upload
+                         **{key: asset.receipt[key] for key in ('throttle', 'probed') if (asset.receipt or {}).get(key)}}   # the processing clock starts here, not at upload
         asset.save(update_fields=['status', 'updated_at', 'last_used_at', 'receipt'])
         pin(asset.id, asset)
         return asset, 'register'
@@ -521,8 +524,9 @@ def _learn_capacity():
 def _register(asset, data, storage, client, user_id, requeue=False):
     from apps.integrations.byteplus import BytePlusAssetError
     key = asset.source_key
+    video = asset.media_kind == 'video'
     try:
-        derived = bounded_copy(data)
+        derived = None if video else bounded_copy(data)      # a video master is registered as it is stored, never re-encoded or read here
     except Exception:
         derived = None
     if derived is not None:
@@ -537,13 +541,13 @@ def _register(asset, data, storage, client, user_id, requeue=False):
         group_id = ensure_group(client)
         url = storage.signed_read_url(key, 600, actor_id=user_id)
         try:
-            response = client.create_asset(group_id, url, name=NAME_PREFIX + asset.content_sha256[:40])
+            response = client.create_asset(group_id, url, name=NAME_PREFIX + asset.content_sha256[:40], asset_type='Video' if video else 'Image')
         except BytePlusAssetError as error:
             if error.code != 'NotFound.group_id':
                 raise
             # The pool's group was removed outside Veevee; nothing was created, so recreate it and retry once.
             forget_group(group_id)
-            response = client.create_asset(ensure_group(client), url, name=NAME_PREFIX + asset.content_sha256[:40])
+            response = client.create_asset(ensure_group(client), url, name=NAME_PREFIX + asset.content_sha256[:40], asset_type='Video' if video else 'Image')
     except BytePlusAssetError as error:
         if error.code == 'QuotaSharedPoolExceeded':
             with transaction.atomic():
@@ -608,9 +612,9 @@ def _poll(asset, client):
         if error.code in ('NotFound.asset_id', 'NotFound'):
             _finish(asset, status='FAILED', error_code='missing_after_create', receipt=_last_error(asset, error))
             return failed(PORTRAIT_MISSING, 'portrait_missing', error.provider_error)
-        return wait('portrait_processing', 5000)
+        return wait('portrait_uncertain', 5000)
     except Exception:
-        return wait('portrait_processing', 5000)
+        return wait('portrait_uncertain', 5000)
     status = str((remote or {}).get('Status', ''))
     if status == 'Active':
         with transaction.atomic():
@@ -622,7 +626,8 @@ def _poll(asset, client):
             _activated(row, setting_values(), now_ms())
         return ready(asset.byteplus_asset_id)
     registered_at = int((asset.receipt or {}).get('registered_at') or asset.created_at)
-    if status == 'Failed' or now_ms() - registered_at > PROCESSING_LIMIT_MS:
+    limit = VIDEO_PROCESSING_LIMIT_MS if asset.media_kind == 'video' else PROCESSING_LIMIT_MS
+    if status == 'Failed' or now_ms() - registered_at > limit:
         code = 'processing_failed' if status == 'Failed' else 'processing_timeout'
         # Only a row that is still PROCESSING is condemned, and never one a generation holds: that generation fails
         # cleanly (not charged) and releases its pin, then the next poll (janitor or upload pass) deletes the asset.
@@ -642,7 +647,8 @@ def _poll(asset, client):
         detail = provider_errors.capture('byteplus-assets', phase='GetAsset', code=code, message='Asset status: ' + (status or 'unknown'),
                                          task_id=asset.byteplus_asset_id, source='veevee',
                                          body=json.dumps({key: value for key, value in (remote or {}).items() if key != 'URL'}, default=str))
-        return failed(PORTRAIT_UNPREPARED + NOT_CHARGED, 'portrait_rejected', detail)
+        message = PORTRAIT_UNPREPARED + NOT_CHARGED if status == 'Failed' else PORTRAIT_STILL_PROCESSING
+        return failed(message, 'portrait_rejected', detail)
     return wait('portrait_processing', 3000)
 
 
@@ -655,9 +661,9 @@ def _verify(asset, client):
         if error.code in ('NotFound.asset_id', 'NotFound'):
             _finish(asset, status='DELETED', deleted_at=now_ms(), error_code='missing_remotely')
             return None
-        return wait('portrait_processing', 5000)
+        return wait('portrait_uncertain', 5000)
     except Exception:
-        return wait('portrait_processing', 5000)
+        return wait('portrait_uncertain', 5000)
     if str((remote or {}).get('Status')) != 'Active':
         _finish(asset, status='PROCESSING')
         return wait('portrait_processing', 3000)
@@ -670,15 +676,16 @@ def _verify(asset, client):
     return ready(asset.byteplus_asset_id)
 
 
-def ensure(data, source_key, generation_id, user_id, *, storage, client=None, now=None, _retry=True):
-    """Make the face reference with these bytes usable as a BytePlus asset for this generation."""
+def ensure(data, source_key, generation_id, user_id, *, storage, client=None, now=None, sha=None, media_kind='image', _retry=True):
+    """Make the face reference with these bytes, or the Gallery video portrait with this ``sha`` (registered again when it
+    expired), usable as a BytePlus asset for this generation."""
     client = client or default_client()
-    sha = content_sha256(data)
-    outcome, asset, action = _claim(sha, source_key, generation_id, user_id, now or now_ms())
+    sha = sha or content_sha256(data)
+    outcome, asset, action = _claim(sha, source_key, generation_id, user_id, now or now_ms(), media_kind)
     if action == 'verify':
         verified = _verify(asset, client)
         if verified is None and _retry:     # vanished remotely: register it again
-            return ensure(data, source_key, generation_id, user_id, storage=storage, client=client, _retry=False)
+            return ensure(data, source_key, generation_id, user_id, storage=storage, client=client, sha=sha, media_kind=media_kind, _retry=False)
         return verified or wait('portrait_registering', 1000)
     if action == 'register':
         return _register(asset, data, storage, client, user_id)
@@ -768,6 +775,29 @@ def process_uploads(*, client=None, storage=None, now=None, limit=UPLOADS_PER_PA
             return report
 
 
+def _check_video(asset, storage):
+    """Once, while a Gallery clip is QUEUED and before it can take a slot (and so evict a portrait): check it against
+    the video limits and make its poster. Never in the Gallery request: ffprobe and ffmpeg may take seconds per clip.
+    Returns True unless the clip is still QUEUED and may be claimed."""
+    from apps.media import posters
+    from . import video_limits
+    found = video_limits.problem(video_limits.probe_stored(storage, asset.source_key))
+    if not found and posters.bounded_poster(storage, asset.source_key, video=True, wait=posters.DEADLINE_SECONDS) is None:
+        found = video_limits.problem(None)
+    with transaction.atomic():
+        _locked()
+        row = ManagedPortraitAsset.objects.select_for_update().filter(pk=asset.pk, status='QUEUED').first()
+        if row is None:
+            return True
+        if found:
+            row.status, row.error_code, row.receipt = 'FAILED', found[0], {**(row.receipt or {}), 'problem': found[1]}
+        else:
+            row.receipt = {**(row.receipt or {}), 'probed': True}
+        row.updated_at = now_ms()
+        row.save(update_fields=['status', 'error_code', 'receipt', 'updated_at'])
+    return bool(found)
+
+
 def _process_upload_once(*, client, storage=None, now=None):
     report = {'registered': 0, 'polled': 0, 'deleted': 0}
     report['deleted'] = recover_deletes(client, now=now, stale_ms=DELETING_STALE_MS, limit=5)
@@ -781,6 +811,10 @@ def _process_upload_once(*, client, storage=None, now=None):
     first = ManagedPortraitAsset.objects.filter(status='QUEUED').order_by('created_at', 'id').first()
     if first is None:
         return report
+    from apps.media.storage import get_storage
+    storage = storage or get_storage()
+    if first.media_kind == 'video' and not (first.receipt or {}).get('probed') and _check_video(first, storage):
+        return report
     claimed = claim_upload(first.id, now)
     if claimed is None:
         return report
@@ -789,10 +823,8 @@ def _process_upload_once(*, client, storage=None, now=None):
         remote_delete(asset, client)
         report['deleted'] += 1
         return report
-    from apps.media.storage import get_storage
-    storage = storage or get_storage()
     try:
-        data = storage.read(asset.source_key)
+        data = b'' if asset.media_kind == 'video' else storage.read(asset.source_key)
     except Exception:
         _finish(asset, status='FAILED', error_code='source_unreadable')
         release_upload_pins()

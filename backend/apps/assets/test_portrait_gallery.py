@@ -721,7 +721,7 @@ class UpgradeTests(TransactionTestCase):
         rows.get_model('assets', 'ManagedPortraitAsset').objects.create(id=uuid.uuid4(), content_sha256='a' * 64, source_key='k', status='ACTIVE',
                                                                        created_at=1, updated_at=1, last_used_at=1)
         rows.get_model('assets', 'ReferenceFaceScan').objects.create(content_sha256='b' * 64, has_face=True, faces=1, detector_version='v', scanned_at=1)
-        MigrationExecutor(connection).migrate([('assets', '0006_portrait_gallery')])
+        MigrationExecutor(connection).migrate([('assets', '0007_portrait_media_kind')])
         asset = ManagedPortraitAsset.objects.get()
-        self.assertEqual((asset.status, asset.origin, asset.name, asset.hidden_at), ('ACTIVE', 'reference', None, None))
+        self.assertEqual((asset.status, asset.origin, asset.name, asset.hidden_at, asset.media_kind), ('ACTIVE', 'reference', None, None, 'image'))
         self.assertIsNone(ReferenceFaceScan.objects.get().forced)

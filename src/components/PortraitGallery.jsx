@@ -10,7 +10,7 @@ import { askText } from "@/lib/ask-text";
 import { notify } from "@/lib/notify";
 import { getNextGridFocus } from "@/lib/grid-navigation";
 import { droppedLibraryItems, validatePortraitDrop } from "@/lib/asset-drag-contract";
-import { downloadPortrait, portraitAttachable, portraitDropImages } from "@/lib/portraits";
+import { downloadPortrait, isVideoPortrait, portraitAttachable, portraitDropImages } from "@/lib/portraits";
 import { useDropzoneGuard } from "@/lib/use-dropzone-guard";
 import { useMarqueeSelection } from "@/lib/use-marquee-selection";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
@@ -134,7 +134,7 @@ function PortraitGalleryDialog() {
   const addToPrompt = useCallback((targets) => {
     const state = useStore.getState();
     const room = Math.max(0, capability(state.model, "maxReferenceImages", 50) - (state.referenceKinds || []).filter((kind) => kind !== "video").length);
-    if (targets.length > room) {
+    if (targets.filter((target) => !isVideoPortrait(target)).length > room) {
       setError(`This model has room for ${room} more image ${room === 1 ? "reference" : "references"}. Select fewer portraits or change model.`);
       return;
     }
@@ -281,7 +281,7 @@ function PortraitGalleryDialog() {
             disabled={maintenance}
             type="file"
             multiple
-            accept="image/*"
+            accept="image/*,video/mp4,video/quicktime,.mp4,.mov"
             aria-label="Upload portraits"
             className="hidden"
             onChange={(e) => { const files = Array.from(e.target.files || []); e.target.value = ""; void uploadFiles(files); }}
@@ -388,9 +388,9 @@ function PortraitGalleryDialog() {
                   ) : (
                     <div className="max-w-xs">
                       <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl border border-dashed border-white/25 text-white/55"><ImagePlus className="h-5 w-5" /></div>
-                      <p className="mt-3 text-sm font-medium text-white/85">Drop images here</p>
-                      <p className="mt-1 text-xs leading-5 text-white/45">Add one or many portraits by dragging them in. Faces in your prompt references appear here automatically.</p>
-                      <button disabled={maintenance} type="button" onClick={() => input.current?.click()} className="mt-4 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-medium text-white hover:bg-white/15">Choose images</button>
+                      <p className="mt-3 text-sm font-medium text-white/85">Drop images or videos here</p>
+                      <p className="mt-1 text-xs leading-5 text-white/45">Add one or many portraits (images, or MP4 and MOV clips) by dragging them in. Faces in your prompt references appear here automatically.</p>
+                      <button disabled={maintenance} type="button" onClick={() => input.current?.click()} className="mt-4 rounded-lg bg-white/10 px-3 py-1.5 text-xs font-medium text-white hover:bg-white/15">Choose files</button>
                     </div>
                   )}
                 </div>
@@ -439,7 +439,7 @@ function PortraitGalleryDialog() {
           <div data-testid="portrait-drop-overlay" className="pointer-events-none absolute inset-2 z-30 grid place-items-center rounded-xl border-2 border-dashed border-white/40 bg-ink-900/95 text-center backdrop-blur-[2px]">
             <div>
               <ImagePlus className="mx-auto h-8 w-8 text-white/80" />
-              <p className="mt-3 text-sm font-semibold">{drop.isValid ? "Drop images to add them" : "Only images can be added"}</p>
+              <p className="mt-3 text-sm font-semibold">{drop.isValid ? "Drop images or videos to add them" : "Only images and MP4 or MOV videos can be added"}</p>
               <p className="mt-1 text-xs text-white/55">{drop.isValid ? "Release to upload them as portraits" : drop.validationReason}</p>
             </div>
           </div>
