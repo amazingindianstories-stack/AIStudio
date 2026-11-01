@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { Dropdown, MenuItem } from "@/components/Dropdown";
 import { selectReadOnly, useCanvasStore } from "@/lib/canvas-store";
 import { MAX_DRAWIO_BYTES, importDrawio } from "@/lib/canvas/import-drawio";
+import { MAX_VSDX_BYTES, importVisio } from "@/lib/canvas/import-visio";
 import {
   IMAGE_SIZES,
   buildCsv,
@@ -38,8 +39,12 @@ export function ExportMenu() {
     if (!file) return;
     setStatus("");
     try {
-      if (file.size > MAX_DRAWIO_BYTES) throw new Error("too large");
-      const { nodes, connectors } = await importDrawio(await file.text(), { origin: useCanvasStore.getState().viewportCenter() });
+      const origin = useCanvasStore.getState().viewportCenter();
+      const visio = /\.vsdx$/i.test(file.name);
+      if (file.size > (visio ? MAX_VSDX_BYTES : MAX_DRAWIO_BYTES)) throw new Error("too large");
+      const { nodes, connectors } = visio
+        ? await importVisio(await file.arrayBuffer(), { origin })
+        : await importDrawio(await file.text(), { origin });
       const store = useCanvasStore.getState();
       store.editBoard((present) => ({
         ...present,
@@ -84,8 +89,8 @@ export function ExportMenu() {
     <input
       ref={fileInput}
       type="file"
-      accept=".drawio,.xml"
-      aria-label="Import draw.io file"
+      accept=".drawio,.xml,.vsdx"
+      aria-label="Import diagram file"
       data-testid="import-drawio-input"
       className="hidden"
       onChange={(event) => {
@@ -170,7 +175,7 @@ export function ExportMenu() {
           </MenuItem>
           <div className="my-1 h-px bg-line" />
           <MenuItem disabled={readOnly} onClick={() => { close({ restoreFocus: false }); fileInput.current?.click(); }}>
-            <span className="flex-1">Import draw.io file</span>
+            <span className="flex-1">Import draw.io or Visio file</span>
           </MenuItem>
         </>
       )}
