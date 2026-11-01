@@ -48,9 +48,17 @@ function Player({ track }) {
   const busyJob = track.status === "processing" || track.status === "cutting";
 
   const reportView = useCallback((completed) => {
-    if (furthest.current > 0) void store.recordView(track.id, furthest.current, completed);
-  }, [store, track.id]);
+    if (furthest.current > 0) void store.recordView(track.id, furthest.current, completed, track.durationMs);
+  }, [store, track.id, track.durationMs]);
   useEffect(() => () => reportView(false), [reportView]);
+  const measuredOn = useRef(track.durationMs);
+  useEffect(() => {
+    if (measuredOn.current === track.durationMs) return;
+    measuredOn.current = track.durationMs;
+    furthest.current = 0;
+    setNowMs(window.start);
+    setMark({ start: null, end: null });
+  }, [track.durationMs, window.start]);
 
   const seek = useCallback((ms) => {
     const el = video.current;
@@ -119,14 +127,14 @@ function Player({ track }) {
     setBusy(false);
   };
   const react = (emoji) => run(async () => {
-    const moment = await store.addMoment(track.id, { atMs: Math.round(nowMs), emoji });
+    const moment = await store.addMoment(track.id, { atMs: Math.round(nowMs), emoji, durationMs: track.durationMs });
     setMoments((items) => [...items, moment].sort((a, b) => a.atMs - b.atMs));
   }, "The reaction was not saved.");
   const comment = () => {
     const value = text.trim();
     if (!value) return;
     void run(async () => {
-      const moment = await store.addMoment(track.id, { atMs: Math.round(nowMs), text: value });
+      const moment = await store.addMoment(track.id, { atMs: Math.round(nowMs), text: value, durationMs: track.durationMs });
       setMoments((items) => [...items, moment].sort((a, b) => a.atMs - b.atMs));
       setText("");
     }, "The comment was not saved.");
@@ -276,12 +284,12 @@ function Player({ track }) {
             ) : (
               <div className="text-xs text-white/65">
                 <p>No transcript yet.</p>
-                {canEdit && track.hasAudio && transcriptionAvailable ? (
+                {canEditRole(role) && track.hasAudio && transcriptionAvailable ? (
                   <>
                     <p className="mt-1 text-white/50">Creating one sends the audio to the speech service and counts as a paid request.</p>
                     <button type="button" disabled={busy || busyJob} onClick={() => run(() => store.transcribe(track.id), "The transcript could not be made.")} className={cn(SMALL, "mt-2")}>Create transcript</button>
                   </>
-                ) : <p className="mt-1 text-white/50">{transcriptionAvailable ? "Only the person who recorded it can create one." : "Transcripts are not set up on this server."}</p>}
+                ) : <p className="mt-1 text-white/50">{!transcriptionAvailable ? "Transcripts are not set up on this server." : !track.hasAudio ? "This recording has no separate audio track to transcribe." : "People who can edit this board can create one."}</p>}
               </div>
             )}
           </div>
@@ -332,9 +340,9 @@ function Player({ track }) {
               <p className="font-semibold text-white">Trim</p>
               <p className="text-white/55">Hide the start or end. The file is not changed and you can undo it.</p>
               <div className="mt-1.5 flex flex-wrap gap-1.5">
-                <button type="button" disabled={busy || nowMs >= window.end - 1000} onClick={() => run(() => store.trim(track.id, bounds.min, track.trimEndMs), "That trim was not saved.")} className={SMALL}>Start here</button>
-                <button type="button" disabled={busy || nowMs <= window.start + 1000} onClick={() => run(() => store.trim(track.id, track.trimStartMs, bounds.min), "That trim was not saved.")} className={SMALL}>End here</button>
-                <button type="button" disabled={busy || (window.start === 0 && window.end === track.durationMs)} onClick={() => run(() => store.trim(track.id, 0, track.durationMs), "That trim was not saved.")} className={SMALL}>Reset trim</button>
+                <button type="button" disabled={busy || nowMs >= window.end - 1000} onClick={() => run(() => store.trim(track.id, bounds.min, track.trimEndMs, track.durationMs), "That trim was not saved.")} className={SMALL}>Start here</button>
+                <button type="button" disabled={busy || nowMs <= window.start + 1000} onClick={() => run(() => store.trim(track.id, track.trimStartMs, bounds.min, track.durationMs), "That trim was not saved.")} className={SMALL}>End here</button>
+                <button type="button" disabled={busy || (window.start === 0 && window.end === track.durationMs)} onClick={() => run(() => store.trim(track.id, 0, track.durationMs, track.durationMs), "That trim was not saved.")} className={SMALL}>Reset trim</button>
               </div>
             </div>
             <div>
@@ -350,7 +358,7 @@ function Player({ track }) {
                   type="button"
                   data-talktrack-cut=""
                   disabled={busy || busyJob || mark.start == null || mark.end == null || mark.end - mark.start < 500}
-                  onClick={() => run(async () => { await store.cut(track.id, mark.start, mark.end); setMark({ start: null, end: null }); }, "The cut could not start.")}
+                  onClick={() => run(async () => { await store.cut(track.id, mark.start, mark.end, track.durationMs); setMark({ start: null, end: null }); }, "The cut could not start.")}
                   className={SMALL}
                 >
                   Cut out

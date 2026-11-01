@@ -33,6 +33,8 @@ board data and polling; there is no realtime service.
   transcription path and its paid guard. It is refused while a remux or cut is pending, and kept only if the
   audio it read is still the recording's. Chapters are derived from the transcript every minute. No summary is
   generated, since that would need an automatic LLM job.
+- Every timeline offset a client sends (view progress, reactions and comments, trim, cut) carries the
+  `durationMs` of the file it was measured on; one measured before a cut landed is refused with 409.
 - Analytics: `TalktrackView` keeps each person's furthest point. Reactions and comments are `TalktrackMoment`
   rows. Viewing and listing need view access, reacting needs comment access, editing and viewer reports need
   edit access.

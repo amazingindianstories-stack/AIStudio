@@ -163,6 +163,12 @@ def mine(user_id):
              'projectId': str(boards[row.board_id][1]) if row.board_id in boards else None} for row in rows]
 
 
+def _measured_on(row, data):
+    """Refuse timeline offsets measured on another version of the file: `durationMs` must be the current one."""
+    if data.get('durationMs') != row.duration_ms:
+        raise FacilitationError('This recording was edited. Reopen it and try again.', 409)
+
+
 def _owns_or_manages(row, user_id, level):
     from . import access
     if str(row.owner_id) != str(user_id) and level < access.CO_OWNER:
@@ -179,6 +185,8 @@ def update(board_id, talktrack_id, user_id, level, now, data):
         _owns_or_manages(row, user_id, level)
         if 'title' in data:
             row.title = _title(data['title'], row.title)
+        if 'trimStartMs' in data or 'trimEndMs' in data or 'cut' in data:
+            _measured_on(row, data)
         if 'trimStartMs' in data or 'trimEndMs' in data:
             start = _whole(data.get('trimStartMs', row.trim_start_ms), 0, row.duration_ms, 'trimStartMs')
             end = _whole(data.get('trimEndMs', row.duration_ms if row.trim_end_ms is None else row.trim_end_ms),
@@ -231,6 +239,7 @@ def delete_board_talktracks(board_id):
 def record_view(board_id, talktrack_id, user_id, now, data):
     """Note that `user_id` watched: the furthest they got and whether they reached the end."""
     row = _row(board_id, talktrack_id)
+    _measured_on(row, data)
     watched = _whole(data.get('watchedMs', 0), 0, MAX_DURATION_MS, 'watchedMs')
     watched = min(watched, row.duration_ms)
     completed = data.get('completed') is True
@@ -276,6 +285,7 @@ def add_moment(board_id, talktrack_id, user_id, now, data):
     """An emoji reaction or a comment at a point of the timeline."""
     from apps.authentication.models import User
     row = _row(board_id, talktrack_id)
+    _measured_on(row, data)
     at = _whole(data.get('atMs'), 0, row.duration_ms, 'atMs')
     emoji = data.get('emoji') if isinstance(data.get('emoji'), str) else ''
     text = data.get('text').strip()[:COMMENT_LIMIT] if isinstance(data.get('text'), str) else ''

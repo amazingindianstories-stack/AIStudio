@@ -108,10 +108,10 @@ class EditTests(TalktrackBase):
         path = f'/talktracks/{made["id"]}'
         renamed = self.call(self.dee, 'patch', path, {'title': ' Walkthrough '})['talktrack']
         self.assertEqual(renamed['title'], 'Walkthrough')
-        trimmed = self.call(self.dee, 'patch', path, {'trimStartMs': 5000, 'trimEndMs': 80000})['talktrack']
+        trimmed = self.call(self.dee, 'patch', path, {'durationMs': 90000, 'trimStartMs': 5000, 'trimEndMs': 80000})['talktrack']
         self.assertEqual((trimmed['trimStartMs'], trimmed['trimEndMs'], trimmed['durationMs']), (5000, 80000, 90000))
-        self.call(self.dee, 'patch', path, {'trimStartMs': 5000, 'trimEndMs': 5500}, 400)
-        self.call(self.dee, 'patch', path, {'trimEndMs': 99999}, 400)
+        self.call(self.dee, 'patch', path, {'durationMs': 90000, 'trimStartMs': 5000, 'trimEndMs': 5500}, 400)
+        self.call(self.dee, 'patch', path, {'durationMs': 90000, 'trimEndMs': 99999}, 400)
         for user in (self.ben, self.cat):
             self.call(user, 'patch', path, {'title': 'x'}, 403)
             self.call(user, 'delete', path, expect=403)
@@ -125,23 +125,23 @@ class EditTests(TalktrackBase):
 
     def test_a_cut_is_queued_for_the_worker_and_validated(self):
         processing = self.record()
-        self.call(self.dee, 'patch', f'/talktracks/{processing["id"]}', {'cut': {'startMs': 1000, 'endMs': 2000}}, 409)
+        self.call(self.dee, 'patch', f'/talktracks/{processing["id"]}', {'durationMs': 90000, 'cut': {'startMs': 1000, 'endMs': 2000}}, 409)
         made = self.record(mime='video/mp4')
         path = f'/talktracks/{made["id"]}'
-        queued = self.call(self.dee, 'patch', path, {'cut': {'startMs': 10000, 'endMs': 20000}})['talktrack']
+        queued = self.call(self.dee, 'patch', path, {'durationMs': 90000, 'cut': {'startMs': 10000, 'endMs': 20000}})['talktrack']
         self.assertEqual(queued['status'], 'cutting')
-        self.call(self.dee, 'patch', path, {'cut': {'startMs': 30000, 'endMs': 40000}}, 409)
+        self.call(self.dee, 'patch', path, {'durationMs': 90000, 'cut': {'startMs': 30000, 'endMs': 40000}}, 409)
         fresh = self.record(mime='video/mp4')
         for cut in ({'startMs': 20000, 'endMs': 10000}, {'startMs': 0, 'endMs': 90000}, {'startMs': 0, 'endMs': 89500}, 'no'):
-            self.call(self.dee, 'patch', f'/talktracks/{fresh["id"]}', {'cut': cut}, 400)
+            self.call(self.dee, 'patch', f'/talktracks/{fresh["id"]}', {'durationMs': 90000, 'cut': cut}, 400)
 
     def test_cut_offsets_map_trim_marks_across_the_removed_span(self):
         self.assertEqual([talktrack._map_offset(value, 10, 20) for value in (5, 10, 15, 20, 30)], [5, 10, 10, 10, 20])
 
     def test_deleting_the_board_removes_its_recordings_and_their_files(self):
         made = self.record(audioReferenceId=self.upload(self.dee, b'opus', 'audio/webm'))
-        self.call(self.ben, 'post', f'/talktracks/{made["id"]}/view', {'watchedMs': 1000})
-        self.call(self.cat, 'post', f'/talktracks/{made["id"]}/moments', {'atMs': 1000, 'emoji': '👍'})
+        self.call(self.ben, 'post', f'/talktracks/{made["id"]}/view', {'durationMs': 90000, 'watchedMs': 1000})
+        self.call(self.cat, 'post', f'/talktracks/{made["id"]}/moments', {'durationMs': 90000, 'atMs': 1000, 'emoji': '👍'})
         row = Talktrack.objects.get(pk=made['id'])
         services.delete_board(BOARD)
         self.assertEqual((Talktrack.objects.count(), TalktrackView.objects.count(), TalktrackMoment.objects.count()), (0, 0, 0))
@@ -189,7 +189,7 @@ class WorkerTests(TalktrackBase):
             self.skipTest('ffmpeg is not installed')
         clip = self.make_clip(4)
         made = self.call(self.dee, 'post', '/talktracks', {'referenceId': self.upload(self.dee, clip, 'video/mp4'), 'durationMs': 4000})['talktrack']
-        self.call(self.dee, 'patch', f'/talktracks/{made["id"]}', {'trimStartMs': 2500, 'cut': {'startMs': 1000, 'endMs': 2000}})
+        self.call(self.dee, 'patch', f'/talktracks/{made["id"]}', {'durationMs': 4000, 'trimStartMs': 2500, 'cut': {'startMs': 1000, 'endMs': 2000}})
         self.assertEqual(talktrack.process_jobs(), {'done': 1, 'failed': 0})
         row = Talktrack.objects.get(pk=made['id'])
         self.assertEqual((row.status, row.duration_ms, row.trim_start_ms, row.cut_start_ms), ('ready', 3000, 1500, None))
@@ -210,7 +210,7 @@ class WorkerTests(TalktrackBase):
                                                            'audioReferenceId': self.upload(self.dee, self.make_audio(4), 'audio/mp4'),
                                                            'durationMs': 4000})['talktrack']
         before = Talktrack.objects.get(pk=made['id'])
-        self.call(self.dee, 'patch', f'/talktracks/{made["id"]}', {'cut': {'startMs': 1000, 'endMs': 2000}})
+        self.call(self.dee, 'patch', f'/talktracks/{made["id"]}', {'durationMs': 4000, 'cut': {'startMs': 1000, 'endMs': 2000}})
         self.assertEqual(talktrack.process_jobs(), {'done': 1, 'failed': 0})
         row = Talktrack.objects.get(pk=made['id'])
         self.assertTrue(row.audio_key.endswith('.m4a'))
@@ -245,15 +245,15 @@ class WorkerTests(TalktrackBase):
     def test_a_trim_set_while_a_cut_runs_is_kept(self):
         made = self.record(mime='video/mp4')
         path = f'/talktracks/{made["id"]}'
-        self.call(self.dee, 'patch', path, {'cut': {'startMs': 10000, 'endMs': 20000}})
-        self.run_job_with(lambda: self.call(self.dee, 'patch', path, {'trimStartMs': 30000, 'trimEndMs': 80000}))
+        self.call(self.dee, 'patch', path, {'durationMs': 90000, 'cut': {'startMs': 10000, 'endMs': 20000}})
+        self.run_job_with(lambda: self.call(self.dee, 'patch', path, {'durationMs': 90000, 'trimStartMs': 30000, 'trimEndMs': 80000}))
         row = Talktrack.objects.get(pk=made['id'])
         self.assertEqual((row.status, row.duration_ms, row.trim_start_ms, row.trim_end_ms), ('ready', 80000, 20000, 70000))
 
     def test_a_recording_deleted_while_its_job_runs_leaves_no_files(self):
         made = self.record(mime='video/mp4', audioReferenceId=self.upload(self.dee, b'opus', 'audio/webm'))
         path = f'/talktracks/{made["id"]}'
-        self.call(self.dee, 'patch', path, {'cut': {'startMs': 10000, 'endMs': 20000}})
+        self.call(self.dee, 'patch', path, {'durationMs': 90000, 'cut': {'startMs': 10000, 'endMs': 20000}})
         fields = self.run_job_with(lambda: self.call(self.dee, 'delete', path))
         self.assertFalse(Talktrack.objects.filter(pk=made['id']).exists())
         self.gone(fields['key'])
@@ -263,16 +263,33 @@ class WorkerTests(TalktrackBase):
         made = self.record(mime='video/mp4')
         base = f'/talktracks/{made["id"]}'
         for at in (5000, 15000, 85000):
-            self.call(self.cat, 'post', base + '/moments', {'atMs': at, 'text': f'at {at}'})
+            self.call(self.cat, 'post', base + '/moments', {'durationMs': 90000, 'atMs': at, 'text': f'at {at}'})
         for user, watched in ((self.ben, 85000), (self.cat, 15000), (self.dee, 5000)):
-            self.call(user, 'post', base + '/view', {'watchedMs': watched})
-        self.call(self.dee, 'patch', base, {'cut': {'startMs': 10000, 'endMs': 20000}})
+            self.call(user, 'post', base + '/view', {'durationMs': 90000, 'watchedMs': watched})
+        self.call(self.dee, 'patch', base, {'durationMs': 90000, 'cut': {'startMs': 10000, 'endMs': 20000}})
         self.run_job_with(lambda: None)
         self.assertEqual(Talktrack.objects.get(pk=made['id']).duration_ms, 80000)
         moments = self.call(self.ben, 'get', base + '/moments')['moments']
         self.assertEqual([(item['atMs'], item['text']) for item in moments], [(5000, 'at 5000'), (10000, 'at 15000'), (75000, 'at 85000')])
         watched = dict(TalktrackView.objects.filter(talktrack_id=made['id']).values_list('user_id', 'watched_ms'))
         self.assertEqual(watched, {self.ben.id: 75000, self.cat.id: 10000, self.dee.id: 5000})
+
+    def test_offsets_measured_on_the_file_before_a_cut_are_refused_after_it(self):
+        made = self.record(mime='video/mp4')
+        base = f'/talktracks/{made["id"]}'
+        self.call(self.ben, 'post', base + '/view', {'durationMs': 90000, 'watchedMs': 30000})
+        self.call(self.dee, 'patch', base, {'durationMs': 90000, 'cut': {'startMs': 10000, 'endMs': 20000}})
+        self.run_job_with(lambda: None)
+        self.call(self.ben, 'post', base + '/view', {'durationMs': 90000, 'watchedMs': 85000}, 409)
+        self.call(self.cat, 'post', base + '/moments', {'durationMs': 90000, 'atMs': 85000, 'emoji': '👍'}, 409)
+        self.call(self.dee, 'patch', base, {'durationMs': 90000, 'trimStartMs': 85000}, 409)
+        self.call(self.dee, 'patch', base, {'durationMs': 90000, 'cut': {'startMs': 30000, 'endMs': 40000}}, 409)
+        self.call(self.dee, 'patch', base, {'title': 'Renamed'})
+        row = Talktrack.objects.get(pk=made['id'])
+        self.assertEqual((row.status, row.trim_start_ms, row.duration_ms), ('ready', 0, 80000))
+        self.assertEqual(TalktrackView.objects.get(talktrack_id=made['id'], user_id=self.ben.id).watched_ms, 20000)
+        self.assertFalse(TalktrackMoment.objects.filter(talktrack_id=made['id']).exists())
+        self.call(self.ben, 'post', base + '/view', {'durationMs': 80000, 'watchedMs': 25000})
 
     def test_the_scheduler_runs_one_job_at_a_time_without_holding_up_its_other_handlers(self):
         import threading
@@ -324,21 +341,21 @@ class WorkerTests(TalktrackBase):
             with self.subTest(trim=trim, cut=cut):
                 made = self.record(mime='video/mp4')
                 path = f'/talktracks/{made["id"]}'
-                self.call(self.dee, 'patch', path, {'trimStartMs': trim[0], 'trimEndMs': trim[1]})
-                self.call(self.dee, 'patch', path, {'cut': {'startMs': cut[0], 'endMs': cut[1]}})
+                self.call(self.dee, 'patch', path, {'durationMs': 90000, 'trimStartMs': trim[0], 'trimEndMs': trim[1]})
+                self.call(self.dee, 'patch', path, {'durationMs': 90000, 'cut': {'startMs': cut[0], 'endMs': cut[1]}})
                 self.run_job_with(lambda: None)
                 row = Talktrack.objects.get(pk=made['id'])
                 self.assertEqual((row.status, row.trim_start_ms, row.trim_end_ms), ('ready', *kept))
 
     def test_a_job_that_fails_keeps_the_original_and_can_be_retried(self):
         made = self.record(mime='video/mp4')
-        self.call(self.dee, 'patch', f'/talktracks/{made["id"]}', {'cut': {'startMs': 1000, 'endMs': 2000}})
+        self.call(self.dee, 'patch', f'/talktracks/{made["id"]}', {'durationMs': 90000, 'cut': {'startMs': 1000, 'endMs': 2000}})
         with patch('apps.canvas.talktrack._ffmpeg', side_effect=subprocess.CalledProcessError(1, 'ffmpeg')):
             self.assertEqual(talktrack.process_jobs(), {'done': 0, 'failed': 1})
         row = Talktrack.objects.get(pk=made['id'])
         self.assertEqual((row.status, row.cut_start_ms), ('failed', None))
         self.assertEqual(self.storage.read(row.key), b'webm-bytes')
-        self.call(self.dee, 'patch', f'/talktracks/{made["id"]}', {'cut': {'startMs': 1000, 'endMs': 2000}})
+        self.call(self.dee, 'patch', f'/talktracks/{made["id"]}', {'durationMs': 90000, 'cut': {'startMs': 1000, 'endMs': 2000}})
 
     def test_a_stale_working_job_is_queued_again(self):
         made = self.record(mime='video/mp4')
@@ -352,11 +369,11 @@ class ViewerTests(TalktrackBase):
     def test_views_keep_the_furthest_point_and_totals_are_aggregates(self):
         made = self.record()
         base = f'/talktracks/{made["id"]}'
-        self.call(self.ben, 'post', base + '/view', {'watchedMs': 30000})
-        self.call(self.ben, 'post', base + '/view', {'watchedMs': 10000})
-        reply = self.call(self.ben, 'post', base + '/view', {'watchedMs': 14400000}, 200)
+        self.call(self.ben, 'post', base + '/view', {'durationMs': 90000, 'watchedMs': 30000})
+        self.call(self.ben, 'post', base + '/view', {'durationMs': 90000, 'watchedMs': 10000})
+        reply = self.call(self.ben, 'post', base + '/view', {'durationMs': 90000, 'watchedMs': 14400000}, 200)
         self.assertEqual(reply['watchedMs'], 90000)
-        self.call(self.cat, 'post', base + '/view', {'watchedMs': 5000, 'completed': True})
+        self.call(self.cat, 'post', base + '/view', {'durationMs': 90000, 'watchedMs': 5000, 'completed': True})
         report = self.call(self.dee, 'get', base + '/viewers')
         self.assertEqual(report['totals'], {'viewers': 2, 'completed': 1, 'watchedMs': 95000})
         self.assertEqual({item['name'] for item in report['viewers']}, {self.ben.name, self.cat.name})
@@ -369,10 +386,10 @@ class MomentTests(TalktrackBase):
     def test_reactions_and_comments_sit_on_the_timeline_and_need_comment_access(self):
         made = self.record()
         base = f'/talktracks/{made["id"]}/moments'
-        self.call(self.ben, 'post', base, {'atMs': 1000, 'emoji': '👍'}, 403)
-        mine = self.call(self.cat, 'post', base, {'atMs': 45000, 'emoji': '🎉'})['moment']
-        self.call(self.dee, 'post', base, {'atMs': 2000, 'text': ' nice intro '})
-        for bad in ({'atMs': 1000}, {'atMs': 1000, 'emoji': '👍', 'text': 'x'}, {'atMs': 1000, 'emoji': 'zz'}, {'atMs': 999999, 'emoji': '👍'}):
+        self.call(self.ben, 'post', base, {'durationMs': 90000, 'atMs': 1000, 'emoji': '👍'}, 403)
+        mine = self.call(self.cat, 'post', base, {'durationMs': 90000, 'atMs': 45000, 'emoji': '🎉'})['moment']
+        self.call(self.dee, 'post', base, {'durationMs': 90000, 'atMs': 2000, 'text': ' nice intro '})
+        for bad in ({'durationMs': 90000, 'atMs': 1000}, {'durationMs': 90000, 'atMs': 1000, 'emoji': '👍', 'text': 'x'}, {'durationMs': 90000, 'atMs': 1000, 'emoji': 'zz'}, {'durationMs': 90000, 'atMs': 999999, 'emoji': '👍'}):
             self.call(self.cat, 'post', base, bad, 400)
         listed = self.call(self.ben, 'get', base)['moments']
         self.assertEqual([(item['atMs'], item['emoji'], item['text']) for item in listed], [(2000, '', 'nice intro'), (45000, '🎉', '')])

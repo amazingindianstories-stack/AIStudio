@@ -97,11 +97,11 @@ export const useTalktrackStore = create((set, get) => ({
   rename(id, title) {
     return get().patch(id, { title });
   },
-  trim(id, trimStartMs, trimEndMs) {
-    return get().patch(id, { trimStartMs, trimEndMs });
+  trim(id, trimStartMs, trimEndMs, durationMs) {
+    return get().patch(id, { trimStartMs, trimEndMs, durationMs });
   },
-  cut(id, startMs, endMs) {
-    return get().patch(id, { cut: { startMs, endMs } });
+  cut(id, startMs, endMs, durationMs) {
+    return get().patch(id, { cut: { startMs, endMs }, durationMs });
   },
   async remove(id, boardId = get().boardId) {
     await call(base(boardId, id), "DELETE");
@@ -118,9 +118,9 @@ export const useTalktrackStore = create((set, get) => ({
     return json.talktrack;
   },
 
-  async recordView(id, watchedMs, completed) {
+  async recordView(id, watchedMs, completed, durationMs) {
     try {
-      return await call(base(get().boardId, id) + "/view", "POST", { watchedMs: Math.round(watchedMs), completed: Boolean(completed) });
+      return await call(base(get().boardId, id) + "/view", "POST", { watchedMs: Math.round(watchedMs), completed: Boolean(completed), durationMs });
     } catch {
       return null;
     }
