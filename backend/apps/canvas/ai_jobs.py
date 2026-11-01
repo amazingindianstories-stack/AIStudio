@@ -23,6 +23,7 @@ from apps.generation.models import Generation
 from apps.generation.serialization import generation_item
 from apps.generation.services import submission, text_submission
 from apps.library.services import idempotency
+from . import ai_allowance
 from .models import BoardAiJob
 
 ENGINES = {'stickies': 'text', 'image': 'image'}
@@ -139,6 +140,10 @@ def submit(actor, board, body, idempotency_key):
         created = {}
 
         def admit(item):
+            state = ai_allowance.exceeded(actor.id, item.get('costCents'))
+            if state:
+                raise JobError(429, 'You have used this month\'s Create with AI allowance. It resets on the first of next month, or ask an admin to raise it.',
+                               'AI_ALLOWANCE_REACHED')
             now = now_ms()
             created['job'] = BoardAiJob.objects.create(id=uuid.uuid4(), board=board, user_id=actor.id, format=values['format'],
                 prompt=values['prompt'], generation_id=item['id'], parent_job=parent, created_at=now, updated_at=now)
@@ -155,6 +160,10 @@ def submit(actor, board, body, idempotency_key):
                                       actor_id=actor.id, idempotency_key=key)
     except idempotency.OrganizationError as error:
         raise JobError(error.status, str(error), error.code) from None
+    except submission.AdmissionRefused as error:
+        if isinstance(error.__cause__, JobError):
+            raise error.__cause__ from None
+        raise
     return job_json(BoardAiJob.objects.get(pk=receipt['jobId']))
 
 

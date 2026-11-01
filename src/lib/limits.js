@@ -63,6 +63,16 @@ export const LIMIT_DEFINITIONS = [
     min: 1,
     max: 8,
   },
+  {
+    key: "boardAiMonthlyCapCents",
+    label: "Board AI monthly limit",
+    description:
+      "The most a user may spend on Create with AI on boards in a calendar month (UTC), in cents (500 is $5.00). The default is the maximum, which means no limit until you set one.",
+    unit: "cents per month",
+    defaultValue: 10000000,
+    min: 1,
+    max: 10000000,
+  },
 ];
 
 /** Limits an administrator may override for one user. */
