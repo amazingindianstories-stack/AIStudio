@@ -36,6 +36,14 @@ export function BoardTemplates({ boardId, projectId, viewCenter, onOpenBoard }) 
     if (ref) setPicker({ ref });
   }, []);
 
+  // Saving the board or part of it needs edit rights on it.
+  const saveSelection = useCallback(() => {
+    const state = useCanvasStore.getState();
+    if (!boardId || !state.selection.length || selectReadOnly(state)) return;
+    const graph = selectionGraph(state.history.present, state.selection);
+    if (graph.nodes.length) setDialog({ source: { boardId, graph } });
+  }, [boardId]);
+
   useEffect(
     () =>
       onTemplatesRequest((detail) => {
@@ -44,16 +52,8 @@ export function BoardTemplates({ boardId, projectId, viewCenter, onOpenBoard }) 
         else if (detail.action === "save-selection") saveSelection();
         else if (detail.action === "scratch") setDialog({ scratch: true });
       }),
-    [boardId]
+    [boardId, saveSelection]
   );
-
-  // Saving the board or part of it needs edit rights on it.
-  const saveSelection = () => {
-    const state = useCanvasStore.getState();
-    if (!state.selection.length || selectReadOnly(state)) return;
-    const graph = selectionGraph(state.history.present, state.selection);
-    if (graph.nodes.length) setDialog({ source: { graph } });
-  };
 
   // A template's editing board says so, and saves its content back to the template.
   useEffect(() => {

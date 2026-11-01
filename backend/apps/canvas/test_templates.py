@@ -158,15 +158,17 @@ class TemplateApiTests(TransactionTestCase):
 
     def test_save_a_selection_graph(self):
         self.as_user(self.owner)
-        reply = self.send('post', '/api/canvas-templates', {'name': 'Pair', 'graph': {'nodes': [sticky('x'), sticky('y')], 'connectors': []}})
+        reply = self.send('post', '/api/canvas-templates', {'name': 'Pair', 'boardId': str(self.board.id),
+                                                             'graph': {'nodes': [sticky('x'), sticky('y')], 'connectors': []}})
         self.assertEqual(reply.status_code, 201)
         self.assertEqual(reply.json()['template']['nodeCount'], 2)
 
     def test_empty_or_unnamed_templates_are_refused(self):
         self.as_user(self.owner)
-        self.assertEqual(self.send('post', '/api/canvas-templates', {'name': 'Empty', 'graph': {'nodes': []}}).status_code, 400)
-        self.assertEqual(self.send('post', '/api/canvas-templates', {'name': ' ', 'graph': {'nodes': [sticky('x')]}}).status_code, 400)
-        self.assertEqual(self.send('post', '/api/canvas-templates', {'name': 'X', 'category': 'nope', 'graph': {'nodes': [sticky('x')]}}).status_code, 400)
+        board = str(self.board.id)
+        self.assertEqual(self.send('post', '/api/canvas-templates', {'name': 'Empty', 'boardId': board, 'graph': {'nodes': []}}).status_code, 400)
+        self.assertEqual(self.send('post', '/api/canvas-templates', {'name': ' ', 'boardId': board, 'graph': {'nodes': [sticky('x')]}}).status_code, 400)
+        self.assertEqual(self.send('post', '/api/canvas-templates', {'name': 'X', 'category': 'nope', 'boardId': board, 'graph': {'nodes': [sticky('x')]}}).status_code, 400)
 
     def test_saving_a_board_needs_edit_rights_on_it(self):
         self.as_user(self.mate)
@@ -178,6 +180,19 @@ class TemplateApiTests(TransactionTestCase):
         self.assertEqual(self.send('post', '/api/canvas-templates', {'name': 'T', 'boardId': str(uuid4())}).status_code, 404)
         CanvasBoard.objects.filter(pk=self.board.id).update(team_role='edit')
         self.assertEqual(self.send('post', '/api/canvas-templates', {'name': 'T', 'boardId': str(self.board.id)}).status_code, 201)
+
+    def test_saving_a_selection_needs_edit_rights_on_its_board(self):
+        selection = {'nodes': [sticky('s1', 'Hello')], 'connectors': []}
+        self.as_user(self.mate)
+        reply = self.send('post', '/api/canvas-templates', {'name': 'S', 'graph': selection})
+        self.assertEqual(reply.status_code, 400)
+        CanvasBoard.objects.filter(pk=self.board.id).update(team_role='view')
+        reply = self.send('post', '/api/canvas-templates', {'name': 'S', 'boardId': str(self.board.id), 'graph': selection})
+        self.assertEqual((reply.status_code, reply.json()), (403, {'error': 'FORBIDDEN'}))
+        self.assertFalse(BoardTemplate.objects.exists())
+        CanvasBoard.objects.filter(pk=self.board.id).update(team_role='edit')
+        reply = self.send('post', '/api/canvas-templates', {'name': 'S', 'boardId': str(self.board.id), 'graph': selection})
+        self.assertEqual(reply.status_code, 201, reply.content)
 
     def test_only_an_admin_shares_a_template_with_everyone(self):
         self.as_user(self.owner)
@@ -198,11 +213,12 @@ class TemplateApiTests(TransactionTestCase):
 
     def test_project_access_needs_membership_of_that_project(self):
         selection = {'nodes': [sticky('x')], 'connectors': []}
+        CanvasBoard.objects.filter(pk=self.board.id).update(team_role='edit')
         self.as_user(self.mate)
-        reply = self.send('post', '/api/canvas-templates', {'name': 'P', 'graph': selection, 'scope': 'project', 'projectId': PROJECT})
+        reply = self.send('post', '/api/canvas-templates', {'name': 'P', 'boardId': str(self.board.id), 'graph': selection, 'scope': 'project', 'projectId': PROJECT})
         self.assertEqual((reply.status_code, reply.json()), (403, {'error': 'FORBIDDEN'}))
         ProjectMember.objects.create(project_id=PROJECT, user_id=self.mate.id, role='viewer', created_at=1, updated_at=1)
-        reply = self.send('post', '/api/canvas-templates', {'name': 'P', 'graph': selection, 'scope': 'project', 'projectId': PROJECT})
+        reply = self.send('post', '/api/canvas-templates', {'name': 'P', 'boardId': str(self.board.id), 'graph': selection, 'scope': 'project', 'projectId': PROJECT})
         self.assertEqual(reply.status_code, 201, reply.content)
         self.assertEqual(reply.json()['template']['projectId'], PROJECT)
 
