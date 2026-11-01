@@ -11,6 +11,7 @@ import {
   IMAGE_SIZES,
   buildCsv,
   buildPdf,
+  buildVisio,
   buildSvg,
   downloadBlob,
   downloadOriginals,
@@ -150,6 +151,13 @@ export function ExportMenu() {
             downloadBlob(pdf, exportFileName(name, "pdf"));
           })}>
             <span className="flex-1">Save as PDF</span>
+          </MenuItem>
+          <MenuItem onClick={() => run(close, async (state, scope, name) => {
+            const visio = buildVisio(state, scope);
+            if (!visio) return empty();
+            downloadBlob(visio, exportFileName(name, "vsdx"));
+          })}>
+            <span className="flex-1">Save as Visio (.vsdx)</span>
           </MenuItem>
           <MenuItem onClick={() => run(close, async (state, scope, name) => {
             const csv = buildCsv(state, scope);

@@ -5,6 +5,7 @@
  */
 import { boardSvg } from "./board-export-svg";
 import { boardPdf } from "./board-export-pdf";
+import { boardVisio } from "./board-export-visio";
 import { boardTextCsv } from "./board-export-csv";
 
 /** JPG sizes: the pixel ratio applied to board units. */
@@ -67,6 +68,11 @@ export async function buildSvg(state, scope, options = {}) {
 export function buildPdf(state, scope) {
   const bytes = boardPdf(state, { ...scope, background: "#ffffff" });
   return bytes && new Blob([bytes], { type: "application/pdf" });
+}
+
+export function buildVisio(state, scope) {
+  const bytes = boardVisio(state, scope);
+  return bytes && new Blob([bytes], { type: "application/vnd.ms-visio.drawing" });
 }
 
 export function buildCsv(state, scope) {

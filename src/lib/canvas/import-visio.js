@@ -122,7 +122,7 @@ export function pageToBoard(page, { origin = { x: 0, y: 0 }, newId = () => crypt
       const yUp = base.y + pinY - inches(c.LocPinY, h / 2);
       const text = labelText(shape.children.find((x) => x.name === "Text")?.text ?? "");
       if (sub) walkShapes(sub, { x: base.x + pinX - inches(c.LocPinX, w / 2), y: base.y + pinY - inches(c.LocPinY, h / 2) });
-      else placed.push({ id: shape.attrs.ID, x, yUp, w, h, text, c });
+      else placed.push({ id: shape.attrs.ID, x, yUp, w, h, text, c, ellipse: walk(shape, "Row").some((r) => r.attrs.T === "Ellipse") });
     }
   };
   walkShapes(shapesRoot, { x: 0, y: 0 });
@@ -131,7 +131,7 @@ export function pageToBoard(page, { origin = { x: 0, y: 0 }, newId = () => crypt
   const nodes = placed.map((p) => ({
     id: newId(), opacity: 1, parentId: null, groupId: null,
     x: p.x, y: flip(p.yUp + p.h), w: p.w, h: p.h,
-    type: /Ellipse/i.test(p.c.Geometry ?? "") ? "ellipse" : "rect",
+    type: p.ellipse || /Ellipse/i.test(p.c.Geometry ?? "") ? "ellipse" : "rect",
     text: p.text,
     fill: visioColor(p.c.FillForegnd, "rgba(255,255,255,0.06)"),
     stroke: visioColor(p.c.LineColor, "rgba(255,255,255,0.55)"),
