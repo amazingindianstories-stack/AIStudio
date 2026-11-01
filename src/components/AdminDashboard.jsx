@@ -47,6 +47,7 @@ import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
 import { AccountSettings } from "./AccountSettings";
 import { AdminErrorsTab } from "./AdminErrorsTab";
+import { AdminWorkspaceTab } from "./AdminWorkspaceTab";
 import { apiErrorMessage } from "@/lib/api-error";
 
 /** Mirrors ACTIVITY_PAGE_SIZE in admin-activity.ts. Copied rather than imported
@@ -134,6 +135,7 @@ export function AdminDashboard() {
               ["errors", "Errors", AlertTriangle],
               ["pricing", "Pricing", DollarSign],
               ["limits", "Limits", SlidersHorizontal],
+              ["workspace", "Workspace", Settings],
               ["status", "Status", Activity],
             ] 
           ).map(([id, label, Icon]) => (
@@ -166,6 +168,8 @@ export function AdminDashboard() {
           <LogsTab data={data} usersById={usersById} />
         ) : tab === "errors" ? (
           <AdminErrorsTab data={data} usersById={usersById} />
+        ) : tab === "workspace" ? (
+          <AdminWorkspaceTab models={(data?.pricing ?? []).map((p) => p.model).sort()} />
         ) : tab === "pricing" ? (
           <PricingTab data={data} reload={load} />
         ) : (
