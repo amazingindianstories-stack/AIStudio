@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { cn } from '@/lib/utils';
 import { workRequest } from '@/lib/canvas/work-api';
 
 const LABELS = { table_assignment: 'Assignments', table_due: 'Due-date reminders', table_change: 'Record changes' };
-export function WorkInbox() {
+export function WorkInbox({ triggerSlot }) {
   const [open, setOpen] = useState(false);
   const [data, setData] = useState({ notifications: [], preferences: {} });
   const [error, setError] = useState('');
@@ -22,7 +24,7 @@ export function WorkInbox() {
     catch (e) { setError(e.message); }
   }
   return <>
-    <button className="absolute right-40 top-16 z-30 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow" onClick={() => setOpen(v => !v)} aria-expanded={open}>Inbox ({data.notifications.filter(n => !n.readAt).length})</button>
+    {triggerSlot && createPortal(<button type="button" className={cn('flex items-center gap-1.5 rounded-full border border-line bg-ink-700 px-3 py-1.5 text-sm text-white/85 outline-none transition hover:text-white focus-visible:ring-2 focus-visible:ring-brand', open && 'bg-ink-600 text-white')} onClick={() => setOpen(v => !v)} aria-expanded={open}>Inbox ({data.notifications.filter(n => !n.readAt).length})</button>, triggerSlot)}
     {open && <section role="dialog" aria-label="Board notifications" className="absolute bottom-20 right-4 top-28 z-50 w-[min(400px,calc(100%-32px))] overflow-auto rounded-xl border bg-white p-4 text-slate-800 shadow-xl" onKeyDown={e => e.stopPropagation()}>
       <div className="flex justify-between"><h2 className="font-semibold">Notifications</h2><button onClick={() => setOpen(false)}>Close inbox</button></div>
       {error && <p role="alert" className="text-sm text-red-700">{error}</p>}

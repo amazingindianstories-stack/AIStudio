@@ -107,14 +107,18 @@ test('chart category labels stay whole and level when they fit, and turn to fit 
   assert.equal(narrow.space, 24 * 6 + 24);
 });
 test('Excel import reads native workbook values without executing formulas', async () => {
-  const { default: ExcelJS } = await import('exceljs');
-  const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet('Records');
-  sheet.addRow(['title', 'points', 'start']);
-  sheet.addRow(['Example', 5, new Date('2026-10-30T00:00:00Z')]);
-  sheet.addRow([{ formula: '1+1', result: 2 }, 0, '']);
-  const file = new File([await workbook.xlsx.writeBuffer()], 'records.xlsx');
-  const rows = await readWorkFile(file);
-  assert.deepEqual(rows[1], ['Example', 5, '2026-10-30']);
-  assert.equal(rows[2][0], 2);
+  const { default: writeXlsxFile } = await import('write-excel-file/universal');
+  const blob = await writeXlsxFile([
+    ['title', 'points', 'start'],
+    ['Example', 5, new Date('2026-10-30T00:00:00Z')],
+    [{ type: 'Formula', value: '1+1' }, 0, null],
+    ['=2+2', null, true],
+  ], { dateFormat: 'yyyy-mm-dd' }).toBlob();
+  const rows = await readWorkFile(new File([blob], 'records.xlsx'));
+  assert.deepEqual(rows, [
+    ['title', 'points', 'start'],
+    ['Example', 5, '2026-10-30'],
+    ['', 0, ''],
+    ['=2+2', '', true],
+  ]);
 });

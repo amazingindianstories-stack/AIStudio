@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { cn } from '@/lib/utils';
 import { useCanvasStore, selectReadOnly } from '@/lib/canvas-store';
 import { usePeople } from '@/lib/canvas/use-people';
 import { DEFAULT_FIELDS, newCard, newColumns, layoutColumns, placeWorkNode } from '@/lib/canvas/work-records';
@@ -12,7 +14,7 @@ import { workRequest, tablePath, deletableTables } from '@/lib/canvas/work-api';
 import { isEditingTarget } from '@/lib/canvas/shortcut-target';
 
 const inputClass = 'w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 disabled:bg-slate-100';
-export function WorkTools({ viewCenter, viewOnly }) {
+export function WorkTools({ viewCenter, viewOnly, triggerSlot }) {
   const [open, setOpen] = useState(false);
   const [activeId, setActiveId] = useState(null);
   const [datasets, setDatasets] = useState([]);
@@ -89,11 +91,11 @@ export function WorkTools({ viewCenter, viewOnly }) {
     if (deleted) setReload(v => v + 1);
   }
   return <>
-    <WorkInbox />
+    <WorkInbox triggerSlot={triggerSlot} />
     {deletion && boardId && <DeleteTablesDialog key={deletion.tables.map(t => t.id).join()} boardId={boardId} {...deletion} onClose={closeDeletion} />}
     {builder && <TimelineBuilder viewCenter={viewCenter} onClose={() => setBuilder(false)} readOnly={readOnly} />}
     {open && active?.datasetId && <WorkDataPanel key={active.id} node={active} readOnly={readOnly} onClose={() => setActiveId(null)} />}
-    <button type="button" onClick={() => setOpen(v => !v)} className="absolute right-4 top-16 z-30 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow" aria-expanded={open}>Cards and work</button>
+    {triggerSlot && createPortal(<button type="button" onClick={() => setOpen(v => !v)} className={cn('flex items-center gap-1.5 rounded-full border border-line bg-ink-700 px-3 py-1.5 text-sm text-white/85 outline-none transition hover:text-white focus-visible:ring-2 focus-visible:ring-brand', open && 'bg-ink-600 text-white')} aria-expanded={open}>Cards and work</button>, triggerSlot)}
     {open && <section role="dialog" aria-label="Cards and work" className="absolute bottom-20 right-4 top-28 z-30 w-[min(400px,calc(100%-32px))] overflow-auto rounded-xl border border-slate-300 bg-white p-4 text-slate-800 shadow-xl" onKeyDown={e => e.stopPropagation()}>
       <div className="mb-4 flex justify-between"><h2 className="font-semibold">Cards and work</h2><button onClick={() => setOpen(false)} aria-label="Close cards and work">Close</button></div>
       {!readOnly && <div className="mb-4 flex gap-2"><button className={inputClass} onClick={() => create('card')}>Add card (D)</button><button className={inputClass} onClick={() => create('columns')}>Add columns</button></div>}
