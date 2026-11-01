@@ -487,7 +487,7 @@ class BoardAiJobMigrationTests(TransactionTestCase):
             old.objects.create(id=identifier, project_id=uuid.uuid4(), name='Kept', data={'version': 1, 'nodes': []}, created_at=1, updated_at=2)
             executor = MigrationExecutor(connection)
             self.assertEqual([(m.app_label, m.name) for m, backward in executor.migration_plan(final)],
-                             [('canvas', '0006_boardaijob'), ('canvas', '0007_canvasboardsave_changes'), ('canvas', '0008_customshapepack')])
+                             [('canvas', '0006_boardaijob'), ('canvas', '0007_canvasboardsave_changes'), ('canvas', '0008_customshapepack'), ('canvas', '0009_sidekicks_flows')])
             executor.migrate(final)
             board = CanvasBoard.objects.get(pk=identifier)
             self.assertEqual((board.name, board.data, board.updated_at), ('Kept', {'version': 1, 'nodes': []}, 2))
@@ -496,7 +496,7 @@ class BoardAiJobMigrationTests(TransactionTestCase):
             with connection.cursor() as cursor:
                 cursor.execute("SELECT indexname FROM pg_indexes WHERE tablename = 'canvas_board_ai_jobs' ORDER BY indexname")
                 self.assertEqual([row[0] for row in cursor.fetchall()],
-                                 ['canvas_ai_jobs_board_user_idx', 'canvas_ai_jobs_parent_idx', 'canvas_board_ai_jobs_generation_id_key',
+                                 ['canvas_ai_jobs_board_user_idx', 'canvas_ai_jobs_chat_idx', 'canvas_ai_jobs_parent_idx', 'canvas_board_ai_jobs_generation_id_key',
                                   'canvas_board_ai_jobs_pkey'])
             self.assertFalse(MigrationExecutor(connection).migration_plan(final))
         finally:

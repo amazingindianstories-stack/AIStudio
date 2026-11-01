@@ -63,6 +63,16 @@ export const LIMIT_DEFINITIONS = [
     min: 1,
     max: 8,
   },
+  {
+    key: "boardAiMonthlyCapCents",
+    label: "Board AI monthly credits",
+    description:
+      "The most a user may spend on board AI (Sidekicks, Flows, Catch up, AI search and Create with AI) in a calendar month, in cents (5000 is $50.00). People see what is left on the board and can ask an administrator for more.",
+    unit: "cents per month",
+    defaultValue: 5000,
+    min: 1,
+    max: 1000000,
+  },
 ];
 
 /** Limits an administrator may override for one user. */

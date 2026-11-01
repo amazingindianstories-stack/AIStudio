@@ -41,11 +41,17 @@ def prune_board_activity():
     return prune()
 
 
+def prune_flow_versions():
+    from apps.canvas.flows import prune_flow_versions as prune
+    return prune()
+
+
 def default_handlers():
     from django.conf import settings
     handlers = {'depth': maintenance.reconcile_depth, 'video': maintenance.reconcile_videos,
                 'login': maintenance.cleanup_login_attempts, 'exports': cleanup_exports,
-                'board_saves': prune_board_saves, 'board_activity': prune_board_activity}
+                'board_saves': prune_board_saves, 'board_activity': prune_board_activity,
+                'flow_versions': prune_flow_versions}
     if getattr(settings, 'VEEVEE_MANAGED_PORTRAITS', False):
         handlers['portraits'] = maintain_portraits
         handlers['portrait_uploads'] = process_portrait_uploads

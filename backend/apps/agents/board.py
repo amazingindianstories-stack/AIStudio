@@ -8,6 +8,8 @@ adds one entry to ``TEXT_FORMATS`` with its prompt, schema and parser; nothing e
 import json
 import re
 
+from . import sidekick
+
 OPERATION = 'board-text'
 VERSION = 1
 # One original prompt, then (previous result, refinement) pairs: a refine sends the latest result, not the chain.
@@ -63,10 +65,15 @@ TEXT_FORMATS = {
     'stickies': {'prompt': STICKIES_PROMPT, 'schema': STICKIES_SCHEMA, 'max_output_tokens': 8192, 'temperature': 0.7,
                  'parse': parse_stickies},
 }
+# Sidekick turns, Flow steps, Catch up and AI search (apps.agents.sidekick) run through the same request path. A format
+# may set max_turns, max_turn_chars and max_body_bytes (else the stickies limits above) and tools (web search).
+TEXT_FORMATS.update(sidekick.FORMATS)
 
 
 def generation_config(name):
     spec = TEXT_FORMATS[name]
+    if spec.get('schema') is None:
+        return {'maxOutputTokens': spec['max_output_tokens'], 'temperature': spec['temperature']}
     return {'responseMimeType': 'application/json', 'responseSchema': spec['schema'],
             'maxOutputTokens': spec['max_output_tokens'], 'temperature': spec['temperature']}
 
@@ -86,18 +93,20 @@ def submission_input(name, model, turns):
         raise ValueError('Unknown board text format.')
     if not isinstance(model, str) or MODEL_CODE.fullmatch(model) is None:
         raise ValueError('The board text model is not a Gemini model code.')
-    if not valid_turns(turns):
+    if not valid_turns(turns, name):
         raise ValueError('Invalid board conversation.')
     return {'version': VERSION, 'operation': OPERATION, 'format': name, 'model': model,
             'turns': [{'role': turn['role'], 'text': turn['text']} for turn in turns]}
 
 
-def valid_turns(turns):
-    if not isinstance(turns, list) or not 1 <= len(turns) <= MAX_TURNS or len(turns) % 2 != 1:
+def valid_turns(turns, name='stickies'):
+    spec = TEXT_FORMATS[name]
+    max_turns, max_chars = spec.get('max_turns', MAX_TURNS), spec.get('max_turn_chars', MAX_TURN_CHARS)
+    if not isinstance(turns, list) or not 1 <= len(turns) <= max_turns or len(turns) % 2 != 1:
         return False
     for index, turn in enumerate(turns):
         if (not isinstance(turn, dict) or set(turn) != {'role', 'text'} or turn['role'] != ('user' if index % 2 == 0 else 'model')
-                or not isinstance(turn['text'], str) or not turn['text'].strip() or len(turn['text']) > MAX_TURN_CHARS):
+                or not isinstance(turn['text'], str) or not turn['text'].strip() or len(turn['text']) > max_chars):
             return False
     return True
 
@@ -109,20 +118,24 @@ def is_board_input(value):
 
 def build_body(value):
     """The exact generateContent body for a stored board text input."""
-    if not is_board_input(value) or not valid_turns(value.get('turns')):
+    if not is_board_input(value) or not valid_turns(value.get('turns'), value['format']):
         raise ValueError('Invalid board text input.')
     name = value['format']
-    return {'systemInstruction': {'parts': [{'text': TEXT_FORMATS[name]['prompt']}]},
+    body = {'systemInstruction': {'parts': [{'text': TEXT_FORMATS[name]['prompt']}]},
             'contents': [{'role': turn['role'], 'parts': [{'text': turn['text']}]} for turn in value['turns']],
             'generationConfig': generation_config(name)}
+    if TEXT_FORMATS[name].get('tools'):
+        body['tools'] = TEXT_FORMATS[name]['tools']
+    return body
 
 
 def body_format(body):
     """The text format whose exact request shape ``body`` has, else None."""
-    if not isinstance(body, dict) or set(body) != {'systemInstruction', 'contents', 'generationConfig'}:
+    if not isinstance(body, dict) or not {'systemInstruction', 'contents', 'generationConfig'} <= set(body) <= {'systemInstruction', 'contents', 'generationConfig', 'tools'}:
         return None
     for name, spec in TEXT_FORMATS.items():
-        if body['systemInstruction'] == {'parts': [{'text': spec['prompt']}]} and body['generationConfig'] == generation_config(name):
+        if (body['systemInstruction'] == {'parts': [{'text': spec['prompt']}]} and body['generationConfig'] == generation_config(name)
+                and body.get('tools') == spec.get('tools')):
             contents = body['contents']
             if not isinstance(contents, list):
                 return None
@@ -134,7 +147,7 @@ def body_format(body):
                 if not isinstance(part, dict) or set(part) != {'text'}:
                     return None
                 turns.append({'role': item['role'], 'text': part['text']})
-            if not valid_turns(turns) or len(json.dumps(body, separators=(',', ':'))) > MAX_BODY_BYTES:
+            if not valid_turns(turns, name) or len(json.dumps(body, separators=(',', ':'))) > spec.get('max_body_bytes', MAX_BODY_BYTES):
                 return None
             return name
     return None
@@ -143,7 +156,7 @@ def body_format(body):
 def parse_output(name, text):
     """The validated result of a board text job from the model's JSON text."""
     try:
-        value = json.loads(text)
+        value = json.loads(sidekick.lenient_json(text) if TEXT_FORMATS[name].get('tools') else text)
     except (TypeError, ValueError):
         raise UnusableResult('The AI answer was not valid JSON.') from None
     return TEXT_FORMATS[name]['parse'](value)

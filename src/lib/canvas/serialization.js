@@ -190,7 +190,24 @@ function withStamps(item, r) {
   // `textBy` is who last replaced the text, for sticky author labels.
   for (const key of ["createdBy", "updatedBy", "textBy"]) if (typeof r[key] === "string") item[key] = r[key];
   for (const key of ["createdAt", "updatedAt"]) if (isFiniteNumber(r[key])) item[key] = r[key];
+  withAi(item, r);
   return item;
+}
+
+const FLOW_BLOCKS = ["format", "instruction"];
+const MAX_FLOW_TASK = 4000;
+
+/** AI attribution (`aiCreated`, `aiEditedAt`) and a Flow step's settings (`flow`), each only when set. */
+function withAi(item, r) {
+  if (r.aiCreated === true) item.aiCreated = true;
+  if (isFiniteNumber(r.aiEditedAt)) item.aiEditedAt = r.aiEditedAt;
+  const flow = r.flow;
+  if (flow && typeof flow === "object" && FLOW_BLOCKS.includes(flow.block)) {
+    const step = { block: flow.block, task: (typeof flow.task === "string" ? flow.task : "").slice(0, MAX_FLOW_TASK) };
+    if (flow.webSearch === true) step.webSearch = true;
+    if (typeof flow.inputHash === "string" && flow.inputHash.length <= 64) step.inputHash = flow.inputHash;
+    item.flow = step;
+  }
 }
 
 function withFont(node, r) {
