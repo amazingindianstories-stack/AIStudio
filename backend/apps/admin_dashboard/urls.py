@@ -4,12 +4,15 @@ from .queries import dashboard, logs, activity
 from .errors import errors
 from .status import status_view
 from .runtime_audit import runtime_audit
+from .workspace import workspace_view, workspace_admin
 
 urlpatterns = [
     path('api/admin/users',user_mutations),
     path('api/admin/pricing',pricing_mutation),
     path('api/admin/limits',global_limit_mutation),
     path('api/admin/user-limits',user_limit_mutation),
+    path('api/admin/workspace',workspace_admin),
+    path('api/workspace',workspace_view),
     path('api/admin/data',dashboard),
     path('api/admin/logs',logs),
     path('api/admin/errors',errors),
