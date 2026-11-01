@@ -66,3 +66,29 @@ test("downloadable images are the selected image nodes with a source", async () 
   assert.equal(originalFileName({ name: "shot.jpeg" }, "image/jpeg", 0), "shot.jpeg");
   assert.equal(originalFileName({}, "image/webp", 2), "image-3.webp");
 });
+
+test("pdf export is a well-formed vector file with escaped text, arrowheads and rotation", async () => {
+  const { boardPdf, parseColor, svgPathToPdf } = await import("./board-export-pdf.js");
+  const pdf = boardPdf({
+    nodes: [
+      ...state.nodes.map((n) => (n.id === "a" ? { ...n, text: "Hi (there) \\ 中", rotation: 15 } : n)),
+      { id: "e", type: "ellipse", x: 0, y: 400, w: 80, h: 60, fill: "#00f", stroke: "red", ...base },
+    ],
+    connectors: state.connectors,
+  });
+  const text = Buffer.from(pdf).toString("latin1");
+  assert.match(text, /^%PDF-1\.4/);
+  assert.ok(text.includes("Hi \\(there\\) \\\\ ?"));
+  assert.ok(text.includes("MediaBox"));
+  assert.ok(!text.includes("javascript"));
+  const declared = Number(/\/Length (\d+)/.exec(text)[1]);
+  const body = text.slice(text.indexOf("stream\n") + 7, text.indexOf("endstream"));
+  assert.equal(body.length, declared);
+  const startxref = Number(/startxref\n(\d+)/.exec(text)[1]);
+  assert.ok(text.slice(startxref).startsWith("xref"));
+  assert.equal(boardPdf({ nodes: [] }), null);
+  assert.equal(parseColor("url(x)"), null);
+  assert.deepEqual(parseColor("#fff"), [1, 1, 1]);
+  assert.equal(parseColor("rgba(0,0,0,0)"), null);
+  assert.match(svgPathToPdf("M 0 0 Q 5 5 10 0 L 20 0 Z").ops, / c\n.* l\nh$/);
+});

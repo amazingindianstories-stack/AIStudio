@@ -30,7 +30,7 @@ async function openBoard(page) {
 
 const isSave = (response) => /\/api\/canvas-boards\/[^/]+$/.test(new URL(response.url()).pathname) && ['PUT', 'PATCH'].includes(response.request().method());
 
-test('Board export: SVG, JPG and text CSV come from the board data', async ({ browser, baseURL }, info) => {
+test('Board export: SVG, JPG, PDF and text CSV come from the board data', async ({ browser, baseURL }, info) => {
   test.setTimeout(300000);
   const db = fixtureDatabase(process.env.E2E_DATABASE_URL);
   await db.transaction([db.statement`
@@ -87,6 +87,13 @@ test('Board export: SVG, JPG and text CSV come from the board data', async ({ br
   const csv = await readFile(await (await csvDownload).path(), 'utf8');
   expect(csv).toContain('Alpha <b>');
   expect(csv).toContain("'=Beta");
+
+  await exportButton.click();
+  const pdfDownload = page.waitForEvent('download');
+  await page.getByRole('menu').filter({ hasText: 'Save as SVG' }).getByRole('menuitem', { name: 'Save as PDF' }).click();
+  const pdf = await readFile(await (await pdfDownload).path(), 'latin1');
+  expect(pdf.startsWith('%PDF-1.4')).toBe(true);
+  expect(pdf).toContain('Alpha');
   expect(errors).toEqual([]);
   await context.close();
 });

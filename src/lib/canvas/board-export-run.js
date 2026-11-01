@@ -4,6 +4,7 @@
  * are included. Images are inlined as data URLs so the file stands alone.
  */
 import { boardSvg } from "./board-export-svg";
+import { boardPdf } from "./board-export-pdf";
 import { boardTextCsv } from "./board-export-csv";
 
 /** JPG sizes: the pixel ratio applied to board units. */
@@ -61,6 +62,11 @@ function inScope(node, { nodeIds, frameId }) {
 export async function buildSvg(state, scope, options = {}) {
   const images = await inlineImages(state, scope);
   return boardSvg(state, { ...scope, ...options, imageHref: (n) => images[n.id] ?? null });
+}
+
+export function buildPdf(state, scope) {
+  const bytes = boardPdf(state, { ...scope, background: "#ffffff" });
+  return bytes && new Blob([bytes], { type: "application/pdf" });
 }
 
 export function buildCsv(state, scope) {

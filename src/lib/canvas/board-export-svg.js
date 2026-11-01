@@ -15,7 +15,7 @@ export function xmlEscape(text) {
 }
 
 /** Only plain colors reach the file; anything else (urls, scripts) falls back. */
-function paint(value, fallback) {
+export function paint(value, fallback) {
   return typeof value === "string" && /^(#[0-9a-f]{3,8}|[a-z]{3,20}|rgba?\([\d\s.,%]+\))$/i.test(value) ? value : fallback;
 }
 
@@ -140,7 +140,8 @@ function connectorSvg(c, nodesById) {
  * nothing to export. `imageHref(node)` supplies each image's href (a data
  * URL when the file must be self-contained).
  */
-export function boardSvg(state, { nodeIds, frameId, imageHref, background = null, scale = 1 } = {}) {
+/** The nodes, connectors and padded bounds an export covers, or null when empty. */
+export function exportModel(state, { nodeIds, frameId } = {}) {
   const nodes = exportNodes(state, { nodeIds, frameId });
   if (!nodes.length) return null;
   const nodesById = Object.fromEntries((state.nodes ?? []).map((n) => [n.id, n]));
@@ -148,10 +149,14 @@ export function boardSvg(state, { nodeIds, frameId, imageHref, background = null
   const connectors = (state.connectors ?? []).filter((c) =>
     [c.from, c.to].every((end) => !end?.nodeId || inScope.has(end.nodeId)) && (nodeIds || frameId ? [c.from, c.to].some((e) => e?.nodeId) : true));
   const box = unionBounds(nodes.map(nodeBounds));
-  const x = box.x - EXPORT_PADDING;
-  const y = box.y - EXPORT_PADDING;
-  const w = box.w + EXPORT_PADDING * 2;
-  const h = box.h + EXPORT_PADDING * 2;
+  const pad = EXPORT_PADDING;
+  return { nodes, connectors, nodesById, x: box.x - pad, y: box.y - pad, w: box.w + pad * 2, h: box.h + pad * 2 };
+}
+
+export function boardSvg(state, { nodeIds, frameId, imageHref, background = null, scale = 1 } = {}) {
+  const model = exportModel(state, { nodeIds, frameId });
+  if (!model) return null;
+  const { nodes, connectors, nodesById, x, y, w, h } = model;
   const bg = background ? `<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="${paint(background, "#ffffff")}"/>` : "";
   return `<?xml version="1.0" encoding="UTF-8"?>\n`
     + `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.ceil(w * scale)}" height="${Math.ceil(h * scale)}" viewBox="${x} ${y} ${w} ${h}">`

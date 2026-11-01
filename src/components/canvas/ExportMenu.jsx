@@ -8,6 +8,7 @@ import { useCanvasStore } from "@/lib/canvas-store";
 import {
   IMAGE_SIZES,
   buildCsv,
+  buildPdf,
   buildSvg,
   downloadBlob,
   downloadOriginals,
@@ -102,6 +103,13 @@ export function ExportMenu() {
             downloadBlob(new Blob([svg], { type: "image/svg+xml" }), exportFileName(name, "svg"));
           })}>
             <span className="flex-1">Save as SVG</span>
+          </MenuItem>
+          <MenuItem onClick={() => run(close, async (state, scope, name) => {
+            const pdf = buildPdf(state, scope);
+            if (!pdf) return empty();
+            downloadBlob(pdf, exportFileName(name, "pdf"));
+          })}>
+            <span className="flex-1">Save as PDF</span>
           </MenuItem>
           <MenuItem onClick={() => run(close, async (state, scope, name) => {
             const csv = buildCsv(state, scope);
