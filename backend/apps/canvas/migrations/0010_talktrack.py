@@ -26,7 +26,6 @@ class Migration(migrations.Migration):
                 ('cut_end_ms', models.BigIntegerField(null=True)),
                 ('audio_key', models.TextField(null=True)),
                 ('transcript', models.JSONField(null=True)),
-                ('summary', models.TextField(null=True)),
                 ('chapters', models.JSONField(null=True)),
                 ('created_at', models.BigIntegerField()),
                 ('updated_at', models.BigIntegerField()),

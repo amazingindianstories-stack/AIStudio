@@ -7,7 +7,8 @@ text back, so a client that never held the text cannot erase it by moving or res
 sticky notes are claimed by `claim` while the mode is on.
 
 A note is `privateBy` its author. `anonBy` marks a note written while names were anonymous: its author, editor
-and text attribution are withheld from everyone but the author, for good (they stay withheld after the reveal).
+and text attribution are withheld from everyone but its writer (`textBy`, else `createdBy`), for good (they stay
+withheld after the reveal), and its History rows name no one.
 Revealing starts a countdown (`reveal_at`); `settle` then ends the mode and clears `privateBy` from the board
 in the same kind of server write a save makes, so open boards poll the new version and show the text.
 """
@@ -49,7 +50,7 @@ def redact_node(node, viewer, hide):
     viewer = str(viewer)
     private_by, anon = node.get('privateBy'), node.get('anonBy') is True
     withhold = hide and private_by is not None and private_by != viewer
-    anonymise = anon and node.get('createdBy') != viewer
+    anonymise = anon and node.get('textBy', node.get('createdBy')) != viewer
     if not withhold and not anonymise:
         return node
     result = dict(node)

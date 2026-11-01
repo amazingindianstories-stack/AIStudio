@@ -10,12 +10,17 @@ from uuid import uuid4
 from django.test import override_settings
 from django.utils import timezone
 from apps.media.models import UploadSession
-from apps.media.storage import FileSystemAdapter, StorageService
-from . import talktrack
-from .models import BoardMember, CanvasBoard, Talktrack
+from apps.media.storage import FileSystemAdapter, MediaNotFoundError, StorageService
+from . import services, talktrack
+from .models import BoardMember, CanvasBoard, Talktrack, TalktrackMoment, TalktrackView
 from .test_facilitation import BOARD, FacilitationBase
 
 FFMPEG = shutil.which('ffmpeg')
+
+
+def fake_ffmpeg(arguments, timeout=None):
+    source = Path(arguments[arguments.index('-i') + 1])
+    Path(arguments[-1]).write_bytes(b'out:' + source.read_bytes())
 
 
 class TalktrackBase(FacilitationBase):
@@ -40,6 +45,10 @@ class TalktrackBase(FacilitationBase):
                                                expires_at=timezone.now() + timedelta(hours=1), finalized_at=timezone.now(), state='ready')
         return str(session.id)
 
+    def gone(self, key):
+        with self.assertRaises(MediaNotFoundError):
+            self.storage.read(key)
+
     def record(self, user=None, mime='video/webm', **extra):
         user = user or self.dee
         body = {'referenceId': self.upload(user, b'webm-bytes', mime), 'durationMs': 90000, 'title': 'Tour', **extra}
@@ -55,6 +64,20 @@ class RegisterTests(TalktrackBase):
         listed = self.call(self.ben, 'get', '/talktracks')
         self.assertEqual([item['id'] for item in listed['talktracks']], [made['id']])
         self.assertEqual(listed['talktracks'][0]['viewerCount'], 0)
+        self.assertNotIn('summary', made)
+
+    def test_registering_spends_the_staged_uploads(self):
+        video, audio = self.upload(self.dee), self.upload(self.dee, b'opus', 'audio/webm')
+        staged = dict(UploadSession.objects.filter(pk__in=[video, audio]).values_list('id', 'key'))
+        self.call(self.dee, 'post', '/talktracks', {'referenceId': video, 'audioReferenceId': audio, 'durationMs': 5000})
+        for key in staged.values():
+            self.gone(key)
+        self.call(self.dee, 'post', '/talktracks', {'referenceId': video, 'durationMs': 5000}, 410)
+        self.assertEqual(Talktrack.objects.count(), 1)
+
+    def test_only_the_uploader_registers_an_upload(self):
+        self.call(self.ana, 'post', '/talktracks', {'referenceId': self.upload(self.dee), 'durationMs': 1000}, 404)
+        self.assertEqual(Talktrack.objects.count(), 0)
 
     def test_an_mp4_needs_no_remux_and_an_audio_track_is_kept_for_transcription(self):
         audio = self.upload(self.dee, b'opus', 'audio/webm')
@@ -97,7 +120,7 @@ class EditTests(TalktrackBase):
         self.call(self.dee, 'patch', f'/talktracks/{other["id"]}', {'title': 'mine now'}, 403)
         self.call(self.ana, 'delete', f'/talktracks/{made["id"]}')
         self.assertFalse(Talktrack.objects.filter(pk=made['id']).exists())
-        self.assertFalse(Path(self.directory.name).joinpath('objects', 'x').exists())
+        self.gone(made['url'].removeprefix('/api/media/'))
         self.call(self.ana, 'get', f'/talktracks/{made["id"]}', expect=404)
 
     def test_a_cut_is_queued_for_the_worker_and_validated(self):
@@ -115,6 +138,16 @@ class EditTests(TalktrackBase):
     def test_cut_offsets_map_trim_marks_across_the_removed_span(self):
         self.assertEqual([talktrack._map_offset(value, 10, 20) for value in (5, 10, 15, 20, 30)], [5, 10, 10, 10, 20])
 
+    def test_deleting_the_board_removes_its_recordings_and_their_files(self):
+        made = self.record(audioReferenceId=self.upload(self.dee, b'opus', 'audio/webm'))
+        self.call(self.ben, 'post', f'/talktracks/{made["id"]}/view', {'watchedMs': 1000})
+        self.call(self.cat, 'post', f'/talktracks/{made["id"]}/moments', {'atMs': 1000, 'emoji': '👍'})
+        row = Talktrack.objects.get(pk=made['id'])
+        services.delete_board(BOARD)
+        self.assertEqual((Talktrack.objects.count(), TalktrackView.objects.count(), TalktrackMoment.objects.count()), (0, 0, 0))
+        self.gone(row.key)
+        self.gone(row.audio_key)
+
     def test_cut_filter_keeps_both_sides_and_follows_the_container(self):
         arguments = talktrack.cut_arguments('in.mp4', 'out.mp4', 'video/mp4', 10000, 20000, 90000, True)
         graph = arguments[arguments.index('-filter_complex') + 1]
@@ -125,6 +158,11 @@ class EditTests(TalktrackBase):
         silent = talktrack.cut_arguments('in.webm', 'out.webm', 'video/webm', 0, 20000, 90000, False)
         self.assertIn('concat=n=1:v=1:a=0', silent[silent.index('-filter_complex') + 1])
         self.assertIn('libvpx-vp9', silent)
+        audio = talktrack.cut_arguments('in.m4a', 'out.m4a', 'audio/mp4', 10000, 20000, 90000, True)
+        self.assertIn('concat=n=2:v=0:a=1[a]', audio[audio.index('-filter_complex') + 1])
+        self.assertNotIn('[0:v]', audio[audio.index('-filter_complex') + 1])
+        self.assertEqual((audio[audio.index('-map') + 1], audio[audio.index('-c:a') + 1]), ('[a]', 'aac'))
+        self.assertNotIn('-c:v', audio)
 
 
 @override_settings(FFMPEG_BINARY=FFMPEG or 'ffmpeg')
@@ -158,6 +196,80 @@ class WorkerTests(TalktrackBase):
         self.assertNotEqual(f'/api/media/{row.key}', made['url'])
         self.assertAlmostEqual(self.seconds(self.storage.read(row.key)), 3.0, delta=.4)
         self.assertEqual(talktrack.process_jobs(), {'done': 0, 'failed': 0})
+
+    def make_audio(self, seconds=4):
+        target = Path(self.directory.name) / 'voice.m4a'
+        subprocess.run([FFMPEG, '-nostdin', '-y', '-f', 'lavfi', '-i', f'sine=duration={seconds}', '-c:a', 'aac', str(target)],
+                       capture_output=True, check=True)
+        return target.read_bytes()
+
+    def test_a_cut_is_made_in_the_audio_twin_too(self):
+        if not FFMPEG:
+            self.skipTest('ffmpeg is not installed')
+        made = self.call(self.dee, 'post', '/talktracks', {'referenceId': self.upload(self.dee, self.make_clip(4), 'video/mp4'),
+                                                           'audioReferenceId': self.upload(self.dee, self.make_audio(4), 'audio/mp4'),
+                                                           'durationMs': 4000})['talktrack']
+        before = Talktrack.objects.get(pk=made['id'])
+        self.call(self.dee, 'patch', f'/talktracks/{made["id"]}', {'cut': {'startMs': 1000, 'endMs': 2000}})
+        self.assertEqual(talktrack.process_jobs(), {'done': 1, 'failed': 0})
+        row = Talktrack.objects.get(pk=made['id'])
+        self.assertTrue(row.audio_key.endswith('.m4a'))
+        self.assertNotEqual(row.audio_key, before.audio_key)
+        self.assertAlmostEqual(self.seconds(self.storage.read(row.audio_key)), 3.0, delta=.4)
+        self.gone(before.key)
+        self.gone(before.audio_key)
+
+    def test_a_remux_keeps_the_audio_twin_and_replaces_the_original(self):
+        made = self.record(audioReferenceId=self.upload(self.dee, b'opus', 'audio/webm'))
+        before = Talktrack.objects.get(pk=made['id'])
+        with patch('apps.canvas.talktrack._ffmpeg', side_effect=fake_ffmpeg):
+            self.assertEqual(talktrack.process_jobs(), {'done': 1, 'failed': 0})
+        row = Talktrack.objects.get(pk=made['id'])
+        self.assertEqual((row.status, row.audio_key, self.storage.read(row.key)), ('ready', before.audio_key, b'out:webm-bytes'))
+        self.gone(before.key)
+
+    def run_job_with(self, during):
+        """Run one job, calling `during` while it runs; returns the fields the job made."""
+        made, real = {}, talktrack._process
+
+        def process(row, now):
+            made.update(real(row, now))
+            during()
+            return made
+        with patch('apps.canvas.talktrack._ffmpeg', side_effect=fake_ffmpeg), \
+                patch('apps.canvas.talktrack._has_audio', return_value=False), \
+                patch('apps.canvas.talktrack._process', side_effect=process):
+            talktrack.process_jobs()
+        return made
+
+    def test_a_trim_set_while_a_cut_runs_is_kept(self):
+        made = self.record(mime='video/mp4')
+        path = f'/talktracks/{made["id"]}'
+        self.call(self.dee, 'patch', path, {'cut': {'startMs': 10000, 'endMs': 20000}})
+        self.run_job_with(lambda: self.call(self.dee, 'patch', path, {'trimStartMs': 30000, 'trimEndMs': 80000}))
+        row = Talktrack.objects.get(pk=made['id'])
+        self.assertEqual((row.status, row.duration_ms, row.trim_start_ms, row.trim_end_ms), ('ready', 80000, 20000, 70000))
+
+    def test_a_recording_deleted_while_its_job_runs_leaves_no_files(self):
+        made = self.record(mime='video/mp4', audioReferenceId=self.upload(self.dee, b'opus', 'audio/webm'))
+        path = f'/talktracks/{made["id"]}'
+        self.call(self.dee, 'patch', path, {'cut': {'startMs': 10000, 'endMs': 20000}})
+        fields = self.run_job_with(lambda: self.call(self.dee, 'delete', path))
+        self.assertFalse(Talktrack.objects.filter(pk=made['id']).exists())
+        self.gone(fields['key'])
+        self.gone(fields['audio_key'])
+
+    def test_the_media_worker_runs_the_jobs_and_the_scheduler_does_not(self):
+        from threading import Event
+        from apps.exports import worker
+        from apps.workers import scheduler
+        stop = Event()
+        with patch('apps.exports.worker.run_once', return_value={'claimed': 0}), \
+                patch('apps.canvas.talktrack.process_jobs', side_effect=lambda: stop.set()) as jobs:
+            worker.run_worker(interval=0, stop=stop)
+        self.assertEqual(jobs.call_count, 1)
+        self.assertNotIn('talktracks', scheduler.default_handlers())
+        self.assertGreater(talktrack.STALE_JOB_MS, 2 * talktrack.FFMPEG_TIMEOUT_S * 1000)
 
     def test_a_job_that_fails_keeps_the_original_and_can_be_retried(self):
         made = self.record(mime='video/mp4')

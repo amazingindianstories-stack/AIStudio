@@ -295,6 +295,28 @@ class PrivateModeTests(FacilitationBase):
         self.assertFalse(any(key in seen for key in ('createdBy', 'updatedBy', 'textBy', 'privateBy')))
         self.assertEqual(self.read(self.ben)['s']['createdBy'], str(self.ben.id))
 
+    def test_anonymous_notes_name_no_one_in_history(self):
+        self.save(self.ana, graph(sticky('a', 'Ana public')))
+        self.start_mode(anonymous=True)
+        self.save(self.ben, graph(sticky('a', 'Ana public'), sticky('b', 'Ben anonymous')))
+        self.save(self.ben, graph(sticky('a', 'Ana public')))
+        rows = list(BoardActivity.objects.filter(board_id=BOARD).order_by('created_at', 'ordinal').values_list('actor_id', 'action', 'node_id'))
+        self.assertEqual(rows, [(self.ana.id, 'add', 'a'), (None, 'add', 'b'), (None, 'delete', 'b')])
+        history = self.call(self.cat, 'get', '/activity')['activity']
+        self.assertNotIn(str(self.ben.id), json.dumps(history))
+
+    def test_an_anonymous_rewrite_hides_the_writer_from_the_notes_creator(self):
+        self.save(self.ana, graph(sticky('a', 'Ana public')))
+        self.start_mode(anonymous=True)
+        self.save(self.ben, graph(sticky('a', 'Ben rewrote it')))
+        self.call(self.ana, 'post', '/private-mode', {'action': 'reveal'})
+        self.tick(5000)
+        seen = self.read(self.ana)['a']
+        self.assertEqual(seen['text'], 'Ben rewrote it')
+        self.assertNotIn(str(self.ben.id), json.dumps(seen))
+        self.assertEqual(self.read(self.ben)['a']['textBy'], str(self.ben.id))
+        self.assertEqual(BoardActivity.objects.get(board_id=BOARD, action='edit').actor_id, None)
+
     def test_viewers_cannot_start_or_reveal_but_never_see_hidden_text(self):
         BoardMember.objects.create(board_id=BOARD, user_id=self.cat.id, role='view', created_at=1, updated_at=1)
         CanvasBoard.objects.filter(pk=BOARD).update(team_role='view')

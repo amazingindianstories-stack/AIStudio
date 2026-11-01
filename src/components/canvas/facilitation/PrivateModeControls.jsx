@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { useFacilitationStore } from "@/lib/canvas/facilitation-store";
 import { revealCountdown } from "@/lib/canvas/facilitation";
 import { useCanvasStore } from "@/lib/canvas-store";
-import { canEditRole } from "@/lib/board-access";
+import { canEditRole, canShareRole } from "@/lib/board-access";
 import { currentUserId } from "@/lib/canvas/sticky-actions";
 
 const PILL = "rounded-full border border-line px-3 py-1 text-xs font-medium text-white/85 outline-none transition hover:text-white focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-40";
@@ -54,7 +54,7 @@ export function PrivateModeBar() {
   const countdown = revealCountdown(mode, offset, now);
   const store = useFacilitationStore.getState();
   const me = currentUserId();
-  const mayEnd = canEditRole(role) && (mode.allowOthersEnd || mode.startedBy === me);
+  const mayEnd = canEditRole(role) && (mode.allowOthersEnd || mode.startedBy === me || canShareRole(role));
   const act = (action) => void store.privateAction({ action }).catch(() => {});
   return (
     <div data-private-bar="" role="status" className={cn("flex items-center gap-3 rounded-full border bg-ink-750/95 px-3 py-1.5 text-xs shadow-pop backdrop-blur-xl", countdown ? "border-brand text-brand" : "border-line text-white/80")}>

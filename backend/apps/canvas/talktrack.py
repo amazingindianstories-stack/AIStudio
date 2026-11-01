@@ -3,8 +3,9 @@
 The browser records with MediaRecorder and uploads through the existing resumable upload path (purpose
 `talktrack`); `register` then copies the finished upload to `talktrack/<board>/<uuid>.<ext>`, the same step
 `board_upload` does for images. Trim is stored as playback offsets (the file is never touched). Cutting the
-middle out and the one-time remux that makes a MediaRecorder file seekable are ffmpeg jobs the scheduler worker
-runs (`process_jobs`). A transcript is made only when someone asks for it, through the audio transcription path
+middle out and the one-time remux that makes a MediaRecorder file seekable are ffmpeg jobs the media export
+worker runs between exports (`process_jobs`); a cut is applied to the audio twin too, so a later transcript matches
+the video. A transcript is made only when someone asks for it, through the audio transcription path
 that already exists, so nothing paid starts by itself.
 """
 import re
@@ -24,7 +25,9 @@ COMMENT_LIMIT = 500
 EMOJIS = ('👍', '❤️', '😂', '🎉', '👏', '🤔', '🔥', '👀')
 JOB_STATUSES = ('processing', 'cutting')
 WORKING = 'working:'
-STALE_JOB_MS = 30 * 60 * 1000
+FFMPEG_TIMEOUT_S = 30 * 60
+# A job runs at most two ffmpeg passes plus the transfers; only one older than this has lost its worker.
+STALE_JOB_MS = 2 * 60 * 60 * 1000
 MIME_EXTENSIONS = {'video/webm': 'webm', 'video/mp4': 'mp4', 'audio/webm': 'webm', 'audio/mp4': 'm4a', 'audio/ogg': 'ogg'}
 CHAPTER_WINDOW_MS = 60_000
 
@@ -65,8 +68,7 @@ def to_dict(row, viewers=None, mine=None):
     result = {'id': str(row.id), 'boardId': str(row.board_id), 'ownerId': str(row.owner_id), 'title': row.title,
               'url': '/api/media/' + row.key, 'mime': row.mime, 'size': row.size, 'durationMs': row.duration_ms,
               'trimStartMs': start, 'trimEndMs': end, 'status': row.status.removeprefix(WORKING),
-              'hasAudio': bool(row.audio_key), 'transcript': row.transcript, 'summary': row.summary,
-              'chapters': row.chapters, 'createdAt': row.created_at, 'updatedAt': row.updated_at}
+              'hasAudio': bool(row.audio_key), 'transcript': row.transcript, 'chapters': row.chapters, 'createdAt': row.created_at, 'updatedAt': row.updated_at}
     if viewers is not None:
         result['viewerCount'] = viewers
     if mine is not None:
@@ -74,12 +76,20 @@ def to_dict(row, viewers=None, mine=None):
     return result
 
 
-def _copy_upload(actor_id, reference_id, board_id, purposes=frozenset({'talktrack'})):
-    """Copy a finished upload into the board's talktrack namespace. Returns (key, mime, size)."""
+def discard(keys):
+    """Remove media files nothing points to any more; a failure leaves an orphan, never an error."""
     from apps.media.storage import get_storage
-    from apps.media.uploads import UploadError, resolve_ready_upload
+    urls = ['/api/media/' + key for key in keys if key]
+    if urls:
+        get_storage().delete_by_urls(urls)
+
+
+def _copy_upload(actor_id, reference_id, board_id):
+    """Copy the actor's finished upload into the board's talktrack namespace. Returns (key, mime, size, upload)."""
+    from apps.media.storage import get_storage
+    from apps.media.uploads import UploadError, resolve_owned_ready_upload
     try:
-        upload = resolve_ready_upload(str(actor_id), reference_id, purposes=set(purposes))
+        upload = resolve_owned_ready_upload(str(actor_id), reference_id, purposes={'talktrack'})
     except UploadError as error:
         raise FacilitationError(str(error), error.status)
     mime = upload.content_type.split(';')[0].strip().lower()
@@ -97,28 +107,34 @@ def _copy_upload(actor_id, reference_id, board_id, purposes=frozenset({'talktrac
             storage.upload_stream(staged, key, mime, 'private, max-age=0')
     finally:
         media.stream.close()
-    return key, mime, int(upload.byte_size)
+    return key, mime, int(upload.byte_size), upload
 
 
 def register(board_id, user_id, now, data):
     """Turn a finished upload into a Talktrack."""
+    from apps.media.models import UploadSession
     video_ref = data.get('referenceId')
     if not isinstance(video_ref, str) or not video_ref:
         raise FacilitationError('referenceId is required.')
     duration = _whole(data.get('durationMs'), 1, MAX_DURATION_MS, 'durationMs')
-    key, mime, size = _copy_upload(user_id, video_ref, board_id)
+    key, mime, size, upload = _copy_upload(user_id, video_ref, board_id)
+    staged = [upload]
     if not mime.startswith('video/'):
         raise FacilitationError('The recording must be a video.')
     audio_key = None
     audio_ref = data.get('audioReferenceId')
     if isinstance(audio_ref, str) and audio_ref:
-        audio_key, audio_mime, _ = _copy_upload(user_id, audio_ref, board_id)
+        audio_key, audio_mime, _, audio_upload = _copy_upload(user_id, audio_ref, board_id)
+        staged.append(audio_upload)
         if not audio_mime.startswith('audio/'):
             raise FacilitationError('The audio track must be audio.')
     row = Talktrack.objects.create(
         id=uuid4(), board_id=board_id, owner_id=user_id, title=_title(data.get('title')), key=key, mime=mime, size=size,
         duration_ms=duration, status='processing' if mime == 'video/webm' else 'ready', audio_key=audio_key,
         created_at=now, updated_at=now)
+    # The staged uploads are copied: they are spent, and their files go.
+    UploadSession.objects.filter(pk__in=[item.pk for item in staged]).update(state='cancelled')
+    discard([item.key for item in staged])
     return row
 
 
@@ -191,21 +207,24 @@ def _valid(value):
 
 
 def delete(board_id, talktrack_id, user_id, level):
-    from apps.media.storage import get_storage
     with transaction.atomic():
         row = Talktrack.objects.select_for_update().filter(pk=talktrack_id, board_id=board_id).first() \
             if _valid(talktrack_id) else None
         if row is None:
             raise FacilitationError('Talktrack not found.', 404)
         _owns_or_manages(row, user_id, level)
-        keys = [row.key] + ([row.audio_key] if row.audio_key else [])
+        keys = [row.key, row.audio_key]
         row.delete()
-    storage = get_storage()
-    for key in keys:
-        try:
-            storage.delete(key)
-        except Exception:
-            pass
+    discard(keys)
+
+
+def delete_board_talktracks(board_id):
+    """Remove a deleted board's recordings with their views and moments. Returns the media keys to discard
+    once the deletion has committed."""
+    rows = Talktrack.objects.filter(board_id=board_id)
+    keys = [key for pair in rows.values_list('key', 'audio_key') for key in pair if key]
+    rows.delete()
+    return keys
 
 
 def record_view(board_id, talktrack_id, user_id, now, data):
@@ -360,7 +379,11 @@ def make_transcript(board_id, talktrack_id, user_id, now):
 
 # ---- ffmpeg jobs ----
 
-def _ffmpeg(arguments, timeout=1800):
+AUDIO_MIMES = {extension: mime for mime, extension in MIME_EXTENSIONS.items() if mime.startswith('audio/')}
+OPUS_MIMES = ('video/webm', 'audio/webm', 'audio/ogg')
+
+
+def _ffmpeg(arguments, timeout=FFMPEG_TIMEOUT_S):
     binary = getattr(settings, 'FFMPEG_BINARY', 'ffmpeg')
     return subprocess.run([binary, '-nostdin', '-hide_banner', '-y', *arguments], capture_output=True, timeout=timeout, check=True)
 
@@ -372,7 +395,9 @@ def _has_audio(path):
 
 
 def cut_arguments(source, target, mime, start_ms, end_ms, duration_ms, audio):
-    """ffmpeg arguments that keep [0, start) and [end, duration) and join them."""
+    """ffmpeg arguments that keep [0, start) and [end, duration) and join them. An `audio/*` mime cuts an
+    audio-only file."""
+    video = mime.startswith('video/')
     parts = []
     if start_ms > 0:
         parts.append((0, start_ms))
@@ -380,18 +405,23 @@ def cut_arguments(source, target, mime, start_ms, end_ms, duration_ms, audio):
         parts.append((end_ms, duration_ms))
     filters = []
     for index, (a, b) in enumerate(parts):
-        filters.append(f'[0:v]trim=start={a / 1000}:end={b / 1000},setpts=PTS-STARTPTS[v{index}]')
+        if video:
+            filters.append(f'[0:v]trim=start={a / 1000}:end={b / 1000},setpts=PTS-STARTPTS[v{index}]')
         if audio:
             filters.append(f'[0:a]atrim=start={a / 1000}:end={b / 1000},asetpts=PTS-STARTPTS[a{index}]')
-    inputs = ''.join(f'[v{i}]' + (f'[a{i}]' if audio else '') for i in range(len(parts)))
-    filters.append(f'{inputs}concat=n={len(parts)}:v=1:a={1 if audio else 0}[v]' + ('[a]' if audio else ''))
-    maps = ['-map', '[v]'] + (['-map', '[a]'] if audio else [])
-    if mime == 'video/webm':
-        codecs = ['-c:v', 'libvpx-vp9', '-deadline', 'realtime', '-cpu-used', '8', '-b:v', '2M']
-        codecs += ['-c:a', 'libopus'] if audio else []
-    else:
-        codecs = ['-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p', '-movflags', '+faststart']
-        codecs += ['-c:a', 'aac'] if audio else []
+    inputs = ''.join((f'[v{i}]' if video else '') + (f'[a{i}]' if audio else '') for i in range(len(parts)))
+    outputs = ('[v]' if video else '') + ('[a]' if audio else '')
+    filters.append(f'{inputs}concat=n={len(parts)}:v={int(video)}:a={int(audio)}{outputs}')
+    maps = (['-map', '[v]'] if video else []) + (['-map', '[a]'] if audio else [])
+    opus = mime in OPUS_MIMES
+    codecs = []
+    if video:
+        codecs += ['-c:v', 'libvpx-vp9', '-deadline', 'realtime', '-cpu-used', '8', '-b:v', '2M'] if opus else \
+            ['-c:v', 'libx264', '-preset', 'veryfast', '-pix_fmt', 'yuv420p']
+    if audio:
+        codecs += ['-c:a', 'libopus' if opus else 'aac']
+    if not opus:
+        codecs += ['-movflags', '+faststart']
     return ['-i', str(source), '-filter_complex', ';'.join(filters), *maps, *codecs, str(target)]
 
 
@@ -402,6 +432,14 @@ def _map_offset(value, start, end):
     if value >= end:
         return value - (end - start)
     return start
+
+
+def _trim_after_cut(row, start, end, duration):
+    """`row`'s trim marks moved across the removed [start, end). Read when the cut lands, so a trim set while
+    the job ran is kept."""
+    trim_end = None if row.trim_end_ms is None else _map_offset(row.trim_end_ms, start, end)
+    return {'trim_start_ms': _map_offset(row.trim_start_ms, start, end),
+            'trim_end_ms': trim_end if trim_end is not None and trim_end < duration else None}
 
 
 def _download(storage, key, path):
@@ -420,37 +458,47 @@ def _store(storage, path, key, mime):
 
 
 def _process(row, now):
-    """Run one job for `row`; returns the fields to write back."""
+    """Run one job for `row` and store the new files; returns the fields to write back. A cut is made in the
+    audio twin as well, so it never keeps the removed speech."""
     from apps.media.storage import get_storage
     storage = get_storage()
-    extension = 'webm' if row.mime == 'video/webm' else 'mp4'
     with tempfile.TemporaryDirectory(prefix='veevee-talktrack-') as directory:
-        source, target = Path(directory) / f'in.{extension}', Path(directory) / f'out.{extension}'
+        folder, extension = Path(directory), MIME_EXTENSIONS[row.mime]
+        source, target = folder / f'in.{extension}', folder / f'out.{extension}'
+        outputs = [('key', target, row.mime, extension)]
         _download(storage, row.key, source)
         if row.status == 'processing':
             # A MediaRecorder file has no duration or seek index: a stream copy writes both.
             _ffmpeg(['-i', str(source), '-c', 'copy', str(target)])
-            duration = row.duration_ms
             fields = {}
         else:
             start, end = row.cut_start_ms, row.cut_end_ms
             _ffmpeg(cut_arguments(source, target, row.mime, start, end, row.duration_ms, _has_audio(source)))
-            duration = row.duration_ms - (end - start)
-            trim_start = _map_offset(row.trim_start_ms, start, end)
-            trim_end = None if row.trim_end_ms is None else _map_offset(row.trim_end_ms, start, end)
-            fields = {'trim_start_ms': trim_start, 'trim_end_ms': trim_end if trim_end is not None and trim_end < duration else None,
-                      'cut_start_ms': None, 'cut_end_ms': None, 'transcript': None, 'chapters': None, 'summary': None}
-        key = f'talktrack/{row.board_id}/{uuid4()}.{extension}'
-        _store(storage, target, key, row.mime)
+            fields = {'duration_ms': row.duration_ms - (end - start), 'cut_start_ms': None, 'cut_end_ms': None,
+                      'transcript': None, 'chapters': None}
+            if row.audio_key:
+                audio_extension = row.audio_key.rsplit('.', 1)[-1]
+                audio_source, audio_target = folder / f'audio-in.{audio_extension}', folder / f'audio-out.{audio_extension}'
+                _download(storage, row.audio_key, audio_source)
+                _ffmpeg(cut_arguments(audio_source, audio_target, AUDIO_MIMES[audio_extension], start, end, row.duration_ms, True))
+                outputs.append(('audio_key', audio_target, AUDIO_MIMES[audio_extension], audio_extension))
+        stored = {}
+        try:
+            for field, path, mime, suffix in outputs:
+                stored[field] = f'talktrack/{row.board_id}/{uuid4()}.{suffix}'
+                _store(storage, path, stored[field], mime)
+        except Exception:
+            discard(stored.values())
+            raise
         size = target.stat().st_size
-    return {'key': key, 'size': size, 'duration_ms': duration, 'status': 'ready', 'updated_at': now, **fields}
+    return {**fields, **stored, 'size': size, 'status': 'ready', 'updated_at': now}
 
 
-def process_jobs(limit=2):
-    """Scheduler handler: finish up to `limit` waiting remux and cut jobs. A failed job leaves the original
-    recording in place and is marked `failed` so it can be tried again."""
+def process_jobs(limit=1):
+    """Media worker step: finish up to `limit` waiting remux and cut jobs. A failed job leaves the original
+    recording in place and is marked `failed` so it can be tried again. A job writes back only while its row is
+    still the one it claimed; the files it made for a recording deleted meanwhile are discarded."""
     import time
-    from apps.media.storage import get_storage
     done = failed = 0
     stale = int(time.time() * 1000) - STALE_JOB_MS
     for row in Talktrack.objects.filter(status__startswith=WORKING, updated_at__lt=stale):
@@ -462,19 +510,23 @@ def process_jobs(limit=2):
             if row is None:
                 break
             Talktrack.objects.filter(pk=row.id).update(status=WORKING + row.status, updated_at=int(time.time() * 1000))
+        claimed = WORKING + row.status
         now = int(time.time() * 1000)
         try:
-            row_for_job = Talktrack.objects.get(pk=row.id)
-            row_for_job.status = row.status
-            fields = _process(row_for_job, now)
+            fields = _process(row, now)
         except Exception:
-            Talktrack.objects.filter(pk=row.id).update(status='failed', cut_start_ms=None, cut_end_ms=None, updated_at=now)
+            Talktrack.objects.filter(pk=row.id, status=claimed).update(status='failed', cut_start_ms=None, cut_end_ms=None, updated_at=now)
             failed += 1
             continue
-        Talktrack.objects.filter(pk=row.id).update(**fields)
-        try:
-            get_storage().delete(row.key)
-        except Exception:
-            pass
+        with transaction.atomic():
+            current = Talktrack.objects.select_for_update().filter(pk=row.id, status=claimed).first()
+            if current is not None:
+                if row.status == 'cutting':
+                    fields.update(_trim_after_cut(current, row.cut_start_ms, row.cut_end_ms, fields['duration_ms']))
+                Talktrack.objects.filter(pk=row.id).update(**fields)
+        if current is None:
+            discard([fields['key'], fields.get('audio_key')])
+            continue
+        discard([row.key] + ([row.audio_key] if 'audio_key' in fields else []))
         done += 1
     return {'done': done, 'failed': failed}

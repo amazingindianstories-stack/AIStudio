@@ -87,10 +87,11 @@ def stamps_of(graph, changes):
             for item in graph['nodes'] + graph['connectors'] if item['id'] in changed}
 
 
-def record(board_id, actor, now, changes, hide=()):
-    """One History row per change. `hide` names the notes made private by this save: their text stays out of History."""
+def record(board_id, actor, now, changes, hide=(), anonymous=()):
+    """One History row per change. `hide` names the notes made private by this save: their text stays out of History.
+    `anonymous` names the notes written anonymously: their rows name no one."""
     BoardActivity.objects.bulk_create([
-        BoardActivity(board_id=board_id, actor_id=actor, action=action, node_id=item['id'],
+        BoardActivity(board_id=board_id, actor_id=None if item['id'] in anonymous else actor, action=action, node_id=item['id'],
                       node_type=item.get('type') if kind == 'node' and isinstance(item.get('type'), str) else kind,
                       snippet=snippet(item) if kind == 'node' and item['id'] not in hide else None,
                       created_at=now, ordinal=position)

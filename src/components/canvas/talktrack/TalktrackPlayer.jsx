@@ -256,7 +256,6 @@ function Player({ track }) {
                 ))}
               </ol>
             ) : <p className="text-xs text-white/55">Chapters appear once a transcript exists.</p>}
-            {track.summary && <p className="mt-2 whitespace-pre-wrap text-xs text-white/70">{track.summary}</p>}
           </div>
         )}
         {tab === "transcript" && (
@@ -357,7 +356,7 @@ function Player({ track }) {
                   Cut out
                 </button>
               </div>
-              {track.status === "failed" && <p className="mt-1 text-red-300">The last cut failed. The recording is unchanged.</p>}
+              {track.status === "failed" && <p className="mt-1 text-red-300">Processing failed. The recording is unchanged.</p>}
             </div>
           </div>
         )}

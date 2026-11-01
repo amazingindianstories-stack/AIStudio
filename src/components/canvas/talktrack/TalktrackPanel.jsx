@@ -11,7 +11,7 @@ import { useTalktrackStore } from "@/lib/canvas/talktrack-store";
 import { useTalktrackRecording } from "@/lib/canvas/talktrack-recording";
 
 const ICON_BUTTON = "grid h-7 w-7 place-items-center rounded-full text-white/70 outline-none transition hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-brand";
-const STATUS_TEXT = { processing: "Getting ready", cutting: "Cutting", failed: "Cut failed, still playable" };
+const STATUS_TEXT = { processing: "Getting ready", cutting: "Cutting", failed: "Processing failed, still playable" };
 
 function when(ms) {
   return new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });

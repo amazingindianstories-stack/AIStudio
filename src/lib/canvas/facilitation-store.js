@@ -9,6 +9,8 @@ const EMPTY = {
 };
 
 let voteQueue = Promise.resolve();
+/** Counts landed vote replies, so a poll read before one cannot put an older ballot back. */
+let voteReplies = 0;
 
 async function request(boardId, path, method = "GET", body) {
   const res = await apiFetch(`/api/canvas-boards/${boardId}${path}`, {
@@ -52,13 +54,15 @@ export const useFacilitationStore = create((set, get) => ({
     const boardId = get().boardId;
     if (!boardId) return false;
     const sentAt = Date.now();
+    const repliesAtSend = voteReplies;
     try {
       const snap = await request(boardId, "/facilitation");
       if (get().boardId !== boardId) return false;
       if (!snap || !snap.voting || !snap.privateMode) return false;
       const offset = clockOffset(snap.serverNow, sentAt, Date.now());
       const first = !get().loaded;
-      const { timer, voting, privateMode } = snap;
+      const { timer, privateMode } = snap;
+      const voting = voteReplies === repliesAtSend ? snap.voting : get().voting;
       // A timer already past its end when the board opens has rung for someone else; do not ring it again.
       const stale = first && timer?.state === "running" && timer.endsAt != null && timer.endsAt <= Date.now() + offset;
       set({ timer, voting, privateMode, offset, loaded: true, ...(stale ? { rungRun: timer.run } : {}) });
@@ -88,6 +92,7 @@ export const useFacilitationStore = create((set, get) => ({
     const boardId = get().boardId;
     const { active } = get().voting;
     const json = await request(boardId, `/voting/${sessionId}/vote`, "POST", { nodeId, votes });
+    voteReplies += 1;
     // The reply is this person's whole ballot; show it at once, the next poll confirms.
     if (active && active.id === sessionId) {
       const myVotes = json.myVotes ?? {};

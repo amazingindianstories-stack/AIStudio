@@ -70,6 +70,8 @@ def rename_board(identifier, name):
 
 
 def delete_board(identifier):
+    """The board with everything kept for it; its Talktrack files go once the deletion has committed."""
+    from . import talktrack
     with transaction.atomic():
         CanvasBoard.objects.filter(pk=identifier).delete()
         CanvasBoardSave.objects.filter(board_id=identifier).delete()
@@ -77,6 +79,8 @@ def delete_board(identifier):
         BoardTimer.objects.filter(board_id=identifier).delete()
         BoardPrivateMode.objects.filter(board_id=identifier).delete()
         VotingSession.objects.filter(board_id=identifier).delete()
+        keys = talktrack.delete_board_talktracks(identifier)
+        transaction.on_commit(lambda: talktrack.discard(keys))
 
 
 class VersionConflict(Exception):
@@ -138,7 +142,8 @@ def save_board(identifier, data, base_version, save_id, actor, patch=None, level
                                        [identifier, save_id, version, now,
                                         None if changed is None else json.dumps(changed)])
                     private = {node['id'] for node in stamped['nodes'] if isinstance(node, dict) and node.get('privateBy') is not None}
-                    activity.record(identifier, actor, now, changes, hide=claimed | private)
+                    anonymous = {node['id'] for node in stored['nodes'] + stamped['nodes'] if isinstance(node, dict) and node.get('anonBy') is True}
+                    activity.record(identifier, actor, now, changes, hide=claimed | private, anonymous=anonymous)
                 saved = {'updatedAt': now, 'version': version, 'stamps': activity.stamps_of(stamped, changes)}
                 if not corrected:
                     return saved
