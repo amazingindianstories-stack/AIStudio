@@ -315,6 +315,25 @@ class PushTests(TransactionTestCase):
             self.assertEqual(push.send_pending(now=3000, post=post)['sent'], 0)
         self.assertEqual(PushSubscription.objects.count(), 1)
 
+    def test_a_notification_created_while_pushes_are_in_flight_stays_pending(self):
+        PushSubscription.objects.create(user_id=self.user.id, endpoint=ENDPOINT, created_at=1)
+        covered = Notification.objects.create(user_id=self.user.id, board_id=BOARD, kind='mention', created_at=1000, snippet='s')
+        late = []
+
+        def post(endpoint, headers):
+            if not late:
+                late.append(Notification.objects.create(user_id=self.user.id, board_id=BOARD, kind='reply', created_at=1500, snippet='r'))
+            return MagicMock(status_code=201)
+
+        with self.configure():
+            self.assertEqual(push.send_pending(now=2000, post=post)['sent'], 1)
+            covered.refresh_from_db()
+            late[0].refresh_from_db()
+            self.assertEqual((covered.pushed_at, late[0].pushed_at), (2000, None))
+            self.assertEqual(push.send_pending(now=3000, post=post)['sent'], 1)
+            late[0].refresh_from_db()
+            self.assertEqual(late[0].pushed_at, 3000)
+
     def test_a_tick_sends_a_bounded_batch_and_leaves_the_rest_pending(self):
         other = make_user('pusher2')
         for user in (self.user, other):

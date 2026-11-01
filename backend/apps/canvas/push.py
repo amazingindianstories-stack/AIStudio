@@ -98,6 +98,7 @@ def send_pending(now=None, post=None):
     post = post or (lambda endpoint, headers: requests.post(endpoint, headers=headers, timeout=(2, 3), allow_redirects=False))
     pending = Notification.objects.filter(pushed_at__isnull=True, created_at__gte=now - BATCH_WINDOW_MS)
     users = set(pending.values_list('user_id', flat=True)[:500])
+    covered = list(pending.filter(user_id__in=users).values_list('pk', 'user_id')[:5000])
     subscriptions = list(PushSubscription.objects.filter(user_id__in=users).order_by('user_id', 'pk')[:MAX_SENDS_PER_TICK])
     sent = dropped = 0
     usable = []
@@ -129,5 +130,5 @@ def send_pending(now=None, post=None):
     # Users whose subscriptions did not all fit in this tick keep their notifications pending.
     deferred = set(PushSubscription.objects.filter(user_id__in=users).exclude(pk__in=[s.pk for s in subscriptions]).values_list('user_id', flat=True))
     done = users - deferred
-    Notification.objects.filter(pk__in=list(pending.filter(user_id__in=done).values_list('pk', flat=True)[:5000])).update(pushed_at=now)
+    Notification.objects.filter(pk__in=[pk for pk, user_id in covered if user_id in done]).update(pushed_at=now)
     return {'ok': True, 'enabled': True, 'sent': sent, 'dropped': dropped}

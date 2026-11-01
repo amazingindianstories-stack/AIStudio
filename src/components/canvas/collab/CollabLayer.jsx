@@ -20,11 +20,12 @@ const editable = (target) => target instanceof HTMLElement && (target.isContentE
 /**
  * Everything collaborative on an open board, mounted once from CanvasView: comment pins and threads, the
  * comments panel, the people bar and the notification bell, all fed by one poll beside the board version poll.
- * `onOpenBoard({ projectId, boardId, commentId })` switches boards for notifications on other boards.
+ * `commentLink` ({ boardId, commentId }) is a thread to open once its board is loaded; `onCommentLinkDone` drops it.
  */
-export function CollabLayer({ boardId, onOpenBoard, insetRight = 16 }) {
+export function CollabLayer({ boardId, commentLink, onCommentLinkDone, insetRight = 16 }) {
   const people = usePeople();
   const currentUser = useStore((s) => s.currentUser);
+  const openBoardLink = useStore((s) => s.openBoardLink);
   const boardRole = useCanvasStore((s) => s.boardRole);
   const loadedBoardId = useCanvasStore((s) => s.boardId);
   const ready = Boolean(boardId) && loadedBoardId === boardId;
@@ -71,13 +72,12 @@ export function CollabLayer({ boardId, onOpenBoard, insetRight = 16 }) {
     return () => document.removeEventListener("keydown", onKey);
   }, [canComment, ready]);
 
-  // Open a thread asked for by a notification, a link or the service worker once its board is loaded.
-  const pending = useRef(null);
+  // Open the thread a notification or link asked for once its board and comments are loaded.
   const openThreadFor = useCallback((commentId) => {
     const { comments: all, openThread } = useCommentsStore.getState();
     const root = all.get(commentId);
     const top = root?.parentId ? all.get(root.parentId) : root;
-    if (!top) return false;
+    if (!top) return;
     const present = useCanvasStore.getState().history.present;
     const position = pinPosition(top, new Map(present.nodes.map((node) => [node.id, node])));
     if (position) {
@@ -87,35 +87,12 @@ export function CollabLayer({ boardId, onOpenBoard, insetRight = 16 }) {
     }
     useCommentsStore.getState().setHidden(false);
     openThread(top.id);
-    return true;
   }, []);
   useEffect(() => {
-    if (status === "ready" && pending.current && openThreadFor(pending.current)) pending.current = null;
-  }, [status, comments, openThreadFor]);
-
-  const open = useCallback(
-    ({ boardId: target, projectId, commentId }) => {
-      pending.current = commentId ?? null;
-      if (target === boardId) {
-        if (commentId && openThreadFor(commentId)) pending.current = null;
-      } else onOpenBoard?.({ boardId: target, projectId, commentId });
-    },
-    [boardId, onOpenBoard, openThreadFor]
-  );
-  useEffect(() => {
-    const url = new URL(window.location.href);
-    const target = url.searchParams.get("board");
-    if (target) {
-      const projectId = url.searchParams.get("project");
-      const commentId = url.searchParams.get("comment");
-      for (const name of ["board", "project", "comment"]) url.searchParams.delete(name);
-      window.history.replaceState(null, "", url);
-      open({ boardId: target, projectId, commentId });
-    }
-    const onMessage = (event) => event.data?.type === "open-board" && open(event.data);
-    navigator.serviceWorker?.addEventListener("message", onMessage);
-    return () => navigator.serviceWorker?.removeEventListener("message", onMessage);
-  }, [open]);
+    if (!commentLink || commentLink.boardId !== boardId || !ready || status !== "ready") return;
+    openThreadFor(commentLink.commentId);
+    onCommentLinkDone();
+  }, [commentLink, boardId, ready, status, openThreadFor, onCommentLinkDone]);
 
   if (!boardId) return null;
   const button = "grid h-9 w-9 place-items-center rounded-lg text-white/75 hover:bg-white/10 hover:text-white";
@@ -139,7 +116,7 @@ export function CollabLayer({ boardId, onOpenBoard, insetRight = 16 }) {
         <button type="button" onClick={() => useCommentsStore.getState().setHidden(!hidden)} aria-label={hidden ? "Show comments on the board" : "Hide comments on the board"} aria-pressed={hidden} title={hidden ? "Show comments" : "Hide comments"} data-testid="toggle-comments-visibility" className={button}>
           {hidden ? <EyeOff className="h-[18px] w-[18px]" /> : <Eye className="h-[18px] w-[18px]" />}
         </button>
-        <NotificationBell boardId={boardId} onOpen={open} />
+        <NotificationBell boardId={boardId} onOpen={openBoardLink} />
       </div>
     </div>
   );

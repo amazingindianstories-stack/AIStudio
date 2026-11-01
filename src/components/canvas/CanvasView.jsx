@@ -195,6 +195,18 @@ export function CanvasView() {
     },
     [activeProjectId, handleBoardProjectChange]
   );
+  // Take each link once: open its board here and hand its thread to CollabLayer.
+  const boardLink = useStore((s) => s.boardLink);
+  const takenLink = useRef(null);
+  const [commentLink, setCommentLink] = useState(null);
+  const clearCommentLink = useCallback(() => setCommentLink(null), []);
+  useEffect(() => {
+    if (!boardLink || takenLink.current === boardLink) return;
+    takenLink.current = boardLink;
+    useStore.getState().clearBoardLink();
+    setCommentLink(boardLink.commentId ? boardLink : null);
+    if (boardLink.boardId !== boardId) openBoard(boardLink);
+  }, [boardLink, boardId, openBoard]);
 
   const placeAsset = useCallback(
     (asset) => {
@@ -608,7 +620,7 @@ export function CanvasView() {
         }}
       />
 
-      {!noBoards && <CollabLayer boardId={boardId} onOpenBoard={openBoard} />}
+      {!noBoards && <CollabLayer boardId={boardId} commentLink={commentLink} onCommentLinkDone={clearCommentLink} />}
 
       {shareOpen && boardId && (
         <BoardShareDialog

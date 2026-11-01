@@ -106,6 +106,19 @@ test('Board comments: pin a comment on an object, mention a teammate, reply, rea
   await expect(mateThread).toBeVisible();
   await expect(mate.page.locator('[data-pin] [data-unread-dot]')).toHaveCount(0);
 
+  // A browser notification opens its board and thread from the Studio view: by link, or relayed by the service worker.
+  const threadId = (await (await mate.context.request.get(`${boardPath}/comments`)).json()).comments[0].id;
+  const sections = mate.page.getByRole('navigation', { name: 'Sections' });
+  await mate.page.goto(`/?board=${boardId}&project=${project.id}&comment=${threadId}`);
+  await expect(mate.page.getByRole('application', { name: 'Board canvas' })).toBeVisible();
+  await expect(mateThread).toContainText('Please check this');
+  expect(new URL(mate.page.url()).search).toBe('');
+  await sections.getByRole('button', { name: 'Image', exact: true }).click();
+  await expect(mate.page.getByRole('application', { name: 'Board canvas' })).toHaveCount(0);
+  await mate.page.evaluate((data) => navigator.serviceWorker.dispatchEvent(new MessageEvent('message', { data })), { type: 'open-board', boardId, projectId: project.id, commentId: threadId });
+  await expect(mate.page.getByRole('application', { name: 'Board canvas' })).toBeVisible();
+  await expect(mateThread).toContainText('Please check this');
+
   // Reply, react and resolve.
   await mateThread.getByRole('textbox').fill('Looks good to me');
   await mateThread.getByRole('button', { name: 'Reply', exact: true }).click();
