@@ -31,6 +31,7 @@ function sameOrder(a, b) {
 /**
  * The patch that turns `base` (the graph of the version the save starts from)
  * into `next`. The viewport is always sent: it is each person's own and tiny.
+ * Board settings are sent whole when they changed (null clears them).
  */
 export function buildBoardPatch(base, next) {
   const patch = { viewport: next.viewport };
@@ -57,6 +58,7 @@ export function buildBoardPatch(base, next) {
     if (!sameOrder(order, kept.concat(added))) patch[ORDER_KEYS[kind]] = order;
   }
   if (!sameValue(base.tags ?? [], next.tags ?? [])) patch.tags = next.tags ?? [];
+  if (!sameValue(base.settings ?? null, next.settings ?? null)) patch.settings = next.settings ?? null;
   return patch;
 }
 
@@ -100,6 +102,8 @@ export function applyBoardPatch(base, patch) {
     if (patch.tags.length) graph.tags = patch.tags;
     else delete graph.tags;
   }
+  if (patch.settings) graph.settings = patch.settings;
+  else if (patch.settings === null) delete graph.settings;
   return graph;
 }
 
