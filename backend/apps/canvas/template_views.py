@@ -49,7 +49,7 @@ def template_list(request, user):
 @signed_in
 def template_detail(request, user, ref):
     if request.method in ('GET', 'HEAD'):
-        found = templates.get_template(user, ref, first(request, 'projectId'))
+        found = templates.get_template(user, ref)
         return reply(request, {'template': found}) if found else reply(request, {'error': 'Template not found.'}, 404)
     if request.method == 'DELETE':
         templates.delete_template(user, ref)
@@ -66,7 +66,7 @@ def template_for_board(request, user, board_id):
 @node_route(['POST'])
 @signed_in
 def template_edit_board(request, user, ref):
-    return reply(request, {'boardId': templates.open_editing_board(user, ref, property_of(payload(request), 'projectId'))})
+    return reply(request, templates.open_editing_board(user, ref, property_of(payload(request), 'projectId')))
 
 
 @node_route(['POST'])

@@ -11,8 +11,6 @@ export function NewBoardPicker({ projectId, onStart, onClose }) {
       onUse={(template, blank) => onStart({ id: template.id, name: template.name, blank })}
       onBlank={() => onStart(null)}
       onBlueprintMade={onClose}
-      onEdit={() => {}}
-      onEditContent={() => {}}
       onClose={onClose}
     />
   );

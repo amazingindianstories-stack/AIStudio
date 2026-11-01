@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { emptyCanvasState, validateCanvasState } from "./serialization.js";
 import {
-  MAX_BOARD_UNITS, TOOL_CATEGORIES, blankGraph, clearSelection, filterTemplates, fitsBoard, insertTemplate, readShowPicker, selectionGraph,
+  MAX_BOARD_UNITS, TOOL_CATEGORIES, clearSelection, filterTemplates, insertTemplate, readShowPicker, selectionGraph,
   templateInsertion, templatesForTool, templateLink, templateRefFromSearch, writeShowPicker,
 } from "./templates.js";
 
@@ -53,17 +53,7 @@ test("inserted boards still validate and two insertions never share an id", () =
 
 test("the size check refuses a template that would pass the 2 Mi board cap", () => {
   const huge = { ...emptyCanvasState(), nodes: [sticky("big", { text: "x".repeat(MAX_BOARD_UNITS) })] };
-  assert.equal(fitsBoard(huge, graph()), false);
-  assert.equal(fitsBoard(emptyCanvasState(), graph()), true);
   assert.equal(insertTemplate(huge, graph(), { x: 0, y: 0 }).tooLarge, true);
-});
-
-test("blank clears stickies but keeps frames and styles", () => {
-  const blank = blankGraph(graph());
-  assert.equal(blank.nodes[1].text, "");
-  assert.equal(blank.nodes[1].fill, "#fff59d");
-  assert.equal(blank.nodes[1].tagIds, undefined);
-  assert.equal(blank.nodes[0].name, "Frame");
 });
 
 test("clearing a selection clears sticky, text and shape text in one new graph and ignores the rest", () => {

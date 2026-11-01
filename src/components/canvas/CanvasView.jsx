@@ -174,6 +174,16 @@ export function CanvasView() {
   // and calls `onBoardIdChange` once its fetch resolves) and flushes/resets
   // the currently-loaded board first so its content doesn't linger on
   // screen — mirrors loadBoardImpl's own flush-then-reset ordering.
+  // A template's editing board may be new or live in another project, so the switcher reloads to list it.
+  const openBoard = useCallback(
+    (id, projectId) => {
+      if (projectId !== activeProjectId) setActiveProject(projectId);
+      else setBoardsReload((count) => count + 1);
+      setBoardId(id);
+    },
+    [activeProjectId, setActiveProject]
+  );
+
   const handleBoardProjectChange = useCallback(
     (projectId) => {
       if (projectId === activeProjectId) return;
@@ -580,7 +590,7 @@ export function CanvasView() {
             viewCenter={viewCenter}
           />
         )}
-        {boardId && loaded && <BoardTemplates boardId={boardId} projectId={activeProjectId} viewCenter={viewCenter} onOpenBoard={setBoardId} />}
+        {boardId && loaded && <BoardTemplates boardId={boardId} projectId={activeProjectId} viewCenter={viewCenter} onOpenBoard={openBoard} />}
         {aiOpen && boardId && !readOnly && !touchViewOnly && <CanvasAiPanel boardId={boardId} leftInset={assetPanelWidth} onClose={() => setAiOpen(false)} />}
       </div>
 

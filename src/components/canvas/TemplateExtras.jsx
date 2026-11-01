@@ -3,18 +3,26 @@
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { templateApi } from "@/lib/canvas/templates";
+import { fetchProjectAccess } from "@/lib/board-access";
 import { useStore } from "@/lib/store";
 
-/** Blueprints: a whole project (several boards) from one choice. Custom ones come from an existing project. */
+/** Blueprints: a whole project (several boards) from one choice. Custom ones come from an existing project, shared with its members. */
 export function BlueprintsTab({ projectId, onMade }) {
   const [items, setItems] = useState(null);
   const [error, setError] = useState("");
   const [name, setName] = useState("");
   const [saveName, setSaveName] = useState("");
   const [busy, setBusy] = useState("");
+  const [member, setMember] = useState(false);
 
   const load = () => templateApi.blueprints(projectId).then((r) => setItems(r.blueprints), (e) => setError(e.message));
   useEffect(() => { void load(); }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!projectId) return undefined;
+    let cancelled = false;
+    fetchProjectAccess(projectId).then((access) => !cancelled && setMember(Boolean(access.role)), () => {});
+    return () => { cancelled = true; };
+  }, [projectId]);
 
   const use = async (item) => {
     setBusy(item.id);
@@ -70,7 +78,7 @@ export function BlueprintsTab({ projectId, onMade }) {
           ))}
         </ul>
       )}
-      {projectId && (
+      {projectId && member && (
         <div className="mt-6 max-w-sm border-t border-line pt-4">
           <h3 className="text-xs font-medium text-white/80">Save this project as a blueprint</h3>
           <div className="mt-2 flex gap-2">

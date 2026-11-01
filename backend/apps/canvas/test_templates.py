@@ -97,7 +97,8 @@ class TemplateApiTests(TransactionTestCase):
         self.owner, self.mate = make_user('owner'), make_user('mate')
         self.other = make_user('other')
         self.admin = make_user('admin', role='admin')
-        Project.objects.create(id=PROJECT, name='Project', created_at=1, updated_at=1)
+        Project.objects.create(id=PROJECT, name='Project', created_by=self.owner.id, created_at=1, updated_at=1)
+        ProjectMember.objects.create(project_id=PROJECT, user_id=self.owner.id, role='owner', created_at=1, updated_at=1)
         self.board = CanvasBoard.objects.create(
             id=uuid4(), project_id=PROJECT, name='Board', created_by=self.owner.id, created_at=1, updated_at=1,
             data={'version': 1, 'viewport': {'x': 0, 'y': 0, 'zoom': 1}, 'nodes': [sticky('s1', 'Hello', createdBy='x')], 'connectors': []})
@@ -111,10 +112,21 @@ class TemplateApiTests(TransactionTestCase):
         return getattr(self.client, method)(path, data=json.dumps(data if data is not None else {}), content_type='application/json')
 
     def make(self, scope='personal', **extra):
+        """The owner's template; only an admin shares one with everyone, so an admin publishes those."""
         self.as_user(self.owner)
-        reply = self.send('post', '/api/canvas-templates', {'name': 'Mine', 'boardId': str(self.board.id), 'scope': scope,
+        reply = self.send('post', '/api/canvas-templates', {'name': 'Mine', 'boardId': str(self.board.id),
+                                                             'scope': 'personal' if scope == 'everyone' else scope,
                                                              'projectId': PROJECT, **extra})
         self.assertEqual(reply.status_code, 201, reply.content)
+        entry = reply.json()['template']
+        if scope == 'everyone':
+            entry = self.publish(entry['id'])
+        return entry
+
+    def publish(self, ref):
+        self.as_user(self.admin)
+        reply = self.send('patch', f'/api/canvas-templates/{ref}', {'scope': 'everyone'})
+        self.assertEqual(reply.status_code, 200, reply.content)
         return reply.json()['template']
 
     def listed(self, user, project=PROJECT):
@@ -156,14 +168,43 @@ class TemplateApiTests(TransactionTestCase):
         self.assertEqual(self.send('post', '/api/canvas-templates', {'name': ' ', 'graph': {'nodes': [sticky('x')]}}).status_code, 400)
         self.assertEqual(self.send('post', '/api/canvas-templates', {'name': 'X', 'category': 'nope', 'graph': {'nodes': [sticky('x')]}}).status_code, 400)
 
-    def test_a_board_the_user_cannot_read_cannot_be_saved(self):
-        CanvasBoard.objects.filter(pk=self.board.id).update(team_role='view')
-        hidden = CanvasBoard.objects.create(id=uuid4(), project_id=PROJECT, name='Hidden', created_by=self.owner.id, team_role='view',
-                                            data={'nodes': [sticky('z')], 'connectors': []}, created_at=1, updated_at=1)
+    def test_saving_a_board_needs_edit_rights_on_it(self):
         self.as_user(self.mate)
-        self.assertEqual(self.send('post', '/api/canvas-templates', {'name': 'T', 'boardId': str(self.board.id)}).status_code, 201)
+        for role in ('view', 'comment'):
+            CanvasBoard.objects.filter(pk=self.board.id).update(team_role=role)
+            reply = self.send('post', '/api/canvas-templates', {'name': 'T', 'boardId': str(self.board.id)})
+            self.assertEqual((reply.status_code, reply.json()), (403, {'error': 'FORBIDDEN'}))
+        self.assertFalse(BoardTemplate.objects.exists())
         self.assertEqual(self.send('post', '/api/canvas-templates', {'name': 'T', 'boardId': str(uuid4())}).status_code, 404)
-        self.assertEqual(hidden.team_role, 'view')
+        CanvasBoard.objects.filter(pk=self.board.id).update(team_role='edit')
+        self.assertEqual(self.send('post', '/api/canvas-templates', {'name': 'T', 'boardId': str(self.board.id)}).status_code, 201)
+
+    def test_only_an_admin_shares_a_template_with_everyone(self):
+        self.as_user(self.owner)
+        refused = self.send('post', '/api/canvas-templates', {'name': 'All', 'boardId': str(self.board.id), 'scope': 'everyone'})
+        self.assertEqual((refused.status_code, refused.json()), (403, {'error': 'FORBIDDEN'}))
+        self.assertFalse(BoardTemplate.objects.exists())
+        mine = self.make('personal')
+        self.as_user(self.owner)
+        self.assertEqual(self.send('patch', f'/api/canvas-templates/{mine["id"]}', {'scope': 'everyone'}).status_code, 403)
+        self.assertEqual(BoardTemplate.objects.get(pk=mine['id']).scope, 'personal')
+        # Editing other details of a template an admin shared leaves its access alone.
+        self.publish(mine['id'])
+        self.as_user(self.owner)
+        self.assertEqual(self.send('patch', f'/api/canvas-templates/{mine["id"]}', {'description': 'Shared'}).status_code, 200)
+        self.as_user(self.admin)
+        reply = self.send('post', '/api/canvas-templates', {'name': 'All', 'boardId': str(self.board.id), 'scope': 'everyone'})
+        self.assertEqual(reply.status_code, 201, reply.content)
+
+    def test_project_access_needs_membership_of_that_project(self):
+        selection = {'nodes': [sticky('x')], 'connectors': []}
+        self.as_user(self.mate)
+        reply = self.send('post', '/api/canvas-templates', {'name': 'P', 'graph': selection, 'scope': 'project', 'projectId': PROJECT})
+        self.assertEqual((reply.status_code, reply.json()), (403, {'error': 'FORBIDDEN'}))
+        ProjectMember.objects.create(project_id=PROJECT, user_id=self.mate.id, role='viewer', created_at=1, updated_at=1)
+        reply = self.send('post', '/api/canvas-templates', {'name': 'P', 'graph': selection, 'scope': 'project', 'projectId': PROJECT})
+        self.assertEqual(reply.status_code, 201, reply.content)
+        self.assertEqual(reply.json()['template']['projectId'], PROJECT)
 
     def test_access_levels_personal_project_and_everyone(self):
         personal = self.make('personal')['id']
@@ -285,9 +326,11 @@ class TemplateApiTests(TransactionTestCase):
 
     def test_template_from_scratch_edits_in_an_ordinary_board_and_syncs_back(self):
         self.as_user(self.owner)
-        reply = self.send('post', '/api/canvas-templates', {'name': 'Scratch', 'fromScratch': True, 'projectId': PROJECT, 'scope': 'everyone'})
+        reply = self.send('post', '/api/canvas-templates', {'name': 'Scratch', 'fromScratch': True, 'projectId': PROJECT})
         self.assertEqual(reply.status_code, 201)
         entry = reply.json()['template']
+        self.publish(entry['id'])
+        self.as_user(self.owner)
         self.assertEqual(entry['nodeCount'], 0)
         board = CanvasBoard.objects.get(pk=entry['boardId'])
         self.assertEqual(board.name, 'Template: Scratch')
@@ -305,10 +348,12 @@ class TemplateApiTests(TransactionTestCase):
     def test_edit_board_opens_once_per_template(self):
         entry = self.make('personal')
         self.as_user(self.owner)
-        first = self.send('post', f'/api/canvas-templates/{entry["id"]}/edit-board', {'projectId': PROJECT}).json()['boardId']
-        second = self.send('post', f'/api/canvas-templates/{entry["id"]}/edit-board', {'projectId': PROJECT}).json()['boardId']
+        first = self.send('post', f'/api/canvas-templates/{entry["id"]}/edit-board', {'projectId': PROJECT}).json()
+        # Opened later from another project, the editing board still reports the project it lives in.
+        second = self.send('post', f'/api/canvas-templates/{entry["id"]}/edit-board', {'projectId': str(uuid4())}).json()
         self.assertEqual(first, second)
-        self.assertEqual(len(CanvasBoard.objects.get(pk=first).data['nodes']), 1)
+        self.assertEqual(first['projectId'], PROJECT)
+        self.assertEqual(len(CanvasBoard.objects.get(pk=first['boardId']).data['nodes']), 1)
 
     def test_blueprint_starts_a_project_with_boards_from_templates(self):
         self.as_user(self.owner)
@@ -331,9 +376,12 @@ class TemplateApiTests(TransactionTestCase):
 
     def test_custom_blueprint_snapshots_a_project_and_later_edits_do_not_change_made_projects(self):
         self.as_user(self.owner)
-        reply = self.send('post', '/api/canvas-blueprints', {'name': 'Mine', 'sourceProjectId': PROJECT, 'scope': 'everyone'})
+        reply = self.send('post', '/api/canvas-blueprints', {'name': 'Mine', 'sourceProjectId': PROJECT, 'scope': 'project', 'projectId': PROJECT})
         self.assertEqual(reply.status_code, 201, reply.content)
         ref = reply.json()['blueprint']['id']
+        self.assertEqual(reply.json()['blueprint']['boards'], [{'name': 'Board', 'nodeCount': 1}])
+        listed = {b['id']: b for b in self.send('get', f'/api/canvas-blueprints?projectId={PROJECT}').json()['blueprints']}
+        self.assertEqual(listed[ref]['boards'], [{'name': 'Board', 'nodeCount': 1}])
         made = self.send('post', f'/api/canvas-blueprints/{ref}/use', {'name': 'From mine'}).json()
         self.assertEqual(len(CanvasBoard.objects.get(pk=made['boards'][0]['id']).data['nodes']), 1)
         self.send('patch', f'/api/canvas-blueprints/{ref}', {'name': 'Renamed'})
@@ -344,3 +392,16 @@ class TemplateApiTests(TransactionTestCase):
         self.as_user(self.owner)
         self.assertEqual(self.send('delete', f'/api/canvas-blueprints/{ref}').status_code, 200)
         self.assertNotIn(ref, {b['id'] for b in self.send('get', '/api/canvas-blueprints').json()['blueprints']})
+
+    def test_a_blueprint_needs_edit_rights_on_every_board_it_includes(self):
+        CanvasBoard.objects.create(id=uuid4(), project_id=PROJECT, name='Read only', created_by=self.owner.id, team_role='view',
+                                   data={'version': 1, 'nodes': [sticky('r')], 'connectors': []}, created_at=2, updated_at=2)
+        self.as_user(self.mate)
+        reply = self.send('post', '/api/canvas-blueprints', {'name': 'Copy', 'sourceProjectId': PROJECT})
+        self.assertEqual((reply.status_code, reply.json()), (403, {'error': 'FORBIDDEN'}))
+        refused = self.send('post', '/api/canvas-blueprints', {'name': 'All', 'sourceProjectId': PROJECT, 'scope': 'everyone'})
+        self.assertEqual(refused.status_code, 403)
+        CanvasBoard.objects.filter(project_id=PROJECT).update(team_role='edit')
+        reply = self.send('post', '/api/canvas-blueprints', {'name': 'Copy', 'sourceProjectId': PROJECT})
+        self.assertEqual(reply.status_code, 201, reply.content)
+        self.assertEqual([b['name'] for b in reply.json()['blueprint']['boards']], ['Board', 'Read only'])
