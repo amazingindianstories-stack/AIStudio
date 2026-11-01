@@ -74,3 +74,20 @@ class WorkspaceTests(TransactionTestCase):
         self.assertEqual(shown[0]['ctaLabel'], 'Read')
         self.assertEqual(self.post({'announcements': [{'title': 'x', 'startsAt': 5, 'endsAt': 4}]}).status_code, 400)
         self.assertEqual(self.post({'announcements': [{'title': 'x', 'ctaUrl': 'http://insecure'}]}).status_code, 400)
+
+    def test_audit_csv_export_streams_and_neutralises_formulas(self):
+        import csv, io
+        ActivityLog.objects.create(action='fixture', detail={'note': '=1+1'}, created_at=10)
+        ActivityLog.objects.create(action='=HYPERLINK("x")', detail=None, created_at=5)
+        ActivityLog.objects.create(action='other', detail=None, created_at=1)
+        self.assertEqual(self.client.get('/api/admin/activity?format=csv').status_code, 403)
+        self.make_admin()
+        response = self.client.get('/api/admin/activity?format=csv')
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.streaming)
+        self.assertIn('veevee-audit-', response['Content-Disposition'])
+        rows = list(csv.DictReader(io.StringIO(b''.join(response.streaming_content).decode())))
+        self.assertEqual([r['action'] for r in rows][-3:], ['fixture', "'=HYPERLINK(\"x\")", 'other'])
+        self.assertEqual(rows[-3]['time'], '1970-01-01T00:00:00.010Z')
+        filtered = b''.join(self.client.get('/api/admin/activity?format=csv&action=other').streaming_content).decode()
+        self.assertEqual(len(list(csv.DictReader(io.StringIO(filtered)))), 1)
