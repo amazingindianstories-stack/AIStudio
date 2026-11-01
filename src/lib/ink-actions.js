@@ -2,6 +2,7 @@
 
 import { useCanvasStore } from "./canvas-store";
 import { eraseAt, inkNodeFromPoints, pressureWidth, simplifyStroke } from "./canvas/ink";
+import { hiddenBoardIds } from "./canvas/culling";
 import { hiddenNodeIds } from "./canvas/layers";
 import { lockedIdSet } from "./canvas/locks";
 import { recognizeStroke, scribbleTargets } from "./canvas/smart-draw";
@@ -9,10 +10,14 @@ import { recognizeStroke, scribbleTargets } from "./canvas/smart-draw";
 // What a finished drawing gesture does to the board. Each is one board edit, so one undo step, one saved
 // change per object and the board role is enforced by the store like for any other edit.
 
-/** Objects a drawing gesture may not remove: locked ones, and those on layers this person hides. */
-function fixedIds(graph, hiddenLayerIds) {
+/**
+ * Objects a drawing gesture may not remove: locked ones, those on layers this person hides, and those the
+ * board hides (on a hidden diagram layer, or outside the diagram in Focus mode).
+ */
+function fixedIds(graph, { hiddenLayerIds, focusedDiagramId }) {
   const fixed = lockedIdSet(graph);
   for (const id of hiddenNodeIds(graph, hiddenLayerIds)) fixed.add(id);
+  for (const id of hiddenBoardIds(graph, focusedDiagramId).nodes) fixed.add(id);
   return fixed;
 }
 
@@ -35,7 +40,7 @@ export function commitSmartStroke(points, zoom) {
   if (!result) return false;
   const store = useCanvasStore.getState();
   if (result.kind === "erase") {
-    const fixed = fixedIds(store.history.present, store.hiddenLayerIds);
+    const fixed = fixedIds(store.history.present, store);
     const targets = new Set(scribbleTargets(store.history.present.nodes, points).filter((id) => !fixed.has(id)));
     if (!targets.size) return false;
     store.editBoard((graph) => ({
@@ -64,5 +69,5 @@ export function commitSmartStroke(points, zoom) {
 export function eraseStep(point, zoom, precise) {
   const radius = (precise ? 6 : 10) / Math.max(zoom, 0.1);
   const store = useCanvasStore.getState();
-  store.editBoard((graph) => eraseAt(graph, point, radius, precise, fixedIds(graph, store.hiddenLayerIds)), { coalesce: true });
+  store.editBoard((graph) => eraseAt(graph, point, radius, precise, fixedIds(graph, store)), { coalesce: true });
 }

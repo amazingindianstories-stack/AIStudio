@@ -77,6 +77,26 @@ test("the eraser and a scribble leave locked objects and those on a hidden layer
   assert.deepEqual(nodes(strokes)[0].pts, first.pts);
 });
 
+test("drawing gestures leave what the board hides: a hidden diagram layer and, in Focus mode, the rest of the board", async (t) => {
+  const rect = (id, x, y, extra = {}) => ({ id, type: "rect", x, y, w: 100, h: 100, fill: "#fff", stroke: "#000", strokeWidth: 1, opacity: 1, parentId: null, groupId: null, ...extra });
+  const diagram = { ...rect("flow", 0, 0), type: "diagram", w: 400, h: 400, name: "Flow", containers: [], layers: [{ id: "notes", name: "Notes", visible: false }] };
+  const store = await board(t, "edit", {
+    ...emptyCanvasState(),
+    nodes: [diagram, rect("shown", 0, 0, { parentId: "flow" }), rect("noted", 0, 0, { parentId: "flow", diagramLayerId: "notes" })],
+  });
+  const zigzag = [];
+  for (let i = 0; i <= 80; i += 1) zigzag.push({ x: 10 + 70 * Math.abs(((i / 10) % 2) - 1), y: 10 + i });
+  commitSmartStroke(zigzag, 1);
+  assert.deepEqual(nodes(store).filter((n) => n.type !== "ink").map((n) => n.id), ["flow", "noted"]);
+
+  commitStroke(line.map((p) => ({ x: p.x + 600, y: p.y })), style, 1);
+  const outside = nodes(store).find((n) => n.type === "ink");
+  store.getState().setFocusedDiagramId("flow");
+  eraseStep({ x: 700, y: 100 }, 1, false);
+  eraseStep({ x: 800, y: 100 }, 1, true);
+  assert.deepEqual(nodes(store).find((n) => n.type === "ink"), outside);
+});
+
 test("a locked grid's cells cannot be edited", async (t) => {
   const store = await board(t);
   const grid = addEmptyGrid(2, 2);
