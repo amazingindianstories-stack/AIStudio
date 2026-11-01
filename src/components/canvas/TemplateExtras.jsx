@@ -69,7 +69,7 @@ export function BlueprintsTab({ projectId, onMade }) {
               <p className="text-[11px] text-white/40">{item.boards.map((board) => board.name).join(" · ")}</p>
               <div className="mt-auto flex gap-2">
                 <button type="button" disabled={busy === item.id} onClick={() => use(item)}
-                  className="cursor-pointer rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50">
+                  className="cursor-pointer rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-ink-950 disabled:opacity-50">
                   {busy === item.id ? "Creating…" : "Create project"}
                 </button>
                 {item.canManage && <button type="button" onClick={() => remove(item)} className="cursor-pointer rounded-lg px-3 py-1.5 text-xs text-red-300 hover:bg-red-500/10">Delete</button>}

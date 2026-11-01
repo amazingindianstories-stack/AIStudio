@@ -74,7 +74,7 @@ export function SaveTemplateDialog({ template, source, scratch = false, projectI
         aria-labelledby={titleId}
         onSubmit={submit}
         onKeyDown={(event) => event.key === "Escape" && (event.stopPropagation(), onClose())}
-        className="flex max-h-[88dvh] w-full max-w-[28rem] flex-col overflow-hidden rounded-2xl border border-line bg-ink-750 shadow-pop"
+        className="flex max-h-[88dvh] w-full max-w-[32rem] flex-col overflow-hidden rounded-2xl border border-line bg-ink-750 shadow-pop"
       >
         <div className="flex items-center justify-between border-b border-line px-5 py-4">
           <h2 id={titleId} className="text-sm font-semibold text-white">
@@ -120,7 +120,7 @@ export function SaveTemplateDialog({ template, source, scratch = false, projectI
         </div>
         <div className="flex justify-end gap-2 border-t border-line px-5 py-3">
           <button type="button" onClick={onClose} className="cursor-pointer rounded-lg px-3 py-1.5 text-xs text-white/70 hover:bg-white/10">Cancel</button>
-          <button type="submit" disabled={busy || !name.trim()} className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-50">
+          <button type="submit" disabled={busy || !name.trim()} className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-ink-950 disabled:cursor-not-allowed disabled:opacity-50">
             {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             {template ? "Save details" : scratch ? "Create and open" : "Save template"}
           </button>
