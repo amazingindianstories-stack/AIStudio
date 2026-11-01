@@ -11,6 +11,8 @@ SCOPES = {
     'veevee.read': 'See the Veevee library, models and your usage',
     'veevee.generate': 'Create images and videos that cost money, within the daily limit you set',
     'veevee.organize': 'Favourite, file and rename items in the shared library, and make ZIP exports',
+    'veevee.boards.read': 'Read the boards you can see: their objects, connectors and changes',
+    'veevee.boards.write': 'Add, change and delete objects on boards where you can edit',
     'veevee.admin': 'Read admin reports and revoke agent tokens (admins only)',
 }
 ADMIN_SCOPE = 'veevee.admin'
@@ -42,6 +44,11 @@ RATE_LIMITS = {
     'register': (20, 3600),        # dynamic client registrations, per client IP
     'token': (60, 60),             # token endpoint, per client and client IP
 }
+# Board API: a weighted budget per grant, as credits in a fixed window. A call costs what its kind costs
+# (BOARD_COSTS), whatever the number of objects it carries (bulk calls are capped at BOARD_BULK_MAX).
+BOARD_CREDITS = (6000, 60)         # credits per window, per token
+BOARD_COSTS = {'read': 10, 'list': 50, 'write': 100, 'bulk': 500}
+BOARD_BULK_MAX = 50
 HOLDS_PER_TOKEN = 4                # concurrent waiting calls per token
 HOLD_TTL_MS = 90 * 1000
 

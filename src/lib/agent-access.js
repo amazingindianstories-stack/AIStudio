@@ -4,6 +4,8 @@ export const SCOPE_TITLES = {
   "veevee.read": "Browse the library",
   "veevee.generate": "Create images and videos",
   "veevee.organize": "Organise the library",
+  "veevee.boards.read": "Read boards",
+  "veevee.boards.write": "Edit boards",
   "veevee.admin": "Admin reports",
 };
 
