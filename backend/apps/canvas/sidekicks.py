@@ -435,39 +435,43 @@ def chat_sidekick(actor, chat):
     return resolve(actor, chat.sidekick)
 
 
-def turn_request(actor, board, sidekick, body, chat=None):
-    """The validated chat turn: (format, processing, conversation turns, the client's request)."""
+def turn_request(body):
+    """The validated client request of a chat turn."""
     if not isinstance(body, dict):
         raise _error('Invalid request.')
     message = _text(body.get('message'), MAX_MESSAGE, 'Message', True)
-    processing = body.get('processing', sidekick['processing'])
-    if processing not in PROCESSING:
+    processing = body.get('processing')
+    if processing is not None and processing not in PROCESSING:
         raise _error('Unknown processing.', 'UNKNOWN_PROCESSING')
-    selection = selection_ids(body)
-    sources = body.get('sources') or []
-    context = context_turn(sidekick, board_summary(board.data, selection), source_context(actor, board, sources))
+    return {'message': message, 'selection': selection_ids(body), 'sources': body.get('sources') or [], 'processing': processing}
+
+
+def turn_turns(actor, board, sidekick, request, chat=None):
+    """(processing, conversation turns) of a chat turn: the Sidekick, the board, the sources and the chat so far."""
+    context = context_turn(sidekick, board_summary(board.data, request['selection']), source_context(actor, board, request['sources']))
     history = history_turns(chat) if chat is not None else []
-    turns = [{'role': 'user', 'text': context}, {'role': 'model', 'text': ACK}, *history, {'role': 'user', 'text': message}]
-    return 'sidekick', processing, turns, {'message': message, 'selection': selection, 'sources': sources}
+    turns = [{'role': 'user', 'text': context}, {'role': 'model', 'text': ACK}, *history, {'role': 'user', 'text': request['message']}]
+    return request['processing'] or sidekick['processing'], turns
 
 
 def quote_first_turn(actor, board, body):
     """The price of the first message of a new chat with ``body['sidekick']``; no chat is created."""
-    name, processing, turns, _ = turn_request(actor, board, chosen_sidekick(actor, body), body)
-    return quote_job(actor, name, turns, processing)
+    request = turn_request(body)
+    return quote_job(actor, 'sidekick', *turn_turns(actor, board, chosen_sidekick(actor, body), request))
 
 
 def quote_turn(actor, board, chat_id, body):
     chat = own_chat(actor, board, chat_id)
-    name, processing, turns, _ = turn_request(actor, board, chat_sidekick(actor, chat), body, chat)
-    return quote_job(actor, name, turns, processing)
+    request = turn_request(body)
+    return quote_job(actor, 'sidekick', *turn_turns(actor, board, chat_sidekick(actor, chat), request, chat))
 
 
 def submit_turn(actor, board, chat_id, body, idempotency_key):
     chat = own_chat(actor, board, chat_id)
-    name, processing, turns, request = turn_request(actor, board, chat_sidekick(actor, chat), body, chat)
+    request = turn_request(body)
     message = request['message']
-    job = submit_job(actor, board, name, turns, processing, message, idempotency_key, request=request, chat=chat)
+    job = submit_job(actor, board, 'sidekick', message, idempotency_key, request=request, chat=chat,
+                     build=lambda: turn_turns(actor, board, chat_sidekick(actor, chat), request, chat))
     BoardSidekickChat.objects.filter(pk=chat.pk).update(updated_at=now_ms(), **({'title': message[:60]} if chat.title == resolve_name(chat) else {}))
     return job
 
@@ -482,22 +486,22 @@ def resolve_name(chat):
 
 # ---- shared quote and submit --------------------------------------------------------------------------------------
 
-def quote_job(actor, name, turns, processing):
+def quote_job(actor, name, processing, turns):
     result = text_submission.quote_text(actor, name, turns, processing)
     cap, used = credit_cap(actor.id), credits_used(actor.id)
     return {'format': name, 'processing': processing, 'model': result['model'], 'costCents': result['costCents'],
             'credits': {'capCents': cap, 'usedCents': used, 'remainingCents': max(0, cap - used)}}
 
 
-def submit_job(actor, board, name, turns, processing, prompt, idempotency_key, *, request, chat=None, operation='BOARD_SIDEKICK_JOB'):
+def submit_job(actor, board, name, prompt, idempotency_key, *, request, build, chat=None, operation='BOARD_SIDEKICK_JOB'):
     """Queue one text job and its job row once per Idempotency-Key; returns the job.
 
-    The key is bound to ``request``, what the client asked for, not to ``turns``: those also carry server state (the
-    board, its activity, today's date) that may change between a lost response and its retry."""
+    The key is bound to ``request``, what the client asked for. ``build`` returns (processing, turns) from server state
+    (the board, its activity, the chat so far) and runs only for a new request, so a retry after a lost response gets
+    the accepted job even if that state changed meanwhile."""
     key = receipt_key(idempotency_key, actor)
     digest = hashlib.sha256(json.dumps(request, sort_keys=True).encode('utf-8')).hexdigest()
-    fingerprint = {'boardId': str(board.id), 'format': name, 'processing': processing, 'request': digest,
-                   'chat': str(chat.id) if chat else None}
+    fingerprint = {'boardId': str(board.id), 'format': name, 'request': digest, 'chat': str(chat.id) if chat else None}
 
     def mutation():
         created = {}
@@ -508,6 +512,7 @@ def submit_job(actor, board, name, turns, processing, prompt, idempotency_key, *
             created['job'] = BoardAiJob.objects.create(id=uuid.uuid4(), board=board, user_id=actor.id, format=name, prompt=prompt[:MAX_MESSAGE],
                                                        generation_id=item['id'], chat=chat, created_at=now, updated_at=now)
 
+        processing, turns = build()
         text_submission.submit_text(actor, name, turns, processing=processing, origin=ORIGIN, admit=admit)
         return {'jobId': str(created['job'].id)}
 

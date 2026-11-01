@@ -200,6 +200,13 @@ class SidekickChatTests(AssistantFixture):
         self.assertEqual(bad.status_code, 400)
         missing = self.board_api('post', f"sidekick-chats/{chat['id']}/quote", {'message': 'x', 'sources': [{'kind': 'board', 'id': str(uuid.uuid4())}]})
         self.assertEqual(missing.status_code, 404)
+        # A retry of an accepted turn gets that job even after the Sidekick was deleted; a new message is refused.
+        self.personal('delete', f"sidekicks/{made['id']}")
+        retry = self.board_api('post', f"sidekick-chats/{chat['id']}/turns", {'message': 'Research it'}, key='turn-key-0003')
+        self.assertEqual((retry.status_code, retry.json()['job']['id']), (201, job['id']))
+        fresh = self.board_api('post', f"sidekick-chats/{chat['id']}/turns", {'message': 'Research it'}, key='turn-key-0004')
+        self.assertEqual(fresh.json()['code'], 'SIDEKICK_DELETED')
+        self.assertEqual(BoardAiJob.objects.count(), 1)
 
     def test_a_new_chat_is_quoted_without_creating_it(self):
         quote = self.board_api('post', 'sidekick-chats/quote', {'sidekick': 'ux-researcher', 'message': 'Cluster these'})
@@ -377,13 +384,20 @@ class AiSearchTests(AssistantFixture):
         self.assertEqual(stale.status_code, 200)
 
     def test_search_terms_may_name_the_project(self):
+        from .models import CanvasBoard
+        CanvasBoard.objects.create(id=uuid.uuid4(), project_id=self.project.id, name='Storyboard v2', data={'version': 1}, created_at=1,
+                                   updated_at=now() + 1000, created_by=self.actor_id)
         job = self.board_api('post', 'ai-search/jobs', {'query': 'boards in board project'}, key='search-key-0002').json()['job']
         self.finish(job)
         generation = Generation.objects.get(pk=job['generationId'])
         generation.output = {'terms': ['board project'], 'updatedWithinDays': 0, 'createdByMe': False, 'explanation': 'x'}
         generation.save()
         found = self.board_api('get', f"ai-search/{job['id']}").json()
-        self.assertEqual([item['name'] for item in found['boards']], ['Ideas'])
+        self.assertEqual([item['name'] for item in found['boards']], ['Storyboard v2', 'Ideas'])
+        generation.output = {**generation.output, 'terms': ['storyboard', 'board project']}
+        generation.save()
+        found = self.board_api('get', f"ai-search/{job['id']}").json()
+        self.assertEqual([item['name'] for item in found['boards']], ['Storyboard v2'])
         generation.output = {**generation.output, 'terms': ['nothing like it']}
         generation.save()
         self.assertEqual(self.board_api('get', f"ai-search/{job['id']}").json()['boards'], [])

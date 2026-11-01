@@ -83,7 +83,7 @@ def step_request(body):
 
 def quote_step(actor, body):
     name, processing, turns, _ = step_request(body)
-    return sidekicks.quote_job(actor, name, turns, processing)
+    return sidekicks.quote_job(actor, name, processing, turns)
 
 
 def quote_flow(actor, body):
@@ -103,8 +103,8 @@ def quote_flow(actor, body):
 
 def submit_step(actor, board, body, idempotency_key):
     name, processing, turns, task = step_request(body)
-    return sidekicks.submit_job(actor, board, name, turns, processing, task, idempotency_key, request=turns[0]['text'],
-                                operation='BOARD_FLOW_STEP')
+    return sidekicks.submit_job(actor, board, name, task, idempotency_key, request={'processing': processing, 'context': turns[0]['text']},
+                                build=lambda: (processing, turns), operation='BOARD_FLOW_STEP')
 
 
 # ---- output versions ----------------------------------------------------------------------------------------------
@@ -193,14 +193,13 @@ def catchup_turns(actor, board, period):
 
 def quote_catchup(actor, board, body):
     period = body.get('period') if isinstance(body, dict) else None
-    return sidekicks.quote_job(actor, 'catchup', catchup_turns(actor, board, period), 'basic')
+    return sidekicks.quote_job(actor, 'catchup', 'basic', catchup_turns(actor, board, period))
 
 
 def submit_catchup(actor, board, body, idempotency_key):
     period = body.get('period') if isinstance(body, dict) else None
-    turns = catchup_turns(actor, board, period)
-    return sidekicks.submit_job(actor, board, 'catchup', turns, 'basic', 'Catch up', idempotency_key, request={'period': period},
-                                operation='BOARD_CATCHUP')
+    return sidekicks.submit_job(actor, board, 'catchup', 'Catch up', idempotency_key, request={'period': period},
+                                build=lambda: ('basic', catchup_turns(actor, board, period)), operation='BOARD_CATCHUP')
 
 
 # ---- AI search ----------------------------------------------------------------------------------------------------
@@ -212,13 +211,13 @@ def search_turns(body):
 
 
 def quote_search(actor, body):
-    return sidekicks.quote_job(actor, 'boardsearch', search_turns(body)[0], 'basic')
+    return sidekicks.quote_job(actor, 'boardsearch', 'basic', search_turns(body)[0])
 
 
 def submit_search(actor, board, body, idempotency_key):
     turns, query = search_turns(body)
-    return sidekicks.submit_job(actor, board, 'boardsearch', turns, 'basic', query, idempotency_key, request={'query': query},
-                                operation='BOARD_SEARCH')
+    return sidekicks.submit_job(actor, board, 'boardsearch', query, idempotency_key, request={'query': query},
+                                build=lambda: ('basic', turns), operation='BOARD_SEARCH')
 
 
 def apply_search(actor, board, identifier):
@@ -229,12 +228,12 @@ def apply_search(actor, board, identifier):
     if job['status'] != 'succeeded':
         raise _error('The search has not finished.', 'NOT_READY', 409)
     filters = job['result']
-    terms = [term.lower() for term in filters.get('terms', [])]
-    cutoff = now_ms() - filters['updatedWithinDays'] * 24 * 60 * 60 * 1000 if filters.get('updatedWithinDays') else None
     project = (Project.objects.filter(pk=board.project_id).values_list('name', flat=True).first() or '').lower()
+    terms = [term for term in (term.lower() for term in filters.get('terms', [])) if term not in project]
+    cutoff = now_ms() - filters['updatedWithinDays'] * 24 * 60 * 60 * 1000 if filters.get('updatedWithinDays') else None
     matches = []
     for item in services.list_boards(board.project_id, actor):
-        if terms and not any(term in item['name'].lower() or term in project for term in terms):
+        if terms and not any(term in item['name'].lower() for term in terms):
             continue
         if cutoff is not None and item['updatedAt'] < cutoff:
             continue
