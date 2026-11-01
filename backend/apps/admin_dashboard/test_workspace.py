@@ -133,3 +133,30 @@ class WorkspaceTests(TransactionTestCase):
         self.assertEqual(rows[-1]['snippet'], "'=cmd")
         allrows = list(csv.DictReader(io.StringIO(b''.join(self.client.get('/api/admin/content-log?format=csv&action=delete').streaming_content).decode())))
         self.assertEqual([r['node_id'] for r in allrows], ['z'])
+
+    def test_ai_log_is_admin_only_joins_generation_and_exports_csv(self):
+        import csv, io, uuid
+        from apps.canvas.models import BoardAiJob, CanvasBoard
+        from apps.generation.models import Generation
+        from apps.projects.models import Project
+        project = Project.objects.create(id=uuid.uuid4(), name='P', created_at=1, updated_at=1)
+        board = CanvasBoard.objects.create(id=uuid.uuid4(), project_id=project.id, name='B', data={}, created_at=1, updated_at=1)
+        gens = []
+        for index in range(2):
+            gen = Generation.objects.create(id=uuid.uuid4(), kind='image', status='completed' if index else 'failed', prompt='p', model='Nano Banana Pro',
+                                            aspect_ratio='1:1', user_id=fixtures.UID, cost_cents=7, created_at=1, updated_at=1)
+            BoardAiJob.objects.create(board=board, user_id=fixtures.UID, format='stickies' if index else 'image', prompt='=boom' if index else 'ok',
+                                      generation_id=gen.id, created_at=100 + index, updated_at=100 + index)
+        BoardAiJob.objects.create(board=board, user_id=fixtures.UID, format='image', prompt='gone', generation_id=uuid.uuid4(), created_at=50, updated_at=50)
+        self.assertEqual(self.client.get('/api/admin/ai-log').status_code, 403)
+        self.assertEqual(self.client.get('/api/admin/ai-log?format=csv').status_code, 403)
+        self.make_admin()
+        data = self.client.get(f'/api/admin/ai-log?boardId={board.id}').json()
+        self.assertEqual([(r['capability'], r['status'], r['model'], r['costCents']) for r in data['rows']],
+                         [('stickies', 'completed', 'Nano Banana Pro', 7), ('image', 'failed', 'Nano Banana Pro', 7), ('image', 'deleted', None, None)])
+        self.assertEqual(self.client.get('/api/admin/ai-log?capability=stickies').json()['rows'][0]['prompt'], '=boom')
+        self.assertEqual(self.client.get('/api/admin/ai-log?userId=nope').status_code, 400)
+        response = self.client.get('/api/admin/ai-log?format=csv')
+        rows = list(csv.DictReader(io.StringIO(b''.join(response.streaming_content).decode())))
+        self.assertEqual([r['capability'] for r in rows], ['stickies', 'image', 'image'])
+        self.assertEqual(rows[0]['prompt'], "'=boom")
