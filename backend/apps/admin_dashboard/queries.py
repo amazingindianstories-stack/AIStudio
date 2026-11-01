@@ -163,6 +163,17 @@ def activity(request):
     except Exception: return failure()
 
 
+@node_route(['GET'])
+def template_usage(request):
+    """How often each template and blueprint was used in the last 30 days and the last year (read only)."""
+    refused = admin_gate(request)[1]
+    if refused: return refused
+    try:
+        from apps.canvas import templates
+        return reply(request, {'usage': templates.usage_insights()})
+    except Exception: return failure()
+
+
 def log_rows(params, *, export=False):
     clauses, values = conditions(params)
     cursor = None if export else decode_cursor(first(params, 'cursor'))
