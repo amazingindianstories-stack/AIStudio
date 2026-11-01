@@ -150,9 +150,25 @@ class CollabTests(TransactionTestCase):
         _, edited = self.post(self.mate, 'plain')
         self.send('patch', f"{self.base}/comments/{edited['id']}", {'body': 'now @[board](board)'})
         self.assertEqual(set(CommentFollow.objects.values_list('user_id', flat=True)), {self.mate.id})
-        Notification.objects.all().delete()
         self.post(self.owner, 'reply', parentId=root['id'])
-        self.assertEqual([(r.user_id, r.kind) for r in Notification.objects.all()], [(self.mate.id, 'reply')])
+        self.assertEqual([r.user_id for r in Notification.objects.filter(kind='reply')], [self.mate.id])
+        self.as_user(self.mate)
+        self.send('patch', f"{self.base}/comments/{root['id']}", {'body': f'team @[team](team) {mention(self.third)}'})
+        self.assertEqual(Notification.objects.filter(comment_id=root['id'], kind='mention').count(), 3)
+        self.assertIn(self.third.id, set(CommentFollow.objects.filter(thread_id=root['id']).values_list('user_id', flat=True)))
+        Notification.objects.filter(kind='reply').delete()
+        self.post(self.owner, 'again', parentId=root['id'])
+        self.assertEqual({r.user_id for r in Notification.objects.filter(kind='reply')}, {self.mate.id, self.third.id})
+
+    def test_everyone_a_mention_reaches_can_open_the_board_it_names(self):
+        outsider = make_user('outsider')
+        self.post(self.mate, f'team @[team](team) {mention(outsider)}')
+        self.as_user(outsider)
+        item = self.send('get', '/api/notifications').json()['notifications'][0]
+        self.assertEqual((item['boardName'], item['kind']), ('Board', 'mention'))
+        self.assertEqual(self.send('get', f"/api/canvas-boards/{item['boardId']}/comments").status_code, 200)
+        self.as_user(self.owner)
+        self.assertEqual(self.send('post', f'{self.base}/access', {'op': 'setTeamRole', 'role': 'none'}).status_code, 400)
 
     def test_follow_all_threads_and_one_thread(self):
         self.as_user(self.third)
