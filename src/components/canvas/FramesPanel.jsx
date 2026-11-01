@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import { useCanvasStore } from "@/lib/canvas-store";
 import { useBoardUi } from "@/lib/canvas/board-ui";
-import { frameOrderEdits, frameTitle, moveInOrderLocked, orderedFrames, organizeFrameEdits } from "@/lib/canvas/frames";
+import { frameTitle, orderedFrames, organizeFrameEdits, reorderFrameEdits } from "@/lib/canvas/frames";
 import { isLocked, lockedIdSet } from "@/lib/canvas/locks";
 import { objectLink } from "@/lib/canvas/object-link";
 import { writeClipboardText } from "@/lib/canvas/clipboard-export";
@@ -26,6 +26,26 @@ export async function copyObjectLink(objectId) {
   const url = objectLink(window.location.origin, { project: activeProjectId, board: boardId, object: objectId });
   const ok = await writeClipboardText(url);
   useBoardUi.getState().notify(ok ? "Link copied" : "Could not copy the link");
+}
+
+export const LOCKED_COPY = "Locked - unlock to edit";
+
+/** "Organize frames" from the panel or the command palette. Locked frames stay where they are. */
+export function organizeFrames() {
+  const store = useCanvasStore.getState();
+  const present = store.history.present;
+  const locked = lockedIdSet(present);
+  const frames = present.nodes.filter((n) => n.type === "frame");
+  const lockedFrames = frames.some((n) => locked.has(n.id));
+  const edits = organizeFrameEdits(present);
+  const ui = useBoardUi.getState();
+  if (!edits.size) {
+    ui.notify(frames.every((n) => locked.has(n.id)) ? LOCKED_COPY : "Frames already organized");
+    return;
+  }
+  store.replaceNodes(edits);
+  store.zoomToFit();
+  ui.notify(lockedFrames ? "Frames organized; locked frames stayed in place" : "Frames organized");
 }
 
 /**
@@ -67,10 +87,12 @@ export function FramesPanel({ canEdit, onClose }) {
     else store.setSelection(next);
   };
 
+  // The saved edits: empty when nothing moved, null when a locked frame refused it.
   const reorder = (moving, beforeId) => {
     const store = useCanvasStore.getState();
-    const nextIds = moveInOrderLocked(ids, moving, beforeId, lockedIdSet(store.history.present));
-    store.replaceNodes(frameOrderEdits(store.history.present, nextIds));
+    const edits = reorderFrameEdits(store.history.present, moving, beforeId);
+    if (edits?.size) store.replaceNodes(edits);
+    return edits;
   };
 
   const moveBy = (id, step) => {
@@ -80,11 +102,11 @@ export function FramesPanel({ canEdit, onClose }) {
     const at = ids.slice(0, ids.findIndex((x) => movingSet.has(x))).filter((x) => !movingSet.has(x)).length;
     const target = Math.max(0, Math.min(kept.length, at + step));
     if (target === at) return;
-    if (isLocked(useCanvasStore.getState().history.present, id)) {
-      useBoardUi.getState().announce("Locked - unlock to edit");
+    // There is room to move, so an unchanged order means a locked frame holds it.
+    if (isLocked(useCanvasStore.getState().history.present, id) || !reorder(moving, kept[target] ?? null)?.size) {
+      useBoardUi.getState().notify(LOCKED_COPY);
       return;
     }
-    reorder(moving, kept[target] ?? null);
     const frame = frames.find((f) => f.id === id);
     useBoardUi.getState().announce(`${frameTitle(frame)} moved ${step < 0 ? "up" : "down"}`);
     // The row keeps focus after the list re-renders in its new order.
@@ -105,13 +127,6 @@ export function FramesPanel({ canEdit, onClose }) {
     }
   };
 
-  const organize = () => {
-    const store = useCanvasStore.getState();
-    store.replaceNodes(organizeFrameEdits(store.history.present));
-    store.zoomToFit();
-    useBoardUi.getState().notify("Frames organized");
-  };
-
   const dropProps = (beforeId) => ({
     onDragOver: (e) => {
       if (!dragging) return;
@@ -123,7 +138,7 @@ export function FramesPanel({ canEdit, onClose }) {
       if (!dragging) return;
       e.preventDefault();
       e.stopPropagation();
-      reorder(dragging, beforeId);
+      if (!reorder(dragging, beforeId)) useBoardUi.getState().notify(LOCKED_COPY);
       setDragging(null);
       setDropBefore(undefined);
     },
@@ -144,7 +159,7 @@ export function FramesPanel({ canEdit, onClose }) {
               Present
             </button>
             {canEdit && (
-              <button type="button" disabled={frames.length < 2} onClick={organize} className={cn(FOOTER_BUTTON, "text-white/75 hover:bg-white/10 hover:text-white")}>
+              <button type="button" disabled={frames.length < 2} onClick={organizeFrames} className={cn(FOOTER_BUTTON, "text-white/75 hover:bg-white/10 hover:text-white")}>
                 <LayoutGrid className="h-3.5 w-3.5" />
                 Organize frames
               </button>
@@ -276,6 +291,10 @@ function FrameNotes({ frame, canEdit }) {
     const node = store.history.present.nodes.find((n) => n.id === frame.id);
     const value = draft.trim() ? draft : "";
     if (!node || (node.notes ?? "") === value) return;
+    if (isLocked(store.history.present, node)) {
+      useBoardUi.getState().notify("Locked - presenter notes not saved");
+      return;
+    }
     const next = { ...node, notes: value };
     if (!value) delete next.notes;
     saved.current = value;
@@ -307,7 +326,7 @@ function FrameNotes({ frame, canEdit }) {
           {frame.notes || "No notes"}
         </p>
       )}
-      {canEdit && locked && <p className="text-[11px] leading-snug text-amber-300/90">Locked - unlock to edit</p>}
+      {canEdit && locked && <p className="text-[11px] leading-snug text-amber-300/90">{LOCKED_COPY}</p>}
       <p className="text-[11px] leading-snug text-white/45">Not private: anyone who can open this board can read these notes.</p>
     </div>
   );

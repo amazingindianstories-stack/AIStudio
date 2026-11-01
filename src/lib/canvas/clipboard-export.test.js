@@ -133,3 +133,16 @@ test("a callout whose tail points at an object that is not drawn is drawn withou
   const { width, height } = selectionSvg(board, ["bubble"], { measure: () => 0, images: new Map() });
   assert.deepEqual([width, height], [148, 148]);
 });
+
+test("a rotated object is drawn turned about its center, wrapped at its own width, inside a box that fits the turn", () => {
+  const measure = (s, size) => s.length * size * 0.5;
+  const turned = { nodes: [node("tall", "sticky", 0, 0, { w: 200, h: 100, rotation: 90, text: "one two three four five six", fill: "#fde68a" })], connectors: [] };
+  const flat = { nodes: [{ ...turned.nodes[0], rotation: 0 }], connectors: [] };
+  const drawn = selectionSvg(turned, ["tall"], { measure, images: new Map() });
+  const plain = selectionSvg(flat, ["tall"], { measure, images: new Map() });
+  assert.match(drawn.svg, /<g transform="rotate\(90 100 50\)">/);
+  assert.doesNotMatch(plain.svg, /rotate\(/);
+  const lines = (svg) => (svg.match(/<tspan /g) ?? []).length;
+  assert.equal(lines(drawn.svg), lines(plain.svg));
+  assert.deepEqual([drawn.width, drawn.height], [plain.height, plain.width]);
+});

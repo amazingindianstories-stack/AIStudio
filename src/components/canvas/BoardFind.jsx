@@ -7,6 +7,7 @@ import { useCanvasStore, useVisibleBoard } from "@/lib/canvas-store";
 import { useBoardUi } from "@/lib/canvas/board-ui";
 import { FIND_TYPES, findOnBoard, matchCount, replaceMatches, replaceOneMatch } from "@/lib/canvas/find";
 import { connectorBounds, nodeBounds, worldToScreen } from "@/lib/canvas/geometry";
+import { isLocked, lockedIdSet } from "@/lib/canvas/locks";
 
 const ICON_BUTTON =
   "grid h-7 w-7 shrink-0 place-items-center rounded-lg text-white/60 outline-none hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-brand disabled:pointer-events-none disabled:opacity-35";
@@ -70,6 +71,11 @@ export function BoardFind({ canEdit, onClose }) {
   const replaceOne = () => {
     if (index < 0) return;
     const store = useCanvasStore.getState();
+    if (isLocked(store.history.present, currentId)) {
+      useBoardUi.getState().notify("Locked - unlock to edit");
+      replaceRef.current?.focus();
+      return;
+    }
     const done = replaceOneMatch(store.visibleBoard(), hits, { hit: index, range: rangeIndex }, replacement, query, { types, matchCase });
     store.replaceNodes(done.edits);
     setCurrent(done.at?.hit ?? 0);
@@ -80,9 +86,14 @@ export function BoardFind({ canEdit, onClose }) {
   };
   const replaceAll = () => {
     const store = useCanvasStore.getState();
-    const edits = replaceMatches(store.visibleBoard(), hits, replacement);
-    store.replaceNodes(edits);
-    useBoardUi.getState().notify(`Replaced ${matchCount(hits)} ${matchCount(hits) === 1 ? "match" : "matches"}`);
+    const locked = lockedIdSet(store.history.present);
+    const open = hits.filter((hit) => !locked.has(hit.id));
+    store.replaceNodes(replaceMatches(store.visibleBoard(), open, replacement));
+    const replaced = matchCount(open);
+    const skipped = matchCount(hits) - replaced;
+    useBoardUi.getState().notify(
+      `Replaced ${replaced} ${replaced === 1 ? "match" : "matches"}${skipped ? `, skipped ${skipped} on locked objects` : ""}`
+    );
     replaceRef.current?.focus();
   };
 

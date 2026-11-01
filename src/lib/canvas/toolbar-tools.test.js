@@ -12,8 +12,8 @@ test("the saved order wins, unknown tools drop out and new tools follow in defau
 test("unpinned tools leave the dock, and only editors get creation tools", () => {
   const prefs = { toolbarHidden: ["frame", "ai"] };
   assert.deepEqual(pinnedTools(prefs), ["sticky", "text", "shapes", "connector", "image"]);
-  assert.deepEqual(dockTools(prefs, true).slice(0, 3), ["select", "hand", "sticky"]);
-  assert.deepEqual(dockTools(prefs, false), ["select", "hand"]);
+  assert.deepEqual(dockTools(prefs, true).slice(0, 4), ["select", "hand", "lasso", "sticky"]);
+  assert.deepEqual(dockTools(prefs, false), ["select", "hand", "lasso"]);
 });
 
 test("pinning toggles and keeps a stable list", () => {
@@ -30,5 +30,6 @@ test("moving tools by step or by drag", () => {
 
 test("labels", () => {
   assert.equal(toolLabel("select"), "Select");
+  assert.equal(toolLabel("lasso"), "Lasso select");
   assert.equal(toolLabel("ai"), "Create with AI");
 });

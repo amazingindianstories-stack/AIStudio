@@ -23,7 +23,6 @@ import { CanvasAiPanel } from "./CanvasAiPanel";
 import { useBoardAi } from "@/lib/board-ai";
 import { BoardHistoryPanel } from "./BoardHistoryPanel";
 import { LayersPanel } from "./LayersPanel";
-import { useLockShortcut } from "./use-lock-shortcut";
 import { ObjectInfo } from "./ObjectInfo";
 import { useBoardShortcuts } from "./useBoardShortcuts";
 import { useBoardLinks } from "./useBoardLinks";
@@ -135,7 +134,6 @@ export function CanvasView() {
   const narrow = useMediaQuery("(max-width: 767px)");
   const coarsePointer = useMediaQuery("(pointer: coarse)");
   const touchViewOnly = coarsePointer && !touchEditMode;
-  useLockShortcut(touchViewOnly);
 
   // Explicit board-project switch (BoardProjectSelector) — distinct from
   // CanvasAssetPanel's `scope`, which only filters displayed assets and must

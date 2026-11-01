@@ -11,9 +11,8 @@ import { useStore } from "@/lib/store";
 import { comboLabels, isMacPlatform, shortcutEntries } from "@/lib/canvas/shortcuts";
 import { dockTools, toolLabel } from "@/lib/canvas/toolbar-tools";
 import { readingOrder } from "@/lib/canvas/keyboard-nav";
-import { organizeFrameEdits } from "@/lib/canvas/frames";
 import { copySelection, copySelectionAsImage, startPresentation } from "./useBoardShortcuts";
-import { copyObjectLink } from "./FramesPanel";
+import { copyObjectLink, organizeFrames } from "./FramesPanel";
 
 /** The shortcut shown beside a command, from the registry entry `id`. */
 function hintFor(id, mac) {
@@ -65,10 +64,7 @@ export function CommandPalette({ canEdit, boardId, runToolbarTool, openBoard, on
     add("Board", "fit", "Zoom to fit", () => store().zoomToFit(), hintFor("view.fit", mac));
     add("Board", "selectAll", "Select all", () => store().selectAll(), hintFor("nav.all", mac));
     if (canEdit && hasFrames) {
-      add("Board", "organize", "Organize frames", () => {
-        store().replaceNodes(organizeFrameEdits(store().history.present));
-        store().zoomToFit();
-      });
+      add("Board", "organize", "Organize frames", organizeFrames);
     }
     add(
       "Board",

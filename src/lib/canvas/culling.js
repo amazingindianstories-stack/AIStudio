@@ -132,7 +132,7 @@ export function hiddenBoardIds(graph, focusDiagramId = null) {
 
 /** `graph` without what the board hides (see hiddenBoardIds): the objects a user sees, finds and reaches. */
 export function visibleGraph(graph, focusDiagramId = null, hiddenLayerIds = []) {
-  if (hiddenLayerIds.length) graph = layeredView(graph, hiddenLayerIds);
+  graph = layeredView(graph, hiddenLayerIds);
   const hidden = hiddenBoardIds(graph, focusDiagramId);
   if (!hidden.nodes.size && !hidden.connectors.size) return graph;
   return {

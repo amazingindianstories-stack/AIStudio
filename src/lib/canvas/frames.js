@@ -8,6 +8,7 @@
  * ones, or every frame before the first reorder) follow in reading order.
  */
 import { readingOrder } from "./keyboard-nav";
+import { lockedIdSet } from "./locks";
 
 export const FRAME_GAP = 80;
 
@@ -61,6 +62,23 @@ export function moveInOrderLocked(ids, moving, beforeId, locked) {
   return ids.map((id) => (locked.has(id) ? id : reordered[next++]));
 }
 
+/**
+ * The node edits that move the frames in `moving` before `beforeId` (null:
+ * to the end) in presentation order, locked frames keeping their slots.
+ * Empty when the order stays the same; null when saving it would change a
+ * locked frame's stored place (it has none yet, or another one), which the
+ * lock forbids.
+ */
+export function reorderFrameEdits(present, moving, beforeId) {
+  const ids = orderedFrames(present).map((f) => f.id);
+  const locked = lockedIdSet(present);
+  const next = moveInOrderLocked(ids, moving, beforeId, locked);
+  if (next.every((id, i) => id === ids[i])) return new Map();
+  const edits = frameOrderEdits(present, next);
+  for (const id of edits.keys()) if (locked.has(id)) return null;
+  return edits;
+}
+
 /** `ids` with the frames in `moving` moved together to sit before `beforeId` (null: at the end). */
 export function moveInOrder(ids, moving, beforeId) {
   const movingSet = new Set(moving);
@@ -75,10 +93,13 @@ export function moveInOrder(ids, moving, beforeId) {
 /**
  * "Organize frames": the node edits that lay the frames out in a grid in
  * their order, left to right then top to bottom, starting where the frames
- * now begin. Each frame's contents move with it.
+ * now begin. Each frame's contents move with it. Locked frames, and
+ * everything in them, stay where they are and take no place in the grid; a
+ * locked object inside a moved frame stays put too, as when dragging.
  */
 export function organizeFrameEdits(present, gap = FRAME_GAP) {
-  const frames = orderedFrames(present);
+  const locked = lockedIdSet(present);
+  const frames = orderedFrames(present).filter((f) => !locked.has(f.id));
   if (!frames.length) return new Map();
   const columns = Math.ceil(Math.sqrt(frames.length));
   const originX = Math.min(...frames.map((f) => f.x));
@@ -96,6 +117,7 @@ export function organizeFrameEdits(present, gap = FRAME_GAP) {
   }
   const edits = new Map();
   for (const node of present.nodes) {
+    if (locked.has(node.id)) continue;
     const move = moves.get(node.type === "frame" ? node.id : node.parentId);
     if (move && (move.dx || move.dy)) edits.set(node.id, { ...node, x: node.x + move.dx, y: node.y + move.dy });
   }

@@ -37,6 +37,8 @@ notes, Text, Shapes, Frames, Images, Diagrams, Connectors; `src/lib/canvas/find.
 come in reading order; each jump selects the hit and brings it into view while the overlay dims
 the rest. Editors can replace one match (then move to the next match after the new text) or all
 of them as one undo step; formatting ranges around replaced text stretch or shift with it.
+Replace leaves locked objects alone and says so: replacing all reports how many matches it
+skipped on locked objects.
 
 ## Frames panel and presenting
 
@@ -45,6 +47,10 @@ frames with a `frameOrder` first, then the rest in reading order. It shows thumb
 jumps to a frame and copies a link to it. Editors reorder by drag or Alt+arrows, write presenter
 notes, and run **Organize frames**, which lays the frames out in a grid in their order and moves
 their contents with them. Notes are part of the board, so everyone who can open it can read them.
+A locked frame keeps its place: it cannot be dragged, others reorder around its slot, a move
+that would need to give it a new place is refused, Organize leaves it and its contents where they
+are, and its notes are read-only. Each refusal shows "Locked - unlock to edit", and notes typed
+before someone else locked the frame are reported as not saved.
 
 **Present frames** (Cmd/Ctrl+Alt+P) shows each frame as a slide on this screen only; nobody
 else's view follows. A slide is the live board fitted to the frame with everything around it
@@ -64,8 +70,9 @@ Every board shortcut is one entry in the registry in `src/lib/canvas/shortcuts.j
 handler dispatches from and the shortcut panel (F1 or ?) and palette list; its header documents
 the entry fields. Keys typed into a field or editor never reach it, and single-character keys can
 be turned off in the panel or palette so screen readers and voice control keep those letters.
-Number keys 1 to 9 pick dock tools in dock order; **Customize toolbar** pins, unpins and reorders
-the creation tools (`src/lib/canvas/toolbar-tools.js`).
+Lock (Cmd/Ctrl+Shift+L) and zoom (Cmd/Ctrl+= and -) are listed there too. The dock starts with
+Select, Hand and Lasso, and number keys 1 to 9 pick dock tools in that same dock order;
+**Customize toolbar** pins, unpins and reorders the creation tools (`src/lib/canvas/toolbar-tools.js`).
 
 Keyboard navigation (`src/lib/canvas/keyboard-nav.js`) reads the board like a page: B focuses the
 board, Tab walks one level in reading order (wrapping inside a frame, swimlane or diagram; at the

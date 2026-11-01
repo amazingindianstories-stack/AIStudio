@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
+import { useStore } from "@/lib/store";
 import { useCanvasStore, selectReadOnly } from "@/lib/canvas-store";
 import { isCreateTool, isShapeNode } from "@/lib/canvas/shapes";
 import { nodeBounds } from "@/lib/canvas/geometry";
@@ -14,6 +15,12 @@ import { orderedFrames } from "@/lib/canvas/frames";
 import { noteKeyboardCopy, pageTextSelected } from "@/lib/canvas/use-board-clipboard";
 import { copySelectionStyle, pasteSelectionStyle } from "@/lib/canvas/sticky-actions";
 import { buildDefaultNode } from "./CanvasSurface";
+
+/** The signed-in person's id as board data names people (a string), or null. */
+export function currentActorId() {
+  const id = useStore.getState().currentUser?.id;
+  return id == null ? null : String(id);
+}
 
 /** Whether the node's box is inside the visible part of the board. */
 function inView(node, viewport, size) {
@@ -142,6 +149,7 @@ export function useBoardShortcuts({ surfaceRef, toolLocked, touchViewOnly, openS
         copyStyle: copySelectionStyle,
         pasteStyle: pasteSelectionStyle,
         present: startPresentation,
+        toggleLock: () => store.toggleLockSelection(currentActorId()),
         placeArmedTool: () => {
           if (!isCreateTool(store.tool)) return false;
           const center = view.surfaceRef.current?.getViewportCenterWorld() ?? { x: 0, y: 0 };

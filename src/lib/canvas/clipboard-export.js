@@ -10,8 +10,10 @@ import {
   connectorPath,
   connectorPointAt,
   connectorPoints,
+  fromNodeLocal,
   isContainerNode,
   nodeBounds,
+  nodeRotation,
   resolveEndpoint,
 } from "./geometry";
 import { calloutOutlineWithTail, customSvgImage, isCalloutKind, shapeOutline, pointsToPath, textColorOf } from "./shapes";
@@ -137,7 +139,7 @@ function shapeMarkup(node, measure, nodesById) {
     else points = shapeOutline(node.shape, node.w, node.h);
     outline = `<path transform="translate(${node.x} ${node.y})" d="${pointsToPath(points)}" ${paint}/>`;
   }
-  return outline + textBlock(node, nodeBounds(node), measure, { align: "center", valign: "middle", inset: 8 });
+  return outline + textBlock(node, node, measure, { align: "center", valign: "middle", inset: 8 });
 }
 
 /** An ERD table: its name in the header, then a row per attribute with the cells its columns show. */
@@ -246,10 +248,10 @@ function nodeMarkup(node, measure, images, nodesById) {
       break;
     case "sticky":
       body = `<rect x="${node.x}" y="${node.y}" width="${node.w}" height="${node.h}" rx="4" fill="${esc(node.fill)}"/>`
-        + textBlock(node, nodeBounds(node), measure, { inset: 12 });
+        + textBlock(node, node, measure, { inset: 12 });
       break;
     case "text":
-      body = textBlock(node, nodeBounds(node), measure, { align: node.align });
+      body = textBlock(node, node, measure, { align: node.align });
       break;
     case "image": {
       const href = images?.get(node.id);
@@ -270,7 +272,9 @@ function nodeMarkup(node, measure, images, nodesById) {
     default:
       body = shapeMarkup(node, measure, nodesById);
   }
-  return `<g${opacity}>${body}</g>`;
+  const deg = nodeRotation(node);
+  const rotate = deg ? ` transform="rotate(${deg} ${node.x + node.w / 2} ${node.y + node.h / 2})"` : "";
+  return `<g${opacity}${rotate}>${body}</g>`;
 }
 
 /**
@@ -296,10 +300,14 @@ export function selectionSvg(present, selection, { measure, images, selectedConn
     bottom = Math.max(bottom, y + r);
   };
   for (const n of nodes) {
-    include(n.x, n.y);
-    include(n.x + n.w, n.y + n.h);
+    const box = nodeBounds(n);
+    include(box.x, box.y);
+    include(box.x + box.w, box.y + box.h);
     const tip = calloutTip(n, nodesById);
-    if (tip) include(tip.x, tip.y);
+    if (tip) {
+      const drawn = fromNodeLocal(n, tip);
+      include(drawn.x, drawn.y);
+    }
   }
   for (const c of connectors) {
     for (const p of connectorPoints(c, nodesById)) include(p.x, p.y);

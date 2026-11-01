@@ -115,6 +115,8 @@ const directionOf = (event) => ARROWS[event.key];
 
 const present = (ctx) => visibleGraph(ctx.store.history.present, ctx.store.focusedDiagramId, ctx.store.hiddenLayerIds);
 const hasSelection = (ctx) => ctx.store.selection.length > 0;
+// Smart duplicate and clear text wait while an image is being cropped.
+const arrangeable = (ctx) => hasSelection(ctx) && !ctx.store.croppingImageId;
 
 function tool(id, label, keys, extra = {}) {
   return { id: `tool.${id}`, group: "Tools", label, keys, run: (ctx) => ctx.armTool(id), ...extra };
@@ -203,7 +205,7 @@ const SHORTCUTS = [
     run: (ctx, e) => {
       if (!hasSelection(ctx)) return false;
       const [dx, dy] = ARROW_STEP[directionOf(e)];
-      const step = e.shiftKey ? 10 : 1;
+      const step = 10;
       const selected = new Set(ctx.store.selection);
       const keepAspect = present(ctx).nodes.some((n) => selected.has(n.id) && n.type === "image" && n.aspectLocked);
       ctx.store.resizeSelected("se", dx * step, dy * step, keepAspect);
@@ -211,10 +213,12 @@ const SHORTCUTS = [
   },
   { id: "edit.smartDuplicate", board: true, group: "Edit", label: "Smart duplicate",
     keys: arrowKeys("Alt+"), display: ["Alt+ArrowRight"], edits: true,
-    run: (ctx, e) => hasSelection(ctx) ? ctx.store.duplicateSelectionToward(directionOf(e)) : false },
+    run: (ctx, e) => arrangeable(ctx) ? ctx.store.duplicateSelectionToward(directionOf(e)) : false },
   { id: "edit.clearContent", board: true, group: "Edit", label: "Clear object text",
     keys: ["Mod+Backspace"], edits: true,
-    run: (ctx) => hasSelection(ctx) ? ctx.store.clearSelectedContent() : false },
+    run: (ctx) => arrangeable(ctx) ? ctx.store.clearSelectedContent() : false },
+  { id: "edit.lock", group: "Edit", label: "Lock or unlock", keys: ["Mod+Shift+L"], edits: true,
+    run: (ctx) => (hasSelection(ctx) ? ctx.toggleLock() : false) },
   { id: "edit.menu", board: true, group: "Edit", label: "Open the object menu", keys: ["Mod+Enter"], run: (ctx) => (hasSelection(ctx) ? ctx.openContextMenu() : false) },
 
   // ── navigate ──

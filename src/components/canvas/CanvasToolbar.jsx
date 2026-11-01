@@ -38,7 +38,11 @@ import { ShapesPanel } from "./ShapesPanel";
 import { StickyMenu } from "./StickyMenu";
 import { ACTIVE_STATUSES, useBoardAi } from "@/lib/board-ai";
 import { useBoardPrefs } from "@/lib/canvas/board-prefs";
-import { CREATION_TOOLS, moveTool, orderedTools, pinnedTools, placeToolBefore, togglePinned, toolLabel } from "@/lib/canvas/toolbar-tools";
+import { CREATION_TOOLS, NAVIGATION_TOOLS, moveTool, orderedTools, pinnedTools, placeToolBefore, togglePinned, toolLabel } from "@/lib/canvas/toolbar-tools";
+
+const NAVIGATION_ICONS = { select: MousePointer2, hand: Hand, lasso: Lasso };
+// No letter for Lasso: Miro's L is the line tool.
+const NAVIGATION_SHORTCUTS = { select: "V", hand: "H" };
 
 /**
  * Bottom-center floating tool dock (ui-spec §3) + bottom-right zoom control
@@ -225,24 +229,17 @@ export function CanvasToolbar({
         className="pointer-events-auto flex max-w-full items-center gap-1 overflow-x-auto rounded-2xl border border-line bg-ink-750/95 p-1.5 shadow-pop backdrop-blur-xl max-sm:gap-0.5 max-sm:p-1"
       >
         <ToolGroup>
-          <ToolButton
-            id="select"
-            active={tool === "select"}
-            icon={MousePointer2}
-            label="Select"
-            shortcut="V"
-            onClick={(e) => arm("select", e)}
-          />
-          <ToolButton
-            id="hand"
-            active={tool === "hand"}
-            icon={Hand}
-            label="Hand"
-            shortcut="H"
-            onClick={(e) => arm("hand", e)}
-          />
-          {/* No letter: Miro's L is the line tool. */}
-          <ToolButton id="lasso" active={tool === "lasso"} icon={Lasso} label="Lasso select" onClick={(e) => arm("lasso", e)} />
+          {NAVIGATION_TOOLS.map((id) => (
+            <ToolButton
+              key={id}
+              id={id}
+              active={tool === id}
+              icon={NAVIGATION_ICONS[id]}
+              label={toolLabel(id)}
+              shortcut={NAVIGATION_SHORTCUTS[id]}
+              onClick={(e) => arm(id, e)}
+            />
+          ))}
         </ToolGroup>
 
         {/* View and comment access: navigation only, no creation tools. */}

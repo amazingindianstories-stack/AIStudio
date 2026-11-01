@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { frameChildren, frameOrderEdits, frameTitle, moveInOrder, moveInOrderLocked, orderedFrames, organizeFrameEdits } from "./frames.js";
+import { frameChildren, frameOrderEdits, frameTitle, moveInOrder, moveInOrderLocked, orderedFrames, organizeFrameEdits, reorderFrameEdits } from "./frames.js";
+import { isLocked } from "./locks.js";
 
 const frame = (id, x, y, extra = {}) => ({ id, type: "frame", name: id, x, y, w: 200, h: 100, parentId: null, groupId: null, ...extra });
 
@@ -59,4 +60,48 @@ test("reordering around a locked frame keeps it in its slot", () => {
   assert.deepEqual(moveInOrderLocked(["a", "b", "c"], ["a"], null, locked), ["a", "b", "c"]);
   assert.deepEqual(moveInOrderLocked(["a", "b", "c"], ["b"], null, locked), ["a", "c", "b"]);
   assert.deepEqual(moveInOrderLocked(["a", "b", "c"], ["c"], "b", new Set()), ["a", "c", "b"]);
+});
+
+// The board after `edits` as the store saves them: edits to locked objects are dropped.
+const saved = (board, edits) => ({ ...board, nodes: board.nodes.map((n) => (isLocked(board, n) ? n : edits.get(n.id) ?? n)) });
+const order = (board) => orderedFrames(board).map((f) => f.id);
+
+test("a reorder that would move an unplaced locked frame is refused instead of sending it last", () => {
+  const board = { nodes: [frame("a", 0, 0, { locked: true }), frame("b", 400, 0), frame("c", 800, 0)], connectors: [] };
+  // Saving c first would give a no place while b and c get one, so a would read last (c, b, a).
+  assert.equal(reorderFrameEdits(board, ["c"], "a"), null);
+  assert.equal(reorderFrameEdits(board, ["c"], "b"), null);
+  // b cannot pass the locked a: nothing changes and nothing is sent.
+  assert.equal(reorderFrameEdits(board, ["b"], "a").size, 0);
+});
+
+test("reordering around a placed locked frame keeps it in its slot once saved", () => {
+  const board = { nodes: [frame("a", 0, 0, { locked: true, frameOrder: 0 }), frame("b", 400, 0, { frameOrder: 1 }), frame("c", 800, 0, { frameOrder: 2 })], connectors: [] };
+  assert.deepEqual(order(saved(board, reorderFrameEdits(board, ["c"], "a"))), ["a", "c", "b"]);
+  assert.deepEqual(order(saved(board, reorderFrameEdits(board, ["b"], null))), ["a", "c", "b"]);
+  // Without locks every frame gets a place.
+  const open = { nodes: [frame("a", 0, 0), frame("b", 400, 0), frame("c", 800, 0)], connectors: [] };
+  assert.deepEqual(order(saved(open, reorderFrameEdits(open, ["c"], "a"))), ["c", "a", "b"]);
+});
+
+test("organize leaves locked frames and their contents in place, and locked contents of moved frames", () => {
+  const board = {
+    nodes: [
+      frame("one", 0, 0, { frameOrder: 0, locked: true }),
+      frame("two", 5000, 3000, { frameOrder: 1 }),
+      frame("three", 900, 900, { frameOrder: 2 }),
+      { id: "inLocked", type: "sticky", x: 10, y: 10, w: 50, h: 50, parentId: "one", groupId: null },
+      { id: "pinned", type: "sticky", x: 5010, y: 3010, w: 50, h: 50, parentId: "two", groupId: null, locked: true },
+      { id: "free", type: "sticky", x: 5100, y: 3010, w: 50, h: 50, parentId: "two", groupId: null },
+    ],
+    connectors: [],
+  };
+  const edits = organizeFrameEdits(board, 80);
+  assert.deepEqual([...edits.keys()].sort(), ["free", "three", "two"]);
+  // The unlocked frames form the grid from their own top-left corner.
+  assert.deepEqual([edits.get("two").x, edits.get("two").y], [900, 900]);
+  assert.deepEqual([edits.get("three").x, edits.get("three").y], [1180, 900]);
+  assert.deepEqual([edits.get("free").x, edits.get("free").y], [1000, 910]);
+  const allLocked = { nodes: [frame("x", 0, 0, { locked: true }), frame("y", 900, 0, { locked: true })], connectors: [] };
+  assert.equal(organizeFrameEdits(allLocked).size, 0);
 });

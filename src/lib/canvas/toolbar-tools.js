@@ -1,10 +1,10 @@
 /**
  * The creation tools in the board's tool dock and each person's own
- * arrangement of them: which are pinned and in what order. Select and Hand
- * always lead the dock; number keys 1 to 9 pick tools in dock order.
+ * arrangement of them: which are pinned and in what order. Select, Hand and
+ * Lasso always lead the dock; number keys 1 to 9 pick tools in dock order.
  */
 
-export const NAVIGATION_TOOLS = ["select", "hand"];
+export const NAVIGATION_TOOLS = ["select", "hand", "lasso"];
 
 /** Every creation tool the dock can show, in the default order. */
 export const CREATION_TOOLS = [
@@ -72,5 +72,6 @@ export function placeToolBefore(prefs, id, beforeId) {
 export function toolLabel(id) {
   if (id === "select") return "Select";
   if (id === "hand") return "Hand";
+  if (id === "lasso") return "Lasso select";
   return CREATION_TOOLS.find((t) => t.id === id)?.label ?? id;
 }

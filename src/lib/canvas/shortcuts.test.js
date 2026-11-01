@@ -202,7 +202,6 @@ test("keyboard navigation skips objects outside the focused diagram", () => {
   assert.deepEqual(ctx.calls, [["select", ["diagram"]]]);
 });
 
-
 test("Alt+Arrow duplicates while Alt+Shift+Arrow resizes", () => {
   const ctx = context();
   ctx.store.selection = ["note"];
@@ -211,4 +210,25 @@ test("Alt+Arrow duplicates while Alt+Shift+Arrow resizes", () => {
   assert.equal(dispatchShortcut(keydown("ArrowRight", { alt: true }), ctx), true);
   assert.equal(dispatchShortcut(keydown("ArrowDown", { alt: true, shift: true }), ctx), true);
   assert.deepEqual(ctx.calls, [["duplicate", "right"], ["resize", "se", 0, 10, false]]);
+});
+
+test("Alt+Arrow and Cmd+Backspace leave an image being cropped alone", () => {
+  const ctx = context();
+  ctx.store.selection = ["photo"];
+  ctx.store.croppingImageId = "photo";
+  ctx.store.duplicateSelectionToward = () => assert.fail("duplicated while cropping");
+  ctx.store.clearSelectedContent = () => assert.fail("cleared text while cropping");
+  assert.equal(dispatchShortcut(keydown("ArrowRight", { alt: true }), ctx), false);
+  assert.equal(dispatchShortcut(keydown("Backspace", { meta: true }), ctx), false);
+});
+
+test("Cmd+Shift+L locks or unlocks a selection, for editors only", () => {
+  const ctx = context({ toggleLock: () => ctx.calls.push(["lock"]) });
+  assert.equal(dispatchShortcut(keydown("l", { meta: true, shift: true }), ctx), false);
+  ctx.store.selection = ["note"];
+  assert.equal(dispatchShortcut(keydown("l", { meta: true, shift: true }), ctx), true);
+  assert.deepEqual(ctx.calls, [["lock"]]);
+  const viewer = context({ canEdit: false, store: { ...context().store, selection: ["note"] }, toggleLock: () => assert.fail("viewer locked") });
+  assert.equal(dispatchShortcut(keydown("l", { meta: true, shift: true }), viewer), false);
+  assert.ok(shortcutEntries().some((e) => e.id === "edit.lock" && e.keys.includes("Mod+Shift+L")));
 });

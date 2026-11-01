@@ -9,11 +9,19 @@ import { prefersReducedMotion, useViewPrefs } from "@/lib/canvas/view-prefs";
 import { ZOOM_STEP, keyboardZoomDirection, zoomAboutCenter } from "@/lib/canvas/viewport-nav";
 import { exitFullscreen } from "./use-board-fullscreen";
 
+// Holding M or G down toggles once, not on every key repeat. Zoom keys are
+// handled below (they also stop the browser zooming the page) and listed here.
 registerShortcuts([
+  { id: "view.zoomIn", group: "View", label: "Zoom in", keys: ["Mod+="] },
+  { id: "view.zoomOut", group: "View", label: "Zoom out", keys: ["Mod+-"] },
   { id: "view.minimap", group: "View", label: "Toggle minimap", keys: ["M"], touch: true,
-    run: () => useViewPrefs.getState().togglePref("minimap") },
+    run: (ctx, e) => (e.repeat ? false : useViewPrefs.getState().togglePref("minimap")) },
   { id: "view.grid", group: "View", label: "Cycle grid", keys: ["G"], touch: true,
-    run: () => { const prefs = useViewPrefs.getState(); prefs.setPref("grid", nextGridStyle(prefs.grid)); } },
+    run: (ctx, e) => {
+      if (e.repeat) return false;
+      const prefs = useViewPrefs.getState();
+      prefs.setPref("grid", nextGridStyle(prefs.grid));
+    } },
 ]);
 
 function typingInto(target) {
@@ -48,9 +56,7 @@ export function useBoardView() {
         if (!state.loaded || !state.boardId) return;
         const factor = direction > 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
         state.setViewport(zoomAboutCenter(state.history.present.viewport, factor, state.viewportSize()));
-        return;
       }
-
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
