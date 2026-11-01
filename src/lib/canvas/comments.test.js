@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { bodyParts, insertMention, mentionQueryAt, mentionToken, mergeComments, mentionsUser, newestUpdate, pinPosition, plainBody, threadAnchor,
+import { bodyParts, driftedAnchors, insertMention, moveAnchor, mentionQueryAt, mentionToken, mergeComments, mentionsUser, newestUpdate, pinPosition, plainBody, threadAnchor,
   threadsOf, unreadIds, unreadThreads, visibleThreads } from "./comments.js";
 
 const ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
@@ -69,4 +69,22 @@ test("unread state is counted per thread and resolved threads hide unless asked 
   assert.equal(visibleThreads(threads, { showResolved: true }).length, 2);
   assert.equal(mentionsUser({ mentions: { users: [ID] } }, ID.toUpperCase()), true);
   assert.equal(mentionsUser({}, ID), false);
+});
+
+test("a thread falls back to its object's last position after the object is deleted", () => {
+  const root = comment(ID, { anchor: { nodeId: "n1", dx: 5, dy: 6 }, x: 105, y: 106 });
+  const moved = new Map([["n1", { id: "n1", x: 300, y: 400 }]]);
+  // The object moved: the stored fallback is stale and a refresh is due, anchor unchanged.
+  assert.deepEqual(driftedAnchors([{ root }], moved), [{ id: ID, body: { anchorNodeId: "n1", anchorDx: 5, anchorDy: 6, x: 305, y: 406 } }]);
+  // Once stored, nothing more to refresh, and deleting the object leaves the pin at that last position.
+  const stored = { ...root, x: 305, y: 406 };
+  assert.deepEqual(driftedAnchors([{ root: stored }], moved), []);
+  assert.deepEqual(pinPosition(stored, new Map()), { x: 305, y: 406, attached: false });
+  // Free-standing and deleted threads never drift.
+  assert.deepEqual(driftedAnchors([{ root: comment("b", { x: 1, y: 2 }) }, { root: { ...root, deleted: true } }], moved), []);
+});
+
+test("dragging a pin re-anchors it onto an object or detaches it on empty canvas", () => {
+  assert.deepEqual(moveAnchor({ x: 50, y: 60 }, { id: "n2", x: 40, y: 40 }), { anchorNodeId: "n2", anchorDx: 10, anchorDy: 20, x: 50, y: 60 });
+  assert.deepEqual(moveAnchor({ x: 50, y: 60 }, null), { anchorNodeId: null, anchorDx: null, anchorDy: null, x: 50, y: 60 });
 });

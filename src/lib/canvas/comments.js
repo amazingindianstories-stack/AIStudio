@@ -86,6 +86,27 @@ export function pinPosition(root, nodesById) {
   return { x: root.x, y: root.y, attached: false };
 }
 
+/**
+ * Threads whose stored fallback position no longer matches where their object put them: `{ id, body }` with the
+ * unchanged anchor and the fresh x/y. Keeping x/y current means a thread whose object is deleted stays where
+ * the object last was.
+ */
+export function driftedAnchors(threads, nodesById, tolerance = 1) {
+  const drifted = [];
+  for (const { root } of threads) {
+    const position = root.deleted ? null : pinPosition(root, nodesById);
+    if (!position?.attached) continue;
+    if (root.x != null && root.y != null && Math.abs(root.x - position.x) <= tolerance && Math.abs(root.y - position.y) <= tolerance) continue;
+    drifted.push({ id: root.id, body: { anchorNodeId: root.anchor.nodeId, anchorDx: root.anchor.dx ?? 0, anchorDy: root.anchor.dy ?? 0, x: position.x, y: position.y } });
+  }
+  return drifted;
+}
+
+/** The request body that drops a thread at `world`: attached to `node` when one is under it, else free-standing. */
+export function moveAnchor(world, node) {
+  return node ? threadAnchor(world, node) : { anchorNodeId: null, anchorDx: null, anchorDy: null, x: world.x, y: world.y };
+}
+
 /** The request body for a new thread dropped at `world`, attached to `node` when one is under it. */
 export function threadAnchor(world, node) {
   return node

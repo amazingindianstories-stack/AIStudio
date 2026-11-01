@@ -93,8 +93,10 @@ export function TextMentionPicker({ editorRef }) {
     };
     editor.addEventListener("input", refresh);
     editor.addEventListener("keydown", onKey);
-    editor.addEventListener("blur", () => setOpen(null));
+    const close = () => setOpen(null);
+    editor.addEventListener("blur", close);
     return () => {
+      editor.removeEventListener("blur", close);
       editor.removeEventListener("input", refresh);
       editor.removeEventListener("keydown", onKey);
     };

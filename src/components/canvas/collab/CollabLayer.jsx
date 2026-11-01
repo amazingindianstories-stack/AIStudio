@@ -5,7 +5,7 @@ import { Eye, EyeOff, MessageSquare, MessageSquarePlus } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import { useCanvasStore } from "@/lib/canvas-store";
-import { canCommentRole, canShareRole } from "@/lib/board-access";
+import { canCommentRole, canEditRole, canShareRole } from "@/lib/board-access";
 import { pinPosition, unreadThreads } from "@/lib/canvas/comments";
 import { useCommentsStore } from "@/lib/canvas/comments-store";
 import { useBoardPolling } from "@/lib/canvas/use-board-polling";
@@ -122,7 +122,7 @@ export function CollabLayer({ boardId, onOpenBoard, insetRight = 16 }) {
   return (
     <div ref={box} className="pointer-events-none absolute inset-0 z-20">
       {ready && size.w > 0 && (
-        <CommentPins boardId={boardId} people={people} currentUserId={currentUser?.id} canComment={canComment} canManage={canShareRole(boardRole)} size={size} />
+        <CommentPins boardId={boardId} people={people} currentUserId={currentUser?.id} canComment={canComment} canManage={canShareRole(boardRole)} canMove={canEditRole(boardRole)} size={size} />
       )}
       {ready && panelOpen && <CommentsPanel people={people} onClose={() => useCommentsStore.getState().setPanelOpen(false)} />}
       <div className="pointer-events-auto absolute top-16 z-30 flex items-center gap-1 rounded-xl border border-line bg-ink-800/95 p-1 shadow-panel" style={{ right: insetRight }}>

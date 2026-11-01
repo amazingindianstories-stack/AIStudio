@@ -74,6 +74,23 @@ test('Board comments: pin a comment on an object, mention a teammate, reply, rea
   await expect(owner.page.locator('[data-pin]')).toHaveCount(1);
   await info.attach('owner-comment', { body: await owner.page.screenshot(), contentType: 'image/png' });
 
+  // Dragging the pin onto empty canvas detaches it; dragging it onto the sticky attaches it again.
+  const pin = owner.page.locator('[data-pin]');
+  const dragPinTo = async (x, y) => {
+    const box = await pin.boundingBox();
+    await owner.page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await owner.page.mouse.down();
+    await owner.page.mouse.move(x, y, { steps: 8 });
+    await owner.page.mouse.up();
+  };
+  const anchorNode = async () => (await (await owner.context.request.get(`${boardPath}/comments`)).json()).comments[0].anchor?.nodeId ?? null;
+  expect(await anchorNode()).not.toBeNull();
+  await dragPinTo(900, 600);
+  await expect.poll(anchorNode, { timeout: 15000 }).toBeNull();
+  await dragPinTo(460, 430);
+  await expect.poll(anchorNode, { timeout: 15000 }).not.toBeNull();
+  await expect(thread).toContainText('Please check this');
+
   // The teammate sees an unread pin and a bell notification for the mention.
   const mate = await signIn(browser, baseURL, MATE, project.id);
   await openBoard(mate.page);

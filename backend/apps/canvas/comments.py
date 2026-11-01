@@ -115,6 +115,8 @@ def list_comments(user, board, since=None):
     rows = BoardComment.objects.filter(board_id=board['id'])
     if since is not None:
         rows = rows.filter(updated_at__gte=since - POLL_OVERLAP_MS)
+    else:
+        rows = rows.filter(deleted_at__isnull=True)
     return _serialize(user, list(rows.order_by('created_at', 'id').values(*FIELDS)[:MAX_COMMENTS_PER_BOARD]))
 
 
@@ -145,11 +147,12 @@ def create(user, board, data):
                 raise CommentError('This thread is full.', 409)
             fields = {'parent': parent}
         else:
-            if BoardComment.objects.filter(board_id=board['id'], parent__isnull=True, deleted_at__isnull=True).count() >= MAX_COMMENTS_PER_BOARD:
-                raise CommentError('This board has too many comments.', 409)
             node, dx, dy, x, y = _anchor(data)
             fields = {'anchor_node_id': node, 'anchor_dx': dx, 'anchor_dy': dy, 'x': x, 'y': y}
             parent = None
+        # Live roots and replies together stay within what one full load returns, so a load never drops the newest.
+        if BoardComment.objects.filter(board_id=board['id'], deleted_at__isnull=True).count() >= MAX_COMMENTS_PER_BOARD:
+            raise CommentError('This board has too many comments.', 409)
         comment = BoardComment.objects.create(board_id=board['id'], author_id=user.id, body=body, color=color if parent is None else None,
                                               mentions=mentions, created_at=now, updated_at=now, **fields)
         thread = parent or comment
@@ -162,17 +165,6 @@ def create(user, board, data):
     return _serialize(user, [BoardComment.objects.filter(pk=comment.pk).values(*FIELDS).get()])[0]
 
 
-def _owned(user, board, comment_id):
-    """The live comment, for its author or a board sharer; the author must still be able to comment."""
-    row = BoardComment.objects.filter(pk=comment_id, board_id=board['id'], deleted_at__isnull=True).first() \
-        if isinstance(comment_id, str) and re.fullmatch(r'[0-9a-fA-F-]{36}', comment_id) else None
-    if row is None:
-        raise CommentError('Comment not found.', 404)
-    if row.author_id != user.id and access.role_for(user, board) < access.SHARE:
-        raise CommentError('FORBIDDEN', 403)
-    return row
-
-
 def _live(board, comment_id):
     row = BoardComment.objects.filter(pk=comment_id, board_id=board['id'], deleted_at__isnull=True).first() \
         if isinstance(comment_id, str) and re.fullmatch(r'[0-9a-fA-F-]{36}', comment_id) else None
@@ -181,8 +173,25 @@ def _live(board, comment_id):
     return row
 
 
+def _owned(user, board, comment_id, sharers_too=False):
+    """The live comment, for its author; with `sharers_too` (deleting) also for a board sharer or admin.
+    Editing is the author's alone: nobody changes words shown under another person's name."""
+    row = _live(board, comment_id)
+    if row.author_id != user.id and not (sharers_too and access.role_for(user, board) >= access.SHARE):
+        raise CommentError('FORBIDDEN', 403)
+    return row
+
+
 def update(user, board, comment_id, data):
-    row = _owned(user, board, comment_id)
+    moving = {'anchorNodeId', 'anchorDx', 'anchorDy', 'x', 'y'}
+    words = any(key in data for key in ('body', 'color'))
+    if words or not any(key in data for key in moving):
+        row = _owned(user, board, comment_id)
+    else:
+        # Where a pin sits is not the author's words: an editor moves it with its object or drags it elsewhere.
+        row = _live(board, comment_id)
+        if row.author_id != user.id and access.role_for(user, board) < access.EDIT:
+            raise CommentError('FORBIDDEN', 403)
     now = now_ms()
     changes = {}
     if 'body' in data:
@@ -205,10 +214,13 @@ def update(user, board, comment_id, data):
 
 
 def delete(user, board, comment_id):
-    row = _owned(user, board, comment_id)
+    row = _owned(user, board, comment_id, sharers_too=True)
     now = now_ms()
     with transaction.atomic():
-        BoardComment.objects.filter(models.Q(pk=row.pk) | models.Q(parent=row.pk)).update(deleted_at=now, updated_at=now)
+        gone = models.Q(pk=row.pk) | models.Q(parent=row.pk)
+        # A deleted comment's words leave the bell and push too.
+        notifications.comments_deleted(list(BoardComment.objects.filter(gone).values_list('pk', flat=True)))
+        BoardComment.objects.filter(gone).update(deleted_at=now, updated_at=now)
         if row.parent_id:
             BoardComment.objects.filter(pk=row.parent_id).update(updated_at=now)
     return {'id': str(row.pk)}

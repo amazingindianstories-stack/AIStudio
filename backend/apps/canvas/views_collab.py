@@ -1,5 +1,5 @@
 """Routes for board comments, presence and the notification feed. Reading needs view access; commenting needs
-comment access (viewers cannot comment); a comment's author or a board sharer edits and deletes it."""
+comment access (viewers cannot comment); only a comment's author edits it, and its author or a board sharer deletes it."""
 import re
 from . import access, comments, notifications, push
 from .views import UUID_PATTERN, body, failure, node_route, property_of, reply

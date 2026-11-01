@@ -7,7 +7,7 @@ from apps.authentication.models import User
 from apps.authentication.session import sign_session
 from apps.projects.models import Project, ProjectMember
 from . import comments, push
-from .collab_models import BoardComment, BoardPresence, Notification, PushSubscription
+from .collab_models import BoardComment, BoardPresence, CommentFollow, Notification, PushSubscription
 from .models import BoardMember, CanvasBoard
 from .test_roles import BOARD, PROJECT, make_user
 
@@ -86,7 +86,8 @@ class CollabTests(TransactionTestCase):
         self.assertEqual(self.send('post', f"{self.base}/comments/{root['id']}/react", {'emoji': 'x'}).status_code, 400)
         self.as_user(self.owner)   # the board owner may delete anyone's comment
         self.assertEqual(self.send('delete', f"{self.base}/comments/{root['id']}").status_code, 200)
-        listed = {c['id']: c for c in self.send('get', self.base + '/comments').json()['comments']}
+        self.assertEqual(self.send('get', self.base + '/comments').json()['comments'], [])   # a full load omits tombstones
+        listed = {c['id']: c for c in self.send('get', self.base + '/comments?since=0').json()['comments']}
         self.assertTrue(listed[root['id']]['deleted'] and listed[reply['id']]['deleted'])
         self.assertEqual(listed[root['id']]['body'], '')
 
@@ -204,9 +205,56 @@ class CollabTests(TransactionTestCase):
 
     def test_deleting_the_board_removes_collaboration_rows(self):
         _, root = self.post(self.mate, f'x {mention(self.third)}')
+        self.as_user(self.third)
+        self.send('post', self.base + '/comments/follow', {'follow': True})
+        self.assertTrue(CommentFollow.objects.filter(board_id=BOARD, thread__isnull=True).exists())
         from . import services
         services.delete_board(BOARD)
-        self.assertEqual((BoardComment.objects.count(), Notification.objects.count()), (0, 0))
+        self.assertEqual((BoardComment.objects.count(), Notification.objects.count(), CommentFollow.objects.count()), (0, 0, 0))
+
+    def test_a_sharer_cannot_edit_another_persons_comment_but_can_delete_it(self):
+        _, root = self.post(self.mate, f'quote {mention(self.third)}')
+        self.as_user(self.owner)
+        refused = self.send('patch', f"{self.base}/comments/{root['id']}", {'body': 'words in their mouth'})
+        self.assertEqual(refused.status_code, 403)
+        self.assertEqual(BoardComment.objects.get(pk=root['id']).body, f'quote {mention(self.third)}')
+        self.assertEqual(self.send('delete', f"{self.base}/comments/{root['id']}").status_code, 200)
+
+    def test_moving_a_pin_needs_edit_access_or_being_its_author_and_never_changes_words(self):
+        _, root = self.post(self.owner, 'pin me')
+        url = f"{self.base}/comments/{root['id']}"
+        self.as_user(self.mate)    # an editor keeps the fallback position current
+        moved = self.send('patch', url, {'anchorNodeId': 'n1', 'anchorDx': 1, 'anchorDy': 2, 'x': 50, 'y': 60}).json()['comment']
+        self.assertEqual((moved['x'], moved['anchor']['nodeId']), (50.0, 'n1'))
+        detached = self.send('patch', url, {'anchorNodeId': None, 'x': 70, 'y': 80}).json()['comment']
+        self.assertEqual((detached['x'], detached['anchor']), (70.0, None))
+        self.assertEqual(self.send('patch', url, {'body': 'words', 'x': 1, 'y': 1}).status_code, 403)
+        self.as_user(self.third)   # a commenter who is not the author may not
+        self.assertEqual(self.send('patch', url, {'x': 5, 'y': 5}).status_code, 403)
+
+    def test_deleting_or_editing_a_comment_rewrites_its_notifications(self):
+        _, root = self.post(self.mate, f'secret {mention(self.third)}')
+        self.assertEqual(Notification.objects.get(comment_id=root['id']).snippet, 'secret @' + self.third.name)
+        self.as_user(self.mate)
+        self.send('patch', f"{self.base}/comments/{root['id']}", {'body': f'fixed {mention(self.third)}'})
+        self.assertEqual(Notification.objects.get(comment_id=root['id']).snippet, 'fixed @' + self.third.name)
+        self.assertEqual(self.send('delete', f"{self.base}/comments/{root['id']}").status_code, 200)
+        self.assertFalse(Notification.objects.filter(comment_id=root['id']).exists())
+
+    def test_the_full_load_keeps_the_newest_comments_and_omits_tombstones(self):
+        from unittest.mock import patch
+        with patch.object(comments, 'MAX_COMMENTS_PER_BOARD', 3):
+            for index in range(3):
+                self.assertEqual(self.post(self.mate, f'c{index}')[0].status_code, 201)
+            self.assertEqual(self.post(self.mate, 'one too many')[0].status_code, 409)
+            _, newest = self.post(self.mate, 'reply no room', parentId=BoardComment.objects.first().pk.__str__())
+            self.assertIsNone(newest)
+            first = BoardComment.objects.order_by('created_at').first()
+            self.as_user(self.mate)
+            self.send('delete', f'{self.base}/comments/{first.pk}')
+            self.assertEqual(self.post(self.mate, 'newest')[0].status_code, 201)
+            bodies = [c['body'] for c in self.send('get', self.base + '/comments').json()['comments']]
+            self.assertEqual(sorted(bodies), ['c1', 'c2', 'newest'])
 
 
 KEYS = {'VEEVEE_WEB_PUSH_PUBLIC_KEY': 'k', 'VEEVEE_WEB_PUSH_PRIVATE_KEY': push._b64((7).to_bytes(32, 'big')), 'VEEVEE_WEB_PUSH_SUBJECT': 'mailto:ops@example.com'}
@@ -266,6 +314,20 @@ class PushTests(TransactionTestCase):
             self.assertEqual(Notification.objects.filter(pushed_at__isnull=True).count(), 0)
             self.assertEqual(push.send_pending(now=3000, post=post)['sent'], 0)
         self.assertEqual(PushSubscription.objects.count(), 1)
+
+    def test_a_tick_sends_a_bounded_batch_and_leaves_the_rest_pending(self):
+        other = make_user('pusher2')
+        for user in (self.user, other):
+            PushSubscription.objects.create(user_id=user.id, endpoint=ENDPOINT + str(user.id), created_at=1)
+            Notification.objects.create(user_id=user.id, board_id=BOARD, kind='mention', created_at=1000, snippet='s')
+        post = MagicMock(return_value=MagicMock(status_code=201))
+        with self.configure():
+            from unittest.mock import patch
+            with patch.object(push, 'MAX_SENDS_PER_TICK', 1):
+                self.assertEqual(push.send_pending(now=2000, post=post)['sent'], 1)
+                self.assertEqual(Notification.objects.filter(pushed_at__isnull=True).count(), 1)
+                self.assertEqual(push.send_pending(now=3000, post=post)['sent'], 1)
+            self.assertEqual(Notification.objects.filter(pushed_at__isnull=True).count(), 0)
 
     def test_vapid_token_verifies_against_the_public_key(self):
         import time

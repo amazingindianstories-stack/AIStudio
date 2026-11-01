@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlsplit
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -22,6 +23,8 @@ from .services import now_ms
 logger = logging.getLogger('veevee.push')
 BATCH_WINDOW_MS = 10 * 60 * 1000
 MAX_ENDPOINT = 2048
+MAX_SENDS_PER_TICK = 100
+SEND_WORKERS = 16
 # Only the browsers' own push services: a subscription is user input and this server will POST to it.
 PUSH_HOST_SUFFIXES = ('.googleapis.com', '.mozilla.com', '.mozaws.net', '.push.apple.com', '.notify.windows.com')
 
@@ -84,23 +87,37 @@ def unsubscribe(user, endpoint=None):
 
 
 def send_pending(now=None, post=None):
-    """Scheduler job: one empty push per user with notifications not yet pushed; unusable subscriptions are dropped."""
+    """Scheduler job: one empty push per user with notifications not yet pushed; unusable subscriptions are dropped.
+
+    Sends run concurrently and a tick handles at most MAX_SENDS_PER_TICK subscriptions, so a slow push service or an
+    @team mention cannot hold the scheduler loop; users past the cap stay pending for the next tick."""
     settings = config()
     if settings is None:
         return {'ok': True, 'enabled': False}
     now = now_ms() if now is None else now
-    post = post or (lambda endpoint, headers: requests.post(endpoint, headers=headers, timeout=5, allow_redirects=False))
+    post = post or (lambda endpoint, headers: requests.post(endpoint, headers=headers, timeout=(2, 3), allow_redirects=False))
     pending = Notification.objects.filter(pushed_at__isnull=True, created_at__gte=now - BATCH_WINDOW_MS)
     users = set(pending.values_list('user_id', flat=True)[:500])
+    subscriptions = list(PushSubscription.objects.filter(user_id__in=users).order_by('user_id', 'pk')[:MAX_SENDS_PER_TICK])
     sent = dropped = 0
-    for subscription in PushSubscription.objects.filter(user_id__in=users)[:500]:
-        if not allowed_endpoint(subscription.endpoint):
+    usable = []
+    for subscription in subscriptions:
+        if allowed_endpoint(subscription.endpoint):
+            usable.append(subscription)
+        else:
             subscription.delete()
             dropped += 1
-            continue
+
+    def deliver(subscription):
         try:
-            response = post(subscription.endpoint, vapid_headers(subscription.endpoint, *settings))
+            return post(subscription.endpoint, vapid_headers(subscription.endpoint, *settings))
         except requests.RequestException:
+            return None
+
+    with ThreadPoolExecutor(max_workers=SEND_WORKERS) as pool:
+        responses = list(pool.map(deliver, usable))
+    for subscription, response in zip(usable, responses):
+        if response is None:
             continue
         if response.status_code in (404, 410):
             subscription.delete()
@@ -109,5 +126,8 @@ def send_pending(now=None, post=None):
             sent += 1
         else:
             logger.warning('push refused status=%s', response.status_code)
-    Notification.objects.filter(pk__in=list(pending.filter(user_id__in=users).values_list('pk', flat=True)[:5000])).update(pushed_at=now)
+    # Users whose subscriptions did not all fit in this tick keep their notifications pending.
+    deferred = set(PushSubscription.objects.filter(user_id__in=users).exclude(pk__in=[s.pk for s in subscriptions]).values_list('user_id', flat=True))
+    done = users - deferred
+    Notification.objects.filter(pk__in=list(pending.filter(user_id__in=done).values_list('pk', flat=True)[:5000])).update(pushed_at=now)
     return {'ok': True, 'enabled': True, 'sent': sent, 'dropped': dropped}

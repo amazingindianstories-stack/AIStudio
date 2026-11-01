@@ -72,12 +72,18 @@ def comment_posted(actor, board, comment, thread, body, mentions):
 def comment_edited(actor, board, row, mentions, body):
     """An edit notifies only people it newly mentions."""
     from .comments import plain
+    Notification.objects.filter(comment_id=row.pk).update(snippet=plain(body))
     already = set(Notification.objects.filter(comment_id=row.pk, kind='mention').values_list('user_id', flat=True))
     fresh = mentioned(board, mentions, actor.id) - already
     thread = BoardComment.objects.get(pk=row.parent_id) if row.parent_id else row
     for user_id in fresh:
         CommentFollow.objects.get_or_create(board_id=board['id'], user_id=user_id, thread=thread)
     _write(board, row, thread, 'mention', actor, plain(body), fresh, now_ms())
+
+
+def comments_deleted(comment_ids):
+    """Remove the notifications that quote deleted comments."""
+    Notification.objects.filter(comment_id__in=comment_ids).delete()
 
 
 def unread_count(user):

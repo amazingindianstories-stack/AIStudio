@@ -66,9 +66,9 @@ export function NotificationBell({ boardId, onOpen }) {
   }, [open]);
 
   const readAll = async () => {
-    await markNotificationsRead(tab === "all" ? {} : { boardId: tab }).catch(() => {});
+    const result = await markNotificationsRead(tab === "all" ? {} : { boardId: tab }).catch(() => null);
     setItems((current) => current.map((item) => ({ ...item, read: true })));
-    useCommentsStore.setState({ unread: 0 });
+    if (typeof result?.unread === "number") useCommentsStore.setState({ unread: result.unread });
     void load();
   };
   const choose = (item) => {
