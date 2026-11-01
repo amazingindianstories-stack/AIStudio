@@ -109,9 +109,9 @@ function occupied(canvas, exclude = []) {
 }
 
 /** The nodes and connectors a finished job builds at `center`: a format builds either nodes or a graph of both. */
-function buildResult(format, job, canvas, center) {
+function buildResult(format, job, canvas, center, inPlace = false) {
   if (format.graph) {
-    return format.graph(job, center, canvas.history.present, canvas.selection);
+    return format.graph(job, center, canvas.history.present, canvas.selection, inPlace);
   }
   return { nodes: format.nodes?.(job, center) ?? [], connectors: [] };
 }
@@ -347,7 +347,7 @@ async function claimAndInsert(get, set, job, mine, chosen) {
   const replaceIds = refines ? previous.nodeIds : [];
   const previousCenter = refines ? placedCenter(canvas.history.present.nodes, replaceIds) : null;
   // A refinement takes the place of the result it refines; a new result goes to free space near the viewport centre.
-  const built = buildResult(format, job, canvas, previousCenter ?? canvas.viewportCenter());
+  const built = buildResult(format, job, canvas, previousCenter ?? canvas.viewportCenter(), Boolean(previousCenter));
   const nodes = previousCenter ? built.nodes : inFreeSpace(built.nodes, occupied(canvas, replaceIds));
   let marked;
   try {

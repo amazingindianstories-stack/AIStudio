@@ -1,7 +1,8 @@
 // Board nodes built from the structured results of the diagram and board layout AI formats (backend/apps/agents/board.py).
 // Pure: positions come from the result and a centre, never from the DOM.
 
-import { nodeText } from "./ai-selection.js";
+import { MAX_CONTEXT_TEXT, nodeText } from "./ai-selection.js";
+import { lockedIdSet } from "./locks.js";
 
 export const STICKY_FILLS = {
   yellow: "#e3c56a",
@@ -152,10 +153,11 @@ export function layoutGraph(result, center) {
 }
 
 /** One text note holding a generated summary, to the right of the selected objects (or at `center` with none). */
-export function summaryGraph(result, present, selectionIds, center) {
-  const selected = present.nodes.filter((node) => selectionIds.includes(node.id));
+export function summaryGraph(result, present, selectionIds, center, inPlace = false) {
+  // A refinement takes the place of the note it refines (centred on it), rather than stepping right of the selection.
+  const selected = inPlace ? [] : present.nodes.filter((node) => selectionIds.includes(node.id));
   const right = selected.length ? Math.max(...selected.map((node) => node.x + node.w)) + FRAME_GAP : center.x - 180;
-  const top = selected.length ? Math.min(...selected.map((node) => node.y)) : center.y - 120;
+  const top = selected.length ? Math.min(...selected.map((node) => node.y)) : center.y - 160;
   const body = `${result.title}\n\n${result.body}`;
   return {
     nodes: [{ id: newId(), type: "sticky", x: right, y: top, w: 360, h: 320, text: body, fill: STICKY_FILLS.blue, fontSize: 16, color: "#1c1a12",
@@ -167,11 +169,13 @@ export function summaryGraph(result, present, selectionIds, center) {
 /** `present` with the AI's edited text written onto the selected objects it names (their rich-text marks no longer fit). */
 export function applyRewrite(present, result) {
   const edits = new Map((result?.items ?? []).map((item) => [item.id, item.text]));
+  const locked = lockedIdSet(present);
   const touched = [];
   const nodes = present.nodes.map((node) => {
-    if (!edits.has(node.id) || node.locked) return node;
+    if (!edits.has(node.id) || locked.has(node.id)) return node;
     const text = edits.get(node.id);
-    if (text === nodeText(node)) return node;
+    // The AI only saw the first MAX_CONTEXT_TEXT characters, so a longer text is left alone rather than cut short.
+    if (text === nodeText(node) || nodeText(node).trim().length > MAX_CONTEXT_TEXT) return node;
     touched.push(node.id);
     if (node.type === "frame") return { ...node, name: text };
     const { marks: _marks, ...rest } = node;
@@ -184,7 +188,8 @@ export function applyRewrite(present, result) {
 export function applyCluster(present, result) {
   const groups = result?.groups ?? [];
   const byId = new Map(present.nodes.map((node) => [node.id, node]));
-  const members = groups.map((group) => ({ title: group.title, nodes: group.ids.map((id) => byId.get(id)).filter((node) => node && node.type === "sticky" && !node.locked) }));
+  const locked = lockedIdSet(present);
+  const members = groups.map((group) => ({ title: group.title, nodes: group.ids.map((id) => byId.get(id)).filter((node) => node && node.type === "sticky" && !locked.has(node.id)) }));
   const moved = members.flatMap((group) => group.nodes);
   if (!moved.length) return { present, touched: [] };
   const left = Math.min(...moved.map((node) => node.x));

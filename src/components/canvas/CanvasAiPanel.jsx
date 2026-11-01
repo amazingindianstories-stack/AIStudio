@@ -31,8 +31,9 @@ export function panelRequest({ format, prompt, processing = "basic", model, aspe
   if (!text) return null;
   const request = { format, prompt: text, processing };
   if (parentJobId) request.parentJobId = parentJobId;
-  // The selection: text context, or reference images for a new image (a refinement edits its own image).
-  if (extra && !(format === "image" && parentJobId)) Object.assign(request, extra);
+  // The selection: text context, or reference images for a new image. A refinement continues its own result, so it
+  // sends none (the server ignores it, and a large selection would be rejected for nothing).
+  if (extra && !parentJobId) Object.assign(request, extra);
   // A refinement keeps the image's own model and aspect ratio (it edits that image).
   if (format === "image" && !parentJobId) {
     if (model) request.model = model;
@@ -113,12 +114,12 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
   // A one-click action (context menu): fill the prompt; the person still presses Generate.
   useEffect(() => {
     if (!preset) return;
-    if (!placed) {
-      setAction(preset.format ? preset : null);
-      setPrompt(preset.prompt ?? "");
-    }
+    // A menu action starts a new request, so it leaves any result being refined behind.
+    if (placed) startOver();
+    setAction(preset.format ? preset : null);
+    setPrompt(preset.prompt ?? "");
     consumePreset();
-  }, [preset, placed, consumePreset]);
+  }, [preset, placed, consumePreset, startOver]);
   useEffect(() => () => stopListening.current?.(), []);
 
   const pickAction = (next) => {

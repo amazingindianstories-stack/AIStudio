@@ -121,7 +121,6 @@ Object.assign(AI_FORMATS, {
       "A creative review board for a campaign launch",
     ],
     resultLabel: (result) => `board layout, ${countLabel(result?.frames?.length ?? 0, "frame")}`,
-    replaces: true,
     graph: (job, center) => layoutGraph(job.result, center),
   },
   diagram: {
@@ -137,7 +136,6 @@ Object.assign(AI_FORMATS, {
       "An onboarding flow for a new freelance editor",
     ],
     resultLabel: (result) => `${result?.kind === "mindmap" ? "mind map" : "diagram"}, ${countLabel(result?.nodes?.length ?? 0, "node")}`,
-    replaces: true,
     graph: (job, center) => diagramGraph(job.result, center),
   },
   rewrite: {
@@ -165,7 +163,7 @@ Object.assign(AI_FORMATS, {
     advancedHint: "A stronger text model, for a more considered summary",
     suggestions: [],
     resultLabel: () => "summary note",
-    graph: (job, center, present, selection) => summaryGraph(job.result, present, selection, center),
+    graph: (job, center, present, selection, inPlace) => summaryGraph(job.result, present, selection, center, inPlace),
   },
 });
 

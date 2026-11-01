@@ -79,3 +79,24 @@ test("a summary is one note to the right of the selection and nodes validate as 
   const checked = validateCanvasState({ version: 1, nodes: graph.nodes, connectors: graph.connectors });
   assert.ok(checked, "generated diagram objects are valid board objects");
 });
+
+test("edits skip objects on a locked layer and texts the AI only saw part of", () => {
+  const board = {
+    settings: { layers: [{ id: "L1", name: "Locked", locked: true }] },
+    nodes: [
+      { id: "a", type: "sticky", x: 0, y: 0, w: 200, h: 200, text: "teh cat", layerId: "L1" },
+      { id: "b", type: "sticky", x: 300, y: 0, w: 200, h: 200, text: "x".repeat(2500) },
+      { id: "c", type: "sticky", x: 600, y: 0, w: 200, h: 200, text: "teh dog" },
+    ],
+  };
+  const items = [{ id: "a", text: "the cat" }, { id: "b", text: "short" }, { id: "c", text: "the dog" }];
+  assert.deepEqual(applyRewrite(board, { items }).touched, ["c"]);
+  const clustered = applyCluster(board, { groups: [{ title: "All", ids: ["a", "c"] }] });
+  assert.deepEqual(clustered.touched.filter((id) => ["a", "c"].includes(id)), ["c"]);
+});
+
+test("a refined summary takes the place of the note it refines", () => {
+  const { nodes } = summaryGraph({ title: "Recap", body: "Points" }, present, ["s1"], { x: 1000, y: 1000 }, true);
+  assert.equal(nodes[0].x + nodes[0].w / 2, 1000);
+  assert.equal(nodes[0].y + nodes[0].h / 2, 1000);
+});

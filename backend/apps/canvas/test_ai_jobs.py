@@ -448,7 +448,7 @@ class BoardAiSelectionTests(BoardFixture):
         self.assertEqual(priced.status_code, 200, priced.content)
         self.assertGreaterEqual(priced.json()['quote']['costCents'], plain)
 
-    def test_a_refinement_of_a_layout_keeps_its_first_turn_and_viewers_cannot_use_the_selection_formats(self):
+    def test_a_refinement_of_a_layout_keeps_its_first_turn(self):
         first, _ = self.run_job({'format': 'layout', 'prompt': 'a workshop'}, 'board-key-layout-1')
         refined = self.submit({'format': 'layout', 'prompt': 'add risks', 'parentJobId': first['id']}, key='board-key-layout-2')
         self.assertEqual(refined.status_code, 201, refined.content)
