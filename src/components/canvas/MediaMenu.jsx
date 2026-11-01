@@ -262,7 +262,7 @@ function FilesDialog({ onClose, viewCenter }) {
       const response = await apiFetch(`/api/canvas-boards/${boardId}/media${before ? `?before=${before}` : ""}`, { cache: "no-store" });
       if (!response.ok) throw new Error();
       const page = await response.json();
-      setFiles((current) => [...current, ...page.files]);
+      setFiles((current) => (before ? [...current, ...page.files] : page.files));
       setNext(page.next);
       setState("ready");
     } catch {
@@ -279,7 +279,7 @@ function FilesDialog({ onClose, viewCenter }) {
         {files.map((file) => <SavedFile key={file.id} file={file} onPick={() => addMedia(mediaNodeFields(file), viewCenter())} />)}
       </div>
       {state === "ready" && !files.length && <p className="py-6 text-center text-sm text-white/45">Files you add to boards are saved here for reuse.</p>}
-      {state === "error" && <p role="alert" className="py-3 text-sm text-red-300">Could not load saved files. <button type="button" className="underline" onClick={() => load(null)}>Try again</button></p>}
+      {state === "error" && <p role="alert" className="py-3 text-sm text-red-300">Could not load saved files. <button type="button" className="underline" onClick={() => load(next)}>Try again</button></p>}
       {next && state !== "loading" && <button type="button" onClick={() => load(next)} className={cn(GHOST, "mt-2 self-start")}>Load more</button>}
       {state === "loading" && <p className="py-3 text-sm text-white/45">Loading…</p>}
     </MediaDialog>

@@ -55,9 +55,7 @@ export function VideoNode({ node, selected }) {
           onError={() => setFailed(true)}
           onPointerDown={selected ? stop : undefined}
           className="min-h-0 w-full flex-1 bg-black object-contain"
-        >
-          {node.captions && <track kind="captions" src={node.captions} srcLang="en" label="English" />}
-        </video>
+        />
       )}
     </div>
   );

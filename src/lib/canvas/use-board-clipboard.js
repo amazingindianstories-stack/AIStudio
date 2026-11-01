@@ -74,13 +74,14 @@ export function useBoardClipboard({ importImageFiles, importLink, touchViewOnly,
       const files = Array.from(data?.files ?? []).filter(isBoardFile);
       event.preventDefault();
       if (files.length) return void importImageFiles(files);
+      const html = data?.getData("text/html") ?? "";
+      if (isBoardCopy(html)) return void state.paste();
       const text = (data?.getData("text/plain") ?? "").trim();
       if (importLink && looksLikeLink(text)) {
         importLink(text).catch((error) => notify(error.message || "Could not add the link."));
         return;
       }
-      const html = data?.getData("text/html") ?? "";
-      const cells = isBoardCopy(html) ? null : clipboardCells(html, data?.getData("text/plain") ?? "");
+      const cells = clipboardCells(html, data?.getData("text/plain") ?? "");
       if (!cells) return void state.paste();
       const { added, truncated } = pasteCellsAsStickies(cells, viewCenter());
       if (truncated) notify(`Added ${added} stickies. Only the first 50 rows and 100 columns are pasted.`);

@@ -152,6 +152,20 @@ test('Board media: embed code, code block, emoji, interactive sticker, icon, upl
   expect(JSON.stringify(board.data)).not.toContain('data:');
   await info.attach('media-objects', { body: await page.screenshot(), contentType: 'image/png' });
 
+  // The board's own copy wins over a link: copied objects whose text is a URL paste as objects, not a link import.
+  const imports = [];
+  page.on('request', (request) => { if (new URL(request.url()).pathname.endsWith('/import-url')) imports.push(request.url()); });
+  await page.locator('[data-media="icon"]').click();
+  await page.keyboard.press('ControlOrMeta+c');
+  await page.evaluate(() => {
+    const data = new DataTransfer();
+    data.setData('text/plain', 'https://example.com/');
+    data.setData('text/html', '<div data-veevee-board-copy="">https://example.com/</div>');
+    document.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
+  });
+  board = await storedBoard(context, boardId, (b) => ofType(b, 'icon').length === 2);
+  expect(imports).toEqual([]);
+
   // A non-allowlisted iframe is refused with a message and adds nothing.
   await media('Link or embed');
   dialog = page.getByRole('dialog', { name: 'Link or embed' });

@@ -211,7 +211,7 @@ export function NodeView({
         }
       })()}
 
-      {node.link && <LinkBadge node={node} href={objectLinkHref(node.link, null)} onOpen={openObjectLink} />}
+      {node.link && <LinkBadge node={node} href={objectLinkHref(node.link)} onOpen={openObjectLink} />}
 
       {showRing && (
         <div

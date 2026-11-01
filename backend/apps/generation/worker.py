@@ -58,7 +58,7 @@ def run_once(*, concurrency=4, limit=25, process=None, stop=None):
     with ThreadPoolExecutor(max_workers=max(1, min(8, int(concurrency)))) as pool:
         results = list(pool.map(lambda identifier: handle_cancel(identifier, stop), cancels))
         results += list(pool.map(lambda item: handle_generation(item, process, stop), due))
-    from apps.canvas.media_files import queued_media, handle_media
+    from apps.canvas.media_files import queued_media
     if not stop.is_set() and (media := queued_media()):
         results.append(handle_media(media.id, stop))
     return {'processed': len(results), 'outcomes': {value: results.count(value) for value in set(results)}}
@@ -89,6 +89,16 @@ def handle_generation(item, process, stop):
         # Do not print provider URLs, prompts, credentials or DB parameters.
         logger.error('generation worker operation failed; receipt and lease retained for recovery')
         return 'worker_error'
+    finally:
+        connections.close_all()
+        release_freed_memory()
+
+
+def handle_media(identifier, stop):
+    """Render one board file (SVG, PSD or PDF pages); see apps.canvas.media_files."""
+    from apps.canvas.media_files import process_media
+    try:
+        return process_media(identifier, stop)
     finally:
         connections.close_all()
         release_freed_memory()
@@ -143,7 +153,7 @@ def run_worker(*, interval=2, concurrency=4, stop=None):
                     # Render at most one board file per process, inside the existing
                     # generation pool. No extra thread, service or browser executor.
                     if free and not any(isinstance(key, str) and key.startswith('board-media:') for key in active.values()):
-                        from apps.canvas.media_files import queued_media, handle_media
+                        from apps.canvas.media_files import queued_media
                         media = queued_media()
                         if media:
                             active[pool.submit(handle_media, media.id, stop)] = 'board-media:' + str(media.id)

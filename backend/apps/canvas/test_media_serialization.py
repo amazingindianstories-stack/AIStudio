@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from django.test import SimpleTestCase
 from .serialization import validate_state
-from .embeds import embed_from_url, embed_from_iframe, classify
+from .embeds import classify
 from .activity import snippet
 
 
@@ -21,8 +21,8 @@ class MediaSerializationTests(SimpleTestCase):
             self.assertEqual(snippet({'type': kind, 'title': 'Theme  song'}), 'Theme song')
 
     def test_provider_addresses_only(self):
-        self.assertEqual(embed_from_url('https://youtu.be/dQw4w9WgXcQ')['src'],
-                         'https://www.youtube.com/embed/dQw4w9WgXcQ')
+        self.assertEqual(classify('https://www.youtube.com/embed/dQw4w9WgXcQ'), {'provider': 'youtube', 'kind': 'video'})
         self.assertIsNone(classify('https://youtube.com.evil.test/embed/dQw4w9WgXcQ'))
-        self.assertIsNone(embed_from_iframe('<iframe src="javascript:alert(1)">'))
-        self.assertIsNone(embed_from_url('http://vimeo.com/1234'))
+        self.assertIsNone(classify('https://youtu.be/dQw4w9WgXcQ'))
+        self.assertIsNone(classify('http://player.vimeo.com/video/1234'))
+        self.assertIsNone(classify('https://w.soundcloud.com/player/'))

@@ -1,7 +1,7 @@
 /**
- * Board embeds: a closed list of providers whose embed pages may be framed on a board. Mirrors
- * backend/apps/canvas/embeds.py, which enforces the same rules on save: a pasted link or iframe code becomes
- * the provider's own embed address, and only such an address is ever framed (sandboxed, see EmbedNode).
+ * Board embeds: a closed list of providers whose embed pages may be framed on a board. A pasted link or
+ * iframe code becomes the provider's own embed address, and only such an address is ever framed (sandboxed,
+ * see EmbedNode). backend/apps/canvas/embeds.py enforces the same address rules on save.
  */
 
 export const MAX_EMBED_SRC = 1024;

@@ -7,11 +7,12 @@ from urllib.parse import urljoin, urlsplit
 from uuid import uuid4
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
+from django.db.models import Q
 from apps.authentication.session import lookup
 from apps.integrations.remote import SafeMediaFetcher, UnsafeMediaURL
 from apps.media.storage import get_storage
 from apps.media.uploads import PURPOSES, LIMITS, _sniff
-from . import access, embeds
+from . import access
 from .models import BoardMedia
 from .media_files import register, describe, RASTER_TYPES
 from .views import node_route, reply, body
@@ -105,23 +106,17 @@ def media_detail(request, identifier, media_id):
 def media_library(request, identifier):
     try:
         actor = board_actor(request, identifier, access.READ)
-        # Same team library as existing media, with the source board's reader
-        # authorization retained. Cursor bounds work even on large libraries.
+        # Same team library as existing media, limited in the query to boards the
+        # actor can read, so every page is full. Cursor bounds work on large libraries.
         before = request.GET.get('before', '')
-        rows = BoardMedia.objects.filter(state='ready').select_related('board').order_by('-created_at', '-id')
+        rows = BoardMedia.objects.filter(state='ready', board_id__in=access.readable_boards(actor)).order_by('-created_at', '-id')
         if before:
             cursor = BoardMedia.objects.filter(pk=before).first()
             if not cursor:
                 return reply(request, {'error': 'Invalid library cursor.'}, 400)
-            from django.db.models import Q
             rows = rows.filter(Q(created_at__lt=cursor.created_at) | Q(created_at=cursor.created_at, id__lt=cursor.id))
-        result, scanned = [], list(rows[:100])
-        levels = access.roles_for(actor, [{'id': row.board_id, 'project_id': row.board.project_id,
-            'created_by': row.board.created_by, 'team_role': row.board.team_role} for row in scanned])
-        for row in scanned:
-            if levels[str(row.board_id)] >= access.READ:
-                result.append(describe(row))
-        return reply(request, {'files': result, 'next': str(scanned[-1].id) if len(scanned) == 100 else None})
+        page = list(rows[:100])
+        return reply(request, {'files': [describe(row) for row in page], 'next': str(page[-1].id) if len(page) == 100 else None})
     except access.AccessError as error:
         return reply(request, {'error': str(error)}, error.status)
     except (ValueError, TypeError, ValidationError):
@@ -135,12 +130,9 @@ def import_url(request, identifier):
         payload = body(request)
         url = payload.get('url', '')
         if not isinstance(url, str) or len(url) > 2048:
-            return reply(request, {'error': 'Enter a public HTTPS URL or supported iframe code.'}, 400)
-        embed = embeds.embed_from_iframe(url) or embeds.embed_from_url(url)
-        if embed:
-            return reply(request, {'node': {'type': 'embed', **embed}})
+            return reply(request, {'error': 'Enter a public HTTPS URL.'}, 400)
         if not url.startswith('https://'):
-            return reply(request, {'error': 'Use a public HTTPS link or an allowlisted media embed.'}, 400)
+            return reply(request, {'error': 'Use a public HTTPS link.'}, 400)
         cache_key = 'canvas-link:' + hashlib.sha256(url.encode()).hexdigest()
         if cached := cache.get(cache_key):
             return reply(request, {'node': cached})

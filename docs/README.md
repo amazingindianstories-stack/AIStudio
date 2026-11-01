@@ -16,6 +16,7 @@
 | [features/board-shapes-rich-text.md](features/board-shapes-rich-text.md) | Board path shapes and the shapes panel, rich-text marks, their format v1 fields and sanitizing |
 | [features/board-stickies-text.md](features/board-stickies-text.md) | Sticky options, tags, emoji votes, authors, stacks, clustering, lists, fonts, colors and styles |
 | [features/board-diagramming.md](features/board-diagramming.md) | Shape packs, custom SVG packs, ERD, swimlane and diagram objects, connector routing, caps, labels and line jumps |
+| [features/board-media.md](features/board-media.md) | Board files, PDF pages, URL imports, link cards, embeds, saved files and the slice's declined and deferred lines |
 | [operations/status.md](operations/status.md) | Current production state, incidents, owner approval gates and open items |
 | [operations/release-runbook.md](operations/release-runbook.md) | Release gates, staging and rolling a backend commit to Railway, rollback |
 | [operations/managed-portraits.md](operations/managed-portraits.md) | Rollout and rollback of the automatic BytePlus portrait pool |

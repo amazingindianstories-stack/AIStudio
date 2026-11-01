@@ -10,9 +10,12 @@ class WorkerMemoryTests(SimpleTestCase):
     def test_heap_is_trimmed_after_every_processed_job(self):
         with patch.object(worker, 'reap_stale_running_images'), patch.object(worker, 'pending_cancellations', return_value=[]), \
                 patch.object(worker, 'select_due_generations', return_value=[SimpleNamespace(id=i, model='Seedance 2.0') for i in range(3)]), \
-                patch('apps.canvas.media_files.queued_media', return_value=None), patch.object(worker, 'connections'), patch.object(worker, 'release_freed_memory') as trim:
-            worker.run_once(concurrency=2, process=lambda identifier, **kwargs: {'kind': 'succeeded'})
-        self.assertEqual(trim.call_count, 3)
+                patch('apps.canvas.media_files.queued_media', return_value=SimpleNamespace(id='board-file')), \
+                patch('apps.canvas.media_files.process_media', return_value='media_ready'), \
+                patch.object(worker, 'connections'), patch.object(worker, 'release_freed_memory') as trim:
+            result = worker.run_once(concurrency=2, process=lambda identifier, **kwargs: {'kind': 'succeeded'})
+        self.assertEqual(result['outcomes'], {'succeeded': 3, 'media_ready': 1})
+        self.assertEqual(trim.call_count, 4)
 
     def test_trim_survives_a_missing_libc(self):
         with patch.object(worker.ctypes, 'CDLL', side_effect=OSError):

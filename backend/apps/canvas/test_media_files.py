@@ -209,13 +209,24 @@ class BoardMediaTests(TestCase):
             for suffix, data in [('upload', {'referenceId': str(uuid4())}), ('import-url', {'url': 'https://example.test'})]:
                 self.assertEqual(self.client.post(f'/api/canvas-boards/{self.board.id}/{suffix}', data, content_type='application/json').status_code, 403)
 
-    def test_embed_import_never_fetches_markup_or_untrusted_scripts(self):
+    def test_url_import_refuses_iframe_code_without_fetching(self):
         with patch('apps.canvas.media_views.fetcher') as fetch:
             response = self.client.post(f'/api/canvas-boards/{self.board.id}/import-url',
                 {'url': '<iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ" onload="evil()"></iframe>'}, content_type='application/json')
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()['node']['src'], 'https://www.youtube.com/embed/dQw4w9WgXcQ')
+        self.assertEqual(response.status_code, 400)
         fetch.assert_not_called()
+
+    def test_library_pages_hold_only_readable_files(self):
+        other = CanvasBoard.objects.create(id=uuid4(), project_id=uuid4(), name='Private', created_by=uuid4(), data={}, created_at=1, updated_at=1)
+        mine = BoardMedia.objects.create(board=self.board, actor_id=self.actor.id, name='Mine', content_type='image/png',
+            source_key='s', key='canvas/mine.png', state='ready', created_at=1)
+        BoardMedia.objects.bulk_create([BoardMedia(board=other, actor_id=other.created_by, name=f'Private {n}', content_type='image/png',
+            source_key='s', key=f'canvas/{n}.png', state='ready', created_at=2 + n) for n in range(100)])
+        url = f'/api/canvas-boards/{self.board.id}/media'
+        self.assertEqual(len(self.client.get(url).json()['files']), 100)
+        with patch.dict('apps.canvas.access.BOARD_LEVELS', {'view': 0, 'comment': 0, 'edit': 0}):
+            library = self.client.get(url).json()
+        self.assertEqual(([row['id'] for row in library['files']], library['next']), ([str(mine.id)], None))
 
     def test_private_url_import_refused_without_connection(self):
         response = self.client.post(f'/api/canvas-boards/{self.board.id}/import-url', {'url': 'https://127.0.0.1/private'}, content_type='application/json')

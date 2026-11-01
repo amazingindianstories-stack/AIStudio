@@ -10,7 +10,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from uuid import uuid4
 from django.conf import settings
-from django.db import transaction, connections
+from django.db import transaction
 from django.db.models import F, Q
 from apps.media import storage as media_storage
 from apps.media.storage import MIME
@@ -225,10 +225,3 @@ def process_media(identifier, stop=None):
                 state='failed', error='Could not render file. Use a valid SVG, flattened PSD, or PDF with at most 200 pages and 40 megapixels per page.', lease_until=0):
             discard_import(row.source_key)
         return 'media_failed'
-
-
-def handle_media(identifier, stop=None):
-    try:
-        return process_media(identifier, stop)
-    finally:
-        connections.close_all()
