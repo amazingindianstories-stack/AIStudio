@@ -7,8 +7,8 @@ on the row: personal (its creator), project (people who can see that project) or
 admin manages a template; only an admin features one. Likes, comments and usage counts are keyed by a template
 ref: ``builtin:<slug>`` for shipped content, the row id for custom rows.
 """
-import io
 import re
+import tempfile
 import time
 import uuid
 from django.db import models, transaction
@@ -80,7 +80,7 @@ def clear_content(graph, types=BLANK_TYPES):
 
 
 def instantiate(graph, blank=False):
-    """A copy of `graph` with fresh node, connector and group ids, as the data of a new board."""
+    """A copy of `graph` with fresh node, connector and group ids, as the data of a new board, on the graph's layers."""
     source = clear_content(graph) if blank else graph
     ids = {item['id']: str(uuid.uuid4()) for item in source['nodes']}
     groups = {}
@@ -108,6 +108,10 @@ def instantiate(graph, blank=False):
     state = {**empty_state(), 'nodes': nodes, 'connectors': connectors}
     if graph.get('tags'):
         state['tags'] = graph['tags']
+    # The background and layers (with their locks) come along; the start view belongs to the board it was saved from.
+    settings = {key: value for key, value in (graph.get('settings') or {}).items() if key != 'startView'}
+    if settings:
+        state['settings'] = settings
     return validate_state(state)
 
 
@@ -134,7 +138,8 @@ def preview_of(graph):
 
 def copy_media(graph, prefix):
     """Copy every canvas image the graph points at under `prefix`, so deleting the source board's media (or the
-    board) never breaks the template. A source that cannot be read keeps its original url."""
+    board) never breaks the template. A source that cannot be read keeps its original url. Each image is staged
+    through a temporary file, never held in memory, so callers run it outside any transaction."""
     from apps.media.storage import MIME, get_storage
     storage = None
     own = f'/api/media/{prefix}/'
@@ -149,13 +154,16 @@ def copy_media(graph, prefix):
             try:
                 storage = storage or get_storage()
                 media = storage.open(key)
-                try:
-                    data = b''.join(media.stream)
-                finally:
-                    media.stream.close()
                 extension = key.rsplit('.', 1)[-1].lower()
                 target = f'{prefix}/{uuid.uuid4()}.{extension}'
-                storage.upload_stream(io.BytesIO(data), target, MIME.get(extension, media.content_type), 'private, max-age=0')
+                try:
+                    with tempfile.TemporaryFile() as staged:
+                        for chunk in media.stream:
+                            staged.write(chunk)
+                        staged.seek(0)
+                        storage.upload_stream(staged, target, MIME.get(extension, media.content_type), 'private, max-age=0')
+                finally:
+                    media.stream.close()
                 copied[src] = '/api/media/' + target
             except Exception:
                 pass
@@ -342,8 +350,8 @@ def create_template(user, data):
         raise TemplateError('A board is required.')
     if not graph['nodes'] and data.get('fromScratch') is not True:
         raise TemplateError('Nothing to save: the template would be empty.')
+    copy_media(graph, f'canvas/templates/{identifier}')
     with transaction.atomic():
-        copy_media(graph, f'canvas/templates/{identifier}')
         row = BoardTemplate.objects.create(
             id=identifier, name=name, description=clean_description(data.get('description')),
             category=clean_category(data.get('category')), tags=clean_tags(data.get('tags')), scope=scope,
@@ -594,32 +602,32 @@ def get_blueprint(user, identifier):
 
 
 def create_blueprint(user, data):
-    """Snapshot every board of a project the user can see as a custom blueprint; each one needs edit rights."""
+    """Snapshot the first BLUEPRINT_MAX_BOARDS boards of a project the user can see as a custom blueprint; each one
+    needs edit rights. Returns the blueprint and `leftOut`, how many readable boards were past the limit. Only the
+    chosen boards' data is read."""
     name = clean_name(data.get('name'))
     scope, project_id = clean_scope(data.get('scope', 'personal'), data.get('projectId'), user)
     source = data.get('sourceProjectId')
     if not isinstance(source, str) or not UUID_RE.fullmatch(source):
         raise TemplateError('A project is required.')
-    rows = list(CanvasBoard.objects.filter(project_id=source).order_by('created_at').values(
-        'id', 'project_id', 'created_by', 'team_role', 'name', 'data'))
+    rows = list(CanvasBoard.objects.filter(project_id=source).order_by('created_at', 'id').values(
+        'id', 'project_id', 'created_by', 'team_role', 'name'))
     levels = access.roles_for(user, rows)
-    rows = [row for row in rows if levels[str(row['id'])] >= access.READ][:BLUEPRINT_MAX_BOARDS]
-    if not rows:
+    readable = [row for row in rows if levels[str(row['id'])] >= access.READ]
+    chosen = readable[:BLUEPRINT_MAX_BOARDS]
+    if not chosen:
         raise TemplateError('The project has no boards to save.')
-    if any(levels[str(row['id'])] < access.WRITE for row in rows):
+    if any(levels[str(row['id'])] < access.WRITE for row in chosen):
         raise access.AccessError('FORBIDDEN', 403)
+    graphs = dict(CanvasBoard.objects.filter(pk__in=[row['id'] for row in chosen]).values_list('id', 'data'))
     identifier = uuid.uuid4()
-    boards = []
-    with transaction.atomic():
-        for row in rows:
-            graph = snapshot(row['data'])
-            copy_media(graph, f'canvas/blueprints/{identifier}')
-            boards.append({'name': row['name'], 'graph': graph})
-        now = now_ms()
-        saved = Blueprint.objects.create(id=identifier, name=name, description=clean_description(data.get('description')),
-                                         scope=scope, project_id=project_id, created_by=user.id, boards=boards,
-                                         created_at=now, updated_at=now)
-    return _custom_blueprint(user, _blueprint_row(user, str(saved.id)))
+    boards = [{'name': row['name'], 'graph': copy_media(snapshot(graphs.get(row['id'])), f'canvas/blueprints/{identifier}')}
+              for row in chosen]
+    now = now_ms()
+    saved = Blueprint.objects.create(id=identifier, name=name, description=clean_description(data.get('description')),
+                                     scope=scope, project_id=project_id, created_by=user.id, boards=boards,
+                                     created_at=now, updated_at=now)
+    return {'blueprint': _custom_blueprint(user, _blueprint_row(user, str(saved.id))), 'leftOut': len(readable) - len(chosen)}
 
 
 def update_blueprint(user, identifier, data):

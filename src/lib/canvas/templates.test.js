@@ -77,7 +77,7 @@ test("a selection becomes a graph with its frame children, its internal connecto
 
 test("the picker filters by collection, category and search words", () => {
   const items = [
-    { id: "1", kind: "builtin", name: "SWOT", description: "Strengths", tags: ["strategy"], category: "strategy-planning", featured: true, collections: ["popular"], uses: 3 },
+    { id: "1", kind: "builtin", name: "SWOT", description: "Strengths", tags: ["strategy"], category: "strategy-planning", featured: true, collections: ["popular"], uses: 3, liked: true },
     { id: "2", kind: "custom", name: "Retro", description: "", tags: ["team"], category: "agile", featured: false, collections: [], uses: 0 },
     { id: "3", kind: "builtin", name: "Prompt lab", description: "images", tags: [], category: "image-creation", featured: false, collections: ["ai-accelerated", "new"], uses: 0 },
   ];
@@ -90,6 +90,7 @@ test("the picker filters by collection, category and search words", () => {
   assert.deepEqual(ids({ category: "agile" }), ["2"]);
   assert.deepEqual(ids({ query: "str  swot" }), ["1"]);
   assert.deepEqual(ids({ mine: true }), ["2"]);
+  assert.deepEqual(ids({ collection: "liked" }), ["1"]);
 });
 
 test("template links round trip and refuse anything but a template ref", () => {
@@ -113,8 +114,9 @@ test("the show-picker preference survives a missing or throwing storage", () => 
 });
 
 test("a tool panel shortcut offers the templates of its category", () => {
-  const items = [{ id: "1", category: "diagramming" }, { id: "2", category: "agile" }];
+  const items = [{ id: "1", category: "diagramming" }, { id: "2", category: "agile" }, { id: "3", category: "strategy-planning" }];
   assert.deepEqual(templatesForTool(items, "shapes").map((t) => t.id), ["1"]);
+  assert.deepEqual(templatesForTool(items, "frame").map((t) => t.id), ["3"]);
   assert.equal(TOOL_CATEGORIES.shapes, "diagramming");
-  assert.equal(templatesForTool(items, "unknown").length, 2);
+  assert.equal(templatesForTool(items, "unknown").length, 3);
 });

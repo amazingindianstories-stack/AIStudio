@@ -6,6 +6,7 @@ import { useCanvasStore, selectReadOnly } from "@/lib/canvas-store";
 import { useStore } from "@/lib/store";
 import { notify } from "@/lib/notify";
 import { onTemplatesRequest } from "@/lib/canvas/template-events";
+import { unlockedIds } from "@/lib/canvas/locks";
 import { clearSelection, insertTemplate, selectionGraph, templateApi, templateRefFromSearch } from "@/lib/canvas/templates";
 import { TemplatePicker } from "./TemplatePicker";
 import { SaveTemplateDialog } from "./SaveTemplateDialog";
@@ -21,7 +22,7 @@ function dropTemplateParam() {
 /**
  * Owns everything templates on an open board, so CanvasView only mounts it: the picker (toolbar, tool panels and the
  * `?template=<id>` link open it), saving the board or the selection as a template, the banner on a template's own editing
- * board, and Cmd+Delete, which clears the selected objects' text as one undo step.
+ * board, and Cmd+Delete, which clears the selected unlocked objects' text as one undo step.
  */
 export function BoardTemplates({ boardId, projectId, viewCenter, onOpenBoard }) {
   const readOnly = useCanvasStore(selectReadOnly);
@@ -64,7 +65,7 @@ export function BoardTemplates({ boardId, projectId, viewCenter, onOpenBoard }) 
     return () => { cancelled = true; };
   }, [boardId]);
 
-  // Cmd+Delete / Ctrl+Delete: clear the selection's content (text, tags, votes) and keep the objects.
+  // Cmd+Delete / Ctrl+Delete: clear the selection's content (text, tags, votes) and keep the objects. Locked ones stay as they are.
   useEffect(() => {
     const onKey = (event) => {
       if (!(event.metaKey || event.ctrlKey) || (event.key !== "Delete" && event.key !== "Backspace")) return;
@@ -74,8 +75,8 @@ export function BoardTemplates({ boardId, projectId, viewCenter, onOpenBoard }) 
       if (!state.selection.length || selectReadOnly(state)) return;
       event.preventDefault();
       event.stopImmediatePropagation();
-      const ids = state.selection;
-      state.editBoard((present) => clearSelection(present, ids));
+      const ids = unlockedIds(state.history.present, state.selection);
+      if (ids.length) state.editBoard((present) => clearSelection(present, ids));
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);

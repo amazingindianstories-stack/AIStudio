@@ -152,7 +152,7 @@ export function clearSelection(present, selection) {
   return nodes.some((node, index) => node !== present.nodes[index]) ? { ...present, nodes } : present;
 }
 
-/** The picker category each tool panel's shortcut opens on. Table and mind map tools depend on the Docs and media slice. */
+/** The picker category each tool panel's shortcut opens on (sticky, shapes and frame menus). Table and mind map tools depend on the Docs and media slice. */
 export const TOOL_CATEGORIES = { shapes: "diagramming", sticky: "ideation", ai: "image-creation", frame: "strategy-planning" };
 
 /** The templates a tool panel's shortcut offers: those of the tool's category. */
@@ -161,7 +161,7 @@ export function templatesForTool(templates, tool) {
   return category ? templates.filter((template) => template.category === category) : templates;
 }
 
-/** The view of the picker: filters `templates` by `collection` or `category`, then by `query` over name, tags and description. */
+/** The view of the picker: filters `templates` by `collection` (`liked` is the viewer's liked ones) or `category`, then by `query` over name, tags and description. */
 export function filterTemplates(templates, { query = "", category = "all", collection = "all", mine = false } = {}) {
   const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   return templates.filter((template) => {
@@ -170,6 +170,7 @@ export function filterTemplates(templates, { query = "", category = "all", colle
     if (collection === "new" && !template.collections.includes("new") && !template.featured) return false;
     if (collection === "popular" && !(template.collections.includes("popular") || template.uses > 0)) return false;
     if (collection === "ai-accelerated" && !template.collections.includes("ai-accelerated")) return false;
+    if (collection === "liked" && !template.liked) return false;
     if (category !== "all" && template.category !== category) return false;
     const haystack = `${template.name} ${template.description} ${template.tags.join(" ")}`.toLowerCase();
     return words.every((word) => haystack.includes(word));

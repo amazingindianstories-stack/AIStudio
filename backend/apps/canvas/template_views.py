@@ -95,7 +95,7 @@ def template_comments(request, user, ref):
 def blueprint_list(request, user):
     if request.method in ('GET', 'HEAD'):
         return reply(request, {'blueprints': templates.list_blueprints(user, first(request, 'projectId'))})
-    return reply(request, {'blueprint': templates.create_blueprint(user, payload(request))}, 201)
+    return reply(request, templates.create_blueprint(user, payload(request)), 201)
 
 
 def blueprint_id(ref):

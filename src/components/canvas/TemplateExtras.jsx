@@ -6,10 +6,59 @@ import { templateApi } from "@/lib/canvas/templates";
 import { fetchProjectAccess } from "@/lib/board-access";
 import { useStore } from "@/lib/store";
 
+const field = "rounded-lg border border-line bg-ink-800 px-2.5 py-1.5 text-xs text-white outline-none focus:border-white/25";
+const BLUEPRINT_SCOPES = [
+  { id: "personal", label: "Only me" },
+  { id: "project", label: "Everyone in this project" },
+  { id: "everyone", label: "Everyone" },
+];
+
+/**
+ * A custom blueprint's details: name, description and who can use it. Projects already made from it stay as they are.
+ * Like templates, only an admin shares with everyone and only a project member with the open project; the access is sent only when it changes.
+ */
+function BlueprintEditor({ item, projectId, member, isAdmin, onSaved, onCancel }) {
+  const [name, setName] = useState(item.name);
+  const [description, setDescription] = useState(item.description);
+  const [scope, setScope] = useState(item.scope);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const scopes = BLUEPRINT_SCOPES.filter((option) =>
+    option.id === item.scope || option.id === "personal" || (option.id === "project" ? Boolean(projectId) && member : isAdmin));
+  const save = async (event) => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await templateApi.updateBlueprint(item.id, { name, description, ...(scope !== item.scope ? { scope, projectId } : {}) });
+      onSaved();
+    } catch (failure) {
+      setError(failure.message);
+      setBusy(false);
+    }
+  };
+  return (
+    <form onSubmit={save} className="flex flex-col gap-2" aria-label={`Edit ${item.name}`}>
+      <input value={name} onChange={(e) => setName(e.target.value)} maxLength={120} aria-label="Blueprint name" className={field} />
+      <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} maxLength={1000} aria-label="Blueprint description" placeholder="What it is for" className={field} />
+      <select value={scope} onChange={(e) => setScope(e.target.value)} aria-label="Who can use it" className={field}>
+        {scopes.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
+      </select>
+      {error && <p role="alert" className="text-xs text-red-300">{error}</p>}
+      <div className="flex gap-2">
+        <button type="submit" disabled={busy || !name.trim()} className="cursor-pointer rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-ink-950 disabled:opacity-50">Save details</button>
+        <button type="button" onClick={onCancel} className="cursor-pointer rounded-lg px-3 py-1.5 text-xs text-white/70 hover:bg-white/10">Cancel</button>
+      </div>
+    </form>
+  );
+}
+
 /** Blueprints: a whole project (several boards) from one choice. Custom ones come from an existing project, shared with its members. */
-export function BlueprintsTab({ projectId, onMade }) {
+export function BlueprintsTab({ projectId, isAdmin, onMade }) {
   const [items, setItems] = useState(null);
   const [error, setError] = useState("");
+  const [note, setNote] = useState("");
+  const [editing, setEditing] = useState(null);
   const [name, setName] = useState("");
   const [saveName, setSaveName] = useState("");
   const [busy, setBusy] = useState("");
@@ -40,8 +89,13 @@ export function BlueprintsTab({ projectId, onMade }) {
   const saveProject = async () => {
     setBusy("save");
     setError("");
+    setNote("");
     try {
-      await templateApi.createBlueprint({ name: saveName, sourceProjectId: projectId, scope: "project", projectId });
+      const result = await templateApi.createBlueprint({ name: saveName, sourceProjectId: projectId, scope: "project", projectId });
+      const kept = result.blueprint.boards.length;
+      setNote(result.leftOut
+        ? `Blueprint saved with the first ${kept} boards. ${result.leftOut} more ${result.leftOut === 1 ? "board was" : "boards were"} left out: a blueprint holds up to ${kept}.`
+        : "Blueprint saved.");
       setSaveName("");
       await load();
     } catch (failure) { setError(failure.message); }
@@ -64,16 +118,28 @@ export function BlueprintsTab({ projectId, onMade }) {
         <ul className="grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-3">
           {items.map((item) => (
             <li key={item.id} className="flex flex-col gap-2 rounded-xl border border-line bg-ink-700 p-4">
-              <h3 className="text-sm font-medium text-white">{item.name}</h3>
-              <p className="text-xs text-white/55">{item.description}</p>
-              <p className="text-[11px] text-white/40">{item.boards.map((board) => board.name).join(" · ")}</p>
-              <div className="mt-auto flex gap-2">
-                <button type="button" disabled={busy === item.id} onClick={() => use(item)}
-                  className="cursor-pointer rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-ink-950 disabled:opacity-50">
-                  {busy === item.id ? "Creating…" : "Create project"}
-                </button>
-                {item.canManage && <button type="button" onClick={() => remove(item)} className="cursor-pointer rounded-lg px-3 py-1.5 text-xs text-red-300 hover:bg-red-500/10">Delete</button>}
-              </div>
+              {editing === item.id ? (
+                <BlueprintEditor item={item} projectId={projectId} member={member} isAdmin={isAdmin}
+                  onSaved={() => { setEditing(null); void load(); }} onCancel={() => setEditing(null)} />
+              ) : (
+                <>
+                  <h3 className="text-sm font-medium text-white">{item.name}</h3>
+                  <p className="text-xs text-white/55">{item.description}</p>
+                  <p className="text-[11px] text-white/40">{item.boards.map((board) => board.name).join(" · ")}</p>
+                  <div className="mt-auto flex gap-2">
+                    <button type="button" disabled={busy === item.id} onClick={() => use(item)}
+                      className="cursor-pointer rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-ink-950 disabled:opacity-50">
+                      {busy === item.id ? "Creating…" : "Create project"}
+                    </button>
+                    {item.canManage && (
+                      <>
+                        <button type="button" onClick={() => setEditing(item.id)} className="cursor-pointer rounded-lg px-3 py-1.5 text-xs text-white/70 hover:bg-white/10">Edit</button>
+                        <button type="button" onClick={() => remove(item)} className="cursor-pointer rounded-lg px-3 py-1.5 text-xs text-red-300 hover:bg-red-500/10">Delete</button>
+                      </>
+                    )}
+                  </div>
+                </>
+              )}
             </li>
           ))}
         </ul>
@@ -87,6 +153,7 @@ export function BlueprintsTab({ projectId, onMade }) {
             <button type="button" disabled={!saveName.trim() || busy === "save"} onClick={saveProject}
               className="cursor-pointer rounded-lg bg-ink-600 px-3 py-2 text-xs text-white disabled:opacity-40">Save</button>
           </div>
+          {note && <p role="status" className="mt-2 text-xs text-white/60">{note}</p>}
         </div>
       )}
     </div>
