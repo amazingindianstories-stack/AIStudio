@@ -8,6 +8,7 @@ import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { LocalDataStatus } from "@/components/LocalDataStatus";
 import { TopBar } from "@/components/TopBar";
+import { WorkspaceBanner } from "@/components/WorkspaceBanner";
 import { ConversationPanel } from "@/components/ConversationPanel";
 import { PromptComposer } from "@/components/PromptComposer";
 import { HistoryPanel } from "@/components/HistoryPanel";
@@ -158,6 +159,7 @@ export default function Page() {
     >
       <div className="flex h-full flex-col overflow-hidden bg-ink-900">
         <TopBar />
+        <WorkspaceBanner />
         <LocalDataStatus />
 
         <div className="flex min-h-0 flex-1">
