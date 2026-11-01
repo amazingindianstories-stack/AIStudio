@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Bot, ChevronDown, Loader2, MessageSquarePlus, Plus, Send, Trash2, X } from "lucide-react";
+import { Bot, Check, ChevronDown, Loader2, MessageSquarePlus, Plus, Send, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatCost } from "@/lib/format-cost";
-import { useSidekick, slashMatches } from "@/lib/sidekick";
+import { MAX_SOURCES, useSidekick, slashMatches } from "@/lib/sidekick";
+import { fetchProjectBoards } from "@/lib/sidekick-api";
 import { useCanvasStore } from "@/lib/canvas-store";
 import { FlowsTab } from "./SidekickFlows";
 import { CatchUpTab } from "./SidekickCatchUp";
@@ -35,7 +36,7 @@ export function CreditsChip({ className }) {
  * The board's AI teammate: chat with a Sidekick (premade or your own), run Flows, and catch up on what changed. It
  * docks on the right. Every paid action shows its price first and starts only when you press it.
  */
-export function SidekickPanel({ boardId, initialTab = "chat", onClose }) {
+export function SidekickPanel({ boardId, projectId, initialTab = "chat", onClose }) {
   const [tab, setTab] = useState(initialTab);
   const attach = useSidekick((s) => s.attach);
   const detach = useSidekick((s) => s.detach);
@@ -83,7 +84,7 @@ export function SidekickPanel({ boardId, initialTab = "chat", onClose }) {
         </p>
       )}
       <div className="flex min-h-0 flex-1 flex-col">
-        {tab === "chat" && <ChatTab />}
+        {tab === "chat" && <ChatTab boardId={boardId} projectId={projectId} />}
         {tab === "flows" && <FlowsTab boardId={boardId} />}
         {tab === "catchup" && <CatchUpTab boardId={boardId} />}
       </div>
@@ -95,7 +96,7 @@ function allSidekicks(catalogue) {
   return catalogue ? [...catalogue.premade, ...catalogue.custom] : [];
 }
 
-function ChatTab() {
+function ChatTab({ boardId, projectId }) {
   const catalogue = useSidekick((s) => s.catalogue);
   const sidekickId = useSidekick((s) => s.sidekickId);
   const chats = useSidekick((s) => s.chats);
@@ -108,6 +109,8 @@ function ChatTab() {
   const [processing, setProcessing] = useState(null);
   const [editing, setEditing] = useState(null);
   const [showChats, setShowChats] = useState(false);
+  const [showSources, setShowSources] = useState(false);
+  const sources = useSidekick((s) => s.sources);
   const endRef = useRef(null);
   const sidekicks = useMemo(() => allSidekicks(catalogue), [catalogue]);
   const current = sidekicks.find((item) => item.id === sidekickId) ?? sidekicks[0];
@@ -127,7 +130,7 @@ function ChatTab() {
     }
     const timer = setTimeout(() => void useSidekick.getState().estimate(draft, options), QUOTE_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [draft, options]);
+  }, [draft, options, sources]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView?.({ block: "end" });
@@ -150,8 +153,9 @@ function ChatTab() {
           <select
             id="sidekick-picker"
             value={current?.id ?? ""}
+            disabled={busy}
             onChange={(event) => useSidekick.getState().chooseSidekick(event.target.value)}
-            className="w-full appearance-none rounded-lg border border-line bg-ink-900/60 py-1.5 pl-2.5 pr-7 text-xs text-white/85"
+            className="w-full appearance-none rounded-lg border border-line bg-ink-900/60 py-1.5 pl-2.5 pr-7 text-xs text-white/85 disabled:opacity-60"
           >
             <optgroup label="Specialists">
               {catalogue.premade.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
@@ -200,6 +204,7 @@ function ChatTab() {
       </div>
 
       <div className="relative border-t border-line p-3">
+        {showSources && matches.length === 0 && <SourcePicker boardId={boardId} projectId={projectId} onClose={() => setShowSources(false)} />}
         {matches.length > 0 && (
           <ul role="listbox" aria-label="Commands" className="absolute bottom-full left-3 right-3 mb-1 overflow-hidden rounded-lg border border-line bg-ink-800 shadow-pop">
             {matches.map((skill) => (
@@ -235,6 +240,15 @@ function ChatTab() {
             <option value="basic">Basic</option>
             <option value="advanced">Advanced</option>
           </select>
+          <button
+            type="button"
+            aria-expanded={showSources}
+            onClick={() => setShowSources((v) => !v)}
+            title="Let the Sidekick read other boards or this project's library"
+            className={cn("rounded-md border border-line px-1.5 py-1 hover:bg-white/[0.07] hover:text-white", sources.length ? "text-white/85" : "text-white/60")}
+          >
+            Sources{sources.length ? ` (${sources.length})` : ""}
+          </button>
           <span className="ml-auto text-white/55" data-testid="sidekick-cost">{exhausted ? "Out of AI credits" : quote ? `~${formatCost(quote.costCents)}` : ""}</span>
           <button type="button" onClick={() => void send()} disabled={busy || !draft.trim() || exhausted} className="flex items-center gap-1 rounded-md bg-brand px-2.5 py-1 font-medium text-white disabled:opacity-40">
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Send className="h-3.5 w-3.5" aria-hidden />}Send
@@ -242,6 +256,56 @@ function ChatTab() {
         </div>
       </div>
     </>
+  );
+}
+
+/** Other Veevee places the next messages may read: boards in this project the user can open, and its library prompts. */
+function SourcePicker({ boardId, projectId, onClose }) {
+  const sources = useSidekick((s) => s.sources);
+  const [boards, setBoards] = useState(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (!projectId) return undefined;
+    let live = true;
+    fetchProjectBoards(projectId).then(
+      (list) => live && setBoards(list.filter((item) => item.id !== boardId)),
+      () => live && setFailed(true),
+    );
+    return () => {
+      live = false;
+    };
+  }, [boardId, projectId]);
+
+  const full = sources.length >= MAX_SOURCES;
+  const items = [{ kind: "library", label: "This project's library prompts" }, ...(boards ?? []).map((item) => ({ kind: "board", id: item.id, label: item.name }))];
+  return (
+    <div role="group" aria-label="Sources" className="absolute bottom-full left-3 right-3 mb-1 max-h-56 overflow-y-auto rounded-lg border border-line bg-ink-800 p-1 shadow-pop">
+      <div className="flex items-center px-2 py-1 text-[11px] text-white/45">
+        <span>Read up to {MAX_SOURCES} sources with each message</span>
+        <button type="button" aria-label="Close sources" onClick={onClose} className="ml-auto grid h-5 w-5 place-items-center rounded text-white/45 hover:text-white"><X className="h-3.5 w-3.5" /></button>
+      </div>
+      {items.map((item) => {
+        const chosen = sources.some((source) => source.kind === item.kind && source.id === item.id);
+        return (
+          <button
+            key={item.id ?? item.kind}
+            type="button"
+            role="checkbox"
+            aria-checked={chosen}
+            disabled={!chosen && full}
+            onClick={() => useSidekick.getState().toggleSource({ kind: item.kind, id: item.id })}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-white/80 hover:bg-white/[0.07] disabled:opacity-40"
+          >
+            <span className={cn("grid h-3.5 w-3.5 shrink-0 place-items-center rounded border", chosen ? "border-brand bg-brand text-white" : "border-line")}>{chosen && <Check className="h-3 w-3" aria-hidden />}</span>
+            <span className="truncate">{item.label}</span>
+          </button>
+        );
+      })}
+      {boards === null && !failed && projectId && <p className="px-2 py-1.5 text-xs text-white/45">Loading boards…</p>}
+      {failed && <p className="px-2 py-1.5 text-xs text-red-300">Could not load this project&apos;s boards.</p>}
+      {boards?.length === 0 && <p className="px-2 py-1.5 text-xs text-white/45">No other boards in this project.</p>}
+    </div>
   );
 }
 

@@ -39,6 +39,22 @@ class SidekickFormatTests(SimpleTestCase):
         self.assertNotIn('sidekick-web', board_formats.TEXT_FORMATS)
         self.assertNotIn('flowstep-web', board_formats.TEXT_FORMATS)
 
+    def test_the_largest_sidekick_context_fits_one_turn_and_an_oversized_body_is_refused_before_queueing(self):
+        sidekick_ = {'name': 'n' * sidekicks.MAX_NAME, 'instructions': 'i' * sidekicks.MAX_INSTRUCTIONS,
+                     'knowledge': [{'name': f'{index}'.rjust(116, 'k') + '.txt', 'text': 'k' * (sidekicks.KNOWLEDGE_CHARS // sidekicks.MAX_FILES)}
+                                   for index in range(sidekicks.MAX_FILES)]}
+        nodes = [{'id': f'{index}'.rjust(64, 'n'), 'type': 'sticky', 'x': 0, 'y': index, 'w': 1, 'h': 1, 'text': 't' * 240}
+                 for index in range(sidekicks.MAX_SUMMARY_OBJECTS)]
+        connectors = [{'from': {'nodeId': 'a' * 64}, 'to': {'nodeId': 'b' * 64}}] * 100
+        summary = sidekicks.board_summary({'nodes': nodes, 'connectors': connectors})
+        self.assertLessEqual(len(summary), sidekicks.SUMMARY_CHARS + 40)
+        sources = '\n\n'.join(['s' * sidekicks.SOURCE_CHARS] * sidekicks.MAX_SOURCES)
+        context = sidekicks.context_turn(sidekick_, summary, sources)
+        self.assertTrue(board_formats.valid_turns([{'role': 'user', 'text': context}], 'sidekick'))
+        wide = [{'role': 'user', 'text': '\u0915' * 100_000}, {'role': 'model', 'text': 'Understood.'}, {'role': 'user', 'text': 'go'}]
+        with self.assertRaisesRegex(ValueError, 'too large'):
+            board_formats.submission_input('sidekick', MODEL, wide)
+
     def test_turn_limits_are_per_format(self):
         long_turns = [{'role': 'user', 'text': 'c'}, {'role': 'model', 'text': 'Understood.'}] * 4 + [{'role': 'user', 'text': 'go'}]
         self.assertTrue(board_formats.valid_turns(long_turns, 'sidekick'))
@@ -154,6 +170,11 @@ class SidekickChatTests(AssistantFixture):
         self.assertEqual(turns[2]['text'], 'Cluster these')
         conflict = self.board_api('post', path + '/turns', {'message': 'Something else'}, key='turn-key-0001')
         self.assertEqual(conflict.status_code, 409)
+        # A retry after the board changed (an autosave between a lost response and the retry) is still the same request.
+        self.board.data = {'version': 1, 'nodes': [{'id': 'n2', 'type': 'sticky', 'x': 0, 'y': 0, 'w': 10, 'h': 10, 'text': 'New'}]}
+        self.board.save()
+        retry = self.board_api('post', path + '/turns', {'message': 'Cluster these', 'selection': ['n1']}, key='turn-key-0001')
+        self.assertEqual((retry.status_code, retry.json()['job']['id']), (201, job['id']))
         # The panel's own job list never shows chat jobs; the chat's history does.
         self.assertEqual(self.jobs(), [])
         self.finish(job)
@@ -180,9 +201,21 @@ class SidekickChatTests(AssistantFixture):
         missing = self.board_api('post', f"sidekick-chats/{chat['id']}/quote", {'message': 'x', 'sources': [{'kind': 'board', 'id': str(uuid.uuid4())}]})
         self.assertEqual(missing.status_code, 404)
 
+    def test_a_new_chat_is_quoted_without_creating_it(self):
+        quote = self.board_api('post', 'sidekick-chats/quote', {'sidekick': 'ux-researcher', 'message': 'Cluster these'})
+        self.assertEqual(quote.status_code, 200, quote.content)
+        self.assertGreaterEqual(quote.json()['quote']['costCents'], 1)
+        self.assertEqual((BoardSidekickChat.objects.count(), Generation.objects.count()), (0, 0))
+        self.assertEqual(self.board_api('post', 'sidekick-chats/quote', {'message': 'x'}).status_code, 400)
+        self.assertEqual(self.board_api('post', 'sidekick-chats/quote', {'sidekick': 'nope', 'message': 'x'}).status_code, 404)
+        wide = self.personal('post', 'sidekicks', {'name': 'Wide', 'knowledge': [{'name': 'a.txt', 'text': '\u0915' * 150_000}]}).json()['sidekick']
+        refused = self.board_api('post', 'sidekick-chats/quote', {'sidekick': wide['id'], 'message': 'x'})
+        self.assertEqual(refused.status_code, 400)
+        self.assertIn('too large', refused.json()['error'])
+
     def test_chats_are_private_listed_renamed_and_deleted(self):
         chat = self.new_chat()
-        # A chat opened only for a quote has no history, so it is not listed until something is sent.
+        # A chat with nothing sent yet has no history, so it is not listed until something is sent.
         self.assertEqual(self.board_api('get', 'sidekick-chats').json()['chats'], [])
         self.board_api('post', f"sidekick-chats/{chat['id']}/turns", {'message': 'hi'}, key='chat-list-0001')
         self.assertEqual([item['id'] for item in self.board_api('get', 'sidekick-chats').json()['chats']], [chat['id']])
@@ -252,7 +285,7 @@ class AiCreditTests(AssistantFixture):
         User.objects.filter(pk=self.actor_id).update(role='admin')
         data = self.personal('post', 'usage', {'period': 'week'}).json()['usage']
         self.assertEqual((data['period'], data['formats'][0]['format'], data['formats'][0]['jobs']), ('week', 'Sidekick', 1))
-        self.assertEqual(data['users'][0]['name'], 'Fixture')
+        self.assertEqual((data['users'][0]['id'], data['users'][0]['name']), (str(self.actor_id), 'Fixture'))
         self.assertGreater(data['totalCents'], 0)
         hidden = self.personal('post', 'usage', {'hideUsers': True}).json()['usage']
         self.assertIsNone(hidden['users'])
@@ -313,6 +346,9 @@ class CatchUpTests(AssistantFixture):
         self.assertEqual(self.board_api('get', 'catch-up').json()['catchUp']['changes'], 1)
         job = self.board_api('post', 'catch-up/jobs', {}, key='catch-key-0002')
         self.assertEqual(job.status_code, 201, job.content)
+        self.change('Another edit', now() + 3000)
+        retry = self.board_api('post', 'catch-up/jobs', {}, key='catch-key-0002')
+        self.assertEqual(retry.json()['job']['id'], job.json()['job']['id'])
         turns = Generation.objects.get(pk=job.json()['job']['generationId']).submission_input['turns']
         self.assertIn('Added a title', turns[0]['text'])
         self.assertNotIn('Mine', turns[0]['text'])
@@ -322,7 +358,7 @@ class CatchUpTests(AssistantFixture):
         later = self.board_api('post', 'visit').json()['previousVisitAt']
         self.assertIsNotNone(later)
         week = self.board_api('get', 'catch-up', {'period': '1w'}).json()['catchUp']
-        self.assertEqual((week['period'], week['changes']), ('1w', 1))
+        self.assertEqual((week['period'], week['changes']), ('1w', 2))
 
 
 class AiSearchTests(AssistantFixture):
@@ -339,3 +375,15 @@ class AiSearchTests(AssistantFixture):
         self.assertEqual(self.board_api('post', 'ai-search/quote', {'query': ' '}).status_code, 400)
         stale = self.board_api('get', f"ai-search/{job['id']}")
         self.assertEqual(stale.status_code, 200)
+
+    def test_search_terms_may_name_the_project(self):
+        job = self.board_api('post', 'ai-search/jobs', {'query': 'boards in board project'}, key='search-key-0002').json()['job']
+        self.finish(job)
+        generation = Generation.objects.get(pk=job['generationId'])
+        generation.output = {'terms': ['board project'], 'updatedWithinDays': 0, 'createdByMe': False, 'explanation': 'x'}
+        generation.save()
+        found = self.board_api('get', f"ai-search/{job['id']}").json()
+        self.assertEqual([item['name'] for item in found['boards']], ['Ideas'])
+        generation.output = {**generation.output, 'terms': ['nothing like it']}
+        generation.save()
+        self.assertEqual(self.board_api('get', f"ai-search/{job['id']}").json()['boards'], [])

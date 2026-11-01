@@ -56,12 +56,12 @@ export function AdminAiUsageTab() {
           </section>
           <section aria-label="Spend by action">
             <h3 className="mb-2 text-sm font-medium text-white/80">By action</h3>
-            <Table rows={usage.formats.map((row) => [row.format, row.jobs, row.costCents])} head="Action" />
+            <Table rows={usage.formats.map((row) => [row.format, row.format, row.jobs, row.costCents])} head="Action" />
           </section>
           {usage.users && (
             <section aria-label="Spend by person">
               <h3 className="mb-2 text-sm font-medium text-white/80">By person</h3>
-              <Table rows={usage.users.map((row) => [row.name, row.jobs, row.costCents])} head="Person" />
+              <Table rows={usage.users.map((row) => [row.id, row.name, row.jobs, row.costCents])} head="Person" />
             </section>
           )}
         </>
@@ -75,7 +75,7 @@ function Table({ rows, head }) {
   return (
     <table className="w-full text-left text-xs text-white/70">
       <thead className="text-white/45"><tr><th className="py-1 font-medium">{head}</th><th className="py-1 text-right font-medium">Jobs</th><th className="py-1 text-right font-medium">Spend</th></tr></thead>
-      <tbody>{rows.map(([name, jobs, cents]) => <tr key={name} className="border-t border-line"><td className="py-1.5">{name}</td><td className="py-1.5 text-right tabular-nums">{jobs}</td><td className="py-1.5 text-right tabular-nums">{formatCost(cents)}</td></tr>)}</tbody>
+      <tbody>{rows.map(([key, name, jobs, cents]) => <tr key={key} className="border-t border-line"><td className="py-1.5">{name}</td><td className="py-1.5 text-right tabular-nums">{jobs}</td><td className="py-1.5 text-right tabular-nums">{formatCost(cents)}</td></tr>)}</tbody>
     </table>
   );
 }

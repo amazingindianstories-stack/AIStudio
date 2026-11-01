@@ -13,6 +13,7 @@ from datetime import datetime, timedelta, timezone
 from apps.authentication.models import User
 from apps.common.leases import now_ms
 from apps.generation.models import Generation
+from apps.projects.models import Project
 from .ai_jobs import PROCESSING, JobError
 from .models import BoardActivity, BoardAiJob, BoardVisit, FlowOutputVersion
 from . import services, sidekicks
@@ -102,7 +103,8 @@ def quote_flow(actor, body):
 
 def submit_step(actor, board, body, idempotency_key):
     name, processing, turns, task = step_request(body)
-    return sidekicks.submit_job(actor, board, name, turns, processing, task, idempotency_key, operation='BOARD_FLOW_STEP')
+    return sidekicks.submit_job(actor, board, name, turns, processing, task, idempotency_key, request=turns[0]['text'],
+                                operation='BOARD_FLOW_STEP')
 
 
 # ---- output versions ----------------------------------------------------------------------------------------------
@@ -197,7 +199,8 @@ def quote_catchup(actor, board, body):
 def submit_catchup(actor, board, body, idempotency_key):
     period = body.get('period') if isinstance(body, dict) else None
     turns = catchup_turns(actor, board, period)
-    return sidekicks.submit_job(actor, board, 'catchup', turns, 'basic', 'Catch up', idempotency_key, operation='BOARD_CATCHUP')
+    return sidekicks.submit_job(actor, board, 'catchup', turns, 'basic', 'Catch up', idempotency_key, request={'period': period},
+                                operation='BOARD_CATCHUP')
 
 
 # ---- AI search ----------------------------------------------------------------------------------------------------
@@ -214,7 +217,8 @@ def quote_search(actor, body):
 
 def submit_search(actor, board, body, idempotency_key):
     turns, query = search_turns(body)
-    return sidekicks.submit_job(actor, board, 'boardsearch', turns, 'basic', query, idempotency_key, operation='BOARD_SEARCH')
+    return sidekicks.submit_job(actor, board, 'boardsearch', turns, 'basic', query, idempotency_key, request={'query': query},
+                                operation='BOARD_SEARCH')
 
 
 def apply_search(actor, board, identifier):
@@ -227,9 +231,10 @@ def apply_search(actor, board, identifier):
     filters = job['result']
     terms = [term.lower() for term in filters.get('terms', [])]
     cutoff = now_ms() - filters['updatedWithinDays'] * 24 * 60 * 60 * 1000 if filters.get('updatedWithinDays') else None
+    project = (Project.objects.filter(pk=board.project_id).values_list('name', flat=True).first() or '').lower()
     matches = []
     for item in services.list_boards(board.project_id, actor):
-        if terms and not any(term in item['name'].lower() for term in terms):
+        if terms and not any(term in item['name'].lower() or term in project for term in terms):
             continue
         if cutoff is not None and item['updatedAt'] < cutoff:
             continue
@@ -279,7 +284,8 @@ def usage(body):
             row['costCents'] += cost
             row['jobs'] += 1
         if not hide_users:
-            row = by_user.setdefault(str(job['user_id']), {'name': names.get(job['user_id'], 'Unknown'), 'costCents': 0, 'jobs': 0})
+            row = by_user.setdefault(str(job['user_id']), {'id': str(job['user_id']), 'name': names.get(job['user_id'], 'Unknown'),
+                                                           'costCents': 0, 'jobs': 0})
             row['costCents'] += cost
             row['jobs'] += 1
     return {'period': period, 'days': days, 'hideUsers': hide_users,

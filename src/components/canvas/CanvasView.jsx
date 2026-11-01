@@ -583,7 +583,7 @@ export function CanvasView() {
           />
         )}
         {aiOpen && boardId && !readOnly && !touchViewOnly && <CanvasAiPanel boardId={boardId} leftInset={assetPanelWidth} onClose={() => setAiOpen(false)} />}
-        {sidekick !== null && boardId && !readOnly && !touchViewOnly && <SidekickPanel boardId={boardId} initialTab={sidekick} onClose={() => setSidekick(null)} />}
+        {sidekick !== null && boardId && !readOnly && !touchViewOnly && <SidekickPanel boardId={boardId} projectId={activeProjectId} initialTab={sidekick} onClose={() => setSidekick(null)} />}
         {boardId && loaded && !readOnly && !touchViewOnly && sidekick === null && <CatchUpChip boardId={boardId} onOpen={() => setSidekick("catchup")} />}
       </div>
 

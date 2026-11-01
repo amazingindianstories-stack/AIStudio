@@ -2,8 +2,9 @@
 
 Two dispatchers keep the route table short: ``board_assistant`` serves everything scoped to one board
 (``/api/canvas-boards/<id>/assistant/<action>``) and ``canvas_ai`` serves what belongs to the person
-(``/api/canvas-ai/<action>``: Sidekicks, credits, Flow templates, usage). Editing a Sidekick chat or a Flow needs
-edit access, since its results land on the board; Catch up and AI search only read, so viewers and commenters may use them.
+(``/api/canvas-ai/<action>``: Sidekicks, credits, Flow templates, usage). A Sidekick chat or a Flow needs edit access,
+since its results land on the board; Catch up names who changed what, so like History it is for editors too. AI search
+only reads board names, so viewers and commenters may use it.
 """
 import re
 
@@ -38,6 +39,7 @@ def query(request, name):
 BOARD_ROUTES = [
     ('GET', r'sidekick-chats', access.EDIT, lambda r, a, b: ({'chats': sidekicks.list_chats(a, b)}, 200)),
     ('POST', r'sidekick-chats', access.EDIT, lambda r, a, b: ({'chat': sidekicks.create_chat(a, b, body(r))}, 201)),
+    ('POST', r'sidekick-chats/quote', access.EDIT, lambda r, a, b: ({'quote': sidekicks.quote_first_turn(a, b, body(r))}, 200)),
     ('GET', rf'sidekick-chats/{ID}', access.EDIT,
      lambda r, a, b, c: ({'chat': sidekicks.chat_json(sidekicks.own_chat(a, b, c)), 'turns': sidekicks.chat_turns(a, b, sidekicks.own_chat(a, b, c))}, 200)),
     ('PATCH', rf'sidekick-chats/{ID}', access.EDIT, lambda r, a, b, c: ({'chat': sidekicks.rename_chat(a, b, c, body(r))}, 200)),

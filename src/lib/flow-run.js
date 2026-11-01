@@ -38,6 +38,7 @@ export const useFlowRun = create((set, get) => ({
     set({ running: { total: stepIds.length, done: 0, current: null }, error: null, results: {}, cancelled: false, quote: null });
     const outputs = {};
     const results = {};
+    let current = null;
     try {
       for (let i = 0; i < stepIds.length; i += 1) {
         // Re-plan with the outputs so far: a step whose upstream changed must run even if its old hash matched.
@@ -47,14 +48,17 @@ export const useFlowRun = create((set, get) => ({
         if (step.skip) {
           results[step.id] = "skipped";
         } else {
-          set({ running: { total: stepIds.length, done: Object.keys(results).length, current: step.id } });
+          current = step.id;
+          set({ running: { total: stepIds.length, done: Object.keys(results).length, current } });
           const text = await runStep(boardId, step);
           outputs[step.id] = text;
           results[step.id] = "done";
+          current = null;
         }
         set({ results: { ...results }, running: { total: stepIds.length, done: Object.keys(results).length, current: null } });
       }
     } catch (error) {
+      if (current) results[current] = "failed";
       set({ error: error.message });
       if (error.code === "AI_CREDITS_EXHAUSTED") void useSidekick.getState().loadCredits();
     } finally {

@@ -22,3 +22,14 @@ test("the slash menu filters by prefix and closes after a space", () => {
   assert.deepEqual(slashMatches("/summarize now", skills), []);
   assert.deepEqual(slashMatches("hello", skills), []);
 });
+
+test("sources are sent as board ids or the library, at most three, and toggled in the store", async () => {
+  const { MAX_SOURCES, sourcesFor, useSidekick } = await import("./sidekick.js");
+  assert.deepEqual(sourcesFor([{ kind: "library", id: undefined, label: "x" }, { kind: "board", id: "b1", label: "Ideas" }]), [{ kind: "library" }, { kind: "board", id: "b1" }]);
+  const store = useSidekick.getState();
+  for (const id of ["a", "b", "c", "d"]) store.toggleSource({ kind: "board", id });
+  assert.deepEqual(useSidekick.getState().sources.map((item) => item.id), ["a", "b", "c"].slice(0, MAX_SOURCES));
+  store.toggleSource({ kind: "board", id: "b" });
+  store.toggleSource({ kind: "library" });
+  assert.deepEqual(useSidekick.getState().sources, [{ kind: "board", id: "a" }, { kind: "board", id: "c" }, { kind: "library" }]);
+});

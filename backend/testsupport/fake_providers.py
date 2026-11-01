@@ -202,7 +202,7 @@ class FakeProviders:
                 from apps.agents.sidekick import MOCK_OUTPUTS
                 with self.lock:
                     self.board_payloads.append(data)
-                return 200, {'candidates': [{'content': {'role': 'model', 'parts': [{'text': json.dumps(MOCK_OUTPUTS[board_name.removesuffix('-web')])}]},
+                return 200, {'candidates': [{'content': {'role': 'model', 'parts': [{'text': json.dumps(MOCK_OUTPUTS[board_name])}]},
                                              'finishReason': 'STOP'}], 'usageMetadata': {'promptTokenCount': 300, 'candidatesTokenCount': 90}}
             if 'systemInstruction' in data:     # the admin chat agent (apps/agents)
                 return 200, {'candidates': [{'content': {'role': 'model', 'parts': [{'text': AGENT_REPLY}]}, 'finishReason': 'STOP'}],

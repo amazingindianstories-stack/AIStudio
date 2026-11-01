@@ -282,11 +282,15 @@ def own_chat(actor, board, identifier):
     return chat
 
 
-def create_chat(actor, board, body):
+def chosen_sidekick(actor, body):
     key = body.get('sidekick') if isinstance(body, dict) else None
     if not isinstance(key, str) or not key:
         raise _error('Choose a Sidekick.')
-    sidekick = resolve(actor, key)
+    return resolve(actor, key)
+
+
+def create_chat(actor, board, body):
+    sidekick = chosen_sidekick(actor, body)
     now = now_ms()
     asked = BoardAiJob.objects.filter(chat_id=models.OuterRef('pk'))
     BoardSidekickChat.objects.filter(board=board, user_id=actor.id).exclude(models.Exists(asked)).delete()
@@ -299,7 +303,7 @@ def create_chat(actor, board, body):
 
 
 def list_chats(actor, board):
-    # A chat opened for a price quote but never sent has no history to show.
+    # A chat whose first message was never accepted has no history to show.
     asked = BoardAiJob.objects.filter(chat_id=models.OuterRef('pk'))
     rows = BoardSidekickChat.objects.filter(board=board, user_id=actor.id).filter(models.Exists(asked)).order_by('-updated_at')[:MAX_CHATS]
     return [chat_json(row) for row in rows]
@@ -352,12 +356,17 @@ def board_summary(data, selection=()):
         if size > SUMMARY_CHARS:
             break
         lines.append(line)
+    shown = len(lines)
     connectors = [item for item in (data.get('connectors') if isinstance(data, dict) else None) or [] if isinstance(item, dict)]
     for item in connectors[:100]:
         ends = [item.get(end, {}).get('nodeId') if isinstance(item.get(end), dict) else None for end in ('from', 'to')]
         if all(ends):
-            lines.append(f'arrow|{ends[0]}->{ends[1]}')
-    header = f'{len(nodes)} objects' + (f', showing {len(lines)}' if len(lines) < len(nodes) else '')
+            line = f'arrow|{ends[0]}->{ends[1]}'
+            size += len(line) + 1
+            if size > SUMMARY_CHARS:
+                break
+            lines.append(line)
+    header = f'{len(nodes)} objects' + (f', showing {shown}' if shown < len(nodes) else '')
     return header + '\n' + '\n'.join(lines)
 
 
@@ -420,31 +429,45 @@ def history_turns(chat):
     return turns[-HISTORY_PAIRS * 2:]
 
 
-def turn_request(actor, board, chat_id, body):
-    """The validated chat turn: (chat, format, processing, conversation turns, message)."""
+def chat_sidekick(actor, chat):
+    if chat.sidekick == 'deleted':
+        raise _error('This Sidekick was deleted. Start a new chat.', 'SIDEKICK_DELETED', 409)
+    return resolve(actor, chat.sidekick)
+
+
+def turn_request(actor, board, sidekick, body, chat=None):
+    """The validated chat turn: (format, processing, conversation turns, the client's request)."""
     if not isinstance(body, dict):
         raise _error('Invalid request.')
-    chat = own_chat(actor, board, chat_id)
     message = _text(body.get('message'), MAX_MESSAGE, 'Message', True)
-    sidekick = resolve(actor, chat.sidekick) if chat.sidekick != 'deleted' else None
-    if sidekick is None:
-        raise _error('This Sidekick was deleted. Start a new chat.', 'SIDEKICK_DELETED', 409)
     processing = body.get('processing', sidekick['processing'])
     if processing not in PROCESSING:
         raise _error('Unknown processing.', 'UNKNOWN_PROCESSING')
-    context = context_turn(sidekick, board_summary(board.data, selection_ids(body)), source_context(actor, board, body.get('sources')))
-    turns = [{'role': 'user', 'text': context}, {'role': 'model', 'text': ACK}, *history_turns(chat), {'role': 'user', 'text': message}]
-    return chat, 'sidekick', processing, turns, message
+    selection = selection_ids(body)
+    sources = body.get('sources') or []
+    context = context_turn(sidekick, board_summary(board.data, selection), source_context(actor, board, sources))
+    history = history_turns(chat) if chat is not None else []
+    turns = [{'role': 'user', 'text': context}, {'role': 'model', 'text': ACK}, *history, {'role': 'user', 'text': message}]
+    return 'sidekick', processing, turns, {'message': message, 'selection': selection, 'sources': sources}
+
+
+def quote_first_turn(actor, board, body):
+    """The price of the first message of a new chat with ``body['sidekick']``; no chat is created."""
+    name, processing, turns, _ = turn_request(actor, board, chosen_sidekick(actor, body), body)
+    return quote_job(actor, name, turns, processing)
 
 
 def quote_turn(actor, board, chat_id, body):
-    _, name, processing, turns, _ = turn_request(actor, board, chat_id, body)
+    chat = own_chat(actor, board, chat_id)
+    name, processing, turns, _ = turn_request(actor, board, chat_sidekick(actor, chat), body, chat)
     return quote_job(actor, name, turns, processing)
 
 
 def submit_turn(actor, board, chat_id, body, idempotency_key):
-    chat, name, processing, turns, message = turn_request(actor, board, chat_id, body)
-    job = submit_job(actor, board, name, turns, processing, message, idempotency_key, chat=chat)
+    chat = own_chat(actor, board, chat_id)
+    name, processing, turns, request = turn_request(actor, board, chat_sidekick(actor, chat), body, chat)
+    message = request['message']
+    job = submit_job(actor, board, name, turns, processing, message, idempotency_key, request=request, chat=chat)
     BoardSidekickChat.objects.filter(pk=chat.pk).update(updated_at=now_ms(), **({'title': message[:60]} if chat.title == resolve_name(chat) else {}))
     return job
 
@@ -466,11 +489,14 @@ def quote_job(actor, name, turns, processing):
             'credits': {'capCents': cap, 'usedCents': used, 'remainingCents': max(0, cap - used)}}
 
 
-def submit_job(actor, board, name, turns, processing, prompt, idempotency_key, *, chat=None, operation='BOARD_SIDEKICK_JOB'):
-    """Queue one text job and its job row once per Idempotency-Key; returns the job."""
+def submit_job(actor, board, name, turns, processing, prompt, idempotency_key, *, request, chat=None, operation='BOARD_SIDEKICK_JOB'):
+    """Queue one text job and its job row once per Idempotency-Key; returns the job.
+
+    The key is bound to ``request``, what the client asked for, not to ``turns``: those also carry server state (the
+    board, its activity, today's date) that may change between a lost response and its retry."""
     key = receipt_key(idempotency_key, actor)
-    digest = hashlib.sha256(json.dumps(turns, sort_keys=True).encode('utf-8')).hexdigest()
-    fingerprint = {'boardId': str(board.id), 'format': name, 'processing': processing, 'turns': digest,
+    digest = hashlib.sha256(json.dumps(request, sort_keys=True).encode('utf-8')).hexdigest()
+    fingerprint = {'boardId': str(board.id), 'format': name, 'processing': processing, 'request': digest,
                    'chat': str(chat.id) if chat else None}
 
     def mutation():

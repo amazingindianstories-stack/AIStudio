@@ -3,8 +3,7 @@
 Each entry is a ``apps.agents.board.TEXT_FORMATS`` entry: a fixed system prompt, a fixed response schema and a fixed
 generation config, so the agent payload allowlist and the paid guard keep requiring one exact request body. What varies
 between calls (a Sidekick's instructions and knowledge, the board summary, a Flow step's task and inputs) travels in the
-last user turn, never in the system prompt. A ``-web`` variant adds Gemini's Google Search tool; the model cannot be
-forced to a JSON schema while it searches, so those variants ask for JSON in the prompt and the parser is lenient.
+last user turn, never in the system prompt. No format carries tools: nothing searches the web.
 """
 import json
 import re
@@ -25,8 +24,9 @@ MAX_ITEM_CHARS = 300
 MAX_TERMS = 6
 MAX_TERM_CHARS = 60
 MAX_COORDINATE = 1_000_000
-# A Sidekick turn carries instructions, knowledge (50k tokens) and the board summary in one user turn.
-SIDEKICK_TURN_CHARS = 280_000
+# A Sidekick turn carries instructions (8k), knowledge (200k), the board summary (40k) and up to three sources (60k) in
+# one user turn (apps.canvas.sidekicks budgets each part under this limit).
+SIDEKICK_TURN_CHARS = 320_000
 SIDEKICK_BODY_BYTES = 560_000
 SIDEKICK_MAX_TURNS = 9
 SMALL_TURN_CHARS = 60_000
@@ -68,8 +68,8 @@ SIDEKICK_SCHEMA = {
 
 FLOW_PROMPT = (
     'You run one step of a Flow on a Veevee board. The user message holds the step\'s task and, below it, the inputs '
-    'taken from the objects connected to this step. Do the task using only those inputs (and the web when you may '
-    f'search it). Return the step\'s output as plain text of at most {MAX_FLOW_OUTPUT_CHARS} characters: no markdown '
+    'taken from the objects connected to this step. Do the task using only those inputs. '
+    f'Return the step\'s output as plain text of at most {MAX_FLOW_OUTPUT_CHARS} characters: no markdown '
     'fence, no preamble, nothing but the output itself.')
 
 FLOW_SCHEMA = {'type': 'OBJECT', 'properties': {'text': {'type': 'STRING'}}, 'required': ['text']}

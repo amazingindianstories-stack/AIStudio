@@ -22,6 +22,7 @@ export const createChat = (boardId, sidekick) => send(board(boardId, "sidekick-c
 export const openChat = (boardId, chatId) => getJson(board(boardId, `sidekick-chats/${part(chatId)}`));
 export const renameChat = (boardId, chatId, title) => send(board(boardId, `sidekick-chats/${part(chatId)}`), "PATCH", { title });
 export const removeChat = (boardId, chatId) => send(board(boardId, `sidekick-chats/${part(chatId)}`), "DELETE");
+export const quoteFirstTurn = (boardId, request) => send(board(boardId, "sidekick-chats/quote"), "POST", request).then((json) => json.quote);
 export const quoteTurn = (boardId, chatId, request) => send(board(boardId, `sidekick-chats/${part(chatId)}/quote`), "POST", request).then((json) => json.quote);
 export const submitTurn = (boardId, chatId, request, key) => send(board(boardId, `sidekick-chats/${part(chatId)}/turns`), "POST", request, { "Idempotency-Key": key }).then((json) => json.job);
 
@@ -40,6 +41,9 @@ export const quoteSearch = (boardId, request) => send(board(boardId, "ai-search/
 export const submitSearch = (boardId, request, key) => send(board(boardId, "ai-search/jobs"), "POST", request, { "Idempotency-Key": key }).then((json) => json.job);
 export const fetchSearch = (boardId, jobId) => getJson(board(boardId, `ai-search/${part(jobId)}`));
 export const fetchWork = (boardId, jobId) => getJson(board(boardId, `work/${part(jobId)}`)).then((json) => json.job);
+
+/** The project's boards the user can read (the Sidekick's board sources). */
+export const fetchProjectBoards = (projectId) => getJson(`/api/canvas-boards?projectId=${part(projectId)}`).then((json) => json.boards ?? []);
 
 /** Polls a job until it ends. Resolves with the finished job (status succeeded, failed or cancelled). */
 export async function waitForJob(boardId, jobId, { signal, fetchJob = fetchWork, interval = (hidden) => (hidden ? 6000 : 1500) } = {}) {

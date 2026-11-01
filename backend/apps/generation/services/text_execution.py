@@ -22,7 +22,7 @@ def mock_output(value):
     if value['format'] == 'stickies':
         return parse_output('stickies', json.dumps({'notes': [{'text': f'Mock idea {index}', 'color': 'yellow'} for index in (1, 2, 3)]}))
     from apps.agents.sidekick import MOCK_OUTPUTS
-    mock = MOCK_OUTPUTS.get(value['format'].removesuffix('-web'))
+    mock = MOCK_OUTPUTS.get(value['format'])
     if mock is not None:
         return parse_output(value['format'], json.dumps(mock))
     raise ValueError('No mock result for this board format.')

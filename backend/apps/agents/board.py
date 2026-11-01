@@ -66,14 +66,12 @@ TEXT_FORMATS = {
                  'parse': parse_stickies},
 }
 # Sidekick turns, Flow steps, Catch up and AI search (apps.agents.sidekick) run through the same request path. A format
-# may set max_turns, max_turn_chars and max_body_bytes (else the stickies limits above) and tools (web search).
+# may set max_turns, max_turn_chars and max_body_bytes (else the stickies limits above).
 TEXT_FORMATS.update(sidekick.FORMATS)
 
 
 def generation_config(name):
     spec = TEXT_FORMATS[name]
-    if spec.get('schema') is None:
-        return {'maxOutputTokens': spec['max_output_tokens'], 'temperature': spec['temperature']}
     return {'responseMimeType': 'application/json', 'responseSchema': spec['schema'],
             'maxOutputTokens': spec['max_output_tokens'], 'temperature': spec['temperature']}
 
@@ -95,8 +93,11 @@ def submission_input(name, model, turns):
         raise ValueError('The board text model is not a Gemini model code.')
     if not valid_turns(turns, name):
         raise ValueError('Invalid board conversation.')
-    return {'version': VERSION, 'operation': OPERATION, 'format': name, 'model': model,
-            'turns': [{'role': turn['role'], 'text': turn['text']} for turn in turns]}
+    value = {'version': VERSION, 'operation': OPERATION, 'format': name, 'model': model,
+             'turns': [{'role': turn['role'], 'text': turn['text']} for turn in turns]}
+    if body_bytes(build_body(value)) > TEXT_FORMATS[name].get('max_body_bytes', MAX_BODY_BYTES):
+        raise ValueError('This request is too large to send to the AI. Shorten it, or use less knowledge or fewer sources.')
+    return value
 
 
 def valid_turns(turns, name='stickies'):
@@ -121,18 +122,22 @@ def build_body(value):
     if not is_board_input(value) or not valid_turns(value.get('turns'), value['format']):
         raise ValueError('Invalid board text input.')
     name = value['format']
-    body = {'systemInstruction': {'parts': [{'text': TEXT_FORMATS[name]['prompt']}]},
+    return {'systemInstruction': {'parts': [{'text': TEXT_FORMATS[name]['prompt']}]},
             'contents': [{'role': turn['role'], 'parts': [{'text': turn['text']}]} for turn in value['turns']],
             'generationConfig': generation_config(name)}
-    return body
+
+
+def body_bytes(body):
+    """The size of a request body as the payload allowlist measures it."""
+    return len(json.dumps(body, separators=(',', ':')))
 
 
 def body_format(body):
     """The text format whose exact request shape ``body`` has, else None."""
-    if not isinstance(body, dict) or not {'systemInstruction', 'contents', 'generationConfig'} <= set(body) <= {'systemInstruction', 'contents', 'generationConfig'}:
+    if not isinstance(body, dict) or set(body) != {'systemInstruction', 'contents', 'generationConfig'}:
         return None
     for name, spec in TEXT_FORMATS.items():
-        if (body['systemInstruction'] == {'parts': [{'text': spec['prompt']}]} and body['generationConfig'] == generation_config(name)):
+        if body['systemInstruction'] == {'parts': [{'text': spec['prompt']}]} and body['generationConfig'] == generation_config(name):
             contents = body['contents']
             if not isinstance(contents, list):
                 return None
@@ -144,7 +149,7 @@ def body_format(body):
                 if not isinstance(part, dict) or set(part) != {'text'}:
                     return None
                 turns.append({'role': item['role'], 'text': part['text']})
-            if not valid_turns(turns, name) or len(json.dumps(body, separators=(',', ':'))) > spec.get('max_body_bytes', MAX_BODY_BYTES):
+            if not valid_turns(turns, name) or body_bytes(body) > spec.get('max_body_bytes', MAX_BODY_BYTES):
                 return None
             return name
     return None

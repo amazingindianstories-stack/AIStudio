@@ -5,9 +5,19 @@ import { applyActions, summarize } from "./canvas/sidekick-actions";
 import * as api from "./sidekick-api";
 
 // Sidekick chat on a board. The catalogue (premade, own Sidekicks, slash-command skills) and the user's
-// AI credits are personal; chats are per user and board. A turn is quoted first, then submitted on an explicit send
-// (one Idempotency-Key per message, reused on retry), then polled; the answer's actions are applied to the board
-// as one undo step and recorded on the job so a reload never applies them twice. Nothing here runs a paid job by itself.
+// AI credits are personal; chats are per user and board. A turn is quoted first (a new chat is quoted without being
+// created), then submitted on an explicit send (one Idempotency-Key per message, reused on retry), then polled; the
+// answer's actions are applied to the board as one undo step and recorded on the job so a reload never applies them
+// twice, and an answer that finished while the chat was closed is applied when it is opened. Nothing here runs a
+// paid job by itself.
+
+/** The most other places a turn may read (backend MAX_SOURCES). */
+export const MAX_SOURCES = 3;
+
+/** The request body's sources: `{ kind: "board", id }` for another board, `{ kind: "library" }` for this project's prompts. */
+export function sourcesFor(sources = []) {
+  return sources.slice(0, MAX_SOURCES).map((item) => (item.kind === "board" ? { kind: "board", id: item.id } : { kind: item.kind }));
+}
 
 
 /** A leading "/skill" with the text after it, or null. `skills` is the catalogue's list of `{ name, description, prompt }`. */
@@ -41,6 +51,7 @@ export const useSidekick = create((set, get) => ({
   chats: [],
   chatId: null,
   sidekickId: "ux-researcher",
+  sources: [],
   turns: [],
   quote: null,
   sending: false,
@@ -49,7 +60,7 @@ export const useSidekick = create((set, get) => ({
 
   attach: async (boardId) => {
     pollGeneration += 1;
-    set({ boardId, chats: [], chatId: null, turns: [], quote: null, error: null, sending: false, pendingKey: null });
+    set({ boardId, chats: [], chatId: null, sources: [], turns: [], quote: null, error: null, sending: false, pendingKey: null });
     await Promise.all([get().loadCatalogue(), get().loadCredits(), get().loadChats()]);
   },
 
@@ -87,16 +98,21 @@ export const useSidekick = create((set, get) => ({
 
   chooseSidekick: (sidekickId) => set({ sidekickId, chatId: null, turns: [], quote: null, error: null }),
 
-  /** Open a saved chat: its Sidekick and history. */
+  /** Open a saved chat: its Sidekick and history. Answers that finished while it was closed are applied now. */
   openChat: async (chatId) => {
     const { boardId } = get();
     pollGeneration += 1;
+    const mine = pollGeneration;
     try {
       const { chat, turns } = await api.openChat(boardId, chatId);
+      if (mine !== pollGeneration) return;
       set({ chatId: chat.id, sidekickId: chat.sidekick, turns, quote: null, error: null });
-      for (const turn of turns) if (["queued", "running"].includes(turn.status)) void get().follow(turn.id);
+      for (const turn of turns) {
+        if (["queued", "running"].includes(turn.status)) void get().follow(turn.id);
+        else if (turn.status === "succeeded" && !turn.placedAt) await get().apply(turn);
+      }
     } catch (error) {
-      set({ error: error.message });
+      if (mine === pollGeneration) set({ error: error.message });
     }
   },
 
@@ -115,29 +131,37 @@ export const useSidekick = create((set, get) => ({
     }
   },
 
-  /** The chat for the next message: the open one, or a new one with the chosen Sidekick. */
+  /** Toggle another board or this project's library as context for the next messages (at most MAX_SOURCES). */
+  toggleSource: (source) => set((s) => {
+    const same = (item) => item.kind === source.kind && item.id === source.id;
+    if (s.sources.some(same)) return { sources: s.sources.filter((item) => !same(item)) };
+    return s.sources.length < MAX_SOURCES ? { sources: [...s.sources, source] } : {};
+  }),
+
+  /** The chat for the next message: the open one, or a new one with the chosen Sidekick (only send creates one). */
   ensureChat: async () => {
     const { boardId, chatId, sidekickId } = get();
     if (chatId) return chatId;
     const chat = await api.createChat(boardId, sidekickId);
-    set((s) => ({ chatId: chat.id, chats: [chat, ...s.chats] }));
+    if (get().boardId === boardId && get().sidekickId === sidekickId && !get().chatId) set((s) => ({ chatId: chat.id, chats: [chat, ...s.chats] }));
     return chat.id;
   },
 
   requestFor: (message, options = {}) => {
-    const { catalogue } = get();
+    const { catalogue, sources } = get();
     const selection = useCanvasStore.getState().selection;
-    return { message: expandMessage(message, catalogue?.skills), selection, ...options };
+    return { message: expandMessage(message, catalogue?.skills), selection, sources: sourcesFor(sources), ...options };
   },
 
-  /** The price of sending `message` now (null on a new chat until the first send: it uses the Sidekick's own rate). */
+  /** The price of sending `message` now. */
   estimate: async (message, options) => {
-    const { boardId, chatId } = get();
+    const { boardId, chatId, sidekickId } = get();
     if (!boardId || !message.trim()) return set({ quote: null });
     try {
-      const id = chatId ?? (await get().ensureChat());
-      const quote = await api.quoteTurn(boardId, id, get().requestFor(message, options));
-      if (get().boardId === boardId) set({ quote, error: null });
+      const request = get().requestFor(message, options);
+      const quote = chatId ? await api.quoteTurn(boardId, chatId, request) : await api.quoteFirstTurn(boardId, { ...request, sidekick: sidekickId });
+      const now = get();
+      if (now.boardId === boardId && now.chatId === chatId && now.sidekickId === sidekickId) set({ quote, error: null });
     } catch (error) {
       set({ quote: null, error: error.message });
     }
