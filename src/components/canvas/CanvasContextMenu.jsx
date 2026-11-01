@@ -13,6 +13,7 @@ import {
   Ungroup,
   Trash2,
   Scissors,
+  LayoutTemplate,
 } from "lucide-react";
 import { MenuItem } from "@/components/Dropdown";
 
@@ -117,6 +118,10 @@ export function CanvasContextMenu({
             <CopyPlus className="h-4 w-4 text-white/50" />
             <span className="flex-1">Duplicate</span>
             <span className="ml-auto pl-6 text-xs text-white/40">⌘D</span>
+          </MenuItem>
+          <MenuItem onClick={() => onAction("saveAsTemplate")}>
+            <LayoutTemplate className="h-4 w-4 text-white/50" />
+            <span className="flex-1">Save as template</span>
           </MenuItem>
           <MenuItem onClick={() => onAction("copy")}>
             <Copy className="h-4 w-4 text-white/50" />

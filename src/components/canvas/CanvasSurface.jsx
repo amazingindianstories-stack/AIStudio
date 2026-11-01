@@ -52,6 +52,7 @@ import { markSystemClipboard } from "@/lib/canvas/use-board-clipboard";
 import { NodeView, } from "./nodes/NodeView";
 import { ConnectorLayer } from "./ConnectorLayer";
 import { CanvasContextMenu, } from "./CanvasContextMenu";
+import { requestTemplates } from "@/lib/canvas/template-events";
 
  
 
@@ -854,6 +855,9 @@ export const CanvasSurface = forwardRef
         break;
       case "paste":
         s.paste();
+        break;
+      case "saveAsTemplate":
+        requestTemplates({ action: "save-selection" });
         break;
       case "delete":
         s.deleteSelected();
