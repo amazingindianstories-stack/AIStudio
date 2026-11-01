@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  FRAME_PRESETS, applyFramePreset, copyOrigin, enclosingFrameId, frameAroundSelection, holdsCopied, incrementDates, keepHiddenFrames,
+  FRAME_PRESETS, applyFramePreset, copyOrigin, enclosingContainerId, frameAroundSelection, holdsCopied, incrementDates, keepHiddenFrames,
   pasteDestinations, presetOfFrame, renameDuplicatedFrames, renestFrames,
 } from "./frames.js";
 import { applyFrameMove, descendantIds, moveNodesBy } from "./geometry.js";
@@ -71,10 +71,10 @@ test("a dragged frame nests in the smallest frame that wholly contains it, never
     frame("small", 150, 150, 100, 100),
     frame("child", 160, 160, 20, 20, { parentId: "small" }),
   ];
-  assert.equal(enclosingFrameId(nodes[2], nodes), "mid");
-  assert.equal(enclosingFrameId(nodes[1], nodes), "big");
-  assert.equal(enclosingFrameId(nodes[0], nodes), null);
-  assert.equal(enclosingFrameId(nodes[2], [...nodes.slice(0, 3), { ...nodes[3] }]), "mid");
+  assert.equal(enclosingContainerId(nodes[2], nodes), "mid");
+  assert.equal(enclosingContainerId(nodes[1], nodes), "big");
+  assert.equal(enclosingContainerId(nodes[0], nodes), null);
+  assert.equal(enclosingContainerId(nodes[2], [...nodes.slice(0, 3), { ...nodes[3] }]), "mid");
   const after = renestFrames({ nodes, connectors: [] }, ["small", "mid"]);
   assert.equal(after.nodes.find((n) => n.id === "small").parentId, "mid");
   assert.equal(after.nodes.find((n) => n.id === "mid").parentId, "big");

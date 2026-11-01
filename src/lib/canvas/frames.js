@@ -2,7 +2,7 @@
  * Frame structure helpers: wrap a selection in a frame, size presets, nesting, date-aware duplicate names
  * and pasting into frames at the same position. Pure functions over the board graph.
  */
-import { descendantIds } from "./geometry";
+import { descendantIds, isContainerNode } from "./geometry";
 import { lockedIdSet } from "./locks";
 
 export const FRAME_PADDING = 40;
@@ -79,14 +79,14 @@ export function frameAroundSelection(state, ids, padding = FRAME_PADDING, id = c
 }
 
 /**
- * The frame a frame belongs in after it was dragged: the smallest other frame that wholly contains it and
- * is not one of its own descendants, or null. Frames nest to any depth.
+ * The container a frame belongs in after it was dragged: the smallest other frame, swimlane or diagram that
+ * wholly contains it and is not one of its own descendants, or null. Frames nest to any depth.
  */
-export function enclosingFrameId(frame, nodes) {
+export function enclosingContainerId(frame, nodes) {
   const own = descendantIds(nodes, [frame.id]);
   let best = null;
   for (const other of nodes) {
-    if (other.type !== "frame" || other.id === frame.id || own.has(other.id)) continue;
+    if (!isContainerNode(other) || other.id === frame.id || own.has(other.id)) continue;
     const contains = other.x <= frame.x && other.y <= frame.y && other.x + other.w >= frame.x + frame.w && other.y + other.h >= frame.y + frame.h;
     if (!contains) continue;
     if (!best || other.w * other.h < best.w * best.h) best = other;
@@ -100,7 +100,7 @@ export function renestFrames(state, frameIds) {
   let changed = false;
   const nodes = state.nodes.map((n) => {
     if (n.type !== "frame" || !wanted.has(n.id)) return n;
-    const parentId = enclosingFrameId(n, state.nodes);
+    const parentId = enclosingContainerId(n, state.nodes);
     if (parentId === (n.parentId ?? null)) return n;
     changed = true;
     return { ...n, parentId };

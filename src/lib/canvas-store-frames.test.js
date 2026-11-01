@@ -10,11 +10,11 @@ const frame = (id, x, y, w, h, name = "Frame") => ({ id, type: "frame", x, y, w,
 
 const json = (body) => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
 
-async function board(t, nodes, role = "edit") {
+async function board(t, nodes, role = "edit", extra = {}) {
   t.mock.method(globalThis, "fetch", async (url, init = {}) =>
     (init.method || "GET") === "PUT"
       ? json({ ok: true, updatedAt: Date.now() })
-      : json({ id: "board-1", name: "Board", data: { ...emptyCanvasState(), nodes }, updatedAt: 1, role }));
+      : json({ id: "board-1", name: "Board", data: { ...emptyCanvasState(), nodes, ...extra }, updatedAt: 1, role }));
   useCanvasStore.getState().reset();
   await useCanvasStore.getState().loadBoard("board-1");
   t.after(() => useCanvasStore.getState().reset());
@@ -71,6 +71,40 @@ test("moving a frame carries nested frames and their contents", async (t) => {
   store.getState().moveSelectionBy(100, 40);
   assert.deepEqual([get(store, "inner").x, get(store, "inner").y], [150, 90]);
   assert.deepEqual([get(store, "s").x, get(store, "s").y], [160, 100]);
+});
+
+test("a frame made inside a diagram or swimlane stays in it when nudged, and leaves it only when moved out", async (t) => {
+  for (const type of ["diagram", "swimlane"]) {
+    const store = await board(t, [
+      { ...frame("box", 0, 0, 1000, 800, "Box"), type, containers: [], layers: [] },
+      { ...sticky("a", 100, 100), parentId: "box" },
+      { ...sticky("b", 300, 100), parentId: "box" },
+    ]);
+    store.getState().setSelection(["a", "b"]);
+    assert.equal(frameSelection(), true);
+    const [id] = store.getState().selection;
+    assert.equal(get(store, id).parentId, "box");
+    store.getState().moveSelectionBy(1, 0);
+    assert.equal(get(store, id).parentId, "box", `a nudged frame stays in the ${type}`);
+    store.getState().setSelection(["box"]);
+    store.getState().moveSelectionBy(50, 0);
+    assert.deepEqual([get(store, id).x, get(store, "a").x], [111, 151], `the frame and its contents move with the ${type}`);
+    store.getState().setSelection([id]);
+    store.getState().moveSelectionBy(2000, 0);
+    assert.equal(get(store, id).parentId, null, `a frame dragged out of the ${type} leaves it`);
+  }
+});
+
+test("copies pasted into a frame do not start out on a locked layer", async (t) => {
+  const layers = [{ id: "L", name: "Open" }, { id: "K", name: "Kept", locked: true }];
+  const store = await board(t, [frame("f", 1000, 0, 400, 400), { ...sticky("s", 50, 60), layerId: "K" }], "edit", { settings: { layers } });
+  store.getState().setActiveLayer("L");
+  store.getState().setSelection(["s"]);
+  store.getState().copy();
+  store.getState().setSelection(["f"]);
+  store.getState().paste();
+  const copy = get(store, store.getState().selection[0]);
+  assert.deepEqual([copy.parentId, copy.layerId], ["f", "L"]);
 });
 
 test("pasting a copy into a frame places it at the same offset and nests it", async (t) => {

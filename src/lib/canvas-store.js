@@ -1214,7 +1214,7 @@ export const useCanvasStore = create((set, get) => ({
             return newParentId !== (n.parentId ?? null) ? { ...n, parentId: newParentId } : n;
           }),
         };
-        // A dragged frame joins the smallest frame it now sits wholly inside (frames nest to any depth).
+        // A dragged frame joins the smallest container it now sits wholly inside (frames nest to any depth).
         next = renestFrames(next, [...movable]);
         if (selectedConnectorIds.length) {
           next = {
@@ -1750,7 +1750,7 @@ export const useCanvasStore = create((set, get) => ({
         const ids = clipboard.map((n) => n.id);
         const all = [];
         for (const where of pasteDestinations(targets, clipboardOrigin)) {
-          const built = buildClones(clipboard, ids, where.dx, where.dy, false);
+          const built = buildClones(clipboard, ids, where.dx, where.dy, false, present, get().activeLayerId);
           for (const clone of built.clones) all.push(clone.parentId ? clone : { ...clone, parentId: where.parentId });
           for (const id of built.idMap.values()) idMap.set(id, id);
         }
