@@ -162,7 +162,7 @@ class CollabTests(TransactionTestCase):
         self.as_user(self.third)
         page = self.send('get', '/api/notifications?boards=1').json()
         self.assertEqual((len(page['notifications']), page['unread'], bool(page['next'])), (30, 32, True))
-        self.assertEqual(page['boards'], [{'boardId': BOARD, 'name': 'Board', 'unread': 32}])
+        self.assertEqual(page['boards'], [{'boardId': BOARD, 'name': 'Board', 'projectId': PROJECT, 'unread': 32}])
         rest = self.send('get', f"/api/notifications?boardId={BOARD}&before={page['next']}").json()
         self.assertEqual(len(rest['notifications']), 2)
         self.send('post', '/api/notifications/read', {'ids': [page['notifications'][0]['id']]})
