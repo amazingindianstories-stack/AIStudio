@@ -214,4 +214,3 @@ iteration. No commit, push or deployment.
 - Verified on 2026-10-31: `apps.canvas` backend tests (127 passed on a
   disposable PostgreSQL), `work-api` and `work-records` unit tests (9 passed),
   and the two Board work browser tests with mock providers.
-
