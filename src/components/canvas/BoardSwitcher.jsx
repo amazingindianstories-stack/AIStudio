@@ -58,6 +58,11 @@ export function BoardSwitcher({
   // class of race `loadGeneration` guards against in canvas-store.ts, just
   // for the board *list* rather than a single board's content.
   const requestIdRef = useRef(0);
+  // The list fetch resolves later; it keeps the board chosen meanwhile (a notification link), not the one it started with.
+  const latest = useRef({ boardId, preferredBoardId });
+  useEffect(() => {
+    latest.current = { boardId, preferredBoardId };
+  });
 
   useEffect(() => {
     if (!projectId) return;
@@ -89,8 +94,8 @@ export function BoardSwitcher({
         setCanCreate(creatable);
         if (list.length === 0) {
           onBoardIdChange(null);
-        } else if (!boardId || !list.some((b) => b.id === boardId)) {
-          onBoardIdChange(list.find((b) => b.id === preferredBoardId)?.id ?? list[0].id);
+        } else if (!latest.current.boardId || !list.some((b) => b.id === latest.current.boardId)) {
+          onBoardIdChange(list.find((b) => b.id === latest.current.preferredBoardId)?.id ?? list[0].id);
         }
       } catch {
         if (requestIdRef.current !== requestId) return;

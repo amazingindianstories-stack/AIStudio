@@ -106,7 +106,10 @@ test('Board comments: pin a comment on an object, mention a teammate, reply, rea
   await expect(mateThread).toBeVisible();
   await expect(mate.page.locator('[data-pin] [data-unread-dot]')).toHaveCount(0);
 
-  // A browser notification opens its board and thread from the Studio view: by link, or relayed by the service worker.
+  // A browser notification opens its board and thread from the Studio view: by link, or relayed by the service worker,
+  // even when another board of the project was edited more recently and would open by default.
+  const newer = await owner.context.request.post('/api/canvas-boards', { data: { op: 'createBoard', projectId: project.id, name: 'Newer board' }, headers: { Origin: baseURL } });
+  expect(newer.ok()).toBeTruthy();
   const threadId = (await (await mate.context.request.get(`${boardPath}/comments`)).json()).comments[0].id;
   const sections = mate.page.getByRole('navigation', { name: 'Sections' });
   await mate.page.goto(`/?board=${boardId}&project=${project.id}&comment=${threadId}`);
@@ -118,6 +121,8 @@ test('Board comments: pin a comment on an object, mention a teammate, reply, rea
   await mate.page.evaluate((data) => navigator.serviceWorker.dispatchEvent(new MessageEvent('message', { data })), { type: 'open-board', boardId, projectId: project.id, commentId: threadId });
   await expect(mate.page.getByRole('application', { name: 'Board canvas' })).toBeVisible();
   await expect(mateThread).toContainText('Please check this');
+  const removed = await owner.context.request.post('/api/canvas-boards', { data: { op: 'deleteBoard', id: (await newer.json()).board.id }, headers: { Origin: baseURL } });
+  expect(removed.ok()).toBeTruthy();
 
   // Reply, react and resolve.
   await mateThread.getByRole('textbox').fill('Looks good to me');

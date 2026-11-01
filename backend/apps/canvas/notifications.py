@@ -35,11 +35,14 @@ def _group_members(board, group, author_id):
 
 
 def mentioned(board, mentions, author_id):
-    people = _active([u for u in mentions.get('users', [])])
+    """(people mentioned by name, everyone the mentions reach including groups)."""
+    named = _active(mentions.get('users', []))
+    reached = set(named)
     for group in mentions.get('groups', []):
-        people |= _group_members(board, group, author_id)
-    people.discard(author_id)
-    return people
+        reached |= _group_members(board, group, author_id)
+    named.discard(author_id)
+    reached.discard(author_id)
+    return named, reached
 
 
 def _write(board, comment, thread, kind, actor, snippet, recipients, now):
@@ -52,11 +55,11 @@ def comment_posted(actor, board, comment, thread, body, mentions):
     from .comments import plain
     now = now_ms()
     snippet = plain(body)
-    mention_ids = mentioned(board, mentions, actor.id)
-    for user_id in mention_ids:
-        # Being mentioned follows the thread, so its replies reach you.
+    named, reached = mentioned(board, mentions, actor.id)
+    for user_id in named:
+        # Being mentioned by name follows the thread, so its replies reach you; a group mention notifies once.
         CommentFollow.objects.get_or_create(board_id=board['id'], user_id=user_id, thread=thread)
-    _write(board, comment, thread, 'mention', actor, snippet, mention_ids, now)
+    _write(board, comment, thread, 'mention', actor, snippet, reached, now)
     if comment.parent_id:
         followers = set(CommentFollow.objects.filter(board_id=board['id'], thread=thread).values_list('user_id', flat=True))
         followers |= set(CommentFollow.objects.filter(board_id=board['id'], thread__isnull=True).values_list('user_id', flat=True))
@@ -64,7 +67,7 @@ def comment_posted(actor, board, comment, thread, body, mentions):
     else:
         followers = set(CommentFollow.objects.filter(board_id=board['id'], thread__isnull=True).values_list('user_id', flat=True))
         kind = 'comment'
-    followers -= mention_ids
+    followers -= reached
     followers.discard(actor.id)
     _write(board, comment, thread, kind, actor, snippet, _active(followers), now)
 
@@ -74,9 +77,10 @@ def comment_edited(actor, board, row, mentions, body):
     from .comments import plain
     Notification.objects.filter(comment_id=row.pk).update(snippet=plain(body))
     already = set(Notification.objects.filter(comment_id=row.pk, kind='mention').values_list('user_id', flat=True))
-    fresh = mentioned(board, mentions, actor.id) - already
+    named, reached = mentioned(board, mentions, actor.id)
+    fresh = reached - already
     thread = BoardComment.objects.get(pk=row.parent_id) if row.parent_id else row
-    for user_id in fresh:
+    for user_id in named & fresh:
         CommentFollow.objects.get_or_create(board_id=board['id'], user_id=user_id, thread=thread)
     _write(board, row, thread, 'mention', actor, plain(body), fresh, now_ms())
 

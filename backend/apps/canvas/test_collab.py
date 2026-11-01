@@ -144,6 +144,16 @@ class CollabTests(TransactionTestCase):
         self.send('patch', f"{self.base}/comments/{root['id']}", {'body': f'again {mention(self.third)}'})
         self.assertEqual(Notification.objects.filter(kind='mention').count(), 1)
 
+    def test_a_group_mention_notifies_once_and_does_not_follow_the_thread(self):
+        _, root = self.post(self.mate, 'team @[team](team)')
+        self.assertEqual({r.user_id for r in Notification.objects.filter(kind='mention')}, {self.owner.id, self.viewer.id, self.third.id})
+        _, edited = self.post(self.mate, 'plain')
+        self.send('patch', f"{self.base}/comments/{edited['id']}", {'body': 'now @[board](board)'})
+        self.assertEqual(set(CommentFollow.objects.values_list('user_id', flat=True)), {self.mate.id})
+        Notification.objects.all().delete()
+        self.post(self.owner, 'reply', parentId=root['id'])
+        self.assertEqual([(r.user_id, r.kind) for r in Notification.objects.all()], [(self.mate.id, 'reply')])
+
     def test_follow_all_threads_and_one_thread(self):
         self.as_user(self.third)
         self.assertTrue(self.send('post', self.base + '/comments/follow', {'follow': True}).json()['all'])
