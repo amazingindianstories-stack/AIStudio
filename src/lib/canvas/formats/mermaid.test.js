@@ -210,20 +210,24 @@ test("shapes drawn into a diagram join the code once read, keeping their identit
   assert.equal(diagramToMermaid(saved, built.diagram.id), code);
 });
 
-test("a copied shape left in its diagram is not the code's shape; a copied diagram keeps its keys", async (t) => {
-  const source = "graph TD\nA --> B";
-  const built = mermaidToBoardObjects(parseMermaid(source), { x: 0, y: 0 }, { source });
-  const [shapeA] = built.nodes;
-  const outside = { id: "outside", type: "sticky", x: 900, y: 0, w: 50, h: 50, text: "", parentId: null, groupId: null };
+async function editableBoard(t, data) {
   const json = (body) => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
-  const data = validateCanvasState({ ...emptyCanvasState(), nodes: [outside, built.diagram, ...built.nodes],
-    connectors: [...built.connectors, { id: "a-out", from: { nodeId: shapeA.id, anchor: "auto" }, to: { nodeId: "outside", anchor: "auto" } }] });
   t.mock.method(globalThis, "fetch", async (url, init = {}) =>
     (init.method || "GET") === "PUT" ? json({ ok: true, updatedAt: Date.now() }) : json({ id: "board-1", name: "Board", data, updatedAt: 1, role: "edit" }));
   const store = useCanvasStore;
   store.getState().reset();
   await store.getState().loadBoard("board-1");
   t.after(() => store.getState().reset());
+  return store;
+}
+
+test("a copied shape left in its diagram is not the code's shape; a copied diagram keeps its keys", async (t) => {
+  const source = "graph TD\nA --> B";
+  const built = mermaidToBoardObjects(parseMermaid(source), { x: 0, y: 0 }, { source });
+  const [shapeA] = built.nodes;
+  const outside = { id: "outside", type: "sticky", x: 900, y: 0, w: 50, h: 50, text: "", parentId: null, groupId: null };
+  const store = await editableBoard(t, validateCanvasState({ ...emptyCanvasState(), nodes: [outside, built.diagram, ...built.nodes],
+    connectors: [...built.connectors, { id: "a-out", from: { nodeId: shapeA.id, anchor: "auto" }, to: { nodeId: "outside", anchor: "auto" } }] }));
   store.getState().setSelection([shapeA.id]);
   store.getState().duplicateSelected();
   const [copyId] = store.getState().selection;
@@ -239,4 +243,25 @@ test("a copied shape left in its diagram is not the code's shape; a copied diagr
   store.getState().duplicateSelected();
   const copies = store.getState().selection.map((id) => present().nodes.find((n) => n.id === id));
   assert.deepEqual(copies.filter((n) => n.type !== "diagram").map((n) => n.mermaidKey), ["A", "B"]);
+});
+
+test("a shape dragged into another diagram, or wrapped into a new one, is no longer a code shape", async (t) => {
+  const x = mermaidToBoardObjects(parseMermaid("graph TD\nA --> B"), { x: 0, y: 0 }, { source: "graph TD\nA --> B" });
+  const code = "graph TD\nC --> D";
+  const y = mermaidToBoardObjects(parseMermaid(code), { x: 2000, y: 0 }, { source: code });
+  const [shapeA, shapeB] = x.nodes;
+  const store = await editableBoard(t, validateCanvasState({ ...emptyCanvasState(), nodes: [x.diagram, ...x.nodes, y.diagram, ...y.nodes], connectors: [...x.connectors, ...y.connectors] }));
+  const present = () => store.getState().history.present;
+  store.getState().setSelection([shapeA.id]);
+  store.getState().moveSelectionBy(y.diagram.x + y.diagram.w / 2 - (shapeA.x + shapeA.w / 2), y.diagram.y + y.diagram.h - 30 - (shapeA.y + shapeA.h / 2));
+  const moved = present().nodes.find((n) => n.id === shapeA.id);
+  assert.equal(moved.parentId, y.diagram.id);
+  assert.equal(moved.mermaidKey, undefined);
+  const next = replaceDiagramContent(present(), y.diagram.id, parseMermaid(code), code);
+  assert.ok(next.nodes.some((n) => n.id === shapeA.id));
+  assert.deepEqual(next.nodes.filter((n) => n.parentId === y.diagram.id && n.mermaidKey).map((n) => n.id), y.nodes.map((n) => n.id));
+  assert.equal(next.connectors.length, present().connectors.length);
+  store.getState().setSelection([shapeB.id]);
+  store.getState().convertSelectionToDiagram("Wrapped");
+  assert.equal(present().nodes.find((n) => n.id === shapeB.id).mermaidKey, undefined);
 });

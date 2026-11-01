@@ -12,18 +12,18 @@ export function DrawioEditor({ node, readOnly }) {
   current.current = node;
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState("");
-  const exporting = useRef(false);
+  const exportFor = useRef(null);
   const closing = useRef(null);
   useEffect(() => {
     if (!editing) return;
     return () => {
       clearTimeout(closing.current);
       closing.current = null;
-      exporting.current = false;
+      exportFor.current = null;
     };
   }, [editing]);
   const close = useCallback(() => {
-    if (!exporting.current) setEditing(false);
+    if (exportFor.current == null) setEditing(false);
     else if (!closing.current) closing.current = setTimeout(() => setEditing(false), 5000);
   }, []);
   useEffect(() => {
@@ -35,13 +35,13 @@ export function DrawioEditor({ node, readOnly }) {
       if (["save", "autosave"].includes(message.event) && typeof message.xml === "string") {
         if (message.xml.length > 300000) { setError("Diagram exceeds 300,000 characters. Reduce its size before saving."); return; }
         if (message.xml !== current.current.xml) patchFormat(current.current.id, () => ({ xml: message.xml, preview: undefined }));
-        exporting.current = true;
+        exportFor.current = message.xml;
         frame.current.contentWindow.postMessage(JSON.stringify({ action: "export", format: "svg" }), ORIGIN);
         setError("");
         if (message.exit) close();
       }
-      if (message.event === "export") {
-        exporting.current = false;
+      if (message.event === "export" && exportFor.current != null && message.xml === exportFor.current) {
+        exportFor.current = null;
         if (typeof message.data === "string" && message.data.startsWith(DRAWIO_PREVIEW_PREFIX) && message.data.length <= MAX_DRAWIO_PREVIEW && message.xml === current.current.xml) {
           patchFormat(current.current.id, () => ({ preview: message.data }), { coalesce: true });
         }

@@ -327,6 +327,13 @@ function buildClones(
   return { clones: placeCopies(present, clones, layerId), idMap };
 }
 
+/** `n` moved under `parentId`; its Mermaid key names a shape only in the diagram that keyed it. */
+function reparented(n, parentId) {
+  const next = { ...n, parentId };
+  if (parentId !== (n.parentId ?? null)) delete next.mermaidKey;
+  return next;
+}
+
 /** The selection of `state` limited to the objects `present` has and the board shows. */
 function pruneSelection(present, { selection, selectedConnectorIds, focusedDiagramId }) {
   const hidden = hiddenBoardIds(present, focusedDiagramId);
@@ -1208,7 +1215,7 @@ export const useCanvasStore = create((set, get) => ({
           nodes: next.nodes.map((n) => {
             if (isContainerNode(n) || !selectedIds.has(n.id) || !movable.has(n.id)) return n;
             const newParentId = computeFrameMembership(n, containers);
-            return newParentId !== (n.parentId ?? null) ? { ...n, parentId: newParentId } : n;
+            return newParentId !== (n.parentId ?? null) ? reparented(n, newParentId) : n;
           }),
         };
         if (selectedConnectorIds.length) {
@@ -1674,7 +1681,7 @@ export const useCanvasStore = create((set, get) => ({
         diagramNode,
         ...present.nodes.map((n) =>
           selSet.has(n.id) && n.type !== "diagram"
-            ? { ...n, parentId: diagramNode.id, diagramLayerId: n.diagramLayerId || "layer-main" }
+            ? { ...reparented(n, diagramNode.id), diagramLayerId: n.diagramLayerId || "layer-main" }
             : n
         ),
       ],

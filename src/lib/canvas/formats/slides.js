@@ -30,5 +30,13 @@ export function moveIntoFrame(graph, id, frame) {
   const dx = frame.x + 40 - node.x;
   const dy = frame.y + 60 - node.y;
   const moved = new Set(frameContents(graph, id).nodes.map((n) => n.id));
-  return { ...graph, nodes: graph.nodes.map((n) => !moved.has(n.id) ? n : { ...n, x: n.x + dx, y: n.y + dy, ...(n.id === id ? { parentId: frame.id } : {}) }) };
+  return { ...graph, nodes: graph.nodes.map((n) => {
+    if (!moved.has(n.id)) return n;
+    const next = { ...n, x: n.x + dx, y: n.y + dy };
+    if (n.id === id && n.parentId !== frame.id) {
+      next.parentId = frame.id;
+      delete next.mermaidKey;
+    }
+    return next;
+  }) };
 }
