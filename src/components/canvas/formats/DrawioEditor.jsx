@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { patchFormat } from "@/lib/canvas/formats/actions";
 import { DRAWIO_PREVIEW_PREFIX, MAX_DRAWIO_PREVIEW } from "@/lib/canvas/formats/model";
 
@@ -12,6 +12,20 @@ export function DrawioEditor({ node, readOnly }) {
   current.current = node;
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState("");
+  const exporting = useRef(false);
+  const closing = useRef(null);
+  useEffect(() => {
+    if (!editing) return;
+    return () => {
+      clearTimeout(closing.current);
+      closing.current = null;
+      exporting.current = false;
+    };
+  }, [editing]);
+  const close = useCallback(() => {
+    if (!exporting.current) setEditing(false);
+    else if (!closing.current) closing.current = setTimeout(() => setEditing(false), 5000);
+  }, []);
   useEffect(() => {
     const onMessage = (e) => {
       if (readOnly || e.origin !== ORIGIN || e.source !== frame.current?.contentWindow || typeof e.data !== "string") return;
@@ -20,22 +34,27 @@ export function DrawioEditor({ node, readOnly }) {
       if (message.event === "init") frame.current.contentWindow.postMessage(JSON.stringify({ action: "load", xml: current.current.xml || "<mxGraphModel><root><mxCell id=\"0\"/><mxCell id=\"1\" parent=\"0\"/></root></mxGraphModel>", autosave: 1 }), ORIGIN);
       if (["save", "autosave"].includes(message.event) && typeof message.xml === "string") {
         if (message.xml.length > 300000) { setError("Diagram exceeds 300,000 characters. Reduce its size before saving."); return; }
-        patchFormat(current.current.id, () => ({ xml: message.xml }));
+        if (message.xml !== current.current.xml) patchFormat(current.current.id, () => ({ xml: message.xml, preview: undefined }));
+        exporting.current = true;
         frame.current.contentWindow.postMessage(JSON.stringify({ action: "export", format: "svg" }), ORIGIN);
         setError("");
-        if (message.exit) setEditing(false);
+        if (message.exit) close();
       }
-      if (message.event === "export" && typeof message.data === "string" && message.data.startsWith(DRAWIO_PREVIEW_PREFIX) && message.data.length <= MAX_DRAWIO_PREVIEW && message.xml === current.current.xml) {
-        patchFormat(current.current.id, () => ({ preview: message.data }), { coalesce: true });
+      if (message.event === "export") {
+        exporting.current = false;
+        if (typeof message.data === "string" && message.data.startsWith(DRAWIO_PREVIEW_PREFIX) && message.data.length <= MAX_DRAWIO_PREVIEW && message.xml === current.current.xml) {
+          patchFormat(current.current.id, () => ({ preview: message.data }), { coalesce: true });
+        }
+        if (closing.current) setEditing(false);
       }
-      if (message.event === "exit") setEditing(false);
+      if (message.event === "exit") close();
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [readOnly]);
+  }, [readOnly, close]);
   return <div className="space-y-3">
     <p className="text-sm text-slate-600">Opening the editor loads diagrams.net in this panel and sends it this diagram&apos;s XML. The XML and a preview image are saved on this board.</p>
-    {!readOnly && <button className="rounded bg-indigo-600 px-4 py-2 text-white" onClick={() => setEditing(!editing)}>{editing ? "Close editor" : "Open Draw.io editor"}</button>}
+    {!readOnly && <button className="rounded bg-indigo-600 px-4 py-2 text-white" onClick={() => (editing ? close() : setEditing(true))}>{editing ? "Close editor" : "Open Draw.io editor"}</button>}
     <a className="ml-3 text-indigo-700 underline" href={`data:application/xml;charset=utf-8,${encodeURIComponent(node.xml)}`} download={`${node.name}.drawio`}>Export Draw.io XML</a>
     {error && <p role="alert">{error}</p>}
     {editing ? <iframe ref={frame} title="Draw.io editor" className="h-[70vh] w-full border" sandbox="allow-scripts allow-same-origin allow-downloads allow-forms allow-modals" referrerPolicy="no-referrer" src={`${ORIGIN}/?embed=1&proto=json&spin=1&libraries=1&saveAndExit=1`} /> : node.preview ?

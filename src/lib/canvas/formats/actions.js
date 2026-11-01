@@ -3,7 +3,12 @@ import { defaultViewPatches } from "./model";
 
 export function patchFormat(id, compute, opts) {
   useCanvasStore.getState().editBoard((graph) => ({ ...graph,
-    nodes: graph.nodes.map((node) => node.id === id ? { ...node, ...compute(node) } : node),
+    nodes: graph.nodes.map((node) => {
+      if (node.id !== id) return node;
+      const next = { ...node, ...compute(node) };
+      for (const key of Object.keys(next)) if (next[key] === undefined) delete next[key];
+      return next;
+    }),
   }), opts);
 }
 

@@ -26,7 +26,7 @@ MAX_DRAWIO_XML = 300000
 MAX_DRAWIO_PREVIEW = 300000
 DRAWIO_PREVIEW_PREFIX = 'data:image/svg+xml;base64,'
 MAX_SOURCE = 20000
-MERMAID_KEY = re.compile(r'[A-Za-z0-9_\u00C0-\U0010FFFF][A-Za-z0-9_\u00C0-\U0010FFFF-]*')
+MERMAID_KEY = re.compile(r'[A-Za-z0-9_\u00C0-\U0010FFFF]+(?:-[A-Za-z0-9_\u00C0-\U0010FFFF]+)*')
 
 
 def _utf16(text):

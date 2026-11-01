@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { validateCanvasState } from "../serialization.js";
+import { emptyCanvasState, validateCanvasState } from "../serialization.js";
+import { useCanvasStore } from "../../canvas-store.js";
 import { diagramToMermaid, layoutMermaid, mermaidToBoardObjects, parseMermaid, replaceDiagramContent } from "./mermaid.js";
 
 test("flowchart nodes, shapes, chains and link labels", () => {
@@ -22,6 +23,34 @@ test("flowchart nodes, shapes, chains and link labels", () => {
   assert.equal(p.edges[1].label, "yes");
   assert.equal(p.edges[2].label, "no");
   assert.equal(p.edges[4].style, "dashed");
+});
+
+test("arrows written without spaces link their nodes", () => {
+  const p = parseMermaid("graph TD; A--> B; A-->C; B---D; C-->|Yes|D; D-.->E; E==>F-1; F-1--xG");
+  assert.equal(p.ok, true);
+  assert.deepEqual(p.warnings, []);
+  assert.deepEqual(p.nodes.map((n) => n.id), ["A", "B", "C", "D", "E", "F-1", "G"]);
+  assert.deepEqual(p.edges.map((e) => [e.from, e.to, e.label, e.style, e.line]), [
+    ["A", "B", "", "solid", false],
+    ["A", "C", "", "solid", false],
+    ["B", "D", "", "solid", true],
+    ["C", "D", "Yes", "solid", false],
+    ["D", "E", "", "dashed", false],
+    ["E", "F-1", "", "thick", false],
+    ["F-1", "G", "", "solid", true],
+  ]);
+  const states = parseMermaid("stateDiagram-v2\n[*]-->Idle\nIdle-->Busy: go");
+  assert.deepEqual(states.edges.map((e) => [e.from, e.to]), [["start", "Idle"], ["Idle", "Busy"]]);
+});
+
+test("node ids longer than a stored shape key are refused", () => {
+  const long = `graph TD\n${"a".repeat(65)} --> B`;
+  assert.equal(parseMermaid(long).ok, false);
+  assert.match(parseMermaid(long).error, /longer than 64/);
+  const fits = parseMermaid(`graph TD\n${"a".repeat(64)} --> B`);
+  const built = mermaidToBoardObjects(fits, { x: 0, y: 0 }, { source: "" });
+  const saved = validateCanvasState({ nodes: [built.diagram, ...built.nodes], connectors: built.connectors });
+  assert.deepEqual(saved.nodes.filter((n) => n.mermaidKey).map((n) => n.mermaidKey), ["a".repeat(64), "B"]);
 });
 
 test("ampersand groups, plain lines and comments", () => {
@@ -179,4 +208,35 @@ test("shapes drawn into a diagram join the code once read, keeping their identit
   assert.equal(next.connectors.length, 2);
   const saved = validateCanvasState(next);
   assert.equal(diagramToMermaid(saved, built.diagram.id), code);
+});
+
+test("a copied shape left in its diagram is not the code's shape; a copied diagram keeps its keys", async (t) => {
+  const source = "graph TD\nA --> B";
+  const built = mermaidToBoardObjects(parseMermaid(source), { x: 0, y: 0 }, { source });
+  const [shapeA] = built.nodes;
+  const outside = { id: "outside", type: "sticky", x: 900, y: 0, w: 50, h: 50, text: "", parentId: null, groupId: null };
+  const json = (body) => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+  const data = validateCanvasState({ ...emptyCanvasState(), nodes: [outside, built.diagram, ...built.nodes],
+    connectors: [...built.connectors, { id: "a-out", from: { nodeId: shapeA.id, anchor: "auto" }, to: { nodeId: "outside", anchor: "auto" } }] });
+  t.mock.method(globalThis, "fetch", async (url, init = {}) =>
+    (init.method || "GET") === "PUT" ? json({ ok: true, updatedAt: Date.now() }) : json({ id: "board-1", name: "Board", data, updatedAt: 1, role: "edit" }));
+  const store = useCanvasStore;
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  t.after(() => store.getState().reset());
+  store.getState().setSelection([shapeA.id]);
+  store.getState().duplicateSelected();
+  const [copyId] = store.getState().selection;
+  store.getState().setSelection([shapeA.id]);
+  store.getState().bringToFront();
+  const present = () => store.getState().history.present;
+  assert.equal(present().nodes.find((n) => n.id === copyId).mermaidKey, undefined);
+  const next = replaceDiagramContent(present(), built.diagram.id, parseMermaid(source), source);
+  assert.equal(next.nodes.find((n) => n.mermaidKey === "A").id, shapeA.id);
+  assert.ok(next.nodes.some((n) => n.id === copyId));
+  assert.ok(next.connectors.some((c) => c.id === "a-out"));
+  store.getState().setSelection([built.diagram.id, ...built.nodes.map((n) => n.id)]);
+  store.getState().duplicateSelected();
+  const copies = store.getState().selection.map((id) => present().nodes.find((n) => n.id === id));
+  assert.deepEqual(copies.filter((n) => n.type !== "diagram").map((n) => n.mermaidKey), ["A", "B"]);
 });

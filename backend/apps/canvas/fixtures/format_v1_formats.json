@@ -644,6 +644,26 @@
       "type": "ellipse",
       "parentId": "dg",
       "mermaidKey": "bad key"
+     },
+     {
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "id": "kc",
+      "type": "ellipse",
+      "parentId": "dg",
+      "mermaidKey": "F-1"
+     },
+     {
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "id": "kd",
+      "type": "ellipse",
+      "parentId": "dg",
+      "mermaidKey": "trail-"
      }
     ]
    },
@@ -756,6 +776,33 @@
      },
      {
       "id": "kb",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": "dg",
+      "groupId": null,
+      "type": "ellipse",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1
+     },
+     {
+      "id": "kc",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": "dg",
+      "groupId": null,
+      "type": "ellipse",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1,
+      "mermaidKey": "F-1"
+     },
+     {
+      "id": "kd",
       "x": 0,
       "y": 0,
       "w": 100,

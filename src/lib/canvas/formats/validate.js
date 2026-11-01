@@ -28,7 +28,7 @@ import { validateMarks } from "../rich-text";
 
 const SUGGESTION_KINDS = ["replace", "delete"];
 const SOURCE_MAX = 20000;
-const MERMAID_KEY = /^[A-Za-z0-9_\u00C0-\uFFFF][\w\u00C0-\uFFFF-]*$/;
+const MERMAID_KEY = /^[\w\u00C0-\uFFFF]+(?:-[\w\u00C0-\uFFFF]+)*$/;
 
 function isFiniteNumber(v) {
   return typeof v === "number" && Number.isFinite(v);

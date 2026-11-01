@@ -8,6 +8,8 @@
  * diagram back as source, so code and shapes edit each other.
  */
 
+import { MAX_ID } from "./model";
+
 export const MAX_MERMAID_SOURCE = 20000;
 export const MAX_MERMAID_NODES = 150;
 export const MAX_MERMAID_EDGES = 300;
@@ -31,7 +33,10 @@ const SHAPES = [
   [">", "]", "flag"],
 ];
 
-const LINK = /(<?)(-{2,}>|-{2,}|={2,}>|={2,}|-\.+->|-\.+-|~{3,}|--[xo])/;
+const ID = "[\\w\\u00C0-\\uFFFF]+(?:-[\\w\\u00C0-\\uFFFF]+)*";
+const NODE_ID = new RegExp(`^\\s*(${ID})`);
+const STATE_TRANSITION = new RegExp(`^(\\[\\*\\]|${ID})\\s*-->\\s*(\\[\\*\\]|${ID})\\s*(?::\\s*(.*))?$`);
+const LINK = /(<?)(-{2,}>|--[xo]|-{2,}|={2,}>|={2,}|-\.+->|-\.+-|~{3,})/;
 
 function unquote(text) {
   const t = text.trim();
@@ -48,7 +53,7 @@ function cleanLabel(text) {
 
 /** Reads `id`, `id[text]`, `id((text))`... at the start of `text`; returns the node and what is left. */
 function readNode(text) {
-  const m = /^\s*([A-Za-z0-9_\u00C0-\uFFFF][\w\u00C0-\uFFFF-]*)/.exec(text);
+  const m = NODE_ID.exec(text);
   if (!m) return null;
   const id = m[1];
   let rest = text.slice(m[0].length);
@@ -182,7 +187,7 @@ export function parseMermaid(source) {
         touch({ id: decl[2], label: decl[1], shape: "round" });
         continue;
       }
-      const tr = /^(\[\*\]|[\w-]+)\s*-->\s*(\[\*\]|[\w-]+)\s*(?::\s*(.*))?$/.exec(line);
+      const tr = STATE_TRANSITION.exec(line);
       if (tr) {
         const ids = [tr[1], tr[2]].map((raw, i) => {
           if (raw !== "[*]") return raw;
@@ -228,6 +233,8 @@ export function parseMermaid(source) {
     if (!parseStatement(line, touch, (edge) => edges.push(edge))) warnings.push(line);
   }
   if (!nodes.size) return { ...empty, error: "No nodes found in the diagram text." };
+  const long = [...nodes.keys()].find((id) => id.length > MAX_ID);
+  if (long) return { ...empty, error: `Node id ${long.slice(0, 20)}… is longer than ${MAX_ID} characters.` };
   return { ok: true, direction, nodes: [...nodes.values()], edges, groups, warnings };
 }
 
