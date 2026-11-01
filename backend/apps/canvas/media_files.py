@@ -124,9 +124,17 @@ def queued_media():
     return BoardMedia.objects.filter(Q(state='queued') | Q(state='running', lease_until__lt=now_ms())).order_by('created_at').first()
 
 
+def publish(storage, row, token, **fields):
+    """Mark the leased row ready; a URL import's staged original is no longer needed."""
+    if BoardMedia.objects.filter(pk=row.id, lease_token=token).update(state='ready', lease_token=None, lease_until=0, **fields):
+        if row.source_key.startswith('canvas-imports/'):
+            storage.primary.delete(row.source_key)
+    return 'media_ready'
+
+
 def process_media(identifier, stop=None):
     """One leased job per worker slot, one PDF page at a time, bounded output size."""
-    if settings.LOCAL_DATA_MODE == 'read_only_viewer':
+    if settings.LOCAL_DATA_MODE == 'read_only_viewer' or stop and stop.is_set():
         return 'stopped'
     token = uuid4()
     try:
@@ -146,8 +154,7 @@ def process_media(identifier, stop=None):
         if row.content_type not in RASTER_TYPES:
             key = f'canvas/{row.board_id}/{row.id}.{EXTENSIONS.get(row.content_type, "bin")}'
             copy_to(storage, row.source_key, key, row.content_type)
-            BoardMedia.objects.filter(pk=row.id, lease_token=token).update(state='ready', key=key, lease_until=0)
-            return 'media_ready'
+            return publish(storage, row, token, key=key)
         import pyvips
         with tempfile.TemporaryDirectory(prefix='board-media-') as directory:
             source = Path(directory) / 'source'
@@ -203,9 +210,7 @@ def process_media(identifier, stop=None):
                                           'image/png', 'private, max-age=0')
             if is_pdf:
                 copy_to(storage, row.source_key, key, 'application/pdf')
-            BoardMedia.objects.filter(pk=row.id, lease_token=token).update(
-                state='ready', key=key, pages=pages, width=width, height=height, error='', lease_until=0)
-        return 'media_ready'
+            return publish(storage, row, token, key=key, pages=pages, width=width, height=height, error='')
     except Exception:
         # No parser diagnostics, file contents, paths or provider addresses in UI/logs.
         BoardMedia.objects.filter(pk=identifier, lease_token=token).update(

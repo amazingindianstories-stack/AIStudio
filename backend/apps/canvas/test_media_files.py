@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from datetime import timedelta
 from pathlib import Path
 from uuid import uuid4
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from django.test import TestCase, SimpleTestCase
 from django.utils import timezone
 from apps.authentication.models import User
@@ -126,11 +126,16 @@ class BoardMediaTests(TestCase):
         Image.new('RGB', (40, 60), 'red').save(output, format='PDF')
         response, _ = self.upload(output.getvalue(), 'application/pdf')
         identifier = response.json()['id']
-        stop = threading.Event()
-        stop.set()
-        self.assertEqual(process_media(identifier, stop), 'stopped')
+        stopped = threading.Event()
+        stopped.set()
+        self.assertEqual(process_media(identifier, stopped), 'stopped')
+        self.assertEqual(BoardMedia.objects.get(pk=identifier).attempts, 0)
+        mid_conversion = Mock()
+        mid_conversion.is_set.side_effect = [False, True]
+        self.assertEqual(process_media(identifier, mid_conversion), 'stopped')
         row = BoardMedia.objects.get(pk=identifier)
         self.assertEqual((row.state, row.attempts, row.error, row.lease_token), ('queued', 0, '', None))
+        self.assertTrue(self.storage.exists(row.source_key))
         self.assertEqual(queued_media().id, row.id)
         self.assertEqual(process_media(identifier), 'media_ready')
 
@@ -156,6 +161,20 @@ class BoardMediaTests(TestCase):
         self.assertEqual((row.state, self.storage.read(row.key)), ('ready', png))
         self.assertTrue(row.source_key.startswith('canvas-imports/'))
         self.assertFalse(self.storage.exists(row.source_key))
+
+    def test_imported_pdf_original_is_removed_once_published(self):
+        from PIL import Image
+        output = io.BytesIO()
+        Image.new('RGB', (40, 60), 'red').save(output, format='PDF')
+        response = self.import_url(output.getvalue(), 'application/pdf', 'https://files.example.test/deck.pdf')
+        self.assertEqual(response.status_code, 202)
+        row = BoardMedia.objects.get(pk=response.json()['id'])
+        self.assertTrue(self.storage.exists(row.source_key))
+        self.assertEqual(process_media(row.id), 'media_ready')
+        self.assertFalse(self.storage.exists(row.source_key))
+        row.refresh_from_db()
+        self.assertEqual((row.state, row.lease_token, self.storage.read(row.key)), ('ready', None, output.getvalue()))
+        self.assertTrue(self.storage.read(f'{row.key}.pages/1.png').startswith(b'\x89PNG'))
 
     def test_malformed_file_ids_are_bad_requests(self):
         self.assertEqual(self.client.get(f'/api/canvas-boards/{self.board.id}/media/not-a-uuid').status_code, 400)
