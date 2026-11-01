@@ -176,6 +176,28 @@ class BoardMediaTests(TestCase):
         self.assertEqual((row.state, row.lease_token, self.storage.read(row.key)), ('ready', None, output.getvalue()))
         self.assertTrue(self.storage.read(f'{row.key}.pages/1.png').startswith(b'\x89PNG'))
 
+    def test_imported_original_is_removed_when_conversion_fails_for_good(self):
+        svg = b'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><image xlink:href="https://evil.test/x.png"/></svg>'
+        response = self.import_url(svg, 'image/svg+xml', 'https://files.example.test/logo.svg')
+        self.assertEqual(response.status_code, 202)
+        row = BoardMedia.objects.get(pk=response.json()['id'])
+        self.assertEqual(process_media(row.id), 'media_failed')
+        self.assertEqual(BoardMedia.objects.get(pk=row.id).state, 'failed')
+        self.assertFalse(self.storage.exists(row.source_key))
+        response = self.import_url(svg, 'image/svg+xml', 'https://files.example.test/logo.svg')
+        row = BoardMedia.objects.get(pk=response.json()['id'])
+        BoardMedia.objects.filter(pk=row.id).update(attempts=3)
+        with self.captureOnCommitCallbacks(execute=True):
+            self.assertEqual(process_media(row.id), 'media_failed')
+        self.assertIn('after 3 attempts', BoardMedia.objects.get(pk=row.id).error)
+        self.assertFalse(self.storage.exists(row.source_key))
+
+    def test_url_import_removes_staged_original_when_registration_fails(self):
+        with patch('apps.canvas.media_views.register', side_effect=OSError):
+            response = self.import_url(b'%PDF-1.4 fixture', 'application/pdf', 'https://files.example.test/deck.pdf')
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual([path for path in Path(self.directory.name).rglob('*') if path.is_file()], [])
+
     def test_malformed_file_ids_are_bad_requests(self):
         self.assertEqual(self.client.get(f'/api/canvas-boards/{self.board.id}/media/not-a-uuid').status_code, 400)
         self.assertEqual(self.client.get(f'/api/canvas-boards/{self.board.id}/media?before=not-a-uuid').status_code, 400)

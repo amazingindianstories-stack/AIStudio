@@ -124,11 +124,18 @@ def queued_media():
     return BoardMedia.objects.filter(Q(state='queued') | Q(state='running', lease_until__lt=now_ms())).order_by('created_at').first()
 
 
-def publish(storage, row, token, **fields):
-    """Mark the leased row ready; a URL import's staged original is no longer needed."""
+def discard_import(key):
+    """Best effort: a URL import's staged original is unused once its row is ready or failed."""
+    if key.startswith('canvas-imports/'):
+        try:
+            get_storage().primary.delete(key)
+        except Exception:
+            pass
+
+
+def publish(row, token, **fields):
     if BoardMedia.objects.filter(pk=row.id, lease_token=token).update(state='ready', lease_token=None, lease_until=0, **fields):
-        if row.source_key.startswith('canvas-imports/'):
-            storage.primary.delete(row.source_key)
+        discard_import(row.source_key)
     return 'media_ready'
 
 
@@ -146,6 +153,7 @@ def process_media(identifier, stop=None):
                 row.state, row.lease_token, row.lease_until = 'failed', None, 0
                 row.error = f'Could not process this file after {MAX_ATTEMPTS} attempts. Upload a valid file again.'
                 row.save(update_fields=['state', 'lease_token', 'lease_until', 'error'])
+                transaction.on_commit(lambda: discard_import(row.source_key))
                 return 'media_failed'
             row.state, row.lease_token, row.lease_until = 'running', token, now_ms() + 300_000
             row.attempts += 1
@@ -154,7 +162,7 @@ def process_media(identifier, stop=None):
         if row.content_type not in RASTER_TYPES:
             key = f'canvas/{row.board_id}/{row.id}.{EXTENSIONS.get(row.content_type, "bin")}'
             copy_to(storage, row.source_key, key, row.content_type)
-            return publish(storage, row, token, key=key)
+            return publish(row, token, key=key)
         import pyvips
         with tempfile.TemporaryDirectory(prefix='board-media-') as directory:
             source = Path(directory) / 'source'
@@ -210,11 +218,12 @@ def process_media(identifier, stop=None):
                                           'image/png', 'private, max-age=0')
             if is_pdf:
                 copy_to(storage, row.source_key, key, 'application/pdf')
-            return publish(storage, row, token, key=key, pages=pages, width=width, height=height, error='')
+            return publish(row, token, key=key, pages=pages, width=width, height=height, error='')
     except Exception:
         # No parser diagnostics, file contents, paths or provider addresses in UI/logs.
-        BoardMedia.objects.filter(pk=identifier, lease_token=token).update(
-            state='failed', error='Could not render file. Use a valid SVG, flattened PSD, or PDF with at most 200 pages and 40 megapixels per page.', lease_until=0)
+        if BoardMedia.objects.filter(pk=identifier, lease_token=token).update(
+                state='failed', error='Could not render file. Use a valid SVG, flattened PSD, or PDF with at most 200 pages and 40 megapixels per page.', lease_until=0):
+            discard_import(row.source_key)
         return 'media_failed'
 
 

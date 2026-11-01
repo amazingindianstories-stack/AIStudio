@@ -166,9 +166,11 @@ def import_url(request, identifier):
             storage.upload_stream(stream, key, 'application/octet-stream', 'private, max-age=0')
             try:
                 row = register(actor, identifier, key, mime, urlsplit(url).path.rsplit('/', 1)[-1] or 'Imported file')
-            finally:
-                if mime not in RASTER_TYPES:
-                    storage.primary.delete(key)
+            except Exception:
+                storage.primary.delete(key)
+                raise
+            if mime not in RASTER_TYPES:
+                storage.primary.delete(key)
             return reply(request, describe(row), 200 if row.state == 'ready' else 202)
     except access.AccessError as error:
         return reply(request, {'error': str(error)}, error.status)
