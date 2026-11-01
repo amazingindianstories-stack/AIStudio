@@ -137,7 +137,8 @@ def save_board(identifier, data, base_version, save_id, actor, patch=None, level
                                        'VALUES (%s, %s, %s, %s, %s) ON CONFLICT (board_id, save_id) DO NOTHING',
                                        [identifier, save_id, version, now,
                                         None if changed is None else json.dumps(changed)])
-                    activity.record(identifier, actor, now, changes, hide=claimed)
+                    private = {node['id'] for node in stamped['nodes'] if isinstance(node, dict) and node.get('privateBy') is not None}
+                    activity.record(identifier, actor, now, changes, hide=claimed | private)
                 saved = {'updatedAt': now, 'version': version, 'stamps': activity.stamps_of(stamped, changes)}
                 if not corrected:
                     return saved
