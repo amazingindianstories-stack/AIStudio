@@ -149,7 +149,11 @@ export function WorkDataPanel({ node, readOnly, onClose }) {
         <details><summary className="cursor-pointer py-2">Visible fields and columns</summary><div className="flex flex-wrap gap-2">{table.fields.map(f => <label key={f.id}><input type="checkbox" disabled={!canEdit || busy} checked={!view.hiddenFields?.includes(f.id)} onChange={e => void viewChange({ hiddenFields: e.target.checked ? (view.hiddenFields || []).filter(id => id !== f.id) : [...(view.hiddenFields || []), f.id] })} /> {f.name}</label>)}{node.kind === 'kanban' && (table.fields.find(f => f.id === (view.groupBy || 'status'))?.options || []).map(column => <label key={column}><input type="checkbox" disabled={!canEdit || busy} checked={!view.hiddenColumns?.includes(column)} onChange={e => void viewChange({ hiddenColumns: e.target.checked ? (view.hiddenColumns || []).filter(v => v !== column) : [...(view.hiddenColumns || []), column] })} /> {column}</label>)}</div></details>
       </div>
       <div className="flex min-h-0 flex-1">
-        <div className="min-w-0 flex-1 overflow-auto p-4" tabIndex={0} aria-label="Record workspace"><WorkRecordViews kind={node.kind} records={data.records} fields={table.fields} groups={data.groups} view={view} selectedId={selected?.id} onSelect={select} onReclassify={canEdit && !busy ? (record, patch) => void change({ op: 'update', id: record.id, version: record.version, cells: { ...record.cells, ...patch } }) : undefined} onDateMove={canEdit && !busy ? (record, days, edge) => {
+        <div className="min-w-0 flex-1 overflow-auto p-4" tabIndex={0} aria-label="Record workspace"><WorkRecordViews kind={node.kind} records={data.records} fields={table.fields} groups={data.groups} view={view} selectedId={selected?.id} onSelect={select} onReclassify={canEdit && !busy ? (record, patch) => {
+          const removed = table.fields.find(f => f.type === 'select' && patch[f.id] && !selectChoices(f, record.cells[f.id]).includes(patch[f.id]));
+          if (removed) setError(`"${patch[removed.id]}" is no longer a ${removed.name} option. Choose a current option.`);
+          else void change({ op: 'update', id: record.id, version: record.version, cells: { ...record.cells, ...patch } });
+        } : undefined} onDateMove={canEdit && !busy ? (record, days, edge) => {
           const startKey = view.startField || 'start', endKey = view.endField || 'end';
           const shift = value => new Date(Date.parse(value + 'T00:00:00Z') + days * 86400000).toISOString().slice(0, 10);
           const cells = { ...record.cells };
