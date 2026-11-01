@@ -1,7 +1,7 @@
 "use client";
 
 import { treeLayout, timelineLayout, storyLayout, numberPresentation, cellText, chartAxisLabels } from '@/lib/canvas/work-layouts';
-import { blockersOf } from '@/lib/canvas/work-records';
+import { blockersOf, selectChoices } from '@/lib/canvas/work-records';
 import { usePeople } from '@/lib/canvas/use-people';
 
 const COLORS = ['#dbeafe', '#fce7f3', '#dcfce7', '#fef3c7', '#ede9fe'];
@@ -57,7 +57,9 @@ export function WorkRecordViews({ kind, records, fields, groups = [], view = {},
     onDrop: e => {
       if (!onReclassify) return;
       e.preventDefault(); const record = records.find(r => r.id === e.dataTransfer.getData('text/x-work-record'));
-      if (record) onReclassify(record, Object.fromEntries(Object.entries(cells).map(([key, value]) => [key, value === 'Unassigned' ? '' : value])));
+      if (!record) return;
+      const patch = Object.fromEntries(Object.entries(cells).map(([key, value]) => [key, value === 'Unassigned' ? '' : value]));
+      if (fields.every(f => f.type !== 'select' || !patch[f.id] || selectChoices(f, record.cells[f.id]).includes(patch[f.id]))) onReclassify(record, patch);
     },
   });
   if (kind === 'story') {

@@ -11,6 +11,10 @@ export function viewFor(table, kind) {
 export function blockersOf(record, fields) {
   return [...new Set([...(record.blockedBy || []), ...fields.filter(f => f.type === 'relation').flatMap(f => Array.isArray(record.cells[f.id]) ? record.cells[f.id] : [])])];
 }
+/** A select field's choices for one record: the configured options, plus the record's own value once its option is removed. */
+export function selectChoices(field, current) {
+  return typeof current === 'string' && current && !field.options.includes(current) ? [...field.options, current] : field.options;
+}
 export const DEFAULT_FIELDS = [
   { id: 'title', name: 'Title', type: 'text' },
   { id: 'description', name: 'Description', type: 'text' },

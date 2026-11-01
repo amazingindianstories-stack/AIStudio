@@ -65,3 +65,35 @@ test("work views show people by name, round formulas and omit empty card fields;
     dom.window.close();
   }
 });
+
+test("a kanban column for a removed option takes back only the records that already hold it", async () => {
+  const dom = new JSDOM("<div id='root'></div>", { url: "http://localhost" });
+  const names = ["window", "document", "HTMLElement", "Node", "React", "IS_REACT_ACT_ENVIRONMENT", "fetch"];
+  const prior = Object.fromEntries(names.map((name) => [name, globalThis[name]]));
+  Object.assign(globalThis, { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, Node: dom.window.Node, React,
+    IS_REACT_ACT_ENVIRONMENT: true, fetch: async () => Response.json({ users: [] }) });
+  const renamed = fields.map((f) => (f.id === "status" ? { ...f, options: ["To do", "Doing", "Done"] } : f));
+  const moves = [];
+  const root = createRoot(document.querySelector("#root"));
+  const drop = (column, id) => act(async () => {
+    const target = [...document.querySelectorAll("h4")].find((h) => h.textContent === column).parentElement;
+    const event = new dom.window.Event("drop", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "dataTransfer", { value: { getData: () => id } });
+    target.dispatchEvent(event);
+  });
+  try {
+    await act(async () => {
+      root.render(React.createElement(WorkRecordViews, { kind: "kanban", records, fields: renamed, onReclassify: (record, patch) => moves.push([record.id, patch.status]) }));
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    assert.deepEqual([...document.querySelectorAll("h4")].map((h) => h.textContent), ["To do", "Doing", "Done", "In progress"]);
+    await drop("In progress", "2");
+    await drop("In progress", "1");
+    await drop("Doing", "2");
+    assert.deepEqual(moves, [["1", "In progress"], ["2", "Doing"]]);
+  } finally {
+    await act(async () => root.unmount());
+    Object.assign(globalThis, prior);
+    dom.window.close();
+  }
+});
