@@ -2,7 +2,7 @@
  * Format objects: board objects of `type: "format"` that hold a Doc, a Slides
  * deck, an HTML embed or a draw.io diagram. They are ordinary board nodes saved
  * through the per-node save path, so they obey roles, culling and the 2 Mi limit.
- * Limits here are mirrored by backend/apps/canvas/serialization.py.
+ * Limits here are mirrored by backend/apps/canvas/formats.py.
  */
 import { clipText, validateMarks } from "../rich-text";
 

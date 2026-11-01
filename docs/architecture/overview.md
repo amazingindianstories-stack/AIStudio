@@ -89,10 +89,8 @@ not library media) on the agent Gemini model and an image as an ordinary image g
 admission, spend window, paid guard and idempotent submission.
 
 Board formats (`src/lib/canvas/formats`, `backend/apps/canvas/formats.py`) are ordinary board nodes. Opening a board
-contacts no outside origin: HTML embeds render as static, script-free pages in a permissionless sandbox
-(`html-embed.js`), and a Draw.io diagram shows its stored preview image. Only when an editor explicitly opens that
-diagram's editor does the browser load `https://embed.diagrams.net` and post it that one node's XML; the edited XML and
-an SVG preview come back and are saved on the board.
+contacts no outside origin; only an editor who opens a Draw.io diagram's editor loads `https://embed.diagrams.net`
+(`../features/board-formats.md`).
 
 `backend/testsupport` holds fake providers and the frozen historical Node outputs used as test
 oracles. `backend/parity` pins current production behavior through seams the backend restructure

@@ -1,6 +1,6 @@
 /**
  * Defensive validation of format objects and the format fields on other nodes.
- * Mirrors backend/apps/canvas/serialization.py; shared fixture cases hold both to the same output.
+ * Mirrors backend/apps/canvas/formats.py; shared fixture cases hold both to the same output.
  */
 import {
   DOC_BLOCK_TYPES,
