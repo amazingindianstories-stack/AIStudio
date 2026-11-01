@@ -46,6 +46,23 @@ async function pixelClean(page, locator) {
   expect(overflowing).toEqual([]);
 }
 
+// A primary button's label must not share its background colour, and a select must show its whole choice.
+async function legible(locator) {
+  const { color, background } = await locator.evaluate((node) => ({ color: getComputedStyle(node).color, background: getComputedStyle(node).backgroundColor }));
+  expect(color).not.toBe(background);
+}
+
+async function selectFits(locator) {
+  expect(await locator.evaluate((node) => {
+    const probe = Object.assign(document.createElement('span'), { textContent: node.selectedOptions[0].text });
+    probe.style.font = getComputedStyle(node).font;
+    document.body.append(probe);
+    const width = probe.getBoundingClientRect().width;
+    probe.remove();
+    return width + 36 <= node.clientWidth;
+  })).toBe(true);
+}
+
 test('Board templates: picker, pre-filled and blank, Cmd+Delete, save and delete with undo, blueprints, deep link and a new board from a template', async ({ browser, baseURL }, info) => {
   test.setTimeout(240000);
   const db = fixtureDatabase(process.env.E2E_DATABASE_URL);
@@ -152,6 +169,126 @@ test('Board templates: picker, pre-filled and blank, Cmd+Delete, save and delete
   await page.getByRole('menuitem', { name: 'New board', exact: true }).click();
   await page.getByRole('dialog', { name: 'Start a new board' }).getByRole('button', { name: 'Blank board' }).click();
   await expect(page.getByRole('dialog', { name: 'Start a new board' })).toHaveCount(0);
+
+  expect(errors).toEqual([]);
+  await context.close();
+});
+
+const EDITOR = { id: 'b0a2d000-0000-4000-8000-000000000043', name: 'Templates editor', email: 'templates-editor@example.test' };
+const VIEWER = { id: 'b0a2d000-0000-4000-8000-000000000044', name: 'Templates viewer', email: 'templates-viewer@example.test' };
+
+test('Board templates: save permissions, scope options, selection source, scratch board in the switcher and the new-board picker', async ({ browser, baseURL }, info) => {
+  test.setTimeout(240000);
+  const db = fixtureDatabase(process.env.E2E_DATABASE_URL);
+  await db.transaction([[EDITOR, 'user'], [VIEWER, 'user'], [ADMIN, 'admin']].map(([user, role]) => db.statement`
+    INSERT INTO users (id, email, password_hash, password_salt, created_at, name, role, is_active, auth_version)
+    VALUES (${user.id}, ${user.email}, 'unused', 'unused', 1, ${user.name}, ${role}, true, 0)
+    ON CONFLICT (id) DO UPDATE SET role = ${role}, is_active = true, auth_version = 0`));
+  const setup = await signIn(browser, baseURL, EDITOR, null);
+  const created = await setup.context.request.post('/api/projects', {
+    data: { op: 'createProject', name: `Template permissions ${randomUUID()}` }, headers: { Origin: baseURL } });
+  expect(created.ok()).toBeTruthy();
+  const { project } = await created.json();
+  await setup.context.close();
+
+  const { context, page } = await signIn(browser, baseURL, EDITOR, project.id);
+  const errors = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  const boardRequest = currentBoardId(page);
+  await openBoard(page);
+  const boardId = await boardRequest;
+  await page.getByRole('button', { name: 'Templates', exact: true }).click();
+  const picker = page.getByRole('dialog', { name: 'Templates' });
+  await picker.getByRole('button', { name: 'SWOT analysis' }).click();
+  await picker.getByRole('button', { name: 'Add to board' }).click();
+  await expect(picker).toHaveCount(0);
+  await storedBoard(context, boardId, (board) => board.data.nodes.length > 4);
+
+  // A project owner who is not an admin is offered only themselves and the project.
+  await page.getByRole('button', { name: 'Templates', exact: true }).click();
+  await page.getByRole('button', { name: 'Save board as template' }).click();
+  const save = page.getByRole('dialog', { name: 'Save as template' });
+  const scopes = save.getByLabel('Who can use it');
+  await expect.poll(async () => (await scopes.locator('option').allTextContents()).join('|')).toBe('Only me|Everyone in this project');
+  await save.getByLabel('Name').fill('Project kit');
+  await scopes.selectOption('project');
+  await selectFits(scopes);
+  await legible(save.getByRole('button', { name: 'Save template' }));
+  await info.attach('owner-save-scopes', { body: await page.screenshot(), contentType: 'image/png' });
+  await save.getByRole('button', { name: 'Save template' }).click();
+  await expect(save).toHaveCount(0);
+
+  // Saving a selection names its source board, so the server can check edit rights on it.
+  await page.getByRole('application', { name: 'Board canvas' }).focus();
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+a' : 'Control+a');
+  const selectionPost = page.waitForRequest((r) => new URL(r.url()).pathname === '/api/canvas-templates' && r.method() === 'POST');
+  await page.getByRole('button', { name: 'Templates', exact: true }).click();
+  await page.getByRole('button', { name: 'Save selection as template' }).click();
+  await save.getByLabel('Name').fill('Selection kit');
+  await save.getByRole('button', { name: 'Save template' }).click();
+  const sent = (await selectionPost).postDataJSON();
+  expect(sent.boardId).toBe(boardId);
+  expect(sent.graph.nodes.length).toBeGreaterThan(0);
+  await expect(save).toHaveCount(0);
+
+  const post = (requester, path, data) => requester.post(path, { data, headers: { Origin: baseURL } });
+  expect((await post(context.request, '/api/canvas-templates', { name: 'Leak', boardId, scope: 'everyone' })).status()).toBe(403);
+
+  // A signed-in user who can only view the board cannot copy it into a template or blueprint by any path.
+  expect((await post(context.request, `/api/canvas-boards/${boardId}/access`, { op: 'setTeamRole', role: 'view' })).ok()).toBeTruthy();
+  const viewer = await signIn(browser, baseURL, VIEWER, null);
+  const readable = await viewer.context.request.get(`/api/canvas-boards/${boardId}`);
+  expect(readable.ok()).toBeTruthy();
+  const graph = (await readable.json()).data;
+  for (const data of [{ name: 'Copy', boardId }, { name: 'Copy', graph }, { name: 'Copy', boardId, graph },
+    { name: 'Copy', boardId, scope: 'everyone' }]) {
+    expect([400, 403]).toContain((await post(viewer.context.request, '/api/canvas-templates', data)).status());
+  }
+  expect([400, 403, 404]).toContain((await post(viewer.context.request, '/api/canvas-blueprints', { name: 'Copy', sourceProjectId: project.id })).status());
+  const listed = await (await viewer.context.request.get('/api/canvas-templates')).json();
+  expect(listed.templates.filter((t) => !String(t.id).startsWith('builtin:'))).toEqual([]);
+  await viewer.context.close();
+
+  // An admin may publish to everyone and is offered that scope.
+  const admin = await signIn(browser, baseURL, ADMIN, project.id);
+  expect((await post(admin.context.request, '/api/canvas-templates', { name: 'Admin kit', boardId, scope: 'everyone' })).status()).toBe(201);
+  await openBoard(admin.page);
+  await admin.page.getByRole('button', { name: 'Templates', exact: true }).click();
+  await admin.page.getByRole('button', { name: 'Save board as template' }).click();
+  await expect.poll(async () => admin.page.getByRole('dialog', { name: 'Save as template' }).getByLabel('Who can use it')
+    .locator('option').allTextContents()).toContain('Everyone');
+  await info.attach('admin-save-scopes', { body: await admin.page.screenshot(), contentType: 'image/png' });
+  await admin.context.close();
+
+  // Create from scratch opens a "Template: <name>" board that the board switcher knows about.
+  await page.getByRole('button', { name: 'Templates', exact: true }).click();
+  await picker.getByRole('button', { name: 'Create from scratch' }).click();
+  const scratch = page.getByRole('dialog', { name: 'Create a template' });
+  await scratch.getByLabel('Name').fill('Scratch kit');
+  await scratch.getByRole('button', { name: 'Create and open' }).click();
+  await expect(scratch).toHaveCount(0);
+  const header = page.getByRole('button', { name: 'Template: Scratch kit' }).first();
+  await expect(header).toBeVisible({ timeout: 15000 });
+  const banner = page.getByRole('status').filter({ hasText: 'Editing template Scratch kit' });
+  await expect(banner).toBeVisible();
+  await legible(banner.getByRole('button', { name: 'Save to template' }));
+  await info.attach('scratch-board', { body: await page.screenshot(), contentType: 'image/png' });
+
+  // The new-board picker shows the owner's Delete but no edit buttons it cannot act on.
+  await header.click();
+  await page.getByRole('menuitem', { name: 'New board from template' }).click();
+  const start = page.getByRole('dialog', { name: 'Start a new board' });
+  await start.getByRole('button', { name: 'My templates' }).click();
+  await start.getByRole('button', { name: 'Project kit' }).click();
+  const detail = start.getByTestId('template-detail');
+  await expect(detail).toContainText('Project kit');
+  await expect(detail.getByRole('button', { name: 'Delete', exact: true })).toBeVisible();
+  await legible(detail.getByRole('button', { name: 'Create board from template' }));
+  await expect(detail.getByRole('button', { name: 'Edit details' })).toHaveCount(0);
+  await expect(detail.getByRole('button', { name: 'Edit content' })).toHaveCount(0);
+  await pixelClean(page, start);
+  await info.attach('new-board-picker', { body: await page.screenshot(), contentType: 'image/png' });
+  await start.getByRole('button', { name: 'Close' }).click();
 
   expect(errors).toEqual([]);
   await context.close();
