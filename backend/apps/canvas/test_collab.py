@@ -160,6 +160,16 @@ class CollabTests(TransactionTestCase):
         self.post(self.owner, 'again', parentId=root['id'])
         self.assertEqual({r.user_id for r in Notification.objects.filter(kind='reply')}, {self.mate.id, self.third.id})
 
+    def test_an_edit_that_mentions_a_follower_turns_their_notice_into_one_mention(self):
+        self.as_user(self.third)
+        self.send('post', self.base + '/comments/follow', {'follow': True})
+        _, root = self.post(self.mate, 'hi')
+        Notification.objects.filter(user_id=self.third.id).update(read_at=5, pushed_at=5, created_at=5)
+        self.send('patch', f"{self.base}/comments/{root['id']}", {'body': f'hi {mention(self.third)}'})
+        rows = list(Notification.objects.filter(user_id=self.third.id).values('kind', 'read_at', 'pushed_at', 'snippet'))
+        self.assertEqual(rows, [{'kind': 'mention', 'read_at': None, 'pushed_at': None, 'snippet': 'hi @third'}])
+        self.assertGreater(Notification.objects.get(user_id=self.third.id).created_at, 5)
+
     def test_everyone_a_mention_reaches_can_open_the_board_it_names(self):
         outsider = make_user('outsider')
         self.post(self.mate, f'team @[team](team) {mention(outsider)}')

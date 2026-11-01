@@ -73,17 +73,21 @@ def comment_posted(actor, board, comment, thread, body, mentions):
 
 
 def comment_edited(actor, board, row, mentions, body):
-    """An edit notifies only people it newly reaches, and people it newly names follow the thread."""
+    """An edit notifies only people it newly reaches, turning their reply or new-comment notice into a mention, and
+    people it newly names follow the thread."""
     from .comments import plain
+    now = now_ms()
     Notification.objects.filter(comment_id=row.pk).update(snippet=plain(body))
-    already = set(Notification.objects.filter(comment_id=row.pk, kind='mention').values_list('user_id', flat=True))
+    kinds = dict(Notification.objects.filter(comment_id=row.pk).values_list('user_id', 'kind'))
     named, reached = mentioned(board, mentions, actor.id)
+    fresh = {user_id for user_id in reached if kinds.get(user_id) != 'mention'}
+    Notification.objects.filter(comment_id=row.pk, user_id__in=fresh).update(kind='mention', created_at=now, read_at=None, pushed_at=None)
     before = set((row.mentions or {}).get('users', []))
     thread = BoardComment.objects.get(pk=row.parent_id) if row.parent_id else row
     for user_id in named:
         if str(user_id) not in before:
             CommentFollow.objects.get_or_create(board_id=board['id'], user_id=user_id, thread=thread)
-    _write(board, row, thread, 'mention', actor, plain(body), reached - already, now_ms())
+    _write(board, row, thread, 'mention', actor, plain(body), fresh - set(kinds), now)
 
 
 def comments_deleted(comment_ids):
