@@ -191,16 +191,16 @@ class PatchSaveTests(TransactionTestCase):
 
     def test_the_size_limit_is_measured_on_the_resulting_board(self):
         def nodes(text):
-            return [rect(f'n{index:04}') for index in range(2000)] + [rect('pad', text=text)]
+            return [rect(f'n{index:04}') for index in range(2000)] + [rect('pad', type='frame', name=text)]
         room = MAX_BOARD_JSON_UNITS - content_length(validate_state(graph(*nodes(''))))
         self.put(self.ana, graph(*nodes('x' * (room - 10))))
         version = CanvasBoard.objects.get(pk=BOARD).version
         # A small patch that would take the whole board one unit over is refused without writing anything.
-        refused = self.patch(self.ben, {'nodes': {'upsert': [rect('pad', text='x' * (room + 1))]}}, expect=413)
+        refused = self.patch(self.ben, {'nodes': {'upsert': [rect('pad', type='frame', name='x' * (room + 1))]}}, expect=413)
         self.assertEqual(refused, {'error': 'Board is too large to save.'})
         self.assertEqual((CanvasBoard.objects.get(pk=BOARD).version, len(self.history())), (version, 2001))
         # Exactly at the limit saves.
-        self.patch(self.ben, {'nodes': {'upsert': [rect('pad', text='x' * room)]}})
+        self.patch(self.ben, {'nodes': {'upsert': [rect('pad', type='frame', name='x' * room)]}})
         self.assertEqual(CanvasBoard.objects.get(pk=BOARD).version, version + 1)
 
     def test_a_patch_is_measured_as_the_board_it_produces_not_by_its_own_size(self):

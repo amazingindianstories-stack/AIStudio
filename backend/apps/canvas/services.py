@@ -100,7 +100,7 @@ def save_board(identifier, data, base_version, save_id, actor, patch=None, level
     The save id row also records which objects the save changed, for `board_changes`.
     Changes the actor at access `level` may not make (apps.canvas.locks) are put back; the save then makes a
     new version and returns the graph it saved as `board`, which the editor merges like someone else's save."""
-    from . import activity, locks, patch as board_patch
+    from . import activity, limits, locks, patch as board_patch
     now = now_ms()
     actor = str(actor)
     if base_version is not None and save_id is not None:
@@ -112,6 +112,7 @@ def save_board(identifier, data, base_version, save_id, actor, patch=None, level
                     data = validate_state(board_patch.apply_patch(stored, patch))
                 data, corrected = locks.enforce(stored, data, actor, level)
                 stamped, changes = activity.stamp(stored, data, actor, now)
+                limits.enforce(stored, data)
                 if content_length(stamped) > MAX_BOARD_JSON_UNITS:
                     raise BoardTooLarge()
                 version = base_version + 1 if corrected or _graph(stamped) != _graph(row['data']) else base_version
