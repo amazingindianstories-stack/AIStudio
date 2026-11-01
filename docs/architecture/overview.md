@@ -52,7 +52,7 @@ recorded in `operations/status.md`. Releases follow `operations/release-runbook.
 | `projects` | Projects, briefs and project roles |
 | `library` | Folder tree, naming counters, filenames, idempotency receipts |
 | `assets` | Material catalog, legacy and managed BytePlus portraits, face detection |
-| `canvas` | Canvas boards, board roles and the effective-role check (`../features/board-roles.md`), their conflict-safe autosave (`canvas-board-sync.md`), board history (`../features/board-history.md`), board comments and the notification feed (`comments.py`, `notifications.py`, Web Push in `push.py`) and board "Create with AI" jobs (`board-ai.md`) |
+| `canvas` | Canvas boards, board roles and the effective-role check (`../features/board-roles.md`), their conflict-safe autosave (`canvas-board-sync.md`), board history (`../features/board-history.md`), board comments, notifications and Web Push (`../features/board-comments.md`) and board "Create with AI" jobs (`board-ai.md`) |
 | `agents` | Gemini tool-loop chat; board AI text formats and the agent payload allowlists |
 | `generation` | Enqueue, history and live updates, providers, prompting, worker execution |
 | `exports` | ZIP manifests and the export worker |

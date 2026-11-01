@@ -299,6 +299,15 @@ class LegacyConfigTests(SimpleTestCase):
                 with self.subTest(host=host, component=component), self.assertRaises(self.legacy.LegacyConfigError):
                     self.legacy.translate(component, {**envs[component], 'VEEVEE_KLING': '1', 'KLING_API_HOST': host})
 
+    def test_web_push_keys_reach_only_the_api_and_the_scheduler(self):
+        keys = {'VEEVEE_WEB_PUSH_PUBLIC_KEY': 'pub', 'VEEVEE_WEB_PUSH_PRIVATE_KEY': 'priv', 'VEEVEE_WEB_PUSH_SUBJECT': 'mailto:ops@example.invalid'}
+        envs = {'api': self.api_env(), 'mcp': self.api_env(), **{kind: self.worker_env(kind) for kind in ('generation', 'export', 'scheduler')}}
+        for component, env in envs.items():
+            translated = self.legacy.translate(component, {**env, **keys})
+            expected = keys if component in ('api', 'scheduler') else {}
+            self.assertEqual({key: translated[key] for key in keys if key in translated}, expected, component)
+            self.assertFalse(set(keys) & set(self.legacy.translate(component, env)), component)
+
     def test_kling_result_hosts_pass_the_provider_media_fetcher(self):
         import socket
         from apps.integrations.remote import UnsafeMediaURL, validated_target

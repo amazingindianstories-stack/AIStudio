@@ -3,7 +3,6 @@ import json
 from unittest.mock import MagicMock
 from uuid import uuid4
 from django.test import TransactionTestCase, override_settings
-from apps.authentication.models import User
 from apps.authentication.session import sign_session
 from apps.projects.models import Project, ProjectMember
 from . import comments, push
@@ -385,7 +384,6 @@ class PushTests(TransactionTestCase):
             self.assertEqual(Notification.objects.filter(pushed_at__isnull=True).count(), 0)
 
     def test_vapid_token_verifies_against_the_public_key(self):
-        import time
         from cryptography.hazmat.primitives import hashes
         from cryptography.hazmat.primitives.asymmetric import ec
         from cryptography.hazmat.primitives.asymmetric.utils import encode_dss_signature

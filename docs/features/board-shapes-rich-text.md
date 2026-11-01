@@ -43,13 +43,14 @@ ranges over that string:
 ```
 
 Offsets are UTF-16 code units with an exclusive end. Kinds: `b` bold, `i` italic, `u` underline,
-`s` strikethrough, `h` highlight (`#rrggbb`), `a` link. Both serializers drop malformed entries,
+`s` strikethrough, `h` highlight (`#rrggbb`), `a` link, `m` a teammate mention (a lowercase user id;
+typing `@` while editing offers teammates, and the chip notifies no one). Both serializers drop malformed entries,
 clamp ranges to the text, drop empty ranges, keep at most 4,000 marks per node, accept links only
 with an `http://`, `https://` or `mailto:` scheme, no whitespace or control characters and at most
 2,048 characters, and omit `marks` when nothing remains. Frames have no rich text.
 
 The editor (`src/components/canvas/nodes/RichText.jsx`) is a contentEditable that is read back
-through `readRichDom` in `src/lib/canvas/rich-text.js`, which keeps only text and the six marks;
+through `readRichDom` in `src/lib/canvas/rich-text.js`, which keeps only text and the seven marks;
 paste inserts plain text only. Display renders the ranges as React elements, never HTML strings,
 and re-checks links and colors. Links open in a new tab with `rel="noopener noreferrer nofollow"`:
 on a plain click for view and comment access, on Cmd/Ctrl+click for editors.

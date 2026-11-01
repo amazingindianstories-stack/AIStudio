@@ -8,10 +8,8 @@ import math
 import re
 from django.db import models, transaction
 from apps.authentication.models import User
-from apps.projects.models import Project, ProjectMember
 from . import access, notifications
 from .collab_models import BoardComment, BoardPresence, CommentFollow, CommentRead, CommentReaction
-from .models import BoardMember
 from .services import now_ms
 
 MAX_BODY = 4000
