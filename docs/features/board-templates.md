@@ -58,7 +58,9 @@ lives in and lists it in the board switcher. "Save to template" in the banner sy
 (oldest first) and needs edit rights on each; the reply's `leftOut` counts the boards past that limit
 and the Blueprints tab says how many were left out. Only the chosen boards' data is read. The owner
 or an admin edits a custom blueprint's name, description and access (only me, the open project, or
-everyone for admins) from the Blueprints tab; projects already made from it never change.
+everyone for admins) from the Blueprints tab; projects already made from it never change. A
+template or blueprint shared with a different project than the open one shows "Everyone in its
+project", and keeps that project unless its access is changed.
 
 ## Depends on other work
 

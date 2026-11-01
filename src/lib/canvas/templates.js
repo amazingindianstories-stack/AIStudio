@@ -177,6 +177,20 @@ export function filterTemplates(templates, { query = "", category = "all", colle
   });
 }
 
+const SCOPE_LABELS = { personal: "Only me", project: "Everyone in this project", everyone: "Everyone" };
+
+/**
+ * Who a template or blueprint can be shared with when saving or editing `current`: its own access, only me, the open
+ * project for a member of it, everyone for an admin. An item shared with another project is labelled as its own project's.
+ */
+export function scopeOptions(current, { projectId, member, isAdmin }) {
+  return Object.entries(SCOPE_LABELS)
+    .filter(([id]) => id === current?.scope || id === "personal" || (id === "project" ? Boolean(projectId) && member : isAdmin))
+    .map(([id, label]) => ({
+      id, label: id === "project" && current?.scope === "project" && current.projectId !== projectId ? "Everyone in its project" : label,
+    }));
+}
+
 /** The `?template=<id>` link to a template. */
 export function templateLink(origin, ref) {
   return `${origin}/?template=${encodeURIComponent(ref)}`;

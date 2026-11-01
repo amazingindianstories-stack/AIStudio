@@ -3,16 +3,11 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Loader2, X } from "lucide-react";
-import { TEMPLATE_CATEGORY_LABELS, templateApi } from "@/lib/canvas/templates";
+import { TEMPLATE_CATEGORY_LABELS, scopeOptions, templateApi } from "@/lib/canvas/templates";
 import { fetchProjectAccess } from "@/lib/board-access";
 
 const field =
   "w-full rounded-lg border border-line bg-ink-700 px-3 py-2 text-sm text-white outline-none transition placeholder:text-white/30 focus:border-white/25 focus:ring-2 focus:ring-white/10";
-const SCOPES = [
-  { id: "personal", label: "Only me" },
-  { id: "project", label: "Everyone in this project" },
-  { id: "everyone", label: "Everyone" },
-];
 
 /**
  * Names and shares a template: saving the whole board, the selection, a new template from scratch, or editing the details of
@@ -40,8 +35,7 @@ export function SaveTemplateDialog({ template, source, scratch = false, projectI
     fetchProjectAccess(projectId).then((access) => !cancelled && setMember(Boolean(access.role)), () => {});
     return () => { cancelled = true; };
   }, [projectId]);
-  const scopes = SCOPES.filter((item) =>
-    item.id === template?.scope || item.id === "personal" || (item.id === "project" ? member : isAdmin));
+  const scopes = scopeOptions(template, { projectId, member, isAdmin });
 
   const submit = async (event) => {
     event.preventDefault();

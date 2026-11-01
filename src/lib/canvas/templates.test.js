@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { emptyCanvasState, validateCanvasState } from "./serialization.js";
 import {
-  MAX_BOARD_UNITS, TOOL_CATEGORIES, clearSelection, filterTemplates, insertTemplate, readShowPicker, selectionGraph,
+  MAX_BOARD_UNITS, TOOL_CATEGORIES, clearSelection, filterTemplates, insertTemplate, readShowPicker, scopeOptions, selectionGraph,
   templateInsertion, templatesForTool, templateLink, templateRefFromSearch, writeShowPicker,
 } from "./templates.js";
 
@@ -119,4 +119,16 @@ test("a tool panel shortcut offers the templates of its category", () => {
   assert.deepEqual(templatesForTool(items, "frame").map((t) => t.id), ["3"]);
   assert.equal(TOOL_CATEGORIES.shapes, "diagramming");
   assert.equal(templatesForTool(items, "unknown").length, 3);
+});
+
+test("access choices offer the open project to its members, everyone to admins, and name an item's own project", () => {
+  const labels = (current, viewer) => scopeOptions(current, viewer).map((option) => `${option.id}:${option.label}`);
+  assert.deepEqual(labels(null, { projectId: "p", member: true, isAdmin: false }), ["personal:Only me", "project:Everyone in this project"]);
+  assert.deepEqual(labels(undefined, { projectId: null, member: false, isAdmin: true }), ["personal:Only me", "everyone:Everyone"]);
+  assert.deepEqual(labels({ scope: "project", projectId: "p" }, { projectId: "p", member: true, isAdmin: false }),
+    ["personal:Only me", "project:Everyone in this project"]);
+  assert.deepEqual(labels({ scope: "project", projectId: "a" }, { projectId: "b", member: true, isAdmin: false }),
+    ["personal:Only me", "project:Everyone in its project"]);
+  assert.deepEqual(labels({ scope: "everyone", projectId: null }, { projectId: "p", member: false, isAdmin: false }),
+    ["personal:Only me", "everyone:Everyone"]);
 });
