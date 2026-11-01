@@ -383,21 +383,16 @@ class AiSearchTests(AssistantFixture):
         stale = self.board_api('get', f"ai-search/{job['id']}")
         self.assertEqual(stale.status_code, 200)
 
-    def test_search_terms_may_name_the_project(self):
+    def test_search_terms_match_board_names_even_when_the_project_name_contains_them(self):
         from .models import CanvasBoard
         CanvasBoard.objects.create(id=uuid.uuid4(), project_id=self.project.id, name='Storyboard v2', data={'version': 1}, created_at=1,
                                    updated_at=now() + 1000, created_by=self.actor_id)
-        job = self.board_api('post', 'ai-search/jobs', {'query': 'boards in board project'}, key='search-key-0002').json()['job']
+        job = self.board_api('post', 'ai-search/jobs', {'query': 'storyboards'}, key='search-key-0002').json()['job']
         self.finish(job)
         generation = Generation.objects.get(pk=job['generationId'])
-        generation.output = {'terms': ['board project'], 'updatedWithinDays': 0, 'createdByMe': False, 'explanation': 'x'}
-        generation.save()
-        found = self.board_api('get', f"ai-search/{job['id']}").json()
-        self.assertEqual([item['name'] for item in found['boards']], ['Storyboard v2', 'Ideas'])
-        generation.output = {**generation.output, 'terms': ['storyboard', 'board project']}
-        generation.save()
-        found = self.board_api('get', f"ai-search/{job['id']}").json()
-        self.assertEqual([item['name'] for item in found['boards']], ['Storyboard v2'])
-        generation.output = {**generation.output, 'terms': ['nothing like it']}
-        generation.save()
-        self.assertEqual(self.board_api('get', f"ai-search/{job['id']}").json()['boards'], [])
+        for terms, names in ((['board'], ['Storyboard v2']), (['storyboard', 'project'], ['Storyboard v2']),
+                             (['board project'], []), ([], ['Storyboard v2', 'Ideas'])):
+            generation.output = {'terms': terms, 'updatedWithinDays': 0, 'createdByMe': False, 'explanation': 'x'}
+            generation.save()
+            found = self.board_api('get', f"ai-search/{job['id']}").json()['boards']
+            self.assertEqual([item['name'] for item in found], names, terms)

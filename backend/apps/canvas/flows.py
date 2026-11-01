@@ -13,7 +13,6 @@ from datetime import datetime, timedelta, timezone
 from apps.authentication.models import User
 from apps.common.leases import now_ms
 from apps.generation.models import Generation
-from apps.projects.models import Project
 from .ai_jobs import PROCESSING, JobError
 from .models import BoardActivity, BoardAiJob, BoardVisit, FlowOutputVersion
 from . import services, sidekicks
@@ -228,8 +227,7 @@ def apply_search(actor, board, identifier):
     if job['status'] != 'succeeded':
         raise _error('The search has not finished.', 'NOT_READY', 409)
     filters = job['result']
-    project = (Project.objects.filter(pk=board.project_id).values_list('name', flat=True).first() or '').lower()
-    terms = [term for term in (term.lower() for term in filters.get('terms', [])) if term not in project]
+    terms = [term.lower() for term in filters.get('terms', [])]
     cutoff = now_ms() - filters['updatedWithinDays'] * 24 * 60 * 60 * 1000 if filters.get('updatedWithinDays') else None
     matches = []
     for item in services.list_boards(board.project_id, actor):

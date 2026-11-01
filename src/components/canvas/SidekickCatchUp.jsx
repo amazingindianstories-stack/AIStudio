@@ -32,6 +32,7 @@ export function CatchUpTab({ boardId }) {
 
   useEffect(() => {
     let live = true;
+    key.current = null;
     setInfo(null);
     setQuote(null);
     setSummary(null);
@@ -59,6 +60,7 @@ export function CatchUpTab({ boardId }) {
       setSummary(done.result);
       void useSidekick.getState().loadCredits();
     } catch (e) {
+      if (e.status < 500) key.current = null;
       setError(e.message);
     } finally {
       setBusy(false);

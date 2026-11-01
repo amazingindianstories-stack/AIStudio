@@ -91,10 +91,10 @@ CATCHUP_SCHEMA = {
     'required': ['summary']}
 
 SEARCH_PROMPT = (
-    'You turn a plain-language request to find Veevee boards into filters over board metadata (a board\'s name, its '
-    'project\'s name, who created it and when it was last updated). You cannot search what is written on a board. The '
+    'You turn a plain-language request to find Veevee boards into filters over board metadata (a board\'s name, who '
+    'created it and when it was last updated). You cannot search what is written on a board. The '
     'user message holds today\'s date and the request. Return "terms": up to '
-    f'{MAX_TERMS} words or short phrases a board name or project name should contain (none when the request names '
+    f'{MAX_TERMS} words or short phrases a board name should contain (none when the request names '
     'no subject); "updatedWithinDays": how many days back the last update may be (0 for any time); "createdByMe": true '
     'only when the request says the boards are the user\'s own; and "explanation": one short sentence saying what '
     'you looked for.')
