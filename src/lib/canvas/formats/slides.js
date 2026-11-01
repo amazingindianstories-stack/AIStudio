@@ -1,3 +1,5 @@
+import { isContainerNode } from "../geometry";
+
 export function moveSlide(slides, id, delta) {
   const from = slides.findIndex((slide) => slide.id === id);
   const to = from + delta;
@@ -23,20 +25,14 @@ export function addSlide(slides, frame, lane = "main") {
   return [...slides, { id: crypto.randomUUID(), title: frame.name || "Slide", frameId: frame.id, lane, notes: "" }];
 }
 
-/** Places board object `id` in `frame`, moving everything inside it by the same distance. */
+/** Places plain board object `id` in `frame`; containers and formats never nest inside a slide. */
 export function moveIntoFrame(graph, id, frame) {
   const node = graph.nodes.find((n) => n.id === id);
-  if (!node || !frame || node.id === frame.id || ["format", "frame"].includes(node.type)) return graph;
-  const dx = frame.x + 40 - node.x;
-  const dy = frame.y + 60 - node.y;
-  const moved = new Set(frameContents(graph, id).nodes.map((n) => n.id));
+  if (!node || !frame || node.type === "format" || isContainerNode(node)) return graph;
   return { ...graph, nodes: graph.nodes.map((n) => {
-    if (!moved.has(n.id)) return n;
-    const next = { ...n, x: n.x + dx, y: n.y + dy };
-    if (n.id === id && n.parentId !== frame.id) {
-      next.parentId = frame.id;
-      delete next.mermaidKey;
-    }
+    if (n.id !== id) return n;
+    const next = { ...n, x: frame.x + 40, y: frame.y + 60, parentId: frame.id };
+    delete next.mermaidKey;
     return next;
   }) };
 }
