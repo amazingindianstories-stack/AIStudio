@@ -25,7 +25,12 @@ async function withPanel(kind, body) {
   Object.assign(globalThis, { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, Node: dom.window.Node, React,
     IS_REACT_ACT_ENVIRONMENT: true,
     fetch: async (url, options = {}) => {
-      if (options.method === "POST") { posted.push(JSON.parse(options.body)); return Response.json({ record: records[0] }); }
+      if (options.method === "POST") {
+        const op = JSON.parse(options.body);
+        posted.push(op);
+        if (op.op === "settings") return Response.json({ error: "Table changed. Refresh before saving." }, { status: 409 });
+        return Response.json({ record: records[0] });
+      }
       if (String(url).includes("/work/t1")) return Response.json({ table, records, total: records.length, offset: 0, limit: 100, aggregates: {}, groups: [] });
       return Response.json({ users: [] });
     } });
@@ -70,4 +75,15 @@ test("dropping a card on a removed option's column explains the refusal; its own
   await drop("In progress", "r1");
   assert.deepEqual(posted.map((op) => [op.id, op.cells.status]), [["r2", "Doing"], ["r1", "In progress"]]);
   assert.equal(document.querySelector('[role="alert"]'), null);
+}));
+
+test("a rejected fields and settings save shows its error inside the settings dialog that covers the panel", () => withPanel("table", async () => {
+  const button = (root, text) => [...root.querySelectorAll("button")].find((b) => b.textContent === text);
+  await act(async () => { button(document, "Fields and settings").click(); await settle(); });
+  const settings = document.querySelector('[aria-label="Table fields and settings"]');
+  await act(async () => { button(settings, "Save fields and settings").click(); await settle(); });
+
+  assert.equal(settings.querySelector('[role="alert"]')?.textContent, "Table changed. Refresh before saving.");
+  assert.equal(document.querySelectorAll('[role="alert"]').length, 1);
+  assert.ok(document.querySelector('[aria-label="Table fields and settings"]'), "the dialog stays open so the edits are not lost");
 }));
