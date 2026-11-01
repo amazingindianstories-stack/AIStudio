@@ -23,6 +23,7 @@ ranks as co-owner.
 | List its frames and diagrams, read one for a synced copy, list the copies of one (only on boards the caller can open) | view (of the source board) | `GET /api/canvas-boards/<id>/frames`, `GET /api/canvas-boards/<id>/frames/<nodeId>`, `GET /api/canvas-boards/<id>/frames/<nodeId>/copies` (`backend/apps/canvas/synced.py`) |
 | Save the graph, upload media, read the board history | edit | `PUT` and `PATCH /api/canvas-boards/<id>`, `POST /api/canvas-boards/<id>/upload`, `GET /api/canvas-boards/<id>/activity` (`board-history.md`) |
 | Create with AI: quote, run, list and place jobs | edit | `/api/canvas-boards/<id>/ai-jobs` and its `quote` and `<jobId>` routes |
+| Set a protected lock (held by the setter; only they and the board's co-owners and owner may change, unlock or delete the object, so a setter who leaves never strands it), set the board start view | co-owner | `PUT` and `PATCH /api/canvas-boards/<id>`; a save that tries it below co-owner keeps its other changes (`backend/apps/canvas/locks.py`) |
 | Rename, add/change/remove board members | co-owner | `renameBoard`; `setMember`, `removeMember` on `/access` |
 | Hide and reveal frames, see and edit what is inside a hidden frame | co-owner | the frame's `hidden` flag in a save (`backend/apps/canvas/hidden.py`) |
 | Delete, set team access, transfer ownership | owner | `deleteBoard`; `setTeamRole`, `transferOwner` on `/access` |

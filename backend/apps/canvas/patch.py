@@ -82,6 +82,12 @@ def apply_patch(stored, patch):
         if patch['notes'] is not None and not isinstance(patch['notes'], dict):
             raise PatchError()
         graph['notes'] = patch['notes']
+    # Board settings come whole when they changed; null clears them.
+    if 'settings' in patch:
+        if patch['settings'] is None:
+            graph.pop('settings', None)
+        else:
+            graph['settings'] = patch['settings']
     return graph
 
 
@@ -127,6 +133,8 @@ def changes_since(graph, records):
         result['tags'] = graph.get('tags', [])
     if any(record.get('notes') for record in records):
         result['notes'] = graph.get('notes')
+    # The board settings are small and recorded by no id, so every reply carries them (null when none).
+    result['settings'] = graph.get('settings')
     result['nodeOrderHash'] = order_hash(item['id'] for item in graph['nodes'])
     result['connectorOrderHash'] = order_hash(item['id'] for item in graph['connectors'])
     return result

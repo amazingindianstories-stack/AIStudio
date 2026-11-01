@@ -99,8 +99,9 @@ def save_board(identifier, data, base_version, save_id, actor, patch=None, level
     one; everything above then runs on that whole graph, so a patch and the full graph it stands for save alike.
     The save id row also records which objects the save changed, for `board_changes`.
     `level` is the saver's board access level: below co-owner, content inside hidden frames, which they never
-    read, is kept as stored and the hidden flags cannot change (apps.canvas.hidden). None means everything."""
-    from . import activity, extras, hidden, patch as board_patch
+    read, is kept as stored and the hidden flags cannot change (apps.canvas.hidden). None means everything.
+    Changes forbidden by object locks are restored and returned in the saved board."""
+    from . import activity, extras, hidden, locks, patch as board_patch
     now = now_ms()
     actor = str(actor)
     if base_version is not None and save_id is not None:
@@ -112,11 +113,12 @@ def save_board(identifier, data, base_version, save_id, actor, patch=None, level
                     data = validate_state(board_patch.apply_patch(stored, patch))
                 if level is not None:
                     data = hidden.preserve(stored, data, level)
+                data, corrected = locks.enforce(stored, data, actor, level)
                 stamped, changes = activity.stamp(stored, data, actor, now)
                 stamped = extras.stamp_notes(stored, stamped, actor, now)
                 if content_length(stamped) > MAX_BOARD_JSON_UNITS:
                     raise BoardTooLarge()
-                version = base_version + 1 if _graph(stamped) != _graph(row['data']) else base_version
+                version = base_version + 1 if corrected or _graph(stamped) != _graph(row['data']) else base_version
                 CanvasBoard.objects.filter(pk=identifier).update(data=stamped, updated_at=now, version=version)
                 if version != base_version:
                     with connection.cursor() as cursor:
@@ -130,7 +132,7 @@ def save_board(identifier, data, base_version, save_id, actor, patch=None, level
                 if stamped.get('notes') and stamped['notes'] != stored.get('notes'):
                     # The author and time this save gave the visual notes, for the saving editor's panel.
                     result['notesStamp'] = {key: stamped['notes'][key] for key in ('updatedBy', 'updatedAt')}
-                return result
+                return {**result, 'board': stamped} if corrected else result
     current = get_board(identifier)
     if current is None:
         return None

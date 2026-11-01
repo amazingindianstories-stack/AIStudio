@@ -27,6 +27,8 @@ MAX_REACTION_EMOJIS = 12
 MAX_REACTION_EMOJI = 16
 MAX_REACTION_VOTES = 1000
 ARRAY_INDEX = re.compile(r'0|[1-9][0-9]*')
+MAX_LAYERS = 100
+MAX_LAYER_NAME = 100
 ANCHORS = {'auto', 'top', 'right', 'bottom', 'left', 'center'}
 ROW_ANCHOR = re.compile(r'row:[a-zA-Z0-9_-]{1,64}:(?:left|right)')
 STROKE_STYLES = {'dashed', 'dotted'}
@@ -222,6 +224,19 @@ def node(raw):
         result['opacity'] = clamp(r['opacity'])
     if isinstance(r.get('diagramLayerId'), str) and 0 < len(r['diagramLayerId']) <= 64:
         result['diagramLayerId'] = r['diagramLayerId']
+    # Degrees clockwise about the center, stored only when not zero.
+    if finite(r.get('rotation')) and 0 < r['rotation'] < 360:
+        result['rotation'] = r['rotation']
+    # A lock names who set it; only a named lock can be protected (apps.canvas.locks).
+    if r.get('locked') is True:
+        result['locked'] = True
+        if isinstance(r.get('lockedBy'), str) and r['lockedBy']:
+            result['lockedBy'] = r['lockedBy']
+            if r.get('lockProtected') is True:
+                result['lockProtected'] = True
+    # Checked against the board's layers once they are known (validate_state).
+    if isinstance(r.get('layerId'), str) and r['layerId']:
+        result['layerId'] = r['layerId']
     result['type'] = kind
     if kind in SHAPE_TYPES:
         # Path shapes name a catalogue outline; unknown well-formed kinds are kept.
@@ -413,6 +428,36 @@ def connector(raw, identifiers):
     return with_stamps(result, r)
 
 
+def settings_of(raw):
+    """Board-wide settings everyone sees: background color, the start view newly invited people open at, and
+    the layers above the default one (bottom to top). None when empty, so boards without settings keep their shape."""
+    if not isinstance(raw, (dict, list)):
+        return None
+    r = object_value(raw)
+    result = {}
+    if isinstance(r.get('background'), str) and HIGHLIGHT.fullmatch(r['background']):
+        result['background'] = r['background']
+    view = object_value(r.get('startView'))
+    if finite(view.get('x')) and finite(view.get('y')) and finite(view.get('zoom')) and view['zoom'] > 0:
+        result['startView'] = {'x': view['x'], 'y': view['y'], 'zoom': view['zoom']}
+    if isinstance(r.get('layers'), list):
+        layers, seen = [], set()
+        for entry in r['layers'][:MAX_LAYERS]:
+            entry = entry if isinstance(entry, dict) else {}
+            identifier = entry.get('id')
+            if not isinstance(identifier, str) or not identifier or identifier in seen:
+                continue
+            seen.add(identifier)
+            name = entry.get('name')
+            layer = {'id': identifier, 'name': name if isinstance(name, str) and utf16_length(name) <= MAX_LAYER_NAME else 'Layer'}
+            if entry.get('locked') is True:
+                layer['locked'] = True
+            layers.append(layer)
+        if layers:
+            result['layers'] = layers
+    return result or None
+
+
 def validate_state(raw):
     obj = object_value(raw)
     viewport = object_value(obj.get('viewport'))
@@ -421,6 +466,8 @@ def validate_state(raw):
     identifiers = {item['id'] for item in nodes}
     table = tags(obj.get('tags'))
     tag_ids = {item['id'] for item in table}
+    settings = settings_of(obj.get('settings'))
+    layer_ids = {layer['id'] for layer in (settings or {}).get('layers', [])}
     for item in nodes:
         if item['parentId'] and item['parentId'] not in identifiers:
             item['parentId'] = None
@@ -431,6 +478,8 @@ def validate_state(raw):
                 del item['tagIds']
         if item['type'] == 'shape' and isinstance(item.get('tail'), dict) and 'nodeId' in item['tail'] and item['tail']['nodeId'] not in identifiers:
             del item['tail']
+        if 'layerId' in item and item['layerId'] not in layer_ids:
+            del item['layerId']
     connectors = [valid for item in obj.get('connectors', []) if (valid := connector(item, identifiers)) is not None] if isinstance(obj.get('connectors'), list) else []
     result = {'version': 1, 'viewport': {'x': num(viewport.get('x'), 0), 'y': num(viewport.get('y'), 0), 'zoom': zoom if finite(zoom) and zoom > 0 else 1},
               'nodes': nodes, 'connectors': connectors}
@@ -440,6 +489,8 @@ def validate_state(raw):
     board_notes = extras.notes(obj.get('notes'), marks)
     if board_notes:
         result['notes'] = board_notes
+    if settings:
+        result['settings'] = settings
     return result
 
 

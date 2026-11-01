@@ -393,6 +393,17 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .generation-name-overlay { transition: none; }
 }
+/* Reduce motion on the board (system setting or the board's View menu toggle): no transitions or animations. */
+html[data-board-reduce-motion="true"] *,
+html[data-board-reduce-motion="true"] *::before,
+html[data-board-reduce-motion="true"] *::after {
+  transition-duration: 0s !important;
+  transition-delay: 0s !important;
+  animation-duration: 0s !important;
+  animation-delay: 0s !important;
+  animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
+}
 /* "Draft" sits on a soft corner shade that fades out before its edges. */
 .media-card-draft {
   width: var(--face-shade-w);

@@ -34,6 +34,7 @@ import {
   connectorPath,
   hitTest,
   marqueeHits,
+  unionBounds,
 } from "./geometry";
 
 // ---------------------------------------------------------------------------
@@ -153,6 +154,12 @@ test("nodeBounds: extracts {x,y,w,h} matching the node's own fields", () => {
   assert.equal(b.y, 20);
   assert.equal(b.w, 30);
   assert.equal(b.h, 40);
+});
+
+test("unionBounds: the box around every box, or null for none", () => {
+  assert.equal(unionBounds([]), null);
+  assert.deepEqual(unionBounds([{ x: 0, y: 0, w: 10, h: 10 }, { x: -5, y: 20, w: 5, h: 5 }]), { x: -5, y: 0, w: 15, h: 25 });
+  assert.deepEqual(unionBounds([{ x: 0, y: 0, w: 10, h: 10 }, { x: 20, y: -5, w: 5, h: 5 }]), { x: 0, y: -5, w: 25, h: 15 });
 });
 
 test("boundsContain: a point clearly inside the outer bounds is contained", () => {
@@ -518,4 +525,19 @@ test("hitTest: overlapping nodes — the front-most (highest array index) node w
   const front = rect({ id: "front", x: 0, y: 0, w: 100, h: 100 });
   const state = emptyState({ nodes: [back, front] });
   assert.equal(hitTest(state, { x: 50, y: 50 }), "front");
+});
+
+
+test("moving nested frames carries unlocked descendants and preserves locked objects", () => {
+  const state = emptyState({ nodes: [
+    rect({ id: "leaf", parentId: "inner", x: 10, y: 20 }),
+    frame({ id: "inner", parentId: "outer" }),
+    rect({ id: "held", parentId: "inner", locked: true }),
+    frame({ id: "outer" }),
+  ] });
+  const next = moveNodesBy(state, ["outer"], 30, 40);
+  assert.deepEqual(next.nodes.map(({ id, x, y }) => ({ id, x, y })), [
+    { id: "leaf", x: 40, y: 60 }, { id: "inner", x: 30, y: 40 },
+    { id: "held", x: 0, y: 0 }, { id: "outer", x: 30, y: 40 },
+  ]);
 });

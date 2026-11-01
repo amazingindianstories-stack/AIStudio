@@ -199,6 +199,8 @@ def board_detail(request, identifier):
             return reply(request, {'error': 'Board is too large to save.'}, 413)
         if saved is None:
             return reply(request, {'error': 'Board not found.'}, 404)
+        if level is not None and 'board' in saved:
+            saved = {**saved, 'board': hidden.visible_data(saved['board'], level)}
         return reply(request, {'ok': True, **saved})
     except access.AccessError as error:
         return reply(request, {'error': str(error)}, error.status)

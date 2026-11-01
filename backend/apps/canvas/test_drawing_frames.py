@@ -151,6 +151,25 @@ class FrameRoutesTests(TransactionTestCase):
     def as_user(self, user):
         self.client.cookies['veevee_session'] = sign_session(user)
 
+    def test_lock_correction_reply_preserves_hidden_content_without_disclosing_it(self):
+        BoardMember.objects.filter(board_id=SOURCE, user_id=self.viewer.id).update(role='edit')
+        stored = CanvasBoard.objects.get(pk=SOURCE).data
+        stored['nodes'].append(node('protected', locked=True, lockProtected=True, lockedBy=str(self.owner.id)))
+        CanvasBoard.objects.filter(pk=SOURCE).update(data=validate_state(stored))
+        self.as_user(self.viewer)
+        seen = self.client.get(f'/api/canvas-boards/{SOURCE}').json()
+        for item in seen['data']['nodes']:
+            if item['id'] == 'protected':
+                item['x'] = 300
+        response = self.client.put(f'/api/canvas-boards/{SOURCE}', content_type='application/json', data=json.dumps({
+            'data': seen['data'], 'baseVersion': seen['version'], 'saveId': str(uuid4()),
+        }))
+        self.assertEqual(response.status_code, 200, response.content)
+        result = response.json()['board']
+        self.assertNotIn('b', ids(result))
+        self.assertEqual(next(n['x'] for n in result['nodes'] if n['id'] == 'protected'), 0)
+        self.assertIn('b', ids(CanvasBoard.objects.get(pk=SOURCE).data))
+
     def test_the_list_hides_hidden_frames_from_a_viewer_but_not_from_the_owner(self):
         self.as_user(self.viewer)
         self.assertEqual([f['id'] for f in self.client.get(f'/api/canvas-boards/{SOURCE}/frames').json()['frames']], ['open'])
