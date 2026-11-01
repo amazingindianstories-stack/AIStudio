@@ -146,3 +146,13 @@ test("format text never keeps half an emoji: clips stop before it and saves repl
   assert.equal(saved.name, "x\uFFFD");
   assert.equal(saved.blocks[0].text, `a${smile}\uFFFDb`);
 });
+
+test("format text is made well-formed without String.prototype.toWellFormed", (t) => {
+  const original = Object.getOwnPropertyDescriptor(String.prototype, "toWellFormed");
+  delete String.prototype.toWellFormed;
+  t.after(() => original && Object.defineProperty(String.prototype, "toWellFormed", original));
+  const node = { ...newFormatNode("doc", { x: 0, y: 0 }), name: "\uDE0Ax\uD83D", blocks: [{ id: "b", type: "p", text: "\u{1F60A}\uD83D\uD83D" }] };
+  const saved = validateCanvasState({ nodes: [node] }).nodes[0];
+  assert.equal(saved.name, "\uFFFDx\uFFFD");
+  assert.equal(saved.blocks[0].text, "\u{1F60A}\uFFFD\uFFFD");
+});

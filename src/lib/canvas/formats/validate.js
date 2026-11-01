@@ -34,13 +34,18 @@ function isFiniteNumber(v) {
   return typeof v === "number" && Number.isFinite(v);
 }
 
+/** `text` with each unpaired surrogate replaced by U+FFFD, so it can be stored as JSON in PostgreSQL. */
+function wellFormed(text) {
+  return text.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]|[\uD800-\uDFFF]/g, (m) => (m.length === 2 ? m : "\uFFFD"));
+}
+
 /** A string within `max` UTF-16 units, else the fallback. */
 function limited(value, max, fallback = "") {
-  return typeof value === "string" && value.length <= max ? value.toWellFormed() : fallback;
+  return typeof value === "string" && value.length <= max ? wellFormed(value) : fallback;
 }
 
 function identifier(value) {
-  return typeof value === "string" && value.length > 0 && value.length <= MAX_ID ? value.toWellFormed() : null;
+  return typeof value === "string" && value.length > 0 && value.length <= MAX_ID ? wellFormed(value) : null;
 }
 
 /** Fields every status-bearing node shares; present only when set. */
@@ -53,7 +58,7 @@ export function withFormatStatus(node, r) {
 export function withDiagramSource(node, r) {
   if (r.sourceKind === "mermaid" && typeof r.source === "string" && r.source.length <= SOURCE_MAX) {
     node.sourceKind = "mermaid";
-    node.source = r.source.toWellFormed();
+    node.source = wellFormed(r.source);
   }
   return withFormatStatus(node, r);
 }
