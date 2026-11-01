@@ -19,6 +19,7 @@ import { StudioView } from "@/components/StudioView";
 import { Toaster } from "@/components/Toaster";
 import { TextPromptDialog } from "@/components/TextPromptDialog";
 import { useDesktopLayout } from "@/lib/use-desktop-layout";
+import { templateRefFromSearch } from "@/lib/canvas/templates";
 
 function BoardPlaceholder({ children }) {
   return <div className="grid min-w-0 flex-1 place-items-center bg-ink-900">{children}</div>;
@@ -83,6 +84,11 @@ export default function Page() {
       setView("studio");
     }
   }, [view, currentUser, setView]);
+
+  // A `?template=<id>` link opens the board with that template in the picker (BoardTemplates).
+  useEffect(() => {
+    if (templateRefFromSearch(window.location.search)) setView("canvas");
+  }, [setView]);
 
   useEffect(() => {
     loadMe();

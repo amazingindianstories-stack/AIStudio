@@ -24,6 +24,8 @@ import { BoardProjectSelector } from "./BoardProjectSelector";
 import { CanvasAssetPanel } from "./CanvasAssetPanel";
 import { BoardShareDialog } from "./BoardShareDialog";
 import { CanvasAiPanel } from "./CanvasAiPanel";
+import { BoardTemplates } from "./BoardTemplates";
+import { requestTemplates } from "@/lib/canvas/template-events";
 import { useBoardAi } from "@/lib/board-ai";
 import { BoardHistoryPanel } from "./BoardHistoryPanel";
 import { LayersPanel } from "./LayersPanel";
@@ -574,9 +576,11 @@ export function CanvasView() {
             onAddImageClick={openImagePicker}
             aiOpen={aiOpen && Boolean(boardId)}
             onAiClick={() => setAiOpen((v) => !v)}
+            onTemplatesClick={() => requestTemplates({ action: "open" })}
             viewCenter={viewCenter}
           />
         )}
+        {boardId && loaded && <BoardTemplates boardId={boardId} projectId={activeProjectId} viewCenter={viewCenter} onOpenBoard={setBoardId} />}
         {aiOpen && boardId && !readOnly && !touchViewOnly && <CanvasAiPanel boardId={boardId} leftInset={assetPanelWidth} onClose={() => setAiOpen(false)} />}
       </div>
 

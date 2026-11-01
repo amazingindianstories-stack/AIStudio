@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { requestTemplates } from "@/lib/canvas/template-events";
 import {
   ArrowDown,
   ArrowUp,
@@ -208,6 +209,14 @@ export function ShapesPanel({
         >
           <Settings2 className="h-3.5 w-3.5" />
           <span>All shapes</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => requestTemplates({ action: "open", tool: "shapes" })}
+          title="Diagram templates"
+          className="flex h-7 items-center rounded-md border border-line bg-ink-900 px-2 text-[11px] font-medium text-white/70 transition hover:bg-white/[0.07] hover:text-white"
+        >
+          Templates
         </button>
       </div>
 
