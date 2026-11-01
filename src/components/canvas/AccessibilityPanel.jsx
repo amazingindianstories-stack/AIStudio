@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { CheckCircle2, Contrast, ImageOff, Type } from "lucide-react";
 import { useCanvasStore, useVisibleBoard } from "@/lib/canvas-store";
+import { isLocked } from "@/lib/canvas/locks";
 import { accessibilityIssues, describeObject } from "@/lib/canvas/a11y-check";
 import { BoardPanel } from "./BoardPanel";
 import { jumpToObject } from "./BoardOutline";
@@ -57,7 +58,10 @@ export function AccessibilityPanel({ canEdit, onClose }) {
                     {node && <span className="block truncate text-xs text-white/45">{describeObject(node, present)}</span>}
                   </span>
                 </button>
-                {canEdit && (issue.kind === "alt" || issue.kind === "title") && (
+                {canEdit && (issue.kind === "alt" || issue.kind === "title") && isLocked(present, issue.id) && (
+                  <p className="mt-1.5 pl-6 text-xs text-amber-300/90">Locked - unlock to edit</p>
+                )}
+                {canEdit && (issue.kind === "alt" || issue.kind === "title") && !isLocked(present, issue.id) && (
                   <InlineFix
                     key={issue.id}
                     label={issue.kind === "alt" ? "Image description" : "Frame title"}

@@ -43,6 +43,24 @@ export function frameOrderEdits(present, ids) {
   return edits;
 }
 
+/**
+ * `moveInOrder` for a board with locked frames: locked frames never move and
+ * keep their slot, and only the unlocked ones in `moving` are reordered
+ * around them. `locked` is a Set of frame ids.
+ */
+export function moveInOrderLocked(ids, moving, beforeId, locked) {
+  if (!locked?.size) return moveInOrder(ids, moving, beforeId);
+  const free = ids.filter((id) => !locked.has(id));
+  // A locked drop target stands for the next unlocked frame after it.
+  let before = beforeId;
+  if (before != null && locked.has(before)) {
+    before = ids.slice(ids.indexOf(before)).find((id) => !locked.has(id)) ?? null;
+  }
+  const reordered = moveInOrder(free, moving.filter((id) => !locked.has(id)), before);
+  let next = 0;
+  return ids.map((id) => (locked.has(id) ? id : reordered[next++]));
+}
+
 /** `ids` with the frames in `moving` moved together to sit before `beforeId` (null: at the end). */
 export function moveInOrder(ids, moving, beforeId) {
   const movingSet = new Set(moving);

@@ -6,7 +6,8 @@ import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import { useCanvasStore } from "@/lib/canvas-store";
 import { useBoardUi } from "@/lib/canvas/board-ui";
-import { frameOrderEdits, frameTitle, moveInOrder, orderedFrames, organizeFrameEdits } from "@/lib/canvas/frames";
+import { frameOrderEdits, frameTitle, moveInOrderLocked, orderedFrames, organizeFrameEdits } from "@/lib/canvas/frames";
+import { isLocked, lockedIdSet } from "@/lib/canvas/locks";
 import { objectLink } from "@/lib/canvas/object-link";
 import { writeClipboardText } from "@/lib/canvas/clipboard-export";
 import { BoardPanel, FrameThumbnail } from "./BoardPanel";
@@ -67,8 +68,8 @@ export function FramesPanel({ canEdit, onClose }) {
   };
 
   const reorder = (moving, beforeId) => {
-    const nextIds = moveInOrder(ids, moving, beforeId);
     const store = useCanvasStore.getState();
+    const nextIds = moveInOrderLocked(ids, moving, beforeId, lockedIdSet(store.history.present));
     store.replaceNodes(frameOrderEdits(store.history.present, nextIds));
   };
 
@@ -79,6 +80,10 @@ export function FramesPanel({ canEdit, onClose }) {
     const at = ids.slice(0, ids.findIndex((x) => movingSet.has(x))).filter((x) => !movingSet.has(x)).length;
     const target = Math.max(0, Math.min(kept.length, at + step));
     if (target === at) return;
+    if (isLocked(useCanvasStore.getState().history.present, id)) {
+      useBoardUi.getState().announce("Locked - unlock to edit");
+      return;
+    }
     reorder(moving, kept[target] ?? null);
     const frame = frames.find((f) => f.id === id);
     useBoardUi.getState().announce(`${frameTitle(frame)} moved ${step < 0 ? "up" : "down"}`);
@@ -202,7 +207,7 @@ export function FramesPanel({ canEdit, onClose }) {
                   <button
                     ref={(el) => (el ? rowRefs.current.set(frame.id, el) : rowRefs.current.delete(frame.id))}
                     type="button"
-                    draggable={canEdit}
+                    draggable={canEdit && !isLocked(present, frame.id)}
                     aria-pressed={selected}
                     onClick={(e) => pick(frame.id, e)}
                     onKeyDown={(e) => onRowKeyDown(e, frame.id)}
@@ -253,6 +258,7 @@ export function FramesPanel({ canEdit, onClose }) {
 
 /** Presenter notes for one frame. They are part of the board, so everyone who can open it can read them. */
 function FrameNotes({ frame, canEdit }) {
+  const locked = useCanvasStore((s) => isLocked(s.history.present, frame.id));
   const [draft, setDraft] = useState(frame.notes ?? "");
   const saved = useRef(frame.notes ?? "");
 
@@ -285,7 +291,7 @@ function FrameNotes({ frame, canEdit }) {
       <label htmlFor="frame-notes" className="text-xs font-semibold text-white/70">
         Presenter notes for {frameTitle(frame)}
       </label>
-      {canEdit ? (
+      {canEdit && !locked ? (
         <textarea
           id="frame-notes"
           value={draft}
@@ -301,6 +307,7 @@ function FrameNotes({ frame, canEdit }) {
           {frame.notes || "No notes"}
         </p>
       )}
+      {canEdit && locked && <p className="text-[11px] leading-snug text-amber-300/90">Locked - unlock to edit</p>}
       <p className="text-[11px] leading-snug text-white/45">Not private: anyone who can open this board can read these notes.</p>
     </div>
   );

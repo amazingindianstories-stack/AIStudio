@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { frameChildren, frameOrderEdits, frameTitle, moveInOrder, orderedFrames, organizeFrameEdits } from "./frames.js";
+import { frameChildren, frameOrderEdits, frameTitle, moveInOrder, moveInOrderLocked, orderedFrames, organizeFrameEdits } from "./frames.js";
 
 const frame = (id, x, y, extra = {}) => ({ id, type: "frame", name: id, x, y, w: 200, h: 100, parentId: null, groupId: null, ...extra });
 
@@ -48,4 +48,15 @@ test("frame children and titles", () => {
   assert.deepEqual(frameChildren(board, board.nodes[0]).map((n) => n.id), ["n"]);
   assert.equal(frameTitle(board.nodes[0]), "Untitled frame");
   assert.equal(frameTitle({ name: "Intro" }), "Intro");
+});
+
+test("reordering around a locked frame keeps it in its slot", () => {
+  const locked = new Set(["a"]);
+  // c goes first: the locked a stays at index 0, so c lands before b instead.
+  assert.deepEqual(moveInOrderLocked(["a", "b", "c"], ["c"], "a", locked), ["a", "c", "b"]);
+  assert.deepEqual(moveInOrderLocked(["a", "b", "c"], ["c"], "b", locked), ["a", "c", "b"]);
+  // A locked frame is never the one moved.
+  assert.deepEqual(moveInOrderLocked(["a", "b", "c"], ["a"], null, locked), ["a", "b", "c"]);
+  assert.deepEqual(moveInOrderLocked(["a", "b", "c"], ["b"], null, locked), ["a", "c", "b"]);
+  assert.deepEqual(moveInOrderLocked(["a", "b", "c"], ["c"], "b", new Set()), ["a", "c", "b"]);
 });
