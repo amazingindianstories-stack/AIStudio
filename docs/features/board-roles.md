@@ -21,7 +21,7 @@ ranks as co-owner.
 |---|---|---|
 | List the board, open it, see who has access, read work tables and their history | view | `GET /api/canvas-boards`, `GET /api/canvas-boards/<id>`, `GET /api/canvas-boards/<id>/version`, `GET /api/canvas-boards/<id>/changes`, `GET /api/canvas-boards/<id>/access`, `GET /api/canvas-boards/<id>/work`, `/work/<tableId>` and `/work/<tableId>/history` |
 | Save the graph, upload media, read the board history | edit | `PUT` and `PATCH /api/canvas-boards/<id>`, `POST /api/canvas-boards/<id>/upload`, `GET /api/canvas-boards/<id>/activity` (`board-history.md`) |
-| Create work tables; edit a table's fields, views and records | edit; a table marked `ownerOnly` also needs its owner or the owner role, and only they change `ownerOnly` | `POST /api/canvas-boards/<id>/work` and `/work/<tableId>` |
+| Create work tables; edit a table's fields, views and records; delete a table with its records, history and notifications | edit; a table marked `ownerOnly` also needs its owner or the owner role, and only they change `ownerOnly` | `POST /api/canvas-boards/<id>/work` and `/work/<tableId>` |
 | Create with AI: quote, run, list and place jobs | edit | `/api/canvas-boards/<id>/ai-jobs` and its `quote` and `<jobId>` routes |
 | Set a protected lock (held by the setter; only they and the board's co-owners and owner may change, unlock or delete the object, so a setter who leaves never strands it), set the board start view | co-owner | `PUT` and `PATCH /api/canvas-boards/<id>`; a save that tries it below co-owner keeps its other changes (`backend/apps/canvas/locks.py`) |
 | Rename, add/change/remove board members | co-owner | `renameBoard`; `setMember`, `removeMember` on `/access` |

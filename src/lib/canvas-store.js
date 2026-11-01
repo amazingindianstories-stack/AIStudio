@@ -1277,8 +1277,8 @@ export const useCanvasStore = create((set, get) => ({
     // Locked objects were kept, and stay selected.
     set({ selection: selection.filter((id) => !deleteIds.has(id)), selectedConnectorIds: [] });
     const kept = new Set(get().history.present.nodes.map((n) => n.datasetId));
-    const orphaned = new Map(before.nodes.filter((n) => deleteIds.has(n.id) && n.datasetId && !kept.has(n.datasetId)).map((n) => [n.datasetId, { id: n.datasetId, name: n.title }]));
-    if (orphaned.size && !opts?.cut) set({ orphanedTables: [...orphaned.values()] });
+    const orphaned = new Set(before.nodes.filter((n) => deleteIds.has(n.id) && n.datasetId && !kept.has(n.datasetId)).map((n) => n.datasetId));
+    if (orphaned.size && !opts?.cut) set({ orphanedTables: [...orphaned] });
   },
 
   duplicateSelected: () => {

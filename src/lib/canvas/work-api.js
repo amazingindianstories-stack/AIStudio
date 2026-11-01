@@ -8,6 +8,11 @@ export async function workRequest(path, data) {
   return result;
 }
 export const tablePath = (boardId, tableId = '') => `/api/canvas-boards/${boardId}/work${tableId ? `/${tableId}` : ''}`;
+/** The board's current descriptors for `ids`, keeping only tables this user may delete. */
+export async function deletableTables(boardId, ids) {
+  const { tables } = await workRequest(tablePath(boardId));
+  return tables.filter(t => ids.includes(t.id) && t.canEdit);
+}
 /** How many records a compact canvas preview can show: kanban-width columns of table-height rows. */
 export function previewLimit(node) {
   return Math.min(200, Math.max(10, Math.ceil(node.w / 224) * Math.ceil(node.h / 30)));

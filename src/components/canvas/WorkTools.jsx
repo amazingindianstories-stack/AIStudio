@@ -8,7 +8,7 @@ import { DEFAULT_FIELDS, newCard, newColumns, layoutColumns, placeWorkNode } fro
 import { WorkDataPanel } from './WorkDataPanel';
 import { WorkInbox } from './WorkInbox';
 import { TimelineBuilder } from './TimelineBuilder';
-import { workRequest, tablePath } from '@/lib/canvas/work-api';
+import { workRequest, tablePath, deletableTables } from '@/lib/canvas/work-api';
 import { isEditingTarget } from '@/lib/canvas/shortcut-target';
 
 const inputClass = 'w-full rounded border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 disabled:bg-slate-100';
@@ -22,7 +22,19 @@ export function WorkTools({ viewCenter, viewOnly }) {
   const [deleting, setDeleting] = useState(null);
   const [reload, setReload] = useState(0);
   const boardId = useCanvasStore(s => s.boardId);
-  const orphaned = useCanvasStore(s => s.orphanedTables);
+  const orphanedIds = useCanvasStore(s => s.orphanedTables);
+  const [offer, setOffer] = useState({ ids: null, tables: [] });
+  const orphaned = offer.ids === orphanedIds ? offer.tables : [];
+  useEffect(() => {
+    if (!orphanedIds.length || !boardId) return undefined;
+    let live = true;
+    const settle = tables => {
+      if (!live) return;
+      if (tables.length) setOffer({ ids: orphanedIds, tables }); else useCanvasStore.getState().dismissOrphanedTables();
+    };
+    deletableTables(boardId, orphanedIds).then(settle, () => settle([]));
+    return () => { live = false; };
+  }, [orphanedIds, boardId]);
   useEffect(() => { if (open && boardId) workRequest(tablePath(boardId)).then(r => setDatasets(r.tables)).catch(e => setError(e.message)); }, [open, boardId, activeId, reload]);
   const nodes = useCanvasStore(s => s.history.present.nodes);
   const boardReadOnly = useCanvasStore(selectReadOnly);

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { newCard, newColumns, layoutColumns, cleanRecord, viewFor, blockersOf, placeWorkNode, inColumnsCell } from './work-records.js';
 import { validateCanvasState, emptyCanvasState } from './serialization.js';
 import { useCanvasStore } from '../canvas-store.js';
+import { deletableTables } from './work-api.js';
 
 test('work records round trip and reject unsafe or unbounded values', () => {
   const card = newCard({ x: -10000, y: 12000 }, { title: 'Build', description: 'Details', assignee: 'actor', start: '2026-10-01', end: '2026-10-31', tags: 'team', links: 'https://example.test' });
@@ -110,11 +111,21 @@ test('deleting the last widget of a table offers its table; a shared table is ke
   assert.deepEqual(useCanvasStore.getState().orphanedTables, []);
   useCanvasStore.getState().setSelection(['b', 'c']);
   useCanvasStore.getState().deleteSelected();
-  assert.deepEqual(useCanvasStore.getState().orphanedTables, [{ id: 'shared', name: 'Widget b' }, { id: 'solo', name: 'Widget c' }]);
+  assert.deepEqual(useCanvasStore.getState().orphanedTables, ['shared', 'solo']);
   useCanvasStore.getState().dismissOrphanedTables();
   assert.deepEqual(useCanvasStore.getState().orphanedTables, []);
   useCanvasStore.getState().undo();
   useCanvasStore.getState().setSelection(['b', 'c']);
   assert.equal(useCanvasStore.getState().cut(), true);
   assert.deepEqual(useCanvasStore.getState().orphanedTables, []);
+});
+test('an orphaned table is offered under its current name and only when this user may delete it', async t => {
+  const fetch = t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({ tables: [
+    { id: 'renamed', name: 'Sprint plan', canEdit: true },
+    { id: 'locked', name: 'Owner only', canEdit: false },
+    { id: 'kept', name: 'Still used', canEdit: true },
+  ] })));
+  assert.deepEqual(await deletableTables('board', ['renamed', 'locked', 'gone']), [{ id: 'renamed', name: 'Sprint plan', canEdit: true }]);
+  assert.deepEqual(await deletableTables('board', ['locked']), []);
+  assert.equal(new URL(fetch.mock.calls[0].arguments[0], 'http://local').pathname, '/api/canvas-boards/board/work');
 });
