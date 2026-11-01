@@ -58,6 +58,14 @@ export function newColumns(point) {
 export function placeWorkNode(node, point, nodes) {
   return inFreeSpace([{ ...node, x: point.x - node.w / 2, y: point.y - node.h / 2 }], nodes)[0];
 }
+/** `card` filed under the lane and swimlane of the `columns` cell its center sits in. */
+export function inColumnsCell(card, columns) {
+  if (!columns.lanes.length || !columns.swimlanes.length) return card;
+  const index = (offset, size, count) => Math.min(count - 1, Math.max(0, Math.floor(offset / size)));
+  const lane = index(card.x + card.w / 2 - columns.x - 10, (columns.w - 20) / columns.lanes.length, columns.lanes.length);
+  const row = index(card.y + card.h / 2 - columns.y - 72, (columns.h - 72) / columns.swimlanes.length, columns.swimlanes.length);
+  return { ...card, record: { ...card.record, lane: columns.lanes[lane].id, swimlane: columns.swimlanes[row].id } };
+}
 /** Compute every card position from board data, including off-screen cards. */
 export function layoutColumns(board, columnId) {
   const container = board.nodes.find(n => n.id === columnId && n.kind === 'columns');

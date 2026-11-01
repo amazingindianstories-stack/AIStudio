@@ -9,7 +9,7 @@ from django.db.models.fields.json import KeyTextTransform
 from django.db.models.functions import Cast
 from django.db.models import FloatField
 from . import access, services
-from .models import WorkTable, WorkRecord, WorkRelation, WorkHistory
+from .models import BoardNotification, WorkTable, WorkRecord, WorkRelation, WorkHistory
 from .work_schema import FIELD_TYPES, KINDS, clean_record, text
 from .work_formulas import parse, calculate, sql_expression
 
@@ -42,7 +42,7 @@ def fields(raw):
             options = field.get('options', [])
             if not isinstance(options, list) or len(options) > 100 or any(not isinstance(v, str) or len(v) > 120 for v in options):
                 raise WorkError('Select options must be up to 100 short strings.')
-            item['options'] = list(dict.fromkeys(options))
+            item['options'] = list(dict.fromkeys(v.strip() for v in options if v.strip()))
         if item['type'] == 'formula': item['expression'] = text(field.get('expression'), 256)
         if field.get('format') in ('number', 'currency', 'percent', 'progress'): item['format'] = field['format']
         if isinstance(field.get('currency'), str) and re.fullmatch(r'[A-Z]{3}', field['currency']): item['currency'] = field['currency']
@@ -106,7 +106,8 @@ def cells(raw, schema, previous=None):
             value = list(dict.fromkeys(str(identifier(v)) for v in value))
         elif not isinstance(value, str) or len(value) > 2000:
             raise WorkError(f'{key} must be text with at most 2000 characters.')
-        if kind == 'select' and value not in field['options']: raise WorkError(f'{key} must be a configured option.')
+        if kind == 'select' and value not in field['options'] and not (previous and previous.get(key) == value):
+            raise WorkError(f'{key} must be a configured option.')
         result[key] = value
     return clean_record(result)
 
@@ -231,6 +232,10 @@ def mutate(user, board, table_id, data):
         after = None
         op = data.get('op')
         now = services.now_ms()
+        if op == 'delete_table':
+            BoardNotification.objects.filter(board_id=board['id'], payload__tableId=str(table.id)).delete()
+            table.delete()
+            return {'table': None, 'record': None}
         if op == 'settings':
             if data.get('version') != table.version: raise access.AccessError('Table changed. Refresh before saving.', 409)
             before = describe(table, user, board)

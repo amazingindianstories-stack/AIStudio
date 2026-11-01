@@ -4,7 +4,7 @@ import logging
 import time
 import uuid
 from django.db import connection, models, transaction
-from .models import BoardActivity, CanvasBoard, CanvasBoardSave, CustomShapePack
+from .models import BoardActivity, BoardNotification, CanvasBoard, CanvasBoardSave, CustomShapePack
 from .serialization import JS_WHITESPACE, MAX_BOARD_JSON_UNITS, content_length, empty_state, validate_state
 from .svg_sanitize import MAX_SHAPES_PER_PACK, SAFE_VIEWBOX_RE, sanitize_svg
 
@@ -185,6 +185,17 @@ def prune_board_activity(now=None):
     now = now_ms() if now is None else now
     deleted = BoardActivity.objects.filter(created_at__lte=now - ACTIVITY_RETENTION_MS).delete()[0]
     logger.info(json.dumps({'event': 'maintenance_cleanup', 'target': 'board_activity', 'deleted': deleted}))
+    return {'ok': True, 'deleted': deleted}
+
+
+NOTIFICATION_RETENTION_MS = 90 * 24 * 60 * 60 * 1000
+
+
+def prune_board_notifications(now=None):
+    """Scheduler job: drop inbox notifications older than the retention window."""
+    now = now_ms() if now is None else now
+    deleted = BoardNotification.objects.filter(created_at__lte=now - NOTIFICATION_RETENTION_MS).delete()[0]
+    logger.info(json.dumps({'event': 'maintenance_cleanup', 'target': 'board_notifications', 'deleted': deleted}))
     return {'ok': True, 'deleted': deleted}
 
 

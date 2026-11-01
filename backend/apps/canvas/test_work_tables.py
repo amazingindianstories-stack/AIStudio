@@ -219,3 +219,68 @@ class WorkTableTests(TransactionTestCase):
         self.assertEqual(notifications.reminders(today=today)['delivered'], 2)
         self.assertEqual(set(BoardNotification.objects.filter(kind='table_due').values_list('user_id', flat=True)), {reviewer.id, assignee.id})
         self.assertEqual(notifications.reminders(today=today)['delivered'], 0)
+
+    def test_renamed_select_option_keeps_existing_values_editable(self):
+        table = self.create([{'id': 'status', 'name': 'Status', 'type': 'select', 'options': ['To do', 'In progress']}])
+        record = self.mutate(table, {'op': 'add', 'cells': {'title': 'Work', 'status': 'In progress'}})['record']
+        saved = self.mutate(table, {'op': 'settings', 'version': table['version'] + 1,
+                                    'fields': FIELDS + [{'id': 'status', 'name': 'Status', 'type': 'select', 'options': ['To do', ' Doing ', '', 'Doing', ' ']}]})['table']
+        self.assertEqual(saved['fields'][-1]['options'], ['To do', 'Doing'])
+        moved = self.mutate(table, {'op': 'update', 'id': record['id'], 'version': record['version'], 'cells': {**record['cells'], 'title': 'Moved'}})['record']
+        self.assertEqual((moved['cells']['title'], moved['cells']['status']), ('Moved', 'In progress'))
+        self.mutate(table, {'op': 'update', 'id': record['id'], 'version': moved['version'], 'cells': {**moved['cells'], 'status': 'Blocked'}}, 400)
+        self.mutate(table, {'op': 'add', 'cells': {'title': 'New', 'status': 'In progress'}}, 400)
+        self.assertEqual(self.mutate(table, {'op': 'update', 'id': record['id'], 'version': moved['version'], 'cells': {**moved['cells'], 'status': 'Doing'}})['record']['cells']['status'], 'Doing')
+
+    def test_deleting_a_table_removes_its_records_history_and_notifications_for_editors_only(self):
+        table, other = self.create([{'id': 'needs', 'name': 'Needs', 'type': 'relation'}]), self.create()
+        recipient = User.objects.create(email='deleted-table@example.test', name='Recipient', password_hash='x', password_salt='x', created_at=1)
+        today = datetime.datetime.now(datetime.timezone.utc).date()
+        first = self.mutate(table, {'op': 'add', 'cells': {'title': 'First', 'assignee': str(recipient.id), 'end': today.isoformat()}})['record']
+        self.mutate(table, {'op': 'add', 'cells': {'title': 'Second', 'needs': [first['id']]}, 'parentId': first['id'], 'blockedBy': [first['id']]})
+        self.mutate(other, {'op': 'add', 'cells': {'title': 'Kept', 'assignee': str(recipient.id)}})
+        notifications.reminders(today=today)
+        self.assertEqual(BoardNotification.objects.filter(payload__tableId=table['id']).count(), 2)
+        viewer = User.objects.create(email='table-viewer@example.test', password_hash='x', password_salt='x', name='Viewer', created_at=1)
+        self.board.created_by = None
+        self.board.team_role = 'view'; self.board.save()
+        with self.assertRaises(access.AccessError): work.mutate(viewer, access.board_row(self.board.id), table['id'], {'op': 'delete_table'})
+        editor, row = self.editor()
+        WorkTable.objects.filter(id=table['id']).update(owner_only=True)
+        with self.assertRaises(access.AccessError): work.mutate(editor, row, table['id'], {'op': 'delete_table'})
+        WorkTable.objects.filter(id=table['id']).update(owner_only=False)
+        self.assertEqual(work.mutate(editor, row, table['id'], {'op': 'delete_table'}), {'table': None, 'record': None})
+        self.assertFalse(WorkTable.objects.filter(id=table['id']).exists())
+        self.assertFalse(WorkRecord.objects.filter(table_id=table['id']).exists())
+        self.assertFalse(WorkHistory.objects.filter(table_id=table['id']).exists())
+        self.assertFalse(WorkRelation.objects.exists())
+        self.assertFalse(BoardNotification.objects.filter(payload__tableId=table['id']).exists())
+        self.assertEqual(BoardNotification.objects.filter(payload__tableId=other['id']).count(), 1)
+        self.assertEqual(WorkRecord.objects.filter(table_id=other['id']).count(), 1)
+        self.assertEqual(self.client.post(f"{self.base}/{table['id']}", {'op': 'delete_table'}, content_type='application/json').status_code, 404)
+        self.assertEqual([t['id'] for t in self.client.get(self.base).json()['tables']], [other['id']])
+
+    def test_deleting_tables_frees_the_board_table_cap(self):
+        WorkTable.objects.bulk_create([WorkTable(board_id=self.board.id, name=f'T{i}', fields=FIELDS, owner_id=self.user.id, created_at=1, updated_at=1) for i in range(100)])
+        refused = self.client.post(self.base, {'name': 'Plan', 'fields': FIELDS}, content_type='application/json')
+        self.assertEqual((refused.status_code, refused.json()['error']), (400, 'This board has reached its 100 table limit.'))
+        self.mutate({'id': str(WorkTable.objects.filter(board_id=self.board.id).first().id)}, {'op': 'delete_table'})
+        self.create()
+        self.assertEqual(WorkTable.objects.filter(board_id=self.board.id).count(), 100)
+
+    def test_notifications_are_pruned_after_ninety_days(self):
+        from unittest.mock import patch
+        from apps.workers import scheduler
+        from .services import NOTIFICATION_RETENTION_MS
+        table = self.create()
+        recipient = User.objects.create(email='pruned@example.test', name='Recipient', password_hash='x', password_salt='x', created_at=1)
+        self.mutate(table, {'op': 'add', 'cells': {'title': 'Old', 'assignee': str(recipient.id)}})
+        old = BoardNotification.objects.get(user=recipient)
+        self.mutate(table, {'op': 'add', 'cells': {'title': 'New', 'assignee': str(recipient.id)}})
+        BoardNotification.objects.filter(id=old.id).update(created_at=1000)
+        recent = BoardNotification.objects.exclude(id=old.id).get(user=recipient).created_at
+        with patch('apps.canvas.services.now_ms', return_value=1000 + NOTIFICATION_RETENTION_MS):
+            self.assertEqual(scheduler.default_handlers()['board_notifications'](), {'ok': True, 'deleted': 1})
+        self.assertEqual([n['payload']['title'] for n in notifications.inbox(recipient)], ['New'])
+        with patch('apps.canvas.services.now_ms', return_value=recent + NOTIFICATION_RETENTION_MS - 1):
+            self.assertEqual(scheduler.default_handlers()['board_notifications'](), {'ok': True, 'deleted': 0})

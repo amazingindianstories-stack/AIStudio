@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useCanvasStore, selectReadOnly } from '@/lib/canvas-store';
 import { usePeople } from '@/lib/canvas/use-people';
 import { DEFAULT_FIELDS, newCard, newColumns, layoutColumns, placeWorkNode } from '@/lib/canvas/work-records';
@@ -19,8 +19,11 @@ export function WorkTools({ viewCenter, viewOnly }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [builder, setBuilder] = useState(false);
+  const [deleting, setDeleting] = useState(null);
+  const [reload, setReload] = useState(0);
   const boardId = useCanvasStore(s => s.boardId);
-  useEffect(() => { if (open && boardId) workRequest(tablePath(boardId)).then(r => setDatasets(r.tables)).catch(e => setError(e.message)); }, [open, boardId, activeId]);
+  const orphaned = useCanvasStore(s => s.orphanedTables);
+  useEffect(() => { if (open && boardId) workRequest(tablePath(boardId)).then(r => setDatasets(r.tables)).catch(e => setError(e.message)); }, [open, boardId, activeId, reload]);
   const nodes = useCanvasStore(s => s.history.present.nodes);
   const boardReadOnly = useCanvasStore(selectReadOnly);
   const readOnly = boardReadOnly || viewOnly;
@@ -68,8 +71,14 @@ export function WorkTools({ viewCenter, viewOnly }) {
     const list = active[key].map(lane => lane.id === id ? { ...lane, ...patch } : lane);
     useCanvasStore.getState().editBoard(board => layoutColumns({ ...board, nodes: board.nodes.map(n => n.id === activeId ? { ...n, [key]: list } : n) }, activeId));
   }
+  const deletion = deleting || (orphaned.length ? { tables: orphaned, orphaned: true } : null);
+  function closeDeletion(deleted) {
+    if (deleting) setDeleting(null); else useCanvasStore.getState().dismissOrphanedTables();
+    if (deleted) setReload(v => v + 1);
+  }
   return <>
     <WorkInbox />
+    {deletion && boardId && <DeleteTablesDialog key={deletion.tables.map(t => t.id).join()} boardId={boardId} {...deletion} onClose={closeDeletion} />}
     {builder && <TimelineBuilder viewCenter={viewCenter} onClose={() => setBuilder(false)} readOnly={readOnly} />}
     {open && active?.datasetId && <WorkDataPanel key={active.id} node={active} readOnly={readOnly} onClose={() => setActiveId(null)} />}
     <button type="button" onClick={() => setOpen(v => !v)} className="absolute right-4 top-16 z-30 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800 shadow" aria-expanded={open}>Cards and work</button>
@@ -77,13 +86,13 @@ export function WorkTools({ viewCenter, viewOnly }) {
       <div className="mb-4 flex justify-between"><h2 className="font-semibold">Cards and work</h2><button onClick={() => setOpen(false)} aria-label="Close cards and work">Close</button></div>
       {!readOnly && <div className="mb-4 flex gap-2"><button className={inputClass} onClick={() => create('card')}>Add card (D)</button><button className={inputClass} onClick={() => create('columns')}>Add columns</button></div>}
       {error && <p role="alert" className="mb-3 text-sm text-red-700">{error}</p>}
-      {!readOnly && <><div className="mb-3 grid grid-cols-2 gap-2">{[['table', 'Table'], ['kanban', 'Kanban'], ['timeline', 'Timeline'], ['story', 'Story map'], ['mindmap', 'Mind map'], ['org', 'Org chart'], ['chart', 'Chart']].map(([kind, label]) => <button key={kind} className={inputClass} disabled={busy} onClick={() => void createDataset(kind)}>Add {label}</button>)}<button className={inputClass} onClick={() => setBuilder(true)}>Timeline Builder</button></div><label className="mb-4 block text-sm">Reuse table records<select className={inputClass} disabled={busy} value="" onChange={e => { if (e.target.value) void createDataset('table', e.target.value); }}><option value="">Choose an existing table</option>{datasets.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}</select></label></>}
+      {!readOnly && <><div className="mb-3 grid grid-cols-2 gap-2">{[['table', 'Table'], ['kanban', 'Kanban'], ['timeline', 'Timeline'], ['story', 'Story map'], ['mindmap', 'Mind map'], ['org', 'Org chart'], ['chart', 'Chart']].map(([kind, label]) => <button key={kind} className={inputClass} disabled={busy} onClick={() => void createDataset(kind)}>Add {label}</button>)}<button className={inputClass} onClick={() => setBuilder(true)}>Timeline Builder</button></div><section aria-label="Reuse table records" className="mb-4 text-sm"><h3 className="mb-1">Reuse table records</h3>{datasets.length ? <ul className="space-y-1">{datasets.map(t => <li key={t.id} className="flex items-center gap-2"><span className="min-w-0 flex-1 truncate">{t.name}</span><button className="rounded border border-slate-300 px-2 py-1 disabled:opacity-50" disabled={busy} aria-label={`Reuse ${t.name}`} onClick={() => void createDataset('table', t.id)}>Reuse</button><button className="rounded border border-red-200 px-2 py-1 text-red-700 disabled:opacity-50" disabled={busy || !t.canEdit} aria-label={`Delete ${t.name}`} onClick={() => setDeleting({ tables: [t], widgets: nodes.filter(n => n.datasetId === t.id).length })}>Delete</button></li>)}</ul> : <p className="text-slate-500">No tables on this board yet</p>}</section></>}
       <label className="mb-4 block text-sm">Selected widget<select className={inputClass} value={active?.id || ''} onChange={e => setActiveId(e.target.value)}><option value="">Choose a card or widget</option>{nodes.filter(n => ['card', 'work'].includes(n.type)).map(n => <option key={n.id} value={n.id}>{n.record?.title || n.title}</option>)}</select></label>
       {active?.type === 'card' && <div className="space-y-3">
         {['title', 'description', 'start', 'end', 'tags', 'links'].map(key => <label key={key} className="block text-sm capitalize">{key}{key === 'description' ? <textarea className={inputClass} rows={4} value={active.record[key] || ''} disabled={readOnly} onChange={e => record(key, e.target.value)} /> : <input className={inputClass} type={['start', 'end'].includes(key) ? 'date' : 'text'} value={active.record[key] || ''} disabled={readOnly} onChange={e => record(key, e.target.value)} />}</label>)}
         <label className="block text-sm">Assignee<select className={inputClass} disabled={readOnly} value={active.record.assignee || ''} onChange={e => record('assignee', e.target.value)}><option value="">Unassigned</option>{[...people.values()].map(p => <option key={p.id} value={p.id}>{p.name || p.email}</option>)}</select></label>
         <label className="block text-sm">Status<select className={inputClass} disabled={readOnly} value={active.record.status} onChange={e => record('status', e.target.value)}>{['To do', 'In progress', 'Done'].map(v => <option key={v}>{v}</option>)}</select></label>
-        {nodes.filter(n => n.kind === 'columns').length > 0 && <label className="block text-sm">Columns widget<select className={inputClass} disabled={readOnly} value={active.parentId || ''} onChange={e => update({ parentId: e.target.value || null })}><option value="">None</option>{nodes.filter(n => n.kind === 'columns').map(n => <option key={n.id} value={n.id}>{n.title}</option>)}</select></label>}
+        {nodes.filter(n => n.kind === 'columns').length > 0 && <label className="block text-sm">Columns widget<select className={inputClass} disabled={readOnly} value={active.parentId || ''} onChange={e => { const parentId = e.target.value || null; useCanvasStore.getState().editBoard(b => { const next = { ...b, nodes: b.nodes.map(n => n.id === activeId ? { ...n, parentId } : n) }; return parentId ? layoutColumns(next, parentId) : next; }); }}><option value="">None</option>{nodes.filter(n => n.kind === 'columns').map(n => <option key={n.id} value={n.id}>{n.title}</option>)}</select></label>}
         {['lane', 'swimlane'].map(key => { const parent = nodes.find(n => n.id === active.parentId && n.kind === 'columns'); return parent && <label key={key} className="block text-sm capitalize">{key}<select className={inputClass} disabled={readOnly} value={active.record[key] || ''} onChange={e => { record(key, e.target.value); useCanvasStore.getState().editBoard(b => layoutColumns(b, parent.id)); }}>{parent[key === 'lane' ? 'lanes' : 'swimlanes'].map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select></label>; })}
       </div>}
       {active?.kind === 'columns' && <div className="space-y-4">
@@ -94,4 +103,36 @@ export function WorkTools({ viewCenter, viewOnly }) {
       </div>}
     </section>}
   </>;
+}
+
+function DeleteTablesDialog({ boardId, tables, orphaned = false, widgets = 0, onClose }) {
+  const [left, setLeft] = useState(tables);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const cancel = useRef(null);
+  useEffect(() => { cancel.current?.focus(); }, []);
+  const close = () => { if (!busy) onClose(tables.length > left.length); };
+  async function remove() {
+    setBusy(true); setError('');
+    let remaining = left;
+    try {
+      for (const table of left) {
+        await workRequest(tablePath(boardId, table.id), { op: 'delete_table' });
+        remaining = remaining.filter(t => t.id !== table.id);
+      }
+      onClose(true);
+    } catch (e) { setLeft(remaining); setError(e.message); setBusy(false); }
+  }
+  const names = left.map(t => `"${t.name || 'Untitled table'}"`).join(', ');
+  return <div className="fixed inset-0 z-[200] grid place-items-center bg-black/40" onClick={close}>
+    <div role="alertdialog" aria-modal="true" aria-labelledby="delete-tables-title" onClick={e => e.stopPropagation()} onKeyDown={e => { e.stopPropagation(); if (e.key === 'Escape') close(); }} className="w-[24rem] rounded-xl border border-slate-300 bg-white p-5 text-slate-800 shadow-xl">
+      <h2 id="delete-tables-title" className="text-sm font-semibold">{orphaned ? (left.length > 1 ? `Also delete these widgets' tables?` : `Also delete the widget's table?`) : 'Delete this table?'}</h2>
+      <p className="mt-2 text-sm text-slate-600">{orphaned ? `No other widget on this board uses ${names}. ` : `${names} will be deleted. `}{`Deleting removes ${left.length > 1 ? 'their' : 'its'} records, history and reminders.`} This cannot be undone.{widgets ? ` ${widgets === 1 ? 'One widget' : `${widgets} widgets`} on this board will show no records.` : ''}</p>
+      {error && <p role="alert" className="mt-2 text-sm text-red-700">{error}</p>}
+      <div className="mt-4 flex justify-end gap-2">
+        <button ref={cancel} type="button" disabled={busy} onClick={close} className="rounded-lg px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-100">{orphaned ? 'Keep table' : 'Cancel'}</button>
+        <button type="button" disabled={busy} onClick={() => void remove()} className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60">{orphaned ? 'Delete table' : 'Delete'}</button>
+      </div>
+    </div>
+  </div>;
 }

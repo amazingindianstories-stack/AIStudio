@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { newCard, newColumns, layoutColumns, cleanRecord, viewFor, blockersOf, placeWorkNode } from './work-records.js';
+import { newCard, newColumns, layoutColumns, cleanRecord, viewFor, blockersOf, placeWorkNode, inColumnsCell } from './work-records.js';
 import { validateCanvasState, emptyCanvasState } from './serialization.js';
 import { useCanvasStore } from '../canvas-store.js';
 
@@ -70,4 +70,51 @@ test('card editing is undoable and ignored for viewers and commenters', async t 
       assert.equal(useCanvasStore.getState().history.present.nodes[0].record.title, 'Untitled task');
     }
   }
+});
+async function loadNodes(t, nodes) {
+  t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({ id: 'board', name: 'Board', role: 'edit', version: 1, updatedAt: 1, data: { ...emptyCanvasState(), nodes } })));
+  t.after(() => useCanvasStore.getState().reset());
+  useCanvasStore.getState().reset();
+  await useCanvasStore.getState().loadBoard('board');
+  return () => useCanvasStore.getState().history.present.nodes;
+}
+test('a card dragged into a column keeps that lane when the columns are arranged', async t => {
+  const columns = { ...newColumns({ x: 0, y: 0 }), swimlanes: [{ id: 'top', name: 'Top', color: '#f1f5f9' }, { id: 'bottom', name: 'Bottom', color: '#f1f5f9' }] };
+  const placed = layoutColumns({ nodes: [columns, { ...newCard({ x: 0, y: 0 }), parentId: columns.id, record: { title: 'Placed', lane: columns.lanes[0].id, swimlane: 'top' } }] }, columns.id).nodes;
+  const free = newCard({ x: 2000, y: 2000 });
+  const nodes = await loadNodes(t, [...placed, free]);
+  const width = (columns.w - 20) / 3, row = (placed[0].h - 72) / 2;
+  useCanvasStore.getState().setSelection([placed[1].id]);
+  useCanvasStore.getState().moveSelectionBy(2 * width, row);
+  useCanvasStore.getState().setSelection([free.id]);
+  useCanvasStore.getState().moveSelectionBy(columns.x + 10 + width * 1.5 - free.x - free.w / 2, columns.y + 80 - free.y);
+  const [dragged, dropped] = nodes().slice(1);
+  assert.deepEqual([dragged.parentId, dragged.record.lane, dragged.record.swimlane], [columns.id, columns.lanes[2].id, 'bottom']);
+  assert.deepEqual([dropped.parentId, dropped.record.lane, dropped.record.swimlane], [columns.id, columns.lanes[1].id, 'top']);
+  const arranged = layoutColumns({ nodes: nodes() }, columns.id).nodes;
+  assert.deepEqual([arranged[1].x, arranged[1].y], [columns.x + 16 + 2 * width, columns.y + 84 + row]);
+  assert.deepEqual([arranged[2].x, arranged[2].record.lane], [columns.x + 16 + width, columns.lanes[1].id]);
+  useCanvasStore.getState().moveSelectionBy(5000, 0);
+  assert.deepEqual([nodes()[2].parentId, nodes()[2].record.lane], [null, columns.lanes[1].id]);
+});
+test('a cell is clamped to the nearest lane and swimlane at the widget edges', () => {
+  const columns = newColumns({ x: 100, y: 100 });
+  const edge = inColumnsCell({ ...newCard({ x: 100 + columns.w, y: 0 }), w: 40, h: 40 }, columns);
+  assert.deepEqual([edge.record.lane, edge.record.swimlane], [columns.lanes[2].id, columns.swimlanes[0].id]);
+});
+test('deleting the last widget of a table offers its table; a shared table is kept quietly', async t => {
+  const widget = (id, datasetId) => ({ id, type: 'work', kind: 'table', title: `Widget ${id}`, datasetId, x: 0, y: 0, w: 640, h: 420, parentId: null, groupId: null });
+  await loadNodes(t, [widget('a', 'shared'), widget('b', 'shared'), widget('c', 'solo'), newCard({ x: 0, y: 900 })]);
+  useCanvasStore.getState().setSelection(['a']);
+  useCanvasStore.getState().deleteSelected();
+  assert.deepEqual(useCanvasStore.getState().orphanedTables, []);
+  useCanvasStore.getState().setSelection(['b', 'c']);
+  useCanvasStore.getState().deleteSelected();
+  assert.deepEqual(useCanvasStore.getState().orphanedTables, [{ id: 'shared', name: 'Widget b' }, { id: 'solo', name: 'Widget c' }]);
+  useCanvasStore.getState().dismissOrphanedTables();
+  assert.deepEqual(useCanvasStore.getState().orphanedTables, []);
+  useCanvasStore.getState().undo();
+  useCanvasStore.getState().setSelection(['b', 'c']);
+  assert.equal(useCanvasStore.getState().cut(), true);
+  assert.deepEqual(useCanvasStore.getState().orphanedTables, []);
 });

@@ -41,6 +41,11 @@ def prune_board_activity():
     return prune()
 
 
+def prune_board_notifications():
+    from apps.canvas.services import prune_board_notifications as prune
+    return prune()
+
+
 def board_table_reminders():
     from apps.canvas.work_notifications import reminders
     return reminders()
@@ -50,7 +55,8 @@ def default_handlers():
     from django.conf import settings
     handlers = {'depth': maintenance.reconcile_depth, 'video': maintenance.reconcile_videos,
                 'login': maintenance.cleanup_login_attempts, 'exports': cleanup_exports,
-                'board_table_reminders': board_table_reminders, 'board_saves': prune_board_saves, 'board_activity': prune_board_activity}
+                'board_table_reminders': board_table_reminders, 'board_saves': prune_board_saves, 'board_activity': prune_board_activity,
+                'board_notifications': prune_board_notifications}
     if getattr(settings, 'VEEVEE_MANAGED_PORTRAITS', False):
         handlers['portraits'] = maintain_portraits
         handlers['portrait_uploads'] = process_portrait_uploads
@@ -64,7 +70,7 @@ def tick(*, now=None, handlers=None):
     # minute. Daily slots start at 03:17 UTC; other slots align to the epoch.
     periods = {'board_table_reminders': (3600000, 0), 'depth': (60000, 0), 'video': (900000, 0), 'exports': (900000, 0),
                'login': (86400000, (3*60+17)*60000), 'board_saves': (86400000, (3*60+17)*60000),
-               'board_activity': (86400000, (3*60+17)*60000),
+               'board_activity': (86400000, (3*60+17)*60000), 'board_notifications': (86400000, (3*60+17)*60000),
                'portraits': (60000, 0), 'portrait_uploads': (3000, 0)}
     results = {}
     for name, (period, offset) in periods.items():
