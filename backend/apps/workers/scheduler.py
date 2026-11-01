@@ -57,10 +57,14 @@ def _run_talktrack_jobs():
 
 def process_talktracks():
     """Start the next Talktrack ffmpeg job in a background thread, one at a time, so a long encode never holds
-    up the other handlers."""
+    up the other handlers. No thread starts while no job is waiting."""
+    from apps.canvas.talktrack import has_jobs
     if not _talktrack_job.acquire(blocking=False):
         return {'ok': True, 'started': False}
     try:
+        if not has_jobs():
+            _talktrack_job.release()
+            return {'ok': True, 'started': False}
         threading.Thread(target=_run_talktrack_jobs, name='talktrack-jobs').start()
     except Exception:
         _talktrack_job.release()

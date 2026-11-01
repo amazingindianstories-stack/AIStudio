@@ -288,6 +288,7 @@ class WorkerTests(TalktrackBase):
                 if thread.name == 'talktrack-jobs':
                     thread.join(5)
         handlers = {'talktracks': scheduler.process_talktracks, 'depth': lambda: 'ran'}
+        self.record()
         with patch('apps.canvas.talktrack.process_jobs', side_effect=job) as jobs:
             first = scheduler.tick(now=0, handlers=handlers)
             self.assertTrue(entered.wait(5))
@@ -302,6 +303,32 @@ class WorkerTests(TalktrackBase):
         self.assertEqual(jobs.call_count, 2)
         self.assertIs(scheduler.default_handlers()['talktracks'], scheduler.process_talktracks)
         self.assertGreater(talktrack.STALE_JOB_MS, 2 * talktrack.FFMPEG_TIMEOUT_S * 1000)
+
+    def test_the_scheduler_starts_no_thread_while_no_job_waits(self):
+        import threading
+        from apps.workers import scheduler
+        self.record(mime='video/mp4')
+        Talktrack.objects.create(id=uuid4(), board_id=BOARD, owner_id=self.dee.id, title='Stuck', key='talktrack/x.mp4', mime='video/mp4',
+                                 size=1, duration_ms=1000, status='working:cutting', created_at=1, updated_at=talktrack._stale_before() + 60000)
+        with patch('apps.canvas.talktrack.process_jobs') as jobs:
+            idle = scheduler.tick(now=0, handlers={'talktracks': scheduler.process_talktracks})
+        self.assertEqual(idle, {'talktracks': {'ok': True, 'started': False}})
+        self.assertFalse(any(thread.name == 'talktrack-jobs' for thread in threading.enumerate()))
+        jobs.assert_not_called()
+
+    def test_a_cut_that_leaves_less_than_a_second_of_the_trim_window_drops_the_trim(self):
+        for trim, cut, kept in (((5000, 15000), (5000, 15000), (0, None)),
+                                ((5000, 15000), (5500, 15000), (0, None)),
+                                ((5000, 90000), (5200, 89500), (0, None)),
+                                ((5000, 15000), (6000, 7000), (5000, 14000))):
+            with self.subTest(trim=trim, cut=cut):
+                made = self.record(mime='video/mp4')
+                path = f'/talktracks/{made["id"]}'
+                self.call(self.dee, 'patch', path, {'trimStartMs': trim[0], 'trimEndMs': trim[1]})
+                self.call(self.dee, 'patch', path, {'cut': {'startMs': cut[0], 'endMs': cut[1]}})
+                self.run_job_with(lambda: None)
+                row = Talktrack.objects.get(pk=made['id'])
+                self.assertEqual((row.status, row.trim_start_ms, row.trim_end_ms), ('ready', *kept))
 
     def test_a_job_that_fails_keeps_the_original_and_can_be_retried(self):
         made = self.record(mime='video/mp4')

@@ -449,10 +449,14 @@ def _timeline_after_cut(talktrack_id, start, end):
 
 def _trim_after_cut(row, start, end, duration):
     """`row`'s trim marks moved across the removed [start, end). Read when the cut lands, so a trim set while
-    the job ran is kept."""
+    the job ran is kept. A window the cut leaves shorter than a second is dropped, as `update` never allows one."""
+    trim_start = _map_offset(row.trim_start_ms, start, end)
     trim_end = None if row.trim_end_ms is None else _map_offset(row.trim_end_ms, start, end)
-    return {'trim_start_ms': _map_offset(row.trim_start_ms, start, end),
-            'trim_end_ms': trim_end if trim_end is not None and trim_end < duration else None}
+    if trim_end is not None and trim_end >= duration:
+        trim_end = None
+    if (duration if trim_end is None else trim_end) - trim_start < 1000:
+        return {'trim_start_ms': 0, 'trim_end_ms': None}
+    return {'trim_start_ms': trim_start, 'trim_end_ms': trim_end}
 
 
 def _download(storage, key, path):
@@ -507,14 +511,23 @@ def _process(row, now):
     return {**fields, **stored, 'size': size, 'status': 'ready', 'updated_at': now}
 
 
+def _stale_before():
+    import time
+    return int(time.time() * 1000) - STALE_JOB_MS
+
+
+def has_jobs():
+    """Whether a remux or cut job is waiting, or a claimed one has gone stale."""
+    return Talktrack.objects.filter(Q(status__in=JOB_STATUSES) | Q(status__startswith=WORKING, updated_at__lt=_stale_before())).exists()
+
+
 def process_jobs(limit=1):
     """Talktrack job step: finish up to `limit` waiting remux and cut jobs. A failed job leaves the original
     recording in place and is marked `failed` so it can be tried again. A job writes back only while its row is
     still the one it claimed; the files it made for a recording deleted meanwhile are discarded."""
     import time
     done = failed = 0
-    stale = int(time.time() * 1000) - STALE_JOB_MS
-    for row in Talktrack.objects.filter(status__startswith=WORKING, updated_at__lt=stale):
+    for row in Talktrack.objects.filter(status__startswith=WORKING, updated_at__lt=_stale_before()):
         # A worker that died mid-job: queue it again.
         Talktrack.objects.filter(pk=row.id, status=row.status).update(status=row.status.removeprefix(WORKING))
     for _ in range(limit):
