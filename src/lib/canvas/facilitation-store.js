@@ -8,6 +8,8 @@ const EMPTY = {
   privateMode: { active: false },
 };
 
+let voteQueue = Promise.resolve();
+
 async function request(boardId, path, method = "GET", body) {
   const res = await apiFetch(`/api/canvas-boards/${boardId}${path}`, {
     method,
@@ -92,6 +94,17 @@ export const useFacilitationStore = create((set, get) => ({
       const votesUsed = Object.values(myVotes).reduce((sum, count) => sum + count, 0);
       set({ voting: { ...get().voting, active: { ...active, myVotes, votesUsed } } });
     }
+  },
+  /** Adds or removes one vote. Clicks queue, so a second click builds on the first one's reply, not on a stale count. */
+  adjustVote(sessionId, nodeId, delta) {
+    const run = voteQueue.then(() => {
+      const { active } = get().voting;
+      if (!active || active.id !== sessionId) return null;
+      const next = Math.max(0, (active.myVotes?.[nodeId] ?? 0) + delta);
+      return get().castVote(sessionId, nodeId, next);
+    });
+    voteQueue = run.catch(() => {});
+    return run;
   },
   async markDone(sessionId, done = true) {
     const boardId = get().boardId;

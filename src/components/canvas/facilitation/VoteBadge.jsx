@@ -19,8 +19,8 @@ export function VoteBadge({ node }) {
   const voting = active && canCommentRole(role) && votable(active, node);
   if (!voting && !total) return null;
   const mine = active?.myVotes?.[node.id] ?? 0;
-  const cast = (votes) => {
-    void useFacilitationStore.getState().castVote(active.id, node.id, votes).catch(() => {});
+  const cast = (delta) => {
+    void useFacilitationStore.getState().adjustVote(active.id, node.id, delta).catch(() => {});
   };
   return (
     <div
@@ -35,7 +35,7 @@ export function VoteBadge({ node }) {
             type="button"
             aria-label="Remove a vote"
             disabled={!canRemoveVote(active, node.id)}
-            onClick={() => cast(mine - 1)}
+            onClick={() => cast(-1)}
             className="grid h-5 w-5 place-items-center rounded-full hover:bg-white/10 disabled:opacity-30"
           >
             <Minus className="h-3 w-3" />
@@ -45,7 +45,7 @@ export function VoteBadge({ node }) {
             type="button"
             aria-label="Add a vote"
             disabled={!canAddVote(active, node.id)}
-            onClick={() => cast(mine + 1)}
+            onClick={() => cast(1)}
             className="grid h-5 w-5 place-items-center rounded-full bg-brand text-ink-900 hover:bg-brand/90 disabled:opacity-30"
           >
             <Plus className="h-3 w-3" />
