@@ -52,11 +52,16 @@ def board_version(identifier):
         'id', 'project_id', 'created_by', 'team_role', 'version', 'updated_at').first()
 
 
-def create_board(project, name, user):
+def create_board(project, name, user, data=None):
+    """A new board holding `data` (an already validated graph, for a board started from a template) or nothing."""
     now = now_ms()
-    row = CanvasBoard.objects.create(id=uuid.uuid4(), project_id=project, name=name, data=empty_state(),
+    row = CanvasBoard.objects.create(id=uuid.uuid4(), project_id=project, name=name, data=empty_state() if data is None else data,
                                      created_by=user.id, created_at=now, updated_at=now, version=1)
     return {**metadata({**{field: getattr(row, field) for field in META_FIELDS}, 'team_role': 'edit'}), 'role': 'owner'}
+
+
+def create_board_with_data(project, name, user, data):
+    return create_board(project, name, user, data)
 
 
 def rename_board(identifier, name):

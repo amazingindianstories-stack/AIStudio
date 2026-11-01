@@ -1,5 +1,7 @@
 """Include at the root; string paths preserve source invalid-UUID responses."""
 from django.urls import path
+from .template_views import (blueprint_detail, blueprint_list, blueprint_use, template_comments, template_detail,
+                             template_edit_board, template_for_board, template_like, template_list, template_use)
 from .views import (board_access, board_activity, board_ai_job, board_ai_jobs, board_ai_quote, board_detail, board_metadata_reads,
                     board_upload, board_version, board_changes, shape_packs, shape_pack_detail)
 
@@ -14,6 +16,16 @@ urlpatterns = [
     path('api/canvas-boards/<str:identifier>/ai-jobs/quote', board_ai_quote),
     path('api/canvas-boards/<str:identifier>/ai-jobs/<str:job_id>', board_ai_job),
     path('api/canvas-boards/<str:identifier>', board_detail),
+    path('api/canvas-templates', template_list),
+    path('api/canvas-templates/by-board/<str:board_id>', template_for_board),
+    path('api/canvas-templates/<str:ref>/edit-board', template_edit_board),
+    path('api/canvas-templates/<str:ref>/use', template_use),
+    path('api/canvas-templates/<str:ref>/like', template_like),
+    path('api/canvas-templates/<str:ref>/comments', template_comments),
+    path('api/canvas-templates/<str:ref>', template_detail),
+    path('api/canvas-blueprints', blueprint_list),
+    path('api/canvas-blueprints/<str:ref>/use', blueprint_use),
+    path('api/canvas-blueprints/<str:ref>', blueprint_detail),
     path('api/canvas-shape-packs', shape_packs),
     path('api/canvas-shape-packs/<str:identifier>', shape_pack_detail),
 ]
