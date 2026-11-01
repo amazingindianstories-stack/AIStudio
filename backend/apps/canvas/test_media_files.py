@@ -9,7 +9,7 @@ from apps.authentication.models import User
 from apps.media.models import UploadSession
 from apps.media.storage import StorageService, FileSystemAdapter
 from .models import CanvasBoard, BoardMedia
-from .media_files import safe_svg, process_media
+from .media_files import safe_svg, process_media, queued_media
 from .media_views import PreviewParser
 
 
@@ -90,6 +90,23 @@ class BoardMediaTests(TestCase):
         self.assertEqual(self.storage.read(row.key), output.getvalue())
         for page in (1, 2):
             self.assertTrue(self.storage.read(f'{row.key}.pages/{page}.png').startswith(b'\x89PNG'))
+
+    def test_job_that_kills_worker_fails_after_three_claims(self):
+        response, _ = self.upload(b'<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"/>', 'image/svg+xml')
+        identifier = response.json()['id']
+        for attempt in (1, 2, 3):
+            self.assertEqual(queued_media().id, BoardMedia.objects.get(pk=identifier).id)
+            with patch('apps.canvas.media_files.get_storage', side_effect=SystemExit), self.assertRaises(SystemExit):
+                process_media(identifier)
+            row = BoardMedia.objects.get(pk=identifier)
+            self.assertEqual((row.state, row.attempts), ('running', attempt))
+            BoardMedia.objects.filter(pk=identifier).update(lease_until=0)
+        self.assertEqual(process_media(identifier), 'media_failed')
+        row = BoardMedia.objects.get(pk=identifier)
+        self.assertEqual((row.state, row.attempts), ('failed', 3))
+        self.assertIn('after 3 attempts', row.error)
+        self.assertIsNone(queued_media())
+        self.assertEqual(self.client.get(f'/api/canvas-boards/{self.board.id}/media/{row.id}').json()['error'], row.error)
 
     def test_viewer_cannot_import_or_upload(self):
         viewer = User.objects.create(id=uuid4(), email='viewer-media@example.test', name='Viewer', role='user', password_hash='x', password_salt='', created_at=1)

@@ -23,6 +23,7 @@ from .models import BoardMedia
 RASTER_TYPES = {'image/svg+xml', 'image/vnd.adobe.photoshop', 'image/x-photoshop', 'application/pdf'}
 MAX_PIXELS = 40_000_000
 MAX_PAGES = 200
+MAX_ATTEMPTS = 3
 EXTENSIONS = {**{mime: ext for ext, mime in MIME.items()}, 'application/pdf': 'pdf',
               'audio/ogg': 'ogg', 'audio/mp4': 'm4a', 'audio/webm': 'webm'}
 
@@ -133,8 +134,14 @@ def process_media(identifier, stop=None):
             row = BoardMedia.objects.select_for_update().get(pk=identifier)
             if row.state not in ('queued', 'running') or row.state == 'running' and row.lease_until >= now_ms():
                 return 'unclaimed'
+            if row.attempts >= MAX_ATTEMPTS:
+                row.state, row.lease_token, row.lease_until = 'failed', None, 0
+                row.error = f'Could not process this file after {MAX_ATTEMPTS} attempts. Upload a valid file again.'
+                row.save(update_fields=['state', 'lease_token', 'lease_until', 'error'])
+                return 'media_failed'
             row.state, row.lease_token, row.lease_until = 'running', token, now_ms() + 300_000
-            row.save(update_fields=['state', 'lease_token', 'lease_until'])
+            row.attempts += 1
+            row.save(update_fields=['state', 'lease_token', 'lease_until', 'attempts'])
         storage = get_storage()
         if row.content_type not in RASTER_TYPES:
             key = f'canvas/{row.board_id}/{row.id}.{EXTENSIONS.get(row.content_type, "bin")}'

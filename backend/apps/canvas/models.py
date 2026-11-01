@@ -148,6 +148,7 @@ class BoardMedia(models.Model):
     error = models.TextField(default='')
     lease_until = models.BigIntegerField(default=0)
     lease_token = models.UUIDField(null=True)
+    attempts = models.IntegerField(default=0)
     created_at = models.BigIntegerField()
 
     class Meta:

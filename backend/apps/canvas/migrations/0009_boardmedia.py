@@ -18,6 +18,7 @@ class Migration(migrations.Migration):
                 ('pages', models.IntegerField(default=1)), ('width', models.IntegerField(default=0)),
                 ('height', models.IntegerField(default=0)), ('error', models.TextField(default='')),
                 ('lease_until', models.BigIntegerField(default=0)), ('lease_token', models.UUIDField(null=True)),
+                ('attempts', models.IntegerField(default=0)),
                 ('created_at', models.BigIntegerField()),
             ], options={'db_table': 'canvas_board_media',
                 'indexes': [models.Index(fields=['state', 'created_at'], name='canvas_media_queue_idx'),
