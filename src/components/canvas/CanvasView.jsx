@@ -35,6 +35,8 @@ import { BoardViewOverlays } from "./BoardViewOverlays";
 import { useBoardView } from "./use-board-view";
 import { zoomToLevel } from "@/lib/canvas/viewport-nav";
 import { FacilitationButton, FacilitationDock } from "./facilitation/FacilitationDock";
+import { RecorderBar, TalktrackButton } from "./talktrack/TalktrackPanel";
+import { TalktrackPlayer } from "./talktrack/TalktrackPlayer";
 
 // Miro's keys: N sticky note, T text, F frame; S opens the shapes panel.
 const TOOL_SHORTCUTS = {
@@ -536,6 +538,7 @@ export function CanvasView() {
             </button>
           )}
           {boardId && loaded && <FacilitationButton boardId={boardId} />}
+          {boardId && loaded && <TalktrackButton boardId={boardId} activeProjectId={activeProjectId} onOpenBoard={setBoardId} />}
           {showEditToggle && (
             <button
               type="button"
@@ -614,6 +617,8 @@ export function CanvasView() {
       <StyleInspector hidden={transientActive || readOnly || touchViewOnly || noBoards} insetLeft={narrow ? 0 : assetPanelWidth} />
       {!noBoards && !transientActive && <ObjectInfo style={{ left: assetPanelWidth + 16 }} />}
       {boardId && loaded && <FacilitationDock />}
+      {boardId && loaded && <div className="pointer-events-none absolute left-1/2 top-16 z-40 -translate-x-1/2 [&>*]:pointer-events-auto"><RecorderBar /></div>}
+      {boardId && loaded && <TalktrackPlayer />}
       {historyOpen && boardId && loaded && !readOnly && (
         <BoardHistoryPanel key={boardId} boardId={boardId} onClose={closeHistory} />
       )}

@@ -53,6 +53,7 @@ export const useFacilitationStore = create((set, get) => ({
     try {
       const snap = await request(boardId, "/facilitation");
       if (get().boardId !== boardId) return false;
+      if (!snap || !snap.voting || !snap.privateMode) return false;
       const offset = clockOffset(snap.serverNow, sentAt, Date.now());
       const first = !get().loaded;
       const { timer, voting, privateMode } = snap;

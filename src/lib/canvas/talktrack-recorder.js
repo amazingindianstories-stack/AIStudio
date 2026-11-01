@@ -53,13 +53,11 @@ export async function startRecording({ source = "screen", env = globalThis, onEn
     recorders.push(recorder);
     return recorder;
   };
-  const videoRecorder = track(stream, types.video, "video", {});
+  track(stream, types.video, "video", {});
   const micTracks = mic ? mic.getAudioTracks() : [];
   // A low bitrate keeps an hour of speech well under the 15 MB the transcription accepts.
-  const audioRecorder = micTracks.length && types.audio
-    ? track(new env.MediaStream(micTracks), types.audio, "audio", { audioBitsPerSecond: 24000 })
-    : null;
-  let startedAt = now();
+  if (micTracks.length && types.audio) track(new env.MediaStream(micTracks), types.audio, "audio", { audioBitsPerSecond: 24000 });
+  const startedAt = now();
   let pausedAt = null;
   let pausedTotal = 0;
   let finished = null;
