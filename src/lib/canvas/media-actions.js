@@ -113,7 +113,7 @@ export async function addFromLink(text, boardId, center, options = {}) {
   if (!input) throw new Error('Enter a link or iframe code.');
   const embed = embedFromIframe(input) || embedFromUrl(input);
   if (embed) return addMedia({ type: 'embed', src: embed.src, provider: embed.provider, kind: embed.kind, title: embed.title }, center);
-  if (/^<iframe\b/i.test(input)) {
+  if (/<iframe\b/i.test(input)) {
     const names = Object.values(PROVIDER_NAMES);
     throw new Error(`This embed is not supported. Paste a ${names.slice(0, -1).join(', ')} or ${names.at(-1)} embed.`);
   }

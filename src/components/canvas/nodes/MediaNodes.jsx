@@ -50,7 +50,6 @@ export function VideoNode({ node, selected }) {
           preload="metadata"
           playsInline
           muted={false}
-          crossOrigin="use-credentials"
           aria-label={node.title || "Video"}
           onError={() => setFailed(true)}
           onPointerDown={selected ? stop : undefined}
