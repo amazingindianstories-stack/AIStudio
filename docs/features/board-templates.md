@@ -14,7 +14,7 @@ snapshot. Media inside a template is copied under `canvas/templates/<id>/` and i
 boards made from a template keep working after the template is removed.
 
 Access levels: personal (owner only), project (members of the project) and everyone. Saving a board
-as a template needs edit rights on it, and a blueprint needs edit rights on every board it includes.
+or a selection of it as a template needs edit rights on that board, and a blueprint needs edit rights on every board it includes.
 Only an admin shares a template or blueprint with everyone, and only a member of a project shares one
 with that project; the save dialog offers only the levels the person may use, and editing details
 leaves the level and project alone unless the person changes them. Only an admin may mark a template

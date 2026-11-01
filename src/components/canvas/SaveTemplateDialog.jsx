@@ -16,7 +16,7 @@ const SCOPES = [
 
 /**
  * Names and shares a template: saving the whole board, the selection, a new template from scratch, or editing the details of
- * an existing one (`template`). `source` is `{ boardId }` or `{ graph }`; `scratch` makes an empty template edited on its own board.
+ * an existing one (`template`). `source` is `{ boardId }` or `{ boardId, graph }` for a selection; `scratch` makes an empty template edited on its own board.
  * Only an admin shares with everyone and only a project member with the project, so the other choices are not offered; editing
  * details sends the access only when it changes, so a template never moves to the project that happens to be open.
  */

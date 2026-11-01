@@ -155,13 +155,6 @@ export function CanvasView() {
   const coarsePointer = useMediaQuery("(pointer: coarse)");
   const touchViewOnly = coarsePointer && !touchEditMode;
 
-  // Explicit board-project switch (BoardProjectSelector) — distinct from
-  // CanvasAssetPanel's `scope`, which only filters displayed assets and must
-  // never reach this. Clears `boardId` immediately (BoardSwitcher's own
-  // effect, keyed on `projectId`, picks/creates a board for the new project
-  // and calls `onBoardIdChange` once its fetch resolves) and flushes/resets
-  // the currently-loaded board first so its content doesn't linger on
-  // screen — mirrors loadBoardImpl's own flush-then-reset ordering.
   // A template's editing board may be new or live in another project, so the switcher reloads to list it.
   const openBoard = useCallback(
     (id, projectId) => {
@@ -172,6 +165,13 @@ export function CanvasView() {
     [activeProjectId, setActiveProject]
   );
 
+  // Explicit board-project switch (BoardProjectSelector) — distinct from
+  // CanvasAssetPanel's `scope`, which only filters displayed assets and must
+  // never reach this. Clears `boardId` immediately (BoardSwitcher's own
+  // effect, keyed on `projectId`, picks/creates a board for the new project
+  // and calls `onBoardIdChange` once its fetch resolves) and flushes/resets
+  // the currently-loaded board first so its content doesn't linger on
+  // screen — mirrors loadBoardImpl's own flush-then-reset ordering.
   const handleBoardProjectChange = useCallback(
     (projectId) => {
       if (projectId === activeProjectId) return;
