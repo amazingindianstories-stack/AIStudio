@@ -203,7 +203,7 @@ export function ShapesPanel({
           className={cn(
             "flex h-7 items-center gap-1 rounded-md border border-line px-2 text-[11px] font-medium transition",
             managingPacks
-              ? "bg-brand text-white"
+              ? "bg-brand text-ink-950"
               : "bg-ink-900 text-white/70 hover:bg-white/[0.07] hover:text-white"
           )}
         >
@@ -428,7 +428,7 @@ export function ShapesPanel({
               </button>
               <button
                 type="submit"
-                className="rounded bg-brand px-2.5 py-1 text-[11px] font-medium text-white"
+                className="rounded bg-brand px-2.5 py-1 text-[11px] font-medium text-ink-950"
               >
                 Create pack
               </button>

@@ -97,7 +97,7 @@ function Detail({ template, mode, canInsert, isAdmin, onUse, onChanged, onEdit, 
         ))}
       </div>
       <button type="button" disabled={!canInsert} onClick={() => onUse(template, blank)}
-        className="cursor-pointer rounded-lg bg-brand px-3 py-2 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-50">
+        className="cursor-pointer rounded-lg bg-brand px-3 py-2 text-xs font-medium text-ink-950 disabled:cursor-not-allowed disabled:opacity-50">
         {mode === "new" ? "Create board from template" : "Add to board"}
       </button>
       {!canInsert && <p className="text-[11px] text-white/45">You can only view this board, so templates cannot be added.</p>}

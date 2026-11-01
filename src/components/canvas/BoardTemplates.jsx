@@ -131,7 +131,7 @@ export function BoardTemplates({ boardId, projectId, viewCenter, onOpenBoard }) 
       {editing && !readOnly && editing.canManage && (
         <div role="status" className="pointer-events-auto absolute left-1/2 top-14 z-20 flex -translate-x-1/2 items-center gap-3 rounded-full border border-line bg-ink-700/95 px-4 py-1.5 text-xs text-white shadow-pop">
           Editing template {editing.name}
-          <button type="button" disabled={saving} onClick={saveBack} className="inline-flex cursor-pointer items-center gap-1 rounded-full bg-brand px-3 py-1 font-medium text-white disabled:opacity-50">
+          <button type="button" disabled={saving} onClick={saveBack} className="inline-flex cursor-pointer items-center gap-1 rounded-full bg-brand px-3 py-1 font-medium text-ink-950 disabled:opacity-50">
             {saving && <Loader2 className="h-3 w-3 animate-spin" />} Save to template
           </button>
           <button type="button" onClick={() => setEditing(null)} aria-label="Hide banner" className="cursor-pointer text-white/50 hover:text-white"><X className="h-3.5 w-3.5" /></button>
