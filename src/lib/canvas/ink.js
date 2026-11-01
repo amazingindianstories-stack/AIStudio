@@ -221,27 +221,33 @@ export function eraseInkPart(node, point, radius) {
 
 /**
  * The graph after the eraser circle at `point` touches it: whole strokes disappear, or (`precise`) only the
- * touched part of each stroke does. Strokes in `fixed` (locked, or on a hidden layer) stay. Returns the same
- * object when nothing was hit.
+ * touched part of each stroke does, and connectors attached to a stroke that is gone go with it. Strokes in
+ * `fixed` (locked, or on a hidden layer) stay. Returns the same object when nothing was hit.
  */
 export function eraseAt(state, point, radius, precise, fixed = new Set()) {
+  const gone = new Set();
+  let nodes;
   if (!precise) {
-    const gone = new Set(inkIdsAt(state.nodes, point, radius).filter((id) => !fixed.has(id)));
+    for (const id of inkIdsAt(state.nodes, point, radius)) if (!fixed.has(id)) gone.add(id);
     if (!gone.size) return state;
-    return { ...state, nodes: state.nodes.filter((n) => !gone.has(n.id)) };
-  }
-  let changed = false;
-  const nodes = [];
-  for (const node of state.nodes) {
-    const pieces = node.type === "ink" && !fixed.has(node.id) ? eraseInkPart(node, point, radius) : null;
-    if (pieces === null) {
-      nodes.push(node);
-      continue;
+    nodes = state.nodes.filter((n) => !gone.has(n.id));
+  } else {
+    let changed = false;
+    nodes = [];
+    for (const node of state.nodes) {
+      const pieces = node.type === "ink" && !fixed.has(node.id) ? eraseInkPart(node, point, radius) : null;
+      if (pieces === null) {
+        nodes.push(node);
+        continue;
+      }
+      changed = true;
+      if (!pieces.length) gone.add(node.id);
+      nodes.push(...pieces);
     }
-    changed = true;
-    nodes.push(...pieces);
+    if (!changed) return state;
   }
-  return changed ? { ...state, nodes } : state;
+  const connectors = gone.size ? state.connectors.filter((c) => !gone.has(c.from?.nodeId) && !gone.has(c.to?.nodeId)) : state.connectors;
+  return { ...state, nodes, connectors };
 }
 
 /** Stroke width for a pen: a mouse keeps the preset, a stylus varies with pressure (about 0.5x to 1.5x). */

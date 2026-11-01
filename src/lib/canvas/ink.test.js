@@ -109,6 +109,26 @@ test("the eraser hits a rotated stroke where it is drawn and its pieces stay in 
   }
 });
 
+test("erasing a stroke drops the connectors attached to it, and a split stroke keeps them", () => {
+  const short = inkNodeFromPoints(line(5), style, "short");
+  const long = inkNodeFromPoints(line(101, 300), style, "long");
+  const sticky = { id: "n", type: "sticky", x: 500, y: 500, w: 100, h: 100 };
+  const connectors = [
+    { id: "to-short", from: { nodeId: "n" }, to: { nodeId: "short" } },
+    { id: "from-long", from: { nodeId: "long" }, to: { nodeId: "n" } },
+    { id: "free", from: { x: 0, y: 0 }, to: { nodeId: "n" } },
+  ];
+  const state = { nodes: [short, long, sticky], connectors };
+  const whole = eraseAt(state, { x: 2, y: 0 }, 10, false);
+  assert.deepEqual(whole.nodes.map((n) => n.id), ["long", "n"]);
+  assert.deepEqual(whole.connectors.map((c) => c.id), ["from-long", "free"]);
+  const covered = eraseAt(state, { x: 2, y: 0 }, 20, true);
+  assert.deepEqual(covered.connectors.map((c) => c.id), ["from-long", "free"]);
+  const split = eraseAt(state, { x: 50, y: 300 }, 8, true);
+  assert.equal(split.nodes.filter((n) => n.type === "ink").length, 3);
+  assert.equal(split.connectors, connectors, "the piece that keeps the id keeps its connectors");
+});
+
 test("the precision eraser leaves nothing when it covers a short stroke", () => {
   const node = inkNodeFromPoints(line(5), style, "s");
   assert.deepEqual(eraseInkPart(node, { x: 2, y: 0 }, 20), []);
