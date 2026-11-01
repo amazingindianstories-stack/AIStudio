@@ -45,6 +45,7 @@ export function stickyNodes(result, center) {
     opacity: 1,
     parentId: null,
     groupId: null,
+    aiCreated: true,
   }));
 }
 
@@ -72,6 +73,7 @@ export function imageNodes(result, center, prompt) {
     aspectLocked: false,
     parentId: null,
     groupId: null,
+    aiCreated: true,
   }];
 }
 
