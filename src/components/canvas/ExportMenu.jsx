@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Download } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Dropdown, MenuItem } from "@/components/Dropdown";
-import { useCanvasStore } from "@/lib/canvas-store";
+import { selectReadOnly, useCanvasStore } from "@/lib/canvas-store";
+import { MAX_DRAWIO_BYTES, importDrawio } from "@/lib/canvas/import-drawio";
 import {
   IMAGE_SIZES,
   buildCsv,
@@ -30,6 +31,27 @@ export function ExportMenu() {
   const [status, setStatus] = useState("");
   const hasOriginals = useCanvasStore((s) => downloadableImages(s.history.present, s.selection).length > 0);
   const effective = selection.length ? scopeKind : "board";
+  const readOnly = useCanvasStore(selectReadOnly);
+  const fileInput = useRef(null);
+
+  const importFile = async (file) => {
+    if (!file) return;
+    setStatus("");
+    try {
+      if (file.size > MAX_DRAWIO_BYTES) throw new Error("too large");
+      const { nodes, connectors } = await importDrawio(await file.text(), { origin: useCanvasStore.getState().viewportCenter() });
+      const store = useCanvasStore.getState();
+      store.editBoard((present) => ({
+        ...present,
+        nodes: [...present.nodes, ...nodes],
+        connectors: [...present.connectors, ...connectors],
+      }));
+      useCanvasStore.setState({ selection: nodes.map((n) => n.id), selectedConnectorIds: [] });
+      setStatus(`Imported ${nodes.length} objects`);
+    } catch {
+      setStatus("Could not import that file");
+    }
+  };
 
   const run = async (close, task) => {
     close({ restoreFocus: false });
@@ -59,6 +81,19 @@ export function ExportMenu() {
         {status}
       </div>
     )}
+    <input
+      ref={fileInput}
+      type="file"
+      accept=".drawio,.xml"
+      aria-label="Import draw.io file"
+      data-testid="import-drawio-input"
+      className="hidden"
+      onChange={(event) => {
+        const file = event.target.files?.[0];
+        event.target.value = "";
+        importFile(file);
+      }}
+    />
     <Dropdown
       label="Export"
       side="top"
@@ -132,6 +167,10 @@ export function ExportMenu() {
             printSvg(svg);
           })}>
             <span className="flex-1">Print</span>
+          </MenuItem>
+          <div className="my-1 h-px bg-line" />
+          <MenuItem disabled={readOnly} onClick={() => { close({ restoreFocus: false }); fileInput.current?.click(); }}>
+            <span className="flex-1">Import draw.io file</span>
           </MenuItem>
         </>
       )}

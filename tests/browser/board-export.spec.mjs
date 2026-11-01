@@ -94,6 +94,13 @@ test('Board export: SVG, JPG, PDF and text CSV come from the board data', async 
   const pdf = await readFile(await (await pdfDownload).path(), 'latin1');
   expect(pdf.startsWith('%PDF-1.4')).toBe(true);
   expect(pdf).toContain('Alpha');
+
+  const drawio = '<mxGraphModel><root><mxCell id="0"/><mxCell id="1" parent="0"/>'
+    + '<mxCell id="a" value="Imported one" style="ellipse;" vertex="1" parent="1"><mxGeometry x="0" y="0" width="120" height="60" as="geometry"/></mxCell>'
+    + '<mxCell id="b" value="Imported two" vertex="1" parent="1"><mxGeometry x="240" y="0" width="120" height="60" as="geometry"/></mxCell>'
+    + '<mxCell id="e" edge="1" source="a" target="b" parent="1"><mxGeometry relative="1" as="geometry"/></mxCell></root></mxGraphModel>';
+  await page.getByTestId('import-drawio-input').setInputFiles({ name: 'flow.drawio', mimeType: 'application/xml', buffer: Buffer.from(drawio) });
+  await expect(page.getByText('Imported 2 objects')).toBeVisible();
   expect(errors).toEqual([]);
   await context.close();
 });
