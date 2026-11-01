@@ -109,15 +109,38 @@ not on the board. **Place again** recovers it:
   never submits a job, so nothing is billed again, and it sends no claim for a result that was already placed. A
   result that was never placed is claimed first, like any first placement.
 
-## Adding a format
+## Formats on a selection
 
-Doc, diagram, mind map, table, Kanban, timeline and slides plug in without rework:
+Beyond `stickies` and `image`, the panel offers `diagram` (flowchart or mind map) and `layout` (title, frames, stickies in
+frames). The selection formats `rewrite` (edit text), `cluster` and `summary` act on selected objects and are reached
+from the panel's selection strip or the context menu's AI rows, not the format tabs.
+
+- **Context.** The browser reads the selection from the board data (`src/lib/canvas/ai-selection.js`, never the
+  DOM, so viewport culling does not matter) and sends `context: [{id, type, text}]`. The server bounds it
+  (`context_text`: 60 items, 2000 characters each, 12000 in all; `INVALID_CONTEXT` otherwise) and appends it to the
+  first user turn, so the text-only allowlist and the paid-guard body match are unchanged. The prompt limit applies
+  to the user's own words only. A selection format without context is `SELECTION_REQUIRED`.
+- **Image references.** `referenceImages` (up to 4 URLs under `/api/media/`) on an `image` request are validated
+  by the existing enqueue path. Selected board images become references of a new image, so the original stays.
+- **Placement kinds** in `AI_FORMATS`: `nodes` (new objects), `graph` (new objects and connectors, placed with
+  `placeGeneratedNodes`; `diagram` and `layout` replace their previous result when refined) and `edit` (rewrites
+  selected objects in place with `applyBoardAiEdit`, one undo step; locked objects are skipped). An `edit` format
+  claims the ids it changed, never becomes the refine target and never deletes anything.
+- **Entry points** follow a per-browser preference (`veevee.board.aiInputs`, `src/lib/board-ai-panel.js`; the app has
+  no per-user preference store). Turning AI off hides the toolbar sparkle, the panel and the menu rows. Every action
+  still needs the person to press Generate, so nothing paid starts on its own.
+- **Not built**: Doc, table, Kanban, timeline, slides and prototype outputs (the board has no such objects from this
+  slice), vision inputs (sticky capture, digitize, alt-text, screenshot to prototype: the paid guard pins the exact
+  text-only body), remove background (no provider is configured), and comment-thread summaries (comments are not part
+  of the board JSON).
+
+## Adding a format
 
 - **A text format** adds:
   - an entry to `TEXT_FORMATS` in `apps/agents/board.py`: prompt, schema, output budget and parser
-  - its name in `ENGINES` in `apps/canvas/ai_jobs.py`
-  - an entry in `AI_FORMATS` (`src/lib/canvas/ai-formats.js`): label, suggestions and a node builder.
-- **A format that needs new node types** waits for those node types on the board (checklist area B).
+  - its name in `ENGINES` in `apps/canvas/ai_jobs.py` (and `SELECTION_FORMATS` if it needs a selection)
+  - an entry in `AI_FORMATS` (`src/lib/canvas/ai-formats.js`): label, suggestions and a `nodes`, `graph` or `edit` builder.
+- **A format that needs new node types** waits for those node types on the board.
 
 ## Tests
 
@@ -126,9 +149,9 @@ Doc, diagram, mind map, table, Kanban, timeline and slides plug in without rewor
   - idempotent submission, admission, the spend window and the paid hold
   - worker execution against the fake provider
   - refinement, placement, and the migration.
-- `src/lib/board-ai.test.js`, `src/lib/canvas/ai-formats.test.js` and `src/components/canvas/CanvasAiPanel.test.js`
+- `src/lib/board-ai.test.js`, `src/lib/canvas/ai-formats.test.js`, `ai-graph.test.js`, `ai-selection.test.js` and `src/components/canvas/CanvasAiPanel.test.js`
   cover the browser side.
-- `tests/browser/board-ai.spec.mjs` is the end-to-end flow. Run it against the fake provider server with:
+- `tests/browser/board-ai.spec.mjs` and `board-ai-selection.spec.mjs` are the end-to-end flows. Run it against the fake provider server with:
 
   ```
   scripts/dev/test-db.sh PYTHON scripts/dev/browser-harness.py --fake-providers --grep "Create with AI"

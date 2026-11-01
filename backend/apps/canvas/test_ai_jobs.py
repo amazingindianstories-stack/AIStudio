@@ -395,6 +395,78 @@ class BoardAiJobTests(BoardFixture):
         self.assertEqual(BoardAiJob.objects.count(), 2)
 
 
+class BoardAiSelectionTests(BoardFixture):
+    """The selection formats (edit text, cluster, summarize), the generated graphs (diagram, layout) and image references."""
+    ITEMS = [{'id': 'n1', 'type': 'sticky', 'text': 'teh cat'}, {'id': 'n2', 'type': 'sticky', 'text': 'a dog'}]
+
+    def run_job(self, body, key):
+        created = self.submit(body, key=key)
+        self.assertEqual(created.status_code, 201, created.content)
+        job = created.json()['job']
+        with FakeProviders() as fake:
+            self.assertEqual(self.run_worker(job['generationId'])['kind'], 'succeeded')
+        (read,) = self.jobs(job['id'])
+        return read, fake
+
+    def test_each_format_runs_through_the_worker_and_returns_its_parsed_result(self):
+        cases = (
+            ('rewrite', {'context': self.ITEMS}, {'items': [{'id': 'n1', 'text': 'EDITED teh cat'}, {'id': 'n2', 'text': 'EDITED a dog'}]}),
+            ('cluster', {'context': self.ITEMS}, {'groups': [{'title': 'First half', 'ids': ['n1']}, {'title': 'Second half', 'ids': ['n2']}]}),
+            ('summary', {'context': self.ITEMS}, {'title': 'Summary', 'body': 'Summary of teh cat; a dog'}),
+            ('layout', {}, None),
+            ('diagram', {}, None),
+        )
+        for index, (name, extra, expected) in enumerate(cases):
+            with self.subTest(format=name):
+                read, fake = self.run_job({'format': name, 'prompt': f'do {name}', **extra}, f'board-key-select-{index}')
+                self.assertEqual(read['format'], name)
+                if expected is not None:
+                    self.assertEqual(read['result'], expected)
+                else:
+                    self.assertTrue(read['result'])
+                (payload,) = fake.board_payloads
+                first = payload['contents'][0]['parts'][0]['text']
+                self.assertTrue(first.startswith(f'do {name}'))
+                self.assertEqual('Selected board content' in first, bool(extra))
+                # The row keeps the person's own words as its prompt; the selection rides in the first turn only.
+                self.assertEqual(Generation.objects.get(pk=read['generationId']).prompt, f'do {name}')
+
+    def test_selection_formats_need_a_selection_and_the_context_is_validated(self):
+        self.assertEqual(self.submit({'format': 'rewrite', 'prompt': 'fix'}).json()['code'], 'SELECTION_REQUIRED')
+        self.assertEqual(self.quote({'format': 'cluster', 'prompt': 'group'}).json()['code'], 'SELECTION_REQUIRED')
+        for context in ([], 'text', [{'id': 'n1'}], [{'id': f'n{i}', 'text': 'x' * 2000} for i in range(8)], [{'id': 'n1', 'text': 5}]):
+            with self.subTest(context=str(context)[:30]):
+                response = self.quote({'format': 'rewrite', 'prompt': 'fix', 'context': context})
+                self.assertEqual((response.status_code, response.json()['code']), (400, 'INVALID_CONTEXT'))
+        self.assertEqual(self.quote({'format': 'image', 'prompt': 'lamp', 'context': self.ITEMS}).status_code, 400)
+        self.assertEqual(Generation.objects.count(), 0)
+
+    def test_the_selection_does_not_count_toward_the_prompt_limit_and_is_priced(self):
+        plain = self.quote({'format': 'summary', 'prompt': 'short', 'context': self.ITEMS[:1]}).json()['quote']['costCents']
+        big = [{'id': f'n{i}', 'type': 'sticky', 'text': 'word ' * 380} for i in range(6)]
+        priced = self.quote({'format': 'summary', 'prompt': 'short', 'context': big})
+        self.assertEqual(priced.status_code, 200, priced.content)
+        self.assertGreaterEqual(priced.json()['quote']['costCents'], plain)
+
+    def test_a_refinement_of_a_layout_keeps_its_first_turn_and_viewers_cannot_use_the_selection_formats(self):
+        first, _ = self.run_job({'format': 'layout', 'prompt': 'a workshop'}, 'board-key-layout-1')
+        refined = self.submit({'format': 'layout', 'prompt': 'add risks', 'parentJobId': first['id']}, key='board-key-layout-2')
+        self.assertEqual(refined.status_code, 201, refined.content)
+        turns = Generation.objects.get(pk=refined.json()['job']['generationId']).submission_input['turns']
+        self.assertEqual([turn['role'] for turn in turns], ['user', 'model', 'user'])
+        self.assertEqual((turns[0]['text'], turns[2]['text']), ('a workshop', 'add risks'))
+
+    def test_an_image_job_takes_up_to_four_board_images_as_references(self):
+        refs = ['/api/media/generations/a/master.png', '/api/media/generations/b/master.png']
+        created = self.submit({'format': 'image', 'prompt': 'blend these', 'referenceImages': refs}, key='board-key-refs-1')
+        self.assertEqual(created.status_code, 201, created.content)
+        self.assertEqual(Generation.objects.get(pk=created.json()['job']['generationId']).reference_images, refs)
+        for bad in ([], ['https://elsewhere.example/x.png'], refs * 3, 'x', [5]):
+            with self.subTest(bad=str(bad)[:30]):
+                response = self.quote({'format': 'image', 'prompt': 'blend', 'referenceImages': bad})
+                self.assertEqual(response.status_code, 400)
+
+
 class BoardAiAdmissionTests(BoardFixture):
     """A board text job is admitted like a Gemini image: per-user concurrency and the Gemini spend window apply."""
 

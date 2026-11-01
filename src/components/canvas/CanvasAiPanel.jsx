@@ -222,34 +222,7 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
     >
       <header className="flex items-center gap-2">
         <Sparkles className="h-4 w-4 text-brand" aria-hidden />
-        <h2 className="text-sm font-semibold text-white/90">Create with AI</h2>
-        {!refining && (
-          <div role="radiogroup" aria-label="Format" className="ml-2 flex items-center gap-1 rounded-lg bg-ink-900/60 p-0.5">
-            {AI_FORMAT_ORDER.map((id) => {
-              const Icon = FORMAT_ICONS[id];
-              const selected = !action && id === format;
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  role="radio"
-                  aria-checked={selected}
-                  onClick={() => {
-                    setFormat(id);
-                    setAction(null);
-                  }}
-                  className={cn(
-                    "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
-                    selected ? "bg-ink-600 text-white ring-1 ring-line" : "text-white/55 hover:bg-white/[0.07] hover:text-white"
-                  )}
-                >
-                  <Icon className="h-3.5 w-3.5" aria-hidden />
-                  {AI_FORMATS[id].label}
-                </button>
-              );
-            })}
-          </div>
-        )}
+        <h2 className="whitespace-nowrap text-sm font-semibold text-white/90">Create with AI</h2>
         <button
           type="button"
           aria-label="Turn AI off"
@@ -285,6 +258,34 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
           <X className="h-4 w-4" />
         </button>
       </header>
+
+      {!refining && (
+      <div role="radiogroup" aria-label="Format" className="mt-2 flex w-fit items-center gap-1 rounded-lg bg-ink-900/60 p-0.5">
+        {AI_FORMAT_ORDER.map((id) => {
+          const Icon = FORMAT_ICONS[id];
+          const selected = !action && id === format;
+          return (
+            <button
+              key={id}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              onClick={() => {
+                setFormat(id);
+                setAction(null);
+              }}
+              className={cn(
+                "flex items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                selected ? "bg-ink-600 text-white ring-1 ring-line" : "text-white/55 hover:bg-white/[0.07] hover:text-white"
+              )}
+            >
+              <Icon className="h-3.5 w-3.5" aria-hidden />
+              {AI_FORMATS[id].label}
+            </button>
+          );
+        })}
+      </div>
+    )}
 
       {showRecent && (
         <ul aria-label="Recent results" className="mt-2 max-h-40 overflow-y-auto rounded-lg bg-ink-900/60 p-1">

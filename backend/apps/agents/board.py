@@ -256,7 +256,7 @@ def parse_diagram(value):
 
 def context_text(items):
     """The selection a client sends as context, as the JSON the prompt expects: [{id, type, text}] bounded to the budget."""
-    if not isinstance(items, list):
+    if not isinstance(items, list) or not items:
         raise ValueError('Invalid board context.')
     clean = []
     for item in items[:MAX_REWRITE_ITEMS]:
