@@ -1,10 +1,10 @@
 import { useCanvasStore } from "../../canvas-store";
 import { defaultViewPatches } from "./model";
 
-export function patchFormat(id, compute) {
+export function patchFormat(id, compute, opts) {
   useCanvasStore.getState().editBoard((graph) => ({ ...graph,
     nodes: graph.nodes.map((node) => node.id === id ? { ...node, ...compute(node) } : node),
-  }));
+  }), opts);
 }
 
 export function setDefaultFormat(id, on, locked) {

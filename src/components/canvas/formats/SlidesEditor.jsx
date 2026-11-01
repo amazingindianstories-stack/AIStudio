@@ -12,7 +12,7 @@ export function SlidesEditor({ node, graph, readOnly }) {
   const slides = node.slides.filter((slide) => slide.lane === lane);
   const slide = slides.find((s) => s.id === slideId) ?? slides[0];
   const frame = graph.nodes.find((n) => n.type === "frame" && n.id === slide?.frameId);
-  const patchSlide = (patch) => patchFormat(node.id, (n) => ({ slides: n.slides.map((s) => s.id === slide?.id ? { ...s, ...patch } : s) }));
+  const patchSlide = (patch, opts) => patchFormat(node.id, (n) => ({ slides: n.slides.map((s) => s.id === slide?.id ? { ...s, ...patch } : s) }), opts);
   return <div className="flex min-h-0 flex-col gap-4 md:flex-row">
     {!presenting && <aside className="w-full shrink-0 space-y-3 md:w-56">
       <label className="block text-sm">Presentation lane <select aria-label="Presentation lane" value={lane} onChange={(e) => setLane(e.target.value)}>{node.lanes.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></label>
@@ -23,7 +23,7 @@ export function SlidesEditor({ node, graph, readOnly }) {
     <div className="min-w-0 flex-1 space-y-3">
       {frame ? <FramePreview frame={frame} graph={graph} /> : <div className="rounded-xl border border-dashed p-16 text-center text-slate-500">Add a frame to start. Slides use the board’s saved frames.</div>}
       {slide && <><div className="flex flex-wrap gap-3"><button onClick={() => setPresenting(!presenting)}>{presenting ? "End presentation" : "Present lane"}</button><button disabled={slides.indexOf(slide) === 0} onClick={() => setSlideId(slides[slides.indexOf(slide) - 1]?.id)}>Previous slide</button><button disabled={slides.indexOf(slide) === slides.length - 1} onClick={() => setSlideId(slides[slides.indexOf(slide) + 1]?.id)}>Next slide</button></div>
-        {!presenting && <><label className="block">Slide title<input className="ml-3 rounded border p-2" aria-label="Slide title" readOnly={readOnly} maxLength={120} value={slide.title} onChange={(e) => patchSlide({ title: e.target.value })} /></label><label className="block">Presenter notes<textarea className="mt-1 w-full rounded border p-3" aria-label="Presenter notes" readOnly={readOnly} maxLength={5000} value={slide.notes} onChange={(e) => patchSlide({ notes: e.target.value })} /></label>
+        {!presenting && <><label className="block">Slide title<input className="ml-3 rounded border p-2" aria-label="Slide title" readOnly={readOnly} maxLength={120} value={slide.title} onChange={(e) => patchSlide({ title: e.target.value }, { coalesce: true })} /></label><label className="block">Presenter notes<textarea className="mt-1 w-full rounded border p-3" aria-label="Presenter notes" readOnly={readOnly} maxLength={5000} value={slide.notes} onChange={(e) => patchSlide({ notes: e.target.value }, { coalesce: true })} /></label>
           {!readOnly && <><label>Move to lane <select aria-label="Slide lane" value={slide.lane} onChange={(e) => patchSlide({ lane: e.target.value })}>{node.lanes.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</select></label><p className="text-sm text-slate-500">Drag a board object below into the slide to include it.</p><div className="flex flex-wrap gap-2">{graph.nodes.filter((n) => !["format", "frame"].includes(n.type) && n.parentId !== frame?.id).map((n) => <button key={n.id} draggable onDragStart={(e) => e.dataTransfer.setData("text/board-node", n.id)} className="rounded border p-2 text-xs">{n.text?.slice(0, 30) || n.name || n.type}</button>)}</div></>}
         </>}
       </>}

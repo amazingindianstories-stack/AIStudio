@@ -71,6 +71,10 @@ test('Board formats: docs, status, focus link, Mermaid code diagrams, HTML embed
     data: { op: 'createProject', name: `Board formats ${randomUUID()}` }, headers: { Origin: baseURL } });
   expect(created.ok()).toBeTruthy();
   const { project } = await created.json();
+  const other = await setup.context.request.post('/api/projects', {
+    data: { op: 'createProject', name: `Board formats other ${randomUUID()}` }, headers: { Origin: baseURL } });
+  expect(other.ok()).toBeTruthy();
+  const { project: otherProject } = await other.json();
   await setup.context.close();
 
   const { context, page } = await signIn(browser, baseURL, OWNER, project.id);
@@ -95,6 +99,20 @@ test('Board formats: docs, status, focus link, Mermaid code diagrams, HTML embed
   await dialog.getByLabel('Insert doc block').selectOption('h1');
   await dialog.getByLabel('Insert doc block').selectOption('todo');
   await expect(dialog.locator('[data-doc-block]')).toHaveCount(4);
+
+  // A block can be edited again after its first edit commits, and its typing shortcut applies.
+  const blockText = (b) => b.data.nodes.find((n) => n.id === doc.id)?.blocks[1];
+  await saved(page, async () => {
+    await dialog.getByRole('button', { name: 'Edit block 2' }).click();
+    await page.keyboard.type('## Goals');
+    await dialog.getByLabel('Format title').click();
+  }, (b) => blockText(b)?.type === 'h2' && blockText(b)?.text === 'Goals');
+  await saved(page, async () => {
+    await dialog.getByRole('button', { name: 'Edit block 2' }).click();
+    await page.keyboard.press('End');
+    await page.keyboard.type(' now');
+    await dialog.getByLabel('Format title').click();
+  }, (b) => blockText(b)?.text === 'Goals now');
 
   // Default view with lock, and the focus link restores the format after a reload.
   await dialog.getByLabel('Board default').check();
@@ -139,4 +157,13 @@ test('Board formats: docs, status, focus link, Mermaid code diagrams, HTML embed
     (b) => b.data.nodes.some((n) => n.type === 'frame' && n.name === 'Mobile screen'));
   expect(errors).toEqual([]);
   await context.close();
+
+  // A focus link opens the board and its format even while another project is active.
+  const away = await signIn(browser, baseURL, OWNER, otherProject.id);
+  await away.page.goto(`/?board=${boardPath.split('/').pop()}&focus=${doc.id}`);
+  await away.page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Board', exact: true }).click();
+  const awayDialog = away.page.getByRole('dialog', { name: 'Format focus mode' });
+  await expect(awayDialog).toBeVisible();
+  await expect(awayDialog.getByLabel('Format title')).toHaveValue('Launch plan');
+  await away.context.close();
 });

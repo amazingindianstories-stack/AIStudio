@@ -20,9 +20,15 @@ test("previews use all nested saved content and internal connectors, including o
   assert.deepEqual(frameContents(graph, "f").connectors.map((c) => c.id), ["inside"]);
 });
 
-test("every wireframe component is a persistable native node", () => {
+test("every wireframe component is a persistable native node with readable text", () => {
   for (const item of WIREFRAMES) {
     const node = wireframeNode(item, { x: 500, y: 500 });
-    assert.equal(validateCanvasState({ nodes: [node] }).nodes[0]?.type, node.type, item.name);
+    const saved = validateCanvasState({ nodes: [node] }).nodes[0];
+    assert.equal(saved?.type, node.type, item.name);
+    if (node.type !== "frame") {
+      assert.equal(saved.color, "#0f172a", item.name);
+      assert.equal(saved.align, "center", item.name);
+      assert.equal(saved.text, item.text, item.name);
+    }
   }
 });

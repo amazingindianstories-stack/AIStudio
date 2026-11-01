@@ -22,8 +22,9 @@ import {
   MAX_TABLE_ROWS,
   FORMAT_DEFAULTS,
 } from "./model";
+import { validateMarks } from "../rich-text";
 
-const SUGGESTION_KINDS = ["replace", "delete", "insert"];
+const SUGGESTION_KINDS = ["replace", "delete"];
 const SOURCE_MAX = 20000;
 
 function isFiniteNumber(v) {
@@ -83,6 +84,8 @@ function validateBlocks(raw) {
       block.ref = identifier(item.ref) ?? "";
     } else {
       block.text = limited(item.text, MAX_BLOCK_TEXT);
+      const marks = validateMarks(item.marks, block.text);
+      if (marks) block.marks = marks;
       if (item.type === "todo" && item.checked === true) block.checked = true;
     }
     blocks.push(block);
@@ -100,14 +103,17 @@ function validateSuggestions(raw, blockIds) {
     const blockId = identifier(item.blockId);
     if (!id || !blockId || seen.has(id) || !blockIds.has(blockId) || !SUGGESTION_KINDS.includes(item.kind)) continue;
     seen.add(id);
-    out.push({
+    const suggestion = {
       id,
       blockId,
       kind: item.kind,
       text: item.kind === "delete" ? "" : limited(item.text, MAX_BLOCK_TEXT),
       by: limited(item.by, MAX_ID),
       at: isFiniteNumber(item.at) ? item.at : 0,
-    });
+    };
+    const marks = item.kind === "replace" && validateMarks(item.marks, suggestion.text);
+    if (marks) suggestion.marks = marks;
+    out.push(suggestion);
   }
   return out;
 }

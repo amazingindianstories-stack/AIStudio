@@ -11,14 +11,12 @@ import {
   boardStatus,
   dateChip,
   defaultViewPatches,
-  docToMarkdown,
-  formatContent,
   insertBlockAfter,
+  listNumbers,
   moveBlock,
   newBlock,
   newFormatNode,
   parseChips,
-  plainText,
   rejectSuggestion,
   removeBlock,
   userChip,
@@ -49,11 +47,24 @@ test("new format nodes pass validation unchanged", () => {
 
 test("typing shortcuts turn a paragraph into a heading, list or checklist", () => {
   const p = newBlock("p");
-  assert.deepEqual(applyBlockShortcut(p, "## Plan"), { type: "h2", text: "Plan" });
-  assert.deepEqual(applyBlockShortcut(p, "- item"), { type: "ul", text: "item" });
-  assert.deepEqual(applyBlockShortcut(p, "[] todo"), { type: "todo", text: "todo" });
-  assert.deepEqual(applyBlockShortcut(p, "plain"), { type: "p", text: "plain" });
+  assert.deepEqual(applyBlockShortcut(p, "## Plan"), { id: p.id, type: "h2", text: "Plan" });
+  assert.deepEqual(applyBlockShortcut(p, "- item"), { id: p.id, type: "ul", text: "item" });
+  assert.deepEqual(applyBlockShortcut(p, "[] todo"), { id: p.id, type: "todo", text: "todo" });
+  assert.deepEqual(applyBlockShortcut(p, "plain"), { id: p.id, type: "p", text: "plain" });
   assert.equal(applyBlockShortcut(newBlock("h1"), "# keep").type, "h1");
+});
+
+test("typed marks stay on their characters when a shortcut removes its prefix", () => {
+  const p = { ...newBlock("p", "old"), marks: [[0, 3, "i"]] };
+  assert.deepEqual(applyBlockShortcut(p, "## Bold plan", [[3, 7, "b"], [0, 2, "u"]]).marks, [[0, 4, "b"]]);
+  assert.equal("marks" in applyBlockShortcut(p, "plain"), false);
+  const state = validateCanvasState({ nodes: [{ ...newFormatNode("doc", { x: 0, y: 0 }), blocks: [applyBlockShortcut(p, "# Title", [[2, 7, "b"]])] }] });
+  assert.deepEqual(state.nodes[0].blocks[0].marks, [[0, 5, "b"]]);
+});
+
+test("numbered items count within their own run", () => {
+  const blocks = ["h1", "p", "ol", "ol", "p", "ol"].map((type) => newBlock(type));
+  assert.deepEqual(listNumbers(blocks), [0, 0, 1, 2, 0, 1]);
 });
 
 test("blocks insert, move and remove, keeping at least one block", () => {
@@ -83,25 +94,22 @@ test("user and date chips parse out of text", () => {
   const parts = parseChips(text);
   assert.deepEqual(parts.map((p) => p.kind), ["text", "user", "text", "date", "text"]);
   assert.equal(parts[1].id, "u1");
-  assert.equal(plainText(text), "Ask @Ada Lovelace by 2026-11-02.");
+  assert.deepEqual(parts.filter((p) => p.kind === "text").map((p) => text.slice(p.start, p.start + p.text.length)), parts.filter((p) => p.kind === "text").map((p) => p.text));
   assert.equal(parseChips("{{date:2026-13-45}}")[0].kind, "text");
 });
 
 test("accepting a suggestion applies it and rejecting leaves the text", () => {
   const a = newBlock("p", "old");
   const b = newBlock("p", "keep");
-  let s = addSuggestion([], { blockId: a.id, kind: "replace", text: "new", by: "u" });
+  let s = addSuggestion([], { blockId: a.id, kind: "replace", text: "new", marks: [[0, 3, "b"]], by: "u" });
   s = addSuggestion(s, { blockId: b.id, kind: "delete", by: "u" });
-  s = addSuggestion(s, { blockId: a.id, kind: "insert", text: "after", by: "u" });
-  assert.equal(s.length, 3);
+  assert.equal(s.length, 2);
   const rejected = rejectSuggestion(s, s[0].id);
-  assert.equal(rejected.length, 2);
-  let state = acceptSuggestion([a, b], s, s[0].id);
-  assert.equal(state.blocks[0].text, "new");
-  state = acceptSuggestion(state.blocks, state.suggestions, s[2].id);
-  assert.deepEqual(state.blocks.map((x) => x.text), ["new", "after", "keep"]);
+  assert.equal(rejected.length, 1);
+  let state = acceptSuggestion([{ ...a, marks: [[0, 3, "i"]] }, b], s, s[0].id);
+  assert.deepEqual(state.blocks[0], { ...a, text: "new", marks: [[0, 3, "b"]] });
   state = acceptSuggestion(state.blocks, state.suggestions, s[1].id);
-  assert.deepEqual(state.blocks.map((x) => x.text), ["new", "after"]);
+  assert.deepEqual(state.blocks.map((x) => x.text), ["new"]);
   assert.equal(state.suggestions.length, 0);
 });
 
@@ -127,19 +135,4 @@ test("choosing a default view clears the previous one and a lock rides along", (
   assert.equal(patches.length, 2);
   assert.deepEqual(patches.find((p) => p.id === b.id).patch, { defaultView: true, viewLocked: true });
   assert.equal(patches.find((p) => p.id === a.id).patch.defaultView, undefined);
-});
-
-test("doc markdown export and the shared content contract", () => {
-  const doc = newFormatNode("doc", { x: 0, y: 0 });
-  doc.blocks = [
-    { id: "1", type: "h1", text: "T" },
-    { id: "2", type: "todo", text: "x", checked: true },
-    { id: "3", type: "table", rows: [["a", "b"], ["1", "2"]] },
-  ];
-  const md = docToMarkdown(doc);
-  assert.match(md, /# T/);
-  assert.match(md, /- \[x\] x/);
-  assert.match(md, /\| a \| b \|/);
-  assert.deepEqual(Object.keys(formatContent(doc)).sort(), ["blocks", "id", "kind", "name"]);
-  assert.equal(formatContent({ type: "rect" }), null);
 });

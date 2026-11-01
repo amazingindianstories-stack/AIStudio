@@ -4,7 +4,7 @@ other nodes. Mirrors src/lib/canvas/formats/validate.js; shared fixture cases ho
 FORMAT_KINDS = ('doc', 'deck', 'html', 'drawio')
 FORMAT_STATUSES = ('draft', 'in_review', 'approved', 'done', 'outdated')
 DOC_BLOCK_TYPES = ('p', 'h1', 'h2', 'h3', 'ul', 'ol', 'todo', 'quote', 'code', 'table', 'diagram')
-SUGGESTION_KINDS = ('replace', 'delete', 'insert')
+SUGGESTION_KINDS = ('replace', 'delete')
 FORMAT_DEFAULT_NAMES = {'doc': 'Untitled doc', 'deck': 'Untitled slides', 'html': 'HTML embed', 'drawio': 'Draw.io diagram'}
 
 MAX_ID = 64
@@ -61,6 +61,7 @@ def with_screen_link(result, raw):
 
 
 def _blocks(raw):
+    from .serialization import with_marks
     blocks, seen = [], set()
     for item in (raw[:MAX_DOC_BLOCKS] if isinstance(raw, list) else []):
         if not isinstance(item, dict):
@@ -81,6 +82,7 @@ def _blocks(raw):
             block['ref'] = identifier(item.get('ref')) or ''
         else:
             block['text'] = limited(item.get('text'), MAX_BLOCK_TEXT)
+            with_marks(block, item)
             if item['type'] == 'todo' and item.get('checked') is True:
                 block['checked'] = True
         blocks.append(block)
@@ -88,6 +90,7 @@ def _blocks(raw):
 
 
 def _suggestions(raw, block_ids):
+    from .serialization import with_marks
     result, seen = [], set()
     for item in (raw[:MAX_SUGGESTIONS] if isinstance(raw, list) else []):
         if not isinstance(item, dict):
@@ -96,9 +99,12 @@ def _suggestions(raw, block_ids):
         if not suggestion_id or not block_id or suggestion_id in seen or block_id not in block_ids or item.get('kind') not in SUGGESTION_KINDS:
             continue
         seen.add(suggestion_id)
-        result.append({'id': suggestion_id, 'blockId': block_id, 'kind': item['kind'],
-                       'text': '' if item['kind'] == 'delete' else limited(item.get('text'), MAX_BLOCK_TEXT),
-                       'by': limited(item.get('by'), MAX_ID), 'at': item['at'] if _finite(item.get('at')) else 0})
+        suggestion = {'id': suggestion_id, 'blockId': block_id, 'kind': item['kind'],
+                      'text': '' if item['kind'] == 'delete' else limited(item.get('text'), MAX_BLOCK_TEXT),
+                      'by': limited(item.get('by'), MAX_ID), 'at': item['at'] if _finite(item.get('at')) else 0}
+        if item['kind'] == 'replace':
+            with_marks(suggestion, item)
+        result.append(suggestion)
     return result
 
 

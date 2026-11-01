@@ -184,6 +184,15 @@ export function CanvasView() {
     [activeProjectId, flushSave, reset, setActiveProject]
   );
 
+  const openBoardProject = useCallback(
+    (projectId) => {
+      if (!useStore.getState().projects.some((p) => p.id === projectId)) return false;
+      setActiveProject(projectId);
+      return true;
+    },
+    [setActiveProject]
+  );
+
   const placeAsset = useCallback(
     (asset) => {
       const center = surfaceRef.current?.getViewportCenterWorld() ?? { x: 0, y: 0 };
@@ -490,6 +499,7 @@ export function CanvasView() {
             onBoardIdChange={setBoardId}
             onLoadingChange={setBoardsLoading}
             onEmptyChange={setNoBoards}
+            onBoardInOtherProject={openBoardProject}
             reloadToken={boardsReload}
           />
           {boardId && loaded && (

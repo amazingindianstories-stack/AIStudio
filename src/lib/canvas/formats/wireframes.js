@@ -25,5 +25,5 @@ export const WIREFRAMES = [
 export function wireframeNode(item, center, parentId = null) {
   const base = { id: crypto.randomUUID(), type: item.type || "rect", x: center.x - item.w / 2, y: center.y - item.h / 2, w: item.w, h: item.h, parentId, groupId: null, fill: "#f8fafc", stroke: "#64748b", strokeWidth: 1 };
   if (base.type === "frame") return { ...base, name: item.name };
-  return { ...base, text: item.text, textColor: "#0f172a", fontSize: item.fontSize || 16, textAlign: "center", ...(item.radius ? { cornerRadius: item.radius } : {}) };
+  return { ...base, text: item.text, color: "#0f172a", fontSize: item.fontSize || 16, align: "center", ...(item.radius ? { cornerRadius: item.radius } : {}) };
 }

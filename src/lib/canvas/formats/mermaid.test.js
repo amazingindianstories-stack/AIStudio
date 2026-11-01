@@ -103,3 +103,37 @@ test("visual edits write back as Mermaid that parses to the same diagram", () =>
   assert.equal(again.edges.length, 2);
   assert.equal(again.edges[0].label, "go");
 });
+
+test("reading visual edits into code keeps the diagram's direction", () => {
+  const source = "flowchart LR\nA --> B --> C";
+  const built = mermaidToBoardObjects(parseMermaid(source), { x: 0, y: 0 }, { source });
+  const state = validateCanvasState({ nodes: [built.diagram, ...built.nodes], connectors: built.connectors });
+  const code = diagramToMermaid(state, built.diagram.id);
+  assert.match(code, /^flowchart LR\n/);
+  const next = replaceDiagramContent(state, built.diagram.id, parseMermaid(code), code);
+  const [a, b] = ["A", "B"].map((label) => next.nodes.find((n) => n.text === label));
+  assert.ok(a.x < b.x);
+  assert.equal(a.y, b.y);
+});
+
+test("updating from code keeps children and connectors the code does not describe", () => {
+  const source = "graph TD\nA --> B";
+  const built = mermaidToBoardObjects(parseMermaid(source), { x: 0, y: 0 }, { source });
+  const [shapeA] = built.nodes;
+  const image = { id: "img", type: "image", x: 10, y: 10, w: 40, h: 40, src: "https://example.test/a.png", parentId: built.diagram.id };
+  const frame = { id: "screen", type: "frame", x: 60, y: 60, w: 80, h: 80, name: "Screen", parentId: built.diagram.id };
+  const outside = { id: "outside", type: "rect", x: 900, y: 0, w: 50, h: 50 };
+  const link = (id, from, to) => ({ id, from: { nodeId: from, anchor: "auto" }, to: { nodeId: to, anchor: "auto" } });
+  const state = {
+    nodes: [outside, built.diagram, ...built.nodes, image, frame],
+    connectors: [...built.connectors, link("image-out", "img", "outside"), link("shape-out", shapeA.id, "outside")],
+  };
+  const next = replaceDiagramContent(state, built.diagram.id, parseMermaid("graph TD\nX --> Y --> Z"), "graph TD\nX --> Y --> Z");
+  assert.deepEqual(next.nodes.find((n) => n.id === "img"), image);
+  assert.deepEqual(next.nodes.find((n) => n.id === "screen"), frame);
+  assert.ok(next.connectors.some((c) => c.id === "image-out"));
+  assert.ok(!next.connectors.some((c) => c.id === "shape-out"));
+  assert.ok(!next.nodes.some((n) => n.id === shapeA.id));
+  assert.deepEqual(next.nodes.filter((n) => n.parentId === built.diagram.id && n.type === "rect").map((n) => n.text), ["X", "Y", "Z"]);
+  assert.equal(next.connectors.length, 3);
+});

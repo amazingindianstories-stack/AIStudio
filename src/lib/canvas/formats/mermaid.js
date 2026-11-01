@@ -361,6 +361,13 @@ const SHAPE_NODE = {
   rhombus: { type: "diamond" },
 };
 
+const CODE_SHAPE_TYPES = new Set(Object.values(SHAPE_NODE).map((spec) => spec.type));
+
+/** The children of `diagramId` its Mermaid code describes: the shape kinds the code builds. */
+function codeShapes(nodes, diagramId) {
+  return nodes.filter((n) => n.parentId === diagramId && CODE_SHAPE_TYPES.has(n.type));
+}
+
 function uuid() {
   return globalThis.crypto.randomUUID();
 }
@@ -475,12 +482,13 @@ function safeLabel(text) {
 
 const OPEN_CLOSE = { rect: ["[", "]"], round: ["(", ")"], circle: ["((", "))"], rhombus: ["{", "}"] };
 
-/** Mermaid source for the shapes inside `diagramId` and the connectors between them. */
+/** Mermaid source for the shapes inside `diagramId` and the connectors between them, in the direction of its code. */
 export function diagramToMermaid(state, diagramId) {
-  const nodes = state.nodes.filter((n) => n.parentId === diagramId && n.type !== "frame" && n.type !== "image");
+  const nodes = codeShapes(state.nodes, diagramId);
   const ids = new Map();
   nodes.forEach((n, i) => ids.set(n.id, `n${i + 1}`));
-  const out = ["flowchart TD"];
+  const source = state.nodes.find((n) => n.id === diagramId)?.source;
+  const out = [`flowchart ${parseMermaid(source).direction}`];
   for (const n of nodes) {
     const kind = n.type === "ellipse" ? "circle" : n.type === "diamond" ? "rhombus" : n.cornerRadius ? "round" : "rect";
     const [open, close] = OPEN_CLOSE[kind];
@@ -497,7 +505,10 @@ export function diagramToMermaid(state, diagramId) {
   return out.join("\n");
 }
 
-/** The board changes that rebuild diagram `diagramId` from new text: old children out, new ones in. */
+/**
+ * The board changes that rebuild diagram `diagramId` from new text: the shapes and connectors the old
+ * code described are replaced; other children (images, frames) and their connectors stay.
+ */
 export function replaceDiagramContent(state, diagramId, parsed, source) {
   const diagram = state.nodes.find((n) => n.id === diagramId);
   if (!diagram) return state;
@@ -507,12 +518,11 @@ export function replaceDiagramContent(state, diagramId, parsed, source) {
     source,
     status: diagram.status,
   });
-  const childIds = new Set(state.nodes.filter((n) => n.parentId === diagramId).map((n) => n.id));
-  const kept = state.nodes.filter((n) => n.id !== diagramId && !childIds.has(n.id));
+  const childIds = new Set(codeShapes(state.nodes, diagramId).map((n) => n.id));
   const nextDiagram = { ...diagram, w: Math.max(diagram.w, built.diagram.w), h: Math.max(diagram.h, built.diagram.h), containers: built.diagram.containers, source, sourceKind: "mermaid" };
   return {
     ...state,
-    nodes: [...kept, nextDiagram, ...built.nodes],
+    nodes: [...state.nodes.filter((n) => !childIds.has(n.id)).map((n) => (n.id === diagramId ? nextDiagram : n)), ...built.nodes],
     connectors: [
       ...state.connectors.filter((c) => !childIds.has(c.from?.nodeId) && !childIds.has(c.to?.nodeId)),
       ...built.connectors,

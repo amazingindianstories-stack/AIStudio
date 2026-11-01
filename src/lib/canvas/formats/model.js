@@ -4,6 +4,7 @@
  * through the per-node save path, so they obey roles, culling and the 2 Mi limit.
  * Limits here are mirrored by backend/apps/canvas/serialization.py.
  */
+import { validateMarks } from "../rich-text";
 
 export const FORMAT_KINDS = ["doc", "deck", "html", "drawio"];
 export const FORMAT_STATUSES = ["draft", "in_review", "approved", "done", "outdated"];
@@ -97,11 +98,6 @@ export function newFormatNode(kind, center, extra = {}) {
 
 // ---- status and default view ----
 
-export function setStatus(node, status) {
-  if (!FORMAT_STATUSES.includes(status)) return { status: undefined };
-  return { status };
-}
-
 /**
  * The status shown for the whole board: the default-view format's status, else
  * the least finished status among formats (Outdated, Draft, In review, Approved, Done).
@@ -177,12 +173,30 @@ const SHORTCUTS = [
   [/^```/, "code"],
 ];
 
-export function applyBlockShortcut(block, text) {
-  if (block.type !== "p") return { type: block.type, text };
-  for (const [pattern, type] of SHORTCUTS) {
-    if (pattern.test(text)) return { type, text: type === "code" ? text.replace(pattern, "") : text.replace(pattern, "") };
+/** `block` with new text; its marks are kept only where they fit that text. */
+export function setBlockText(block, text, marks) {
+  const next = { ...block, text };
+  delete next.marks;
+  const valid = validateMarks(marks, text);
+  if (valid) next.marks = valid;
+  return next;
+}
+
+/** `block` with typed text and marks, a paragraph turned into another block by its typing shortcut. */
+export function applyBlockShortcut(block, text, marks) {
+  if (block.type === "p") {
+    for (const [pattern, type] of SHORTCUTS) {
+      const cut = pattern.exec(text)?.[0].length;
+      if (cut) return setBlockText({ ...block, type }, text.slice(cut), marks?.map(([start, end, ...rest]) => [start - cut, end - cut, ...rest]));
+    }
   }
-  return { type: block.type, text };
+  return setBlockText(block, text, marks);
+}
+
+/** The number shown before each block: its place in its run of numbered items, else 0. */
+export function listNumbers(blocks) {
+  let number = 0;
+  return blocks.map((b) => (number = b.type === "ol" ? number + 1 : 0));
 }
 
 export function setTableCell(rows, r, c, value) {
@@ -220,14 +234,7 @@ export function dateChip(isoDate) {
   return `{{date:${isoDate}}}`;
 }
 
-export function isoDate(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-/** Splits text into plain, user and date parts for rendering. */
+/** Splits text into plain (with its offset), user and date parts for rendering. */
 export function parseChips(text) {
   const parts = [];
   const all = [];
@@ -239,17 +246,12 @@ export function parseChips(text) {
   let at = 0;
   for (const item of all) {
     if (item.index < at) continue;
-    if (item.index > at) parts.push({ kind: "text", text: text.slice(at, item.index) });
+    if (item.index > at) parts.push({ kind: "text", text: text.slice(at, item.index), start: at });
     parts.push(item.part);
     at = item.index + item.length;
   }
-  if (at < text.length) parts.push({ kind: "text", text: text.slice(at) });
+  if (at < text.length) parts.push({ kind: "text", text: text.slice(at), start: at });
   return parts;
-}
-
-/** Text with chips replaced by their readable form, for search and previews. */
-export function plainText(text) {
-  return text.replace(USER_CHIP, "@$1").replace(DATE_CHIP, "$1");
 }
 
 export function formatChipDate(iso) {
@@ -259,67 +261,26 @@ export function formatChipDate(iso) {
 
 // ---- suggestions (suggest changes) ----
 
-/** A suggestion proposes new text for a block ("replace"), its removal ("delete") or a new block after it ("insert"). */
-export function addSuggestion(suggestions, { blockId, kind, text = "", by }) {
+/** A suggestion proposes new text and marks for a block ("replace") or its removal ("delete"). */
+export function addSuggestion(suggestions, { blockId, kind, text = "", marks, by }) {
   if (suggestions.length >= MAX_SUGGESTIONS) return suggestions;
   const clean = suggestions.filter((s) => !(s.blockId === blockId && s.kind === kind && s.by === by));
-  return [...clean, { id: newId(), blockId, kind, text, by, at: Date.now() }];
+  const suggestion = { id: newId(), blockId, kind, text, by, at: Date.now() };
+  const valid = kind === "replace" && validateMarks(marks, text);
+  if (valid) suggestion.marks = valid;
+  return [...clean, suggestion];
 }
 
 export function acceptSuggestion(blocks, suggestions, id) {
   const s = suggestions.find((item) => item.id === id);
   if (!s) return { blocks, suggestions };
   let next = blocks;
-  if (s.kind === "replace") next = updateBlock(blocks, s.blockId, { text: s.text });
+  if (s.kind === "replace") next = blocks.map((b) => (b.id === s.blockId ? setBlockText(b, s.text, s.marks) : b));
   else if (s.kind === "delete") next = removeBlock(blocks, s.blockId);
-  else if (s.kind === "insert") next = insertBlockAfter(blocks, s.blockId, newBlock("p", s.text));
   const gone = s.kind === "delete" ? (x) => x.id === id || x.blockId === s.blockId : (x) => x.id === id;
   return { blocks: next, suggestions: suggestions.filter((x) => !gone(x)) };
 }
 
 export function rejectSuggestion(suggestions, id) {
   return suggestions.filter((s) => s.id !== id);
-}
-
-export function suggestionsFor(suggestions, blockId) {
-  return suggestions.filter((s) => s.blockId === blockId);
-}
-
-/** The doc as Markdown, for export and for other readers. */
-export function docToMarkdown(node) {
-  const out = [];
-  let number = 0;
-  for (const b of node.blocks ?? []) {
-    number = b.type === "ol" ? number + 1 : 0;
-    const text = plainText(b.text ?? "");
-    if (b.type === "h1") out.push(`# ${text}`);
-    else if (b.type === "h2") out.push(`## ${text}`);
-    else if (b.type === "h3") out.push(`### ${text}`);
-    else if (b.type === "ul") out.push(`- ${text}`);
-    else if (b.type === "ol") out.push(`${number}. ${text}`);
-    else if (b.type === "todo") out.push(`- [${b.checked ? "x" : " "}] ${text}`);
-    else if (b.type === "quote") out.push(`> ${text}`);
-    else if (b.type === "code") out.push("```\n" + text + "\n```");
-    else if (b.type === "table") {
-      const rows = b.rows ?? [];
-      if (rows.length) {
-        out.push(`| ${rows[0].join(" | ")} |`);
-        out.push(`| ${rows[0].map(() => "---").join(" | ")} |`);
-        for (const row of rows.slice(1)) out.push(`| ${row.join(" | ")} |`);
-      }
-    } else if (b.type === "diagram") out.push(`[Diagram](#${b.ref})`);
-    else out.push(text);
-  }
-  return out.join("\n\n");
-}
-
-/**
- * Doc content contract shared with frames for synced copies: `{ kind, id, name, blocks }`.
- * A synced copy of a doc reads its source through this and never edits it.
- */
-export function formatContent(node) {
-  if (!isFormatNode(node)) return null;
-  if (node.format === "doc") return { kind: "doc", id: node.id, name: node.name, blocks: node.blocks ?? [] };
-  if (node.format === "deck") return { kind: "deck", id: node.id, name: node.name, slides: node.slides ?? [] };
-  return { kind: node.format, id: node.id, name: node.name };
 }

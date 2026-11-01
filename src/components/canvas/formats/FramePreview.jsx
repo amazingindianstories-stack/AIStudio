@@ -13,7 +13,7 @@ export function FramePreview({ frame, graph, onNavigate }) {
   const width = Math.max(1, frame.w);
   const height = Math.max(1, frame.h);
   const byId = Object.fromEntries(content.nodes.map((n) => [n.id, n]));
-  return <div className="relative aspect-video w-full overflow-hidden rounded-lg border bg-slate-900" onDragOver={(e) => e.preventDefault()} onDrop={(e) => {
+  return <div className="relative mx-auto w-full overflow-hidden rounded-lg border bg-slate-900" style={{ aspectRatio: `${width} / ${height}`, maxWidth: `min(100%, calc(70vh * ${width / height}))` }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => {
     e.preventDefault();
     const id = e.dataTransfer.getData("text/board-node");
     if (!id || id === frame.id) return;
