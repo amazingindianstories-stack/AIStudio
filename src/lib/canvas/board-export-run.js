@@ -121,3 +121,33 @@ export function printSvg(svg) {
   };
   document.body.appendChild(frame);
 }
+
+/** Selected uploaded images that have a stored original to download. */
+export function downloadableImages(state, selection) {
+  const wanted = new Set(selection || []);
+  return state.nodes.filter((n) => n.type === "image" && n.src && wanted.has(n.id));
+}
+
+const EXT_BY_MIME = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif", "image/avif": "avif" };
+
+/** File name for a downloaded original: the node's own name when it has one, else numbered. */
+export function originalFileName(node, mime, index) {
+  const ext = EXT_BY_MIME[mime] || "bin";
+  const base = String(node.name || node.fileName || "").replace(/[^\w\- .]+/g, "").trim();
+  if (base) return /\.\w{2,5}$/.test(base) ? base : `${base}.${ext}`;
+  return `image-${index + 1}.${ext}`;
+}
+
+/** Downloads the original bytes of each selected image, unchanged. Returns how many saved. */
+export async function downloadOriginals(state, selection) {
+  const nodes = downloadableImages(state, selection);
+  let saved = 0;
+  for (const [i, node] of nodes.entries()) {
+    const res = await fetch(node.src, { credentials: "same-origin" });
+    if (!res.ok) continue;
+    const blob = await res.blob();
+    downloadBlob(blob, originalFileName(node, blob.type, i));
+    saved += 1;
+  }
+  return saved;
+}

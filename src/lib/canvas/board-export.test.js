@@ -52,3 +52,17 @@ test("exportScope maps a lone selected frame to a frame export", async () => {
   assert.equal(exportFileName("My / Board!", "jpg"), "My-Board.jpg");
   assert.equal(exportFileName("", "svg", "p1"), "board-p1.svg");
 });
+
+test("downloadable images are the selected image nodes with a source", async () => {
+  const { downloadableImages, originalFileName } = await import("./board-export-run.js");
+  const state = { nodes: [
+    { id: "a", type: "image", src: "/api/media/a" },
+    { id: "b", type: "image" },
+    { id: "c", type: "sticky" },
+  ] };
+  assert.deepEqual(downloadableImages(state, ["a", "b", "c"]).map((n) => n.id), ["a"]);
+  assert.deepEqual(downloadableImages(state, []), []);
+  assert.equal(originalFileName({ name: "Logo v2" }, "image/png", 0), "Logo v2.png");
+  assert.equal(originalFileName({ name: "shot.jpeg" }, "image/jpeg", 0), "shot.jpeg");
+  assert.equal(originalFileName({}, "image/webp", 2), "image-3.webp");
+});

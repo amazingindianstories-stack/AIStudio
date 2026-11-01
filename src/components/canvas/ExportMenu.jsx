@@ -10,6 +10,8 @@ import {
   buildCsv,
   buildSvg,
   downloadBlob,
+  downloadOriginals,
+  downloadableImages,
   exportFileName,
   exportScope,
   printSvg,
@@ -25,6 +27,7 @@ export function ExportMenu() {
   const selection = useCanvasStore((s) => s.selection);
   const [scopeKind, setScopeKind] = useState("board");
   const [status, setStatus] = useState("");
+  const hasOriginals = useCanvasStore((s) => downloadableImages(s.history.present, s.selection).length > 0);
   const effective = selection.length ? scopeKind : "board";
 
   const run = async (close, task) => {
@@ -106,6 +109,14 @@ export function ExportMenu() {
             downloadBlob(new Blob([csv], { type: "text/csv;charset=utf-8" }), exportFileName(name, "csv"));
           })}>
             <span className="flex-1">Export text as CSV</span>
+          </MenuItem>
+          <MenuItem
+            disabled={!hasOriginals}
+            onClick={() => run(close, async (state) => {
+              if (!await downloadOriginals(state, useCanvasStore.getState().selection)) setStatus("Original not available");
+            })}
+          >
+            <span className="flex-1">Download original file</span>
           </MenuItem>
           <MenuItem onClick={() => run(close, async (state, scope) => {
             const svg = await buildSvg(state, scope, { background: "#ffffff" });
