@@ -12,6 +12,7 @@ import re
 import time
 import uuid
 from django.db import models, transaction
+from django.db.models.expressions import RawSQL
 from apps.authentication.models import User
 from . import access, template_catalog
 from .models import (Blueprint, BoardTemplate, BoardTemplateComment, BoardTemplateLike, BoardTemplateUsage,
@@ -33,8 +34,7 @@ PREVIEW_RECTS = 80
 PREVIEW_SPAN = 1000
 BLUEPRINT_MAX_BOARDS = 20
 DAY_MS = 24 * 60 * 60 * 1000
-# Clearing a selection blanks these; a blank template only blanks stickies, so its headings and frames stay.
-CLEAR_TYPES = ('sticky', 'text', 'shape')
+# A blank template only blanks stickies, so its headings and frames stay.
 BLANK_TYPES = ('sticky',)
 CLEAR_KEYS = ('tagIds', 'reactions', 'marks', 'showAuthor') + STAMP_KEYS
 
@@ -199,15 +199,17 @@ def clean_tags(value):
 
 
 def clean_scope(scope, project_id, user):
-    """(scope, project id): a project scope needs a project the user can see."""
+    """(scope, project id): sharing with everyone needs an admin, a project scope membership of that project."""
     if scope not in TEMPLATE_SCOPES:
         raise TemplateError('Unknown access level.')
+    if scope == 'everyone' and not is_admin(user):
+        raise access.AccessError('FORBIDDEN', 403)
     if scope != 'project':
         return scope, None
     if not isinstance(project_id, str) or not UUID_RE.fullmatch(project_id):
         raise TemplateError('A project is required for project access.')
-    if not in_project_audience(user, project_id):
-        raise TemplateError('Project not found.', 404)
+    if access.project_level(user, project_id) == access.NONE:
+        raise access.AccessError('FORBIDDEN', 403)
     return scope, project_id
 
 
@@ -272,14 +274,14 @@ def visible_rows(user, project_id=None):
 
 def list_templates(user, project_id=None):
     entries = [_builtin_entry(item) for item in template_catalog.TEMPLATES]
-    entries += [_custom_entry(user, row) for row in visible_rows(user, project_id).order_by('-updated_at')]
+    entries += [_custom_entry(user, row) for row in visible_rows(user, project_id).defer('graph').order_by('-updated_at')]
     _decorate(user, entries)
     # Featured first, then the most used, then the newest.
     entries.sort(key=lambda entry: (not entry['featured'], -entry['uses'], -entry['updatedAt'], entry['name']))
     return entries
 
 
-def _row(user, ref, project_id=None, include_deleted=False):
+def _row(user, ref, include_deleted=False):
     if not UUID_RE.fullmatch(ref or ''):
         return None
     row = BoardTemplate.objects.filter(pk=ref).first()
@@ -293,7 +295,7 @@ def _row(user, ref, project_id=None, include_deleted=False):
     return None
 
 
-def get_template(user, ref, project_id=None):
+def get_template(user, ref):
     """One template with its graph (`graph`, and `blankGraph` with the stickies cleared), or None."""
     if ref.startswith(BUILTIN_PREFIX):
         item = template_catalog.template(ref[len(BUILTIN_PREFIX):])
@@ -302,7 +304,7 @@ def get_template(user, ref, project_id=None):
         entry = _builtin_entry(item)
         graph = item['graph']
     else:
-        row = _row(user, ref, project_id)
+        row = _row(user, ref)
         if row is None:
             return None
         entry, graph = _custom_entry(user, row), row.graph
@@ -312,7 +314,7 @@ def get_template(user, ref, project_id=None):
 
 # ---- custom templates -----------------------------------------------------------------------------------------
 
-def _board_graph(user, board_id, level=access.READ):
+def _board_graph(user, board_id, level):
     row = access.board_row(board_id) if isinstance(board_id, str) and UUID_RE.fullmatch(board_id) else None
     if row is None:
         raise TemplateError('Board not found.', 404)
@@ -335,7 +337,7 @@ def create_template(user, data):
         access.require_board_creator(user, project)
         graph = snapshot(empty_state())
     elif data.get('boardId') is not None:
-        graph = snapshot(_board_graph(user, data['boardId']))
+        graph = snapshot(_board_graph(user, data['boardId'], access.WRITE))
     elif isinstance(data.get('graph'), dict):
         graph = snapshot(data['graph'])
     else:
@@ -362,8 +364,8 @@ def _default_view(value):
 
 
 def _editing_board(user, row, project_id, graph):
-    from .services import create_board_with_data
-    board = create_board_with_data(project_id, f'Template: {row.name}', user, instantiate_keep_ids(graph))
+    from .services import create_board
+    board = create_board(project_id, f'Template: {row.name}', user, instantiate_keep_ids(graph))
     return board['id']
 
 
@@ -373,20 +375,21 @@ def instantiate_keep_ids(graph):
 
 
 def open_editing_board(user, ref, project_id):
-    """The board a template is edited in: its existing one, or a new one seeded with its graph. Editing a template
-    is editing a board, so it inherits board sharing, comments and conflict-safe saves."""
+    """The board a template is edited in (`boardId`, `projectId`): its existing one, or a new one seeded with its
+    graph. Editing a template is editing a board, so it inherits board sharing, comments and conflict-safe saves."""
     row = _row(user, ref)
     if row is None:
         raise TemplateError('Template not found.', 404)
     require_manage(user, row)
-    if row.board_id and CanvasBoard.objects.filter(pk=row.board_id).exists():
-        return str(row.board_id)
+    existing = CanvasBoard.objects.filter(pk=row.board_id).values_list('project_id', flat=True).first() if row.board_id else None
+    if existing:
+        return {'boardId': str(row.board_id), 'projectId': str(existing)}
     if not isinstance(project_id, str) or not UUID_RE.fullmatch(project_id):
         raise TemplateError('A project is required to edit a template.')
     access.require_board_creator(user, project_id)
     row.board_id = _editing_board(user, row, project_id, row.graph)
     row.save(update_fields=['board_id'])
-    return str(row.board_id)
+    return {'boardId': str(row.board_id), 'projectId': project_id}
 
 
 def require_manage(user, row):
@@ -457,7 +460,7 @@ def template_for_board(user, board_id):
 
 # ---- likes, comments and usage --------------------------------------------------------------------------------
 
-def _known(user, ref, project_id=None):
+def _known(user, ref):
     if ref.startswith(BUILTIN_PREFIX):
         item = template_catalog.template(ref[len(BUILTIN_PREFIX):])
         return (item['name'], 'builtin') if item else None
@@ -465,7 +468,7 @@ def _known(user, ref, project_id=None):
     if blueprint:
         found = get_blueprint(user, ref[len('blueprint:'):])
         return (found['name'], 'blueprint') if found else None
-    row = _row(user, ref, project_id)
+    row = _row(user, ref)
     return (row.name, 'custom') if row else None
 
 
@@ -477,10 +480,6 @@ def set_like(user, ref, liked):
     else:
         BoardTemplateLike.objects.filter(template_ref=ref, user_id=user.id).delete()
     return {'liked': bool(liked), 'likes': BoardTemplateLike.objects.filter(template_ref=ref).count()}
-
-
-def liked_refs(user):
-    return list(BoardTemplateLike.objects.filter(user_id=user.id).values_list('template_ref', flat=True))
 
 
 def list_comments(user, ref):
@@ -549,14 +548,21 @@ def _custom_blueprint(user, row):
     return {'id': 'blueprint:' + str(row.id), 'kind': 'custom', 'name': row.name, 'description': row.description,
             'scope': row.scope, 'projectId': str(row.project_id) if row.project_id else None,
             'createdBy': str(row.created_by) if row.created_by else None, 'featured': row.featured, 'canManage': manage,
-            'boards': [{'name': board['name'], 'nodeCount': len(board['graph']['nodes'])} for board in row.boards],
-            'createdAt': row.created_at, 'updatedAt': row.updated_at}
+            'boards': row.summary, 'createdAt': row.created_at, 'updatedAt': row.updated_at}
+
+
+def _summarized(query):
+    """`query` with each row's board names and node counts as `summary`, computed in SQL so the graphs stay unread."""
+    return query.defer('boards').annotate(summary=RawSQL(
+        "SELECT coalesce(jsonb_agg(jsonb_build_object('name', item->'name', 'nodeCount', jsonb_array_length(item->'graph'->'nodes'))"
+        " ORDER BY position), '[]'::jsonb) FROM jsonb_array_elements(boards) WITH ORDINALITY AS board(item, position)",
+        [], output_field=models.JSONField()))
 
 
 def _blueprint_row(user, identifier, include_deleted=False):
     if not UUID_RE.fullmatch(identifier or ''):
         return None
-    row = Blueprint.objects.filter(pk=identifier).first()
+    row = _summarized(Blueprint.objects.filter(pk=identifier)).first()
     if row is None or (row.deleted_at is not None and not include_deleted):
         return None
     mine = row.created_by is not None and str(row.created_by) == str(user.id)
@@ -570,7 +576,7 @@ def list_blueprints(user, project_id=None):
     query = models.Q(created_by=user.id) | models.Q(scope='everyone')
     if project_id and UUID_RE.fullmatch(project_id) and in_project_audience(user, project_id):
         query |= models.Q(scope='project', project_id=project_id)
-    entries += [_custom_blueprint(user, row) for row in Blueprint.objects.filter(query, deleted_at__isnull=True).order_by('-updated_at')]
+    entries += [_custom_blueprint(user, row) for row in _summarized(Blueprint.objects.filter(query, deleted_at__isnull=True)).order_by('-updated_at')]
     names = _authors({entry.get('createdBy') for entry in entries})
     refs = [entry['id'] for entry in entries]
     uses = _counts(BoardTemplateUsage, refs)
@@ -590,7 +596,7 @@ def get_blueprint(user, identifier):
 
 
 def create_blueprint(user, data):
-    """Snapshot every board of a project (those the user can read) as a custom blueprint."""
+    """Snapshot every board of a project the user can see as a custom blueprint; each one needs edit rights."""
     name = clean_name(data.get('name'))
     scope, project_id = clean_scope(data.get('scope', 'personal'), data.get('projectId'), user)
     source = data.get('sourceProjectId')
@@ -602,6 +608,8 @@ def create_blueprint(user, data):
     rows = [row for row in rows if levels[str(row['id'])] >= access.READ][:BLUEPRINT_MAX_BOARDS]
     if not rows:
         raise TemplateError('The project has no boards to save.')
+    if any(levels[str(row['id'])] < access.WRITE for row in rows):
+        raise access.AccessError('FORBIDDEN', 403)
     identifier = uuid.uuid4()
     boards = []
     with transaction.atomic():
@@ -613,7 +621,7 @@ def create_blueprint(user, data):
         saved = Blueprint.objects.create(id=identifier, name=name, description=clean_description(data.get('description')),
                                          scope=scope, project_id=project_id, created_by=user.id, boards=boards,
                                          created_at=now, updated_at=now)
-    return _custom_blueprint(user, saved)
+    return _custom_blueprint(user, _blueprint_row(user, str(saved.id)))
 
 
 def update_blueprint(user, identifier, data):
@@ -651,7 +659,7 @@ def use_blueprint(user, identifier, name):
     """One project and one board per blueprint board, in a single transaction. Returns the new project and its
     boards; a blueprint changed later never changes projects already made from it."""
     from apps.projects.services.projects import create_project
-    from .services import create_board_with_data, list_boards
+    from .services import create_board, list_boards
     project_name = clean_name(name, 'Project name')
     if identifier.startswith('builtin:'):
         item = template_catalog.blueprint(identifier[len('builtin:'):])
@@ -668,6 +676,6 @@ def use_blueprint(user, identifier, name):
     with transaction.atomic():
         created = create_project(project_name, user.id)
         project = created['project']
-        made = [create_board_with_data(project['id'], board_name, user, instantiate(graph)) for board_name, graph in boards]
+        made = [create_board(project['id'], board_name, user, instantiate(graph)) for board_name, graph in boards]
         record_usage(user, ref)
     return {'project': project, 'projects': created['projects'], 'boards': made, 'allBoards': list_boards(project['id'], user)}

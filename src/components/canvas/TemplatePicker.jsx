@@ -109,8 +109,8 @@ function Detail({ template, mode, canInsert, isAdmin, onUse, onChanged, onEdit, 
         {isAdmin && <button type="button" onClick={feature} className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-line px-2 py-1 hover:bg-white/10"><Star className={cn("h-3.5 w-3.5", template.featured && "fill-yellow-300 text-yellow-300")} /> {template.featured ? "Unfeature" : "Feature"}</button>}
         {template.canManage && (
           <>
-            <button type="button" onClick={() => onEdit(template)} className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-line px-2 py-1 hover:bg-white/10"><Pencil className="h-3.5 w-3.5" /> Edit details</button>
-            <button type="button" onClick={() => onEditContent(template)} className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-line px-2 py-1 hover:bg-white/10">Edit content</button>
+            {onEdit && <button type="button" onClick={() => onEdit(template)} className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-line px-2 py-1 hover:bg-white/10"><Pencil className="h-3.5 w-3.5" /> Edit details</button>}
+            {onEditContent && <button type="button" onClick={() => onEditContent(template)} className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-line px-2 py-1 hover:bg-white/10">Edit content</button>}
             <button type="button" onClick={() => onDelete(template)} className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-line px-2 py-1 text-red-300 hover:bg-red-500/10"><Trash2 className="h-3.5 w-3.5" /> Delete</button>
           </>
         )}
@@ -220,7 +220,7 @@ export function TemplatePicker({
             {mode === "board" && (
               <>
                 <button type="button" disabled={!canInsert || !selectionCount} onClick={onSaveSelection} className="cursor-pointer rounded-md border border-line px-2.5 py-1.5 text-xs text-white/70 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40">Save selection as template</button>
-                <button type="button" onClick={onSaveBoard} className="cursor-pointer rounded-md border border-line px-2.5 py-1.5 text-xs text-white/70 hover:bg-white/10">Save board as template</button>
+                <button type="button" disabled={!canInsert} onClick={onSaveBoard} className="cursor-pointer rounded-md border border-line px-2.5 py-1.5 text-xs text-white/70 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-40">Save board as template</button>
               </>
             )}
             {mode === "new" && <button type="button" onClick={onBlank} className="cursor-pointer rounded-md border border-line px-2.5 py-1.5 text-xs text-white/70 hover:bg-white/10">Blank board</button>}

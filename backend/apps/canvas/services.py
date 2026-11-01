@@ -60,10 +60,6 @@ def create_board(project, name, user, data=None):
     return {**metadata({**{field: getattr(row, field) for field in META_FIELDS}, 'team_role': 'edit'}), 'role': 'owner'}
 
 
-def create_board_with_data(project, name, user, data):
-    return create_board(project, name, user, data)
-
-
 def rename_board(identifier, name):
     CanvasBoard.objects.filter(pk=identifier).update(name=name, updated_at=now_ms())
 
