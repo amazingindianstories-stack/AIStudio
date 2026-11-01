@@ -72,7 +72,7 @@ board, Tab walks one level in reading order (wrapping inside a frame, swimlane o
 top level, Tab past the last object or Shift+Tab before the first leaves the board for the next
 page control), Enter goes into one of those containers or a group (or edits text), Escape comes
 back out, and Cmd/Ctrl+arrows jump to the nearest object in that direction. Screen readers hear
-what is selected through a polite live region.
+what is selected through a polite live region. Smart duplicate uses Alt+Arrow; resize uses Alt+Shift+Arrow (10px). The shortcut panel and command palette read these bindings from the registry.
 
 ## Accessibility tools
 

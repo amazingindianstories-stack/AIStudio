@@ -116,3 +116,17 @@ test("palette search matches every word in any order", () => {
   assert.equal(commandMatches("Board Present frames", "slides"), false);
   assert.equal(commandMatches("Tools Sticky note", ""), true);
 });
+
+
+test("replace all leaves locked objects unchanged and undoes editable replacements", async (t) => {
+  const store = await loadAs(t, "edit");
+  store.getState().setSelection(["a"]);
+  store.getState().toggleLockSelection("owner");
+  const present = store.getState().history.present;
+  const past = store.getState().history.past.length;
+  store.getState().replaceNodes(replaceMatches(present, findOnBoard(present, "cat"), "dog"));
+  assert.deepEqual(store.getState().history.present.nodes.map((n) => n.text), ["cat", "dog dog"]);
+  assert.equal(store.getState().history.past.length, past + 1);
+  store.getState().undo();
+  assert.deepEqual(store.getState().history.present.nodes.map((n) => n.text), ["cat", "cat cat"]);
+});

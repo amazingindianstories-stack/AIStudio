@@ -29,6 +29,7 @@ import {
 } from "./keyboard-nav";
 
 import { visibleGraph } from "./culling";
+import { zoomToLevel } from "./viewport-nav";
 
 export const SHORTCUT_GROUPS = ["Tools", "Edit", "Navigate", "View", "Board"];
 
@@ -112,7 +113,7 @@ const ARROW_STEP = { left: [-1, 0], right: [1, 0], up: [0, -1], down: [0, 1] };
 const arrowKeys = (prefix) => Object.keys(ARROWS).map((k) => `${prefix}${k}`);
 const directionOf = (event) => ARROWS[event.key];
 
-const present = (ctx) => visibleGraph(ctx.store.history.present, ctx.store.focusedDiagramId);
+const present = (ctx) => visibleGraph(ctx.store.history.present, ctx.store.focusedDiagramId, ctx.store.hiddenLayerIds);
 const hasSelection = (ctx) => ctx.store.selection.length > 0;
 
 function tool(id, label, keys, extra = {}) {
@@ -195,9 +196,9 @@ const SHORTCUTS = [
   {
     id: "edit.resize", board: true,
     group: "Edit",
-    label: "Resize selection (Shift: 10px)",
-    keys: [...arrowKeys("Alt+"), ...arrowKeys("Alt+Shift+")],
-    display: ["Alt+ArrowRight"],
+    label: "Resize selection (10px)",
+    keys: arrowKeys("Alt+Shift+"),
+    display: ["Alt+Shift+ArrowRight"],
     edits: true,
     run: (ctx, e) => {
       if (!hasSelection(ctx)) return false;
@@ -208,6 +209,12 @@ const SHORTCUTS = [
       ctx.store.resizeSelected("se", dx * step, dy * step, keepAspect);
     },
   },
+  { id: "edit.smartDuplicate", board: true, group: "Edit", label: "Smart duplicate",
+    keys: arrowKeys("Alt+"), display: ["Alt+ArrowRight"], edits: true,
+    run: (ctx, e) => hasSelection(ctx) ? ctx.store.duplicateSelectionToward(directionOf(e)) : false },
+  { id: "edit.clearContent", board: true, group: "Edit", label: "Clear object text",
+    keys: ["Mod+Backspace"], edits: true,
+    run: (ctx) => hasSelection(ctx) ? ctx.store.clearSelectedContent() : false },
   { id: "edit.menu", board: true, group: "Edit", label: "Open the object menu", keys: ["Mod+Enter"], run: (ctx) => (hasSelection(ctx) ? ctx.openContextMenu() : false) },
 
   // ── navigate ──
@@ -289,7 +296,7 @@ const SHORTCUTS = [
     label: "Zoom to 100%",
     keys: ["Mod+0"],
     touch: true,
-    run: (ctx) => ctx.store.setViewport({ ...present(ctx).viewport, zoom: 1 }),
+    run: (ctx) => ctx.store.setViewport(zoomToLevel(present(ctx).viewport, 1, ctx.store.viewportSize())),
   },
   { id: "view.fit", group: "View", label: "Zoom to fit", keys: ["Shift+1"], touch: true, run: (ctx) => ctx.store.zoomToFit() },
 

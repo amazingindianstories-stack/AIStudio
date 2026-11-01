@@ -201,3 +201,14 @@ test("keyboard navigation skips objects outside the focused diagram", () => {
   assert.equal(dispatchShortcut(keydown("Home"), ctx), true);
   assert.deepEqual(ctx.calls, [["select", ["diagram"]]]);
 });
+
+
+test("Alt+Arrow duplicates while Alt+Shift+Arrow resizes", () => {
+  const ctx = context();
+  ctx.store.selection = ["note"];
+  ctx.store.duplicateSelectionToward = (direction) => ctx.calls.push(["duplicate", direction]);
+  ctx.store.resizeSelected = (...args) => ctx.calls.push(["resize", ...args]);
+  assert.equal(dispatchShortcut(keydown("ArrowRight", { alt: true }), ctx), true);
+  assert.equal(dispatchShortcut(keydown("ArrowDown", { alt: true, shift: true }), ctx), true);
+  assert.deepEqual(ctx.calls, [["duplicate", "right"], ["resize", "se", 0, 10, false]]);
+});

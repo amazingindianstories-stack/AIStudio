@@ -171,8 +171,7 @@ def board_detail(request, identifier):
             return reply(request, {**board, 'role': access.LEVEL_NAMES[level]}) if board else reply(request, {'error': 'Board not found.'}, 404)
         # A missing board keeps the frozen validate-then-404 order; an existing one checks the role first,
         # so a read-only user is refused before any version check and never receives a 409 with the graph.
-        if existing is not None:
-            access.require(user, existing, access.WRITE)
+        level = access.require(user, existing, access.WRITE) if existing is not None else None
         payload = body(request)
         patch = property_of(payload, 'patch') if request.method == 'PATCH' else None
         data = patch if request.method == 'PATCH' else property_of(payload, 'data')
@@ -188,7 +187,7 @@ def board_detail(request, identifier):
             return reply(request, {'error': 'Board is too large to save.'}, 413)
         try:
             saved = services.save_board(identifier, None if patch is not None else validate_state(data), base_version,
-                                        save_id, user.id, patch=patch)
+                                        save_id, user.id, patch=patch, level=level)
         except board_patch.PatchError:
             return reply(request, {'error': 'INVALID_PATCH'}, 400)
         except services.VersionConflict as conflict:

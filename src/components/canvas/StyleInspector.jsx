@@ -27,6 +27,7 @@ import { useCanvasStore, } from "@/lib/canvas-store";
 import { nodeBounds, resolveEndpoint, worldToScreen } from "@/lib/canvas/geometry";
 import { Dropdown, MenuItem } from "@/components/Dropdown";
 import { isShapeNode, textColorOf } from "@/lib/canvas/shapes";
+import { ArrangeControls } from "./ArrangeMenu";
 import { ColorPicker } from "./ColorPicker";
 import { FontPicker } from "./FontPicker";
 import { AutoFitButton, ReactionPicker, StickyShapeControl, TagPicker } from "./StickyControls";
@@ -34,6 +35,9 @@ import { StyleMoreItems } from "./StyleMoreItems";
 import { STICKY_COLORS, stickyColorPatch } from "@/lib/canvas/stickies";
 import { rememberSelectionStyle } from "@/lib/canvas/sticky-actions";
 import { HIGHLIGHT_COLORS } from "@/lib/canvas/rich-text";
+import { LockedSelectionBar, LockMenuItems, useSelectionLock } from "./LockControls";
+import { TransformControls } from "./TransformControls";
+import { ROTATE_HANDLE_REACH, rotationTargets } from "@/lib/canvas/transform";
 import {
   activeFormats,
   applyHighlight,
@@ -49,7 +53,7 @@ const RICH_TEXT_TYPES = new Set(["text", "sticky"]);
 /** World height of a frame's title strip, which FrameNode draws above the box (`-top-6`). */
 const FRAME_TITLE_HEIGHT = 24;
 
-export function StyleInspector({ hidden }) {
+export function StyleInspector({ hidden, insetLeft = 0 }) {
   const selection = useCanvasStore((s) => s.selection);
   const selectedConnectorIds = useCanvasStore((s) => s.selectedConnectorIds);
   const present = useCanvasStore((s) => s.history.present);
@@ -65,16 +69,19 @@ export function StyleInspector({ hidden }) {
   const updateConnectorWaypoints = useCanvasStore((s) => s.updateConnectorWaypoints);
   const convertSelectionToDiagram = useCanvasStore((s) => s.convertSelectionToDiagram);
   const editingTextId = useCanvasStore((s) => s.editingTextId);
+  const lock = useSelectionLock();
   const panelRef = useRef(null);
-  // Keep the panel inside its container on narrow screens: it is centred on the
-  // selection, which can sit near either edge, so clamp after layout.
+  // Keep the panel inside its container and clear of the asset panel that
+  // overlays its left side: it is centred on the selection, which can sit near
+  // either edge, so clamp after layout.
   useLayoutEffect(() => {
     const el = panelRef.current;
     const parent = el?.offsetParent;
     if (!el || !parent) return;
     const half = el.offsetWidth / 2;
     const desired = Number.parseFloat(el.dataset.centerX ?? "0");
-    const left = Math.min(Math.max(desired, half + 8), Math.max(parent.clientWidth - half - 8, half + 8));
+    const min = insetLeft + half + 8;
+    const left = Math.min(Math.max(desired, min), Math.max(parent.clientWidth - half - 8, min));
     el.style.left = `${left}px`;
   });
 
@@ -120,7 +127,8 @@ export function StyleInspector({ hidden }) {
   const topLeftScreen = worldToScreen({ x: bx0, y: by0 }, viewport);
   const bottomRightScreen = worldToScreen({ x: bx1, y: by1 }, viewport);
   const centerX = (topLeftScreen.x + bottomRightScreen.x) / 2;
-  const gap = 8;
+  // Clear of the rotation handle above the selection.
+  const gap = 8 + (rotationTargets(present, selection).length ? ROTATE_HANDLE_REACH * viewport.zoom : 0);
   const panelHeight = 44;
   const flipBelow = topLeftScreen.y - panelHeight - gap < 8;
   const top = flipBelow ? bottomRightScreen.y + gap : topLeftScreen.y - panelHeight - gap;
@@ -160,6 +168,21 @@ export function StyleInspector({ hidden }) {
   const autoFit = stickies.length > 0 && stickies.every((n) => n.autoFit);
   const editingRichText =
     selection.length === 1 && editingTextId === selection[0] && (RICH_TEXT_TYPES.has(soleType) || isShape);
+
+  // Locked objects take no style changes, only votes: the bar says so and offers what this person may do.
+  if (lock.allLocked && !hasConnectors) {
+    return (
+      <div
+        ref={panelRef}
+        data-center-x={centerX}
+        className="absolute z-40 flex h-11 max-w-[calc(100%-1rem)] items-center gap-1 rounded-2xl border border-line bg-ink-750/95 p-1 shadow-pop backdrop-blur-xl"
+        style={{ left: centerX, top, transform: "translateX(-50%)" }}
+      >
+        <LockedSelectionBar lock={lock} />
+        {stickies.length > 0 && <ReactionPicker stickies={stickies} />}
+      </div>
+    );
+  }
 
   return (
     <div
@@ -315,6 +338,8 @@ export function StyleInspector({ hidden }) {
           <button type="button" onClick={() => beginCrop(selection[0])} className="grid h-8 w-8 place-items-center rounded-lg text-white/60 hover:bg-white/10 hover:text-white" title="Crop image" aria-label="Crop image"><Crop className="h-4 w-4" /></button>
         )}
 
+        {hasNodes && <TransformControls nodes={selectedNodes} />}
+
         {/* opacity — applies to every node type */}
         {hasNodes && (
           <OpacityControl
@@ -322,6 +347,8 @@ export function StyleInspector({ hidden }) {
             onChange={(v) => patch({ opacity: v })}
           />
         )}
+
+        {hasNodes && <ArrangeControls />}
 
         <Dropdown
           align="right"
@@ -357,6 +384,12 @@ export function StyleInspector({ hidden }) {
                 <SendToBack className="h-4 w-4 text-white/45" /> Send to back
               </MenuItem>
               {hasNodes && <StyleMoreItems nodes={selectedNodes} readOnly={false} close={close} />}
+              {hasNodes && (
+                <>
+                  <div className="my-1 h-px bg-line" />
+                  <LockMenuItems onDone={close} />
+                </>
+              )}
               <div className="my-1 h-px bg-line" />
               <MenuItem
                 onClick={() => {

@@ -10,6 +10,13 @@ import { emptyCanvasState, validateCanvasState } from "./canvas/serialization";
 import { mergeCanvasStates, rebaseHistory, sameValue } from "./canvas/merge";
 import { boardFromChanges, buildBoardPatch } from "./canvas/patch";
 import { unstamped, withServerStamps } from "./canvas/stamps";
+import { isLocked, unlockedIds, withoutLock } from "./canvas/locks";
+import { connectorShown, hiddenNodeIds, placeCopies, placeOnLayer } from "./canvas/layers";
+import { lockLayerActions } from "./canvas/lock-layer-actions";
+import { arrangeActions } from "./canvas/arrange-actions";
+import { transformActions } from "./canvas/transform-actions";
+import { boardViewActions } from "./canvas/board-view-actions";
+import { withStartView } from "./canvas/start-view";
 import {
   MAX_ZOOM,
   MIN_ZOOM,
@@ -22,6 +29,7 @@ import {
   connectorBounds,
   isContainerNode,
   connectorPointAt,
+  resizeAnchored,
 } from "./canvas/geometry";
 import { getDiagramTheme, loadDiagramThemeId, saveDiagramThemeId } from "./canvas/diagram-themes";
 import { hiddenBoardIds, visibleGraph } from "./canvas/culling";
@@ -51,6 +59,10 @@ import {
 // re-exported so CanvasToolbar/CanvasSurface keep sharing one clamp.
 export { MAX_ZOOM, MIN_ZOOM };
 
+// The one lock check every editing path uses (moves, resizes, deletes, text,
+// keyboard nudges, find-and-replace, paste): `isLocked(present, nodeOrId)`.
+export { isLocked };
+
 const DEBOUNCE_MS = 1500;
 const MAX_RETRY_MS = 15000;
 const GESTURE_IDLE_MS = 400;
@@ -69,7 +81,7 @@ export function selectReadOnly(state) {
   return state.accessLost || !canEditRole(state.boardRole);
 }
 
-const READ_ONLY_TOOLS = ["select", "hand"];
+const READ_ONLY_TOOLS = ["select", "hand", "lasso"];
 
 function redirectToLogin() {
   if (typeof window !== "undefined" && window.location.pathname !== "/login") {
@@ -281,7 +293,9 @@ function buildClones(
   ids,
   dx,
   dy,
-  keepUnmappedParent
+  keepUnmappedParent,
+  present,
+  layerId
 ) {
   const idSet = new Set(ids);
   const idMap = new Map();
@@ -303,9 +317,9 @@ function buildClones(
         ? n.parentId ?? null
         : null;
     // A copy is a new object: the server stamps it on save.
-    clones.push({ ...unstamped(n), id: newId, x: n.x + dx, y: n.y + dy, parentId: newParentId, groupId: newGroupId });
+    clones.push({ ...withoutLock(unstamped(n)), id: newId, x: n.x + dx, y: n.y + dy, parentId: newParentId, groupId: newGroupId });
   }
-  return { clones, idMap };
+  return { clones: placeCopies(present, clones, layerId), idMap };
 }
 
 /** The selection of `state` limited to the objects `present` has and the board shows. */
@@ -635,6 +649,19 @@ async function flushSaveImpl(
       if (!res.ok) throw new Error(`save failed: ${res.status}`);
       const j = await res.json();
       clearPendingDraft(boardId, sentPresent);
+      if (j.board && get().boardId === boardId) {
+        // The server put back changes this person may not make (a protected lock, the start view): merge
+        // the graph it saved like another person's save, measured from what this tab sent.
+        retryBackoffMs = DEBOUNCE_MS;
+        if (ownCropEdit && cropHold === hold) cropHold = null;
+        applyRemoteBoard(set, get, { version: j.version, data: j.board }, validateCanvasState(cropHold ? sentPresent : sent));
+        if (sameValue(get().history.present, get().serverState)) set({ saveStatus: "saved" });
+        else {
+          set({ saveStatus: "dirty" });
+          scheduleFlush(get, DEBOUNCE_MS);
+        }
+        return;
+      }
       retryBackoffMs = DEBOUNCE_MS;
       // This person's change to the image was written over the held one, so nothing is held any more.
       if (ownCropEdit && cropHold === hold) cropHold = null;
@@ -719,6 +746,7 @@ async function loadBoardImpl(set, get, id) {
   get().reset();
   patchSavesUnsupported = false;
   set({ boardId: id, loaded: false });
+  get().loadLayerVisibility();
 
   const pending = readPendingDraft(id);
   const saveLookup = pending?.save && draftSyncUsable(pending) ? `?saveId=${encodeURIComponent(pending.save.id)}` : "";
@@ -762,7 +790,7 @@ async function loadBoardImpl(set, get, id) {
     accessLost: false,
     tool: editable ? get().tool : "select",
     touchEditMode: false,
-    history: { past: [], present: restored || data, future: [] },
+    history: { past: [], present: withStartView(board.id, restored || data, { keepViewport: !!restored }), future: [] },
     serverVersion,
     serverState: data,
     selection: [],
@@ -832,7 +860,7 @@ async function pollRemoteImpl(set, get) {
 
 function writeNodeText(set, get, id, text, marks, contentHeight, from) {
   const node = get().history.present.nodes.find((n) => n.id === id);
-  if (!node) return;
+  if (!node || isLocked(get().history.present, node)) return;
   if (from && from.text === text && sameValue(from.marks?.length ? from.marks : null, marks?.length ? marks : null)) return;
   const h = node.type === "text" && Number.isFinite(contentHeight) && contentHeight > node.h ? contentHeight : node.h;
   const isNamedNode = node.type === "frame" || node.type === "erd" || node.type === "swimlane" || node.type === "diagram";
@@ -845,7 +873,8 @@ function writeNodeText(set, get, id, text, marks, contentHeight, from) {
     ...present,
     nodes: present.nodes.map((n) => {
       if (n.id !== id) return n;
-      return isNamedNode ? { ...n, name: text } : { ...withText(n, text, marks), h };
+      // A rotated text box that grew keeps its top-left corner where it was.
+      return isNamedNode ? { ...n, name: text } : resizeAnchored(withText(n, text, marks), n.w, h);
     }),
   }));
 }
@@ -878,6 +907,11 @@ export const useCanvasStore = create((set, get) => ({
   saveError: null,
   croppingImageId: null,
   cropDraft: null,
+
+  ...lockLayerActions(set, get, { mutateGraph }),
+  ...arrangeActions(set, get, { mutateGraph, buildClones, readOnly: selectReadOnly }),
+  ...transformActions(set, get, { mutateGraph }),
+  ...boardViewActions(set, get, { mutateGraph }),
 
   loadBoard: (id) => loadBoardImpl(set, get, id),
 
@@ -1011,7 +1045,7 @@ export const useCanvasStore = create((set, get) => ({
     if (!edits?.size) return;
     mutateGraph(set, get, (present) => ({
       ...present,
-      nodes: present.nodes.map((n) => edits.get(n.id) ?? n),
+      nodes: present.nodes.map((n) => isLocked(present, n) ? n : (edits.get(n.id) ?? n)),
       connectors: present.connectors.map((c) => edits.get(c.id) ?? c),
     }));
   },
@@ -1073,8 +1107,12 @@ export const useCanvasStore = create((set, get) => ({
    * such as ./canvas/sticky-actions.js. Read-only boards ignore it, like every edit. */
   editBoard: (compute, opts) => mutateGraph(set, get, compute, opts),
 
+  /** Adds new objects as one edit, on the layer this person picked in the Layers panel. */
+  addNodes: (nodes, opts) =>
+    mutateGraph(set, get, (present) => ({ ...present, nodes: [...present.nodes, ...placeOnLayer(present, nodes, get().activeLayerId)] }), opts),
+
   addNode: (node) => {
-    mutateGraph(set, get, (present) => ({ ...present, nodes: [...present.nodes, node] }));
+    get().addNodes([node]);
     set({ selection: [node.id], selectedConnectorIds: [] });
   },
 
@@ -1099,7 +1137,7 @@ export const useCanvasStore = create((set, get) => ({
         aspectLocked: false, parentId: null, groupId: null,
       };
     });
-    mutateGraph(set, get, (present) => ({ ...present, nodes: [...present.nodes, ...nodes] }));
+    get().addNodes(nodes);
     set({ selection: nodes.map((node) => node.id), selectedConnectorIds: [] });
   },
 
@@ -1109,7 +1147,7 @@ export const useCanvasStore = create((set, get) => ({
   /** The visible canvas's measured size in pixels. */
   viewportSize: () => ({ ...viewportPx }),
   /** The board as the user sees it: the current graph less what the board hides (hidden layers, outside Focus mode). */
-  visibleBoard: () => visibleGraph(get().history.present, get().focusedDiagramId),
+  visibleBoard: () => visibleGraph(get().history.present, get().focusedDiagramId, get().hiddenLayerIds),
 
   /** Insert generated nodes (a "Create with AI" result) as one undo step and select them. `replaceIds` are the
    * nodes of the result this one refines: they leave in the same step (with connectors that referenced them), so
@@ -1123,7 +1161,7 @@ export const useCanvasStore = create((set, get) => ({
         .map((n) => (n.parentId && replaced.has(n.parentId) ? { ...n, parentId: null } : n));
       const connectors = present.connectors.filter((c) =>
         !("nodeId" in c.from && replaced.has(c.from.nodeId)) && !("nodeId" in c.to && replaced.has(c.to.nodeId)));
-      return { ...present, nodes: [...kept, ...nodes], connectors };
+      return { ...present, nodes: [...kept, ...placeOnLayer(present, nodes, get().activeLayerId)], connectors };
     });
     set({ selection: nodes.map((node) => node.id), selectedConnectorIds: [] });
   },
@@ -1153,7 +1191,7 @@ export const useCanvasStore = create((set, get) => ({
 
   updateSelectedStyle: (patch) => {
     const { selection, selectedConnectorIds } = get();
-    const selectedIds = new Set(selection);
+    const selectedIds = new Set(unlockedIds(get().history.present, selection));
     const selectedConnectorSet = new Set(selectedConnectorIds);
     if (!selection.length && !selectedConnectorIds.length) return;
     mutateGraph(
@@ -1192,6 +1230,8 @@ export const useCanvasStore = create((set, get) => ({
       set,
       get,
       (present) => {
+        // Locked objects stay where they are (moveNodesBy also leaves a moved frame's locked children).
+        const movable = new Set(unlockedIds(present, selection));
         let next = moveNodesBy(present, selection, dx, dy);
         // Drag-end reparenting: a dragged (non-container) node adopts whichever
         // container (frame, swimlane, diagram) its center now sits inside, or is released if dragged out.
@@ -1199,7 +1239,7 @@ export const useCanvasStore = create((set, get) => ({
         next = {
           ...next,
           nodes: next.nodes.map((n) => {
-            if (isContainerNode(n) || !selectedIds.has(n.id)) return n;
+            if (isContainerNode(n) || !selectedIds.has(n.id) || !movable.has(n.id)) return n;
             const newParentId = computeFrameMembership(n, containers);
             return newParentId !== (n.parentId ?? null) ? { ...n, parentId: newParentId } : n;
           }),
@@ -1230,7 +1270,7 @@ export const useCanvasStore = create((set, get) => ({
 
   resizeSelected: (handle, dx, dy, keepAspect) => {
     const { selection } = get();
-    const selectedIds = new Set(selection);
+    const selectedIds = new Set(unlockedIds(get().history.present, selection));
     if (!selection.length) return;
     mutateGraph(
       set,
@@ -1248,7 +1288,7 @@ export const useCanvasStore = create((set, get) => ({
   deleteSelected: () => {
     const { selection, selectedConnectorIds } = get();
     if (!selection.length && !selectedConnectorIds.length) return;
-    const deleteIds = new Set(selection);
+    const deleteIds = new Set(unlockedIds(get().history.present, selection));
     const connDeleteIds = new Set(selectedConnectorIds);
     mutateGraph(set, get, (present) => {
       const nodes = present.nodes
@@ -1263,7 +1303,8 @@ export const useCanvasStore = create((set, get) => ({
       });
       return { ...present, nodes, connectors };
     });
-    set({ selection: [], selectedConnectorIds: [] });
+    // Locked objects were kept, and stay selected.
+    set({ selection: selection.filter((id) => !deleteIds.has(id)), selectedConnectorIds: [] });
   },
 
   duplicateSelected: () => {
@@ -1272,7 +1313,7 @@ export const useCanvasStore = create((set, get) => ({
     if (!selection.length) return;
     let idMap = new Map();
     mutateGraph(set, get, (present) => {
-      const built = buildClones(present.nodes, selection, 20, 20, true);
+      const built = buildClones(present.nodes, selection, 20, 20, true, present, get().activeLayerId);
       idMap = built.idMap;
       return { ...present, nodes: [...present.nodes, ...built.clones] };
     });
@@ -1290,7 +1331,7 @@ export const useCanvasStore = create((set, get) => ({
       (present) => {
         // Zero offset — duplicates land exactly on the originals (alt-drag
         // then drags the duplicates; the originals are left untouched).
-        const built = buildClones(present.nodes, selection, 0, 0, true);
+        const built = buildClones(present.nodes, selection, 0, 0, true, present, get().activeLayerId);
         idMap = built.idMap;
         return { ...present, nodes: [...present.nodes, ...built.clones] };
       },
@@ -1301,8 +1342,8 @@ export const useCanvasStore = create((set, get) => ({
 
   group: () => {
     const { selection } = get();
-    const selectedIds = new Set(selection);
-    if (selection.length < 2) return;
+    const selectedIds = new Set(unlockedIds(get().history.present, selection));
+    if (selectedIds.size < 2) return;
     const groupId = crypto.randomUUID();
     mutateGraph(set, get, (present) => ({
       ...present,
@@ -1312,7 +1353,7 @@ export const useCanvasStore = create((set, get) => ({
 
   ungroup: () => {
     const { selection } = get();
-    const selectedIds = new Set(selection);
+    const selectedIds = new Set(unlockedIds(get().history.present, selection));
     if (!selection.length) return;
     mutateGraph(set, get, (present) => ({
       ...present,
@@ -1323,22 +1364,22 @@ export const useCanvasStore = create((set, get) => ({
   bringToFront: () => {
     const { selection } = get();
     if (!selection.length) return;
-    mutateGraph(set, get, (present) => ({ ...present, nodes: zBringToFront(present.nodes, selection) }));
+    mutateGraph(set, get, (present) => ({ ...present, nodes: zBringToFront(present.nodes, unlockedIds(present, selection)) }));
   },
   sendToBack: () => {
     const { selection } = get();
     if (!selection.length) return;
-    mutateGraph(set, get, (present) => ({ ...present, nodes: zSendToBack(present.nodes, selection) }));
+    mutateGraph(set, get, (present) => ({ ...present, nodes: zSendToBack(present.nodes, unlockedIds(present, selection)) }));
   },
   bringForward: () => {
     const { selection } = get();
     if (!selection.length) return;
-    mutateGraph(set, get, (present) => ({ ...present, nodes: zBringForward(present.nodes, selection) }));
+    mutateGraph(set, get, (present) => ({ ...present, nodes: zBringForward(present.nodes, unlockedIds(present, selection)) }));
   },
   sendBackward: () => {
     const { selection } = get();
     if (!selection.length) return;
-    mutateGraph(set, get, (present) => ({ ...present, nodes: zSendBackward(present.nodes, selection) }));
+    mutateGraph(set, get, (present) => ({ ...present, nodes: zSendBackward(present.nodes, unlockedIds(present, selection)) }));
   },
 
   addConnector: (from, to, kind, extra = {}) => {
@@ -1736,7 +1777,9 @@ export const useCanvasStore = create((set, get) => ({
         clipboard.map((n) => n.id),
         20,
         20,
-        false
+        false,
+        present,
+        get().activeLayerId
       );
       idMap = built.idMap;
       return { ...present, nodes: [...present.nodes, ...built.clones] };
@@ -1789,9 +1832,11 @@ export const useCanvasStore = create((set, get) => ({
 
   selectAll: () => {
     const { present } = get().history;
+    // Objects on layers this person hides are not selectable.
+    const hidden = hiddenNodeIds(present, get().hiddenLayerIds);
     set(pruneSelection(present, {
-      selection: present.nodes.map((n) => n.id),
-      selectedConnectorIds: present.connectors.map((c) => c.id),
+      selection: present.nodes.filter((n) => !hidden.has(n.id)).map((n) => n.id),
+      selectedConnectorIds: present.connectors.filter((c) => connectorShown(c, hidden)).map((c) => c.id),
       focusedDiagramId: get().focusedDiagramId,
     }));
   },
@@ -1799,7 +1844,7 @@ export const useCanvasStore = create((set, get) => ({
   clearSelection: () => set({ selection: [], selectedConnectorIds: [], editingTextId: null }),
 
   setEditingTextId: (id) => {
-    if (id && selectReadOnly(get())) return;
+    if (id && (selectReadOnly(get()) || isLocked(get().history.present, id))) return;
     set({ editingTextId: id });
   },
 }));
@@ -1834,7 +1879,8 @@ export function hasClipboard() {
 export function useVisibleBoard() {
   const present = useCanvasStore((s) => s.history.present);
   const focusedDiagramId = useCanvasStore((s) => s.focusedDiagramId);
-  return useMemo(() => visibleGraph(present, focusedDiagramId), [present, focusedDiagramId]);
+  const hiddenLayerIds = useCanvasStore((s) => s.hiddenLayerIds);
+  return useMemo(() => visibleGraph(present, focusedDiagramId, hiddenLayerIds), [present, focusedDiagramId, hiddenLayerIds]);
 }
 
 /** The objects last copied or cut on the board. */

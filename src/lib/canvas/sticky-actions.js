@@ -2,7 +2,9 @@
  * Sticky, tag and style actions on the open board. Each reads the board from
  * the store (never the DOM, so culled objects count) and changes it through
  * `editBoard`, one undo step per action, saved with the board's per-object
- * saves. Read-only boards change nothing: `editBoard` ignores them.
+ * saves. Read-only boards change nothing: `editBoard` ignores them, and no
+ * action changes a locked object (./locks.js), except votes, which only a
+ * protected lock someone else holds turns away, as the server does.
  */
 import { selectReadOnly, applyStylePatchToNode, useCanvasStore } from "@/lib/canvas-store";
 import { useStore } from "@/lib/store";
@@ -21,6 +23,8 @@ import {
 import { addTag, deleteTag, nodesWithTag, setTagOn, updateTag } from "./tags";
 import { canSwitchType, rememberStyle, styleKind, styleOf, switchType, withLastStyle } from "./styles";
 import { nodeBounds } from "./geometry";
+import { hiddenNodeIds } from "./layers";
+import { heldByOther, lockedIdSet } from "./locks";
 
 function canvas() {
   return useCanvasStore.getState();
@@ -40,6 +44,17 @@ function selectedNodes(state = canvas()) {
   return state.history.present.nodes.filter((node) => ids.has(node.id));
 }
 
+/** The selected nodes an action may change: not locked, by themselves or their layer. */
+function changeableNodes(state = canvas()) {
+  const locked = lockedIdSet(state.history.present);
+  return selectedNodes(state).filter((node) => !locked.has(node.id));
+}
+
+/** Whether this person's vote on `node` would stand: the server turns away votes only under a protected lock they may not lift. */
+export function votable(node, userId, role = canvas().boardRole) {
+  return node?.type === "sticky" && !heldByOther(node, userId, role);
+}
+
 function select(ids) {
   canvas().setSelection(ids);
 }
@@ -52,7 +67,7 @@ export function newStickyStyle() {
 
 function addNodes(nodes) {
   if (!nodes.length || !editable()) return false;
-  canvas().editBoard((present) => ({ ...present, nodes: [...present.nodes, ...nodes] }));
+  canvas().addNodes(nodes);
   select(nodes.map((node) => node.id));
   return true;
 }
@@ -84,14 +99,14 @@ export function addStickyStack(center) {
 export function takeStickyFromStack(stack) {
   if (!editable()) return;
   const node = stickyFromStack(stack, { x: stack.x + stack.w / 2, y: stack.y + stack.h / 2 }, newStickyStyle());
-  canvas().editBoard((present) => ({ ...present, nodes: [...present.nodes, node] }), { coalesce: true });
+  canvas().addNodes([node], { coalesce: true });
   select([node.id]);
 }
 
 /** Adds or takes back this person's `emoji` vote on sticky `id`. */
 export function toggleStickyReaction(id, emoji) {
   const userId = currentUserId();
-  if (!userId || !editable()) return;
+  if (!userId || !editable() || !votable(canvas().history.present.nodes.find((node) => node.id === id), userId)) return;
   canvas().editBoard((present) => ({
     ...present,
     nodes: present.nodes.map((node) => (node.id === id && node.type === "sticky" ? toggleReaction(node, emoji, userId) : node)),
@@ -102,11 +117,11 @@ export function toggleStickyReaction(id, emoji) {
 export function setReactionOnSelection(emoji, on) {
   const userId = currentUserId();
   if (!userId || !editable()) return;
-  const ids = new Set(canvas().selection);
+  const ids = new Set(selectedNodes().filter((node) => votable(node, userId)).map((node) => node.id));
   canvas().editBoard((present) => ({
     ...present,
     nodes: present.nodes.map((node) => {
-      if (!ids.has(node.id) || node.type !== "sticky") return node;
+      if (!ids.has(node.id)) return node;
       const mine = Boolean(node.reactions?.[emoji]?.includes(userId));
       return mine === on ? node : toggleReaction(node, emoji, userId);
     }),
@@ -115,7 +130,7 @@ export function setReactionOnSelection(emoji, on) {
 
 /** Square or rectangular shape for every selected sticky. */
 export function setSelectedStickyShape(shape) {
-  const ids = new Set(selectedNodes().filter((node) => node.type === "sticky").map((node) => node.id));
+  const ids = new Set(changeableNodes().filter((node) => node.type === "sticky").map((node) => node.id));
   if (!ids.size) return;
   canvas().editBoard((present) => ({
     ...present,
@@ -125,7 +140,7 @@ export function setSelectedStickyShape(shape) {
 
 /** Turns one setting of the selected stickies on or off (`showAuthor`). */
 export function setSelectedStickyFlag(key, on) {
-  const ids = new Set(selectedNodes().filter((node) => node.type === "sticky").map((node) => node.id));
+  const ids = new Set(changeableNodes().filter((node) => node.type === "sticky").map((node) => node.id));
   if (!ids.size) return;
   canvas().editBoard((present) => ({
     ...present,
@@ -143,7 +158,7 @@ export function setSelectedStickyFlag(key, on) {
 
 /** Creates tag `name` (or finds it) and puts it on the selected stickies. */
 export function addTagToSelection(name) {
-  const ids = selectedNodes().filter((node) => node.type === "sticky").map((node) => node.id);
+  const ids = changeableNodes().filter((node) => node.type === "sticky").map((node) => node.id);
   let tag = null;
   canvas().editBoard((present) => {
     const added = addTag(present, name);
@@ -154,7 +169,7 @@ export function addTagToSelection(name) {
 }
 
 export function setTagOnSelection(tagId, on) {
-  const ids = selectedNodes().filter((node) => node.type === "sticky").map((node) => node.id);
+  const ids = changeableNodes().filter((node) => node.type === "sticky").map((node) => node.id);
   canvas().editBoard((present) => setTagOn(present, ids, tagId, on));
 }
 
@@ -166,9 +181,11 @@ export function removeTag(tagId) {
   canvas().editBoard((present) => deleteTag(present, tagId));
 }
 
-/** Selects every object with tag `tagId`, wherever it is on the board. */
+/** Selects every object with tag `tagId`, wherever it is on the board, except on layers this person hides. */
 export function selectByTag(tagId) {
-  select(nodesWithTag(canvas().history.present, tagId));
+  const { history, hiddenLayerIds } = canvas();
+  const hidden = hiddenNodeIds(history.present, hiddenLayerIds);
+  select(nodesWithTag(history.present, tagId).filter((id) => !hidden.has(id)));
 }
 
 // ---- CSV and clustering ----
@@ -191,7 +208,7 @@ export function exportSelectedStickies(personName, boardName = "board") {
 /** Arranges the selected stickies into titled groups by "tag", "color" or "author", selecting the result. */
 export function clusterSelection(by, personName) {
   const state = canvas();
-  const stickies = selectedNodes(state).filter((node) => node.type === "sticky");
+  const stickies = changeableNodes(state).filter((node) => node.type === "sticky");
   if (stickies.length < 2 || !editable()) return;
   const origin = stickies.reduce((at, node) => {
     const bounds = nodeBounds(node);
@@ -232,7 +249,7 @@ export function hasCopiedStyle() {
 /** Applies the copied style to every selected object that can take it (Cmd+Alt+V), as one undo step. */
 export function pasteSelectionStyle() {
   if (!copiedStyle || !editable()) return false;
-  const ids = new Set(canvas().selection);
+  const ids = new Set(changeableNodes().map((node) => node.id));
   if (!ids.size) return false;
   const { style } = copiedStyle;
   canvas().editBoard((present) => ({
@@ -263,7 +280,7 @@ export function rememberSelectionStyle(nodes, patch) {
 
 /** Switches every selected sticky, text box and shape to type `to`, as one undo step. */
 export function switchSelectionType(to) {
-  const ids = new Set(selectedNodes().filter(canSwitchType).map((node) => node.id));
+  const ids = new Set(changeableNodes().filter(canSwitchType).map((node) => node.id));
   if (!ids.size) return;
   canvas().editBoard((present) => ({
     ...present,

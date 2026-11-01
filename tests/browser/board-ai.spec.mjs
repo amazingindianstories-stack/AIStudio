@@ -24,6 +24,8 @@ async function freshProject(context, page) {
   await page.addInitScript(projectId => {
     const key = 'veevee-draft-settings-v1';
     if (!localStorage.getItem(key)) localStorage.setItem(key, JSON.stringify({ activeProjectId: projectId }));
+    // Scripted wheels read as a mouse wheel (which zooms in auto mode); this person scrolls like a trackpad.
+    localStorage.setItem('veevee.board.viewPrefs', JSON.stringify({ navigationMode: 'trackpad' }));
   }, project.id);
   return project.id;
 }
@@ -92,8 +94,15 @@ test('Create with AI quotes, runs once, places sticky notes and an image on the 
     await page.mouse.wheel(0, swatchBefore.y - (panelBox.y + 40));
     await expect.poll(async () => Math.round((await swatch.boundingBox()).y)).toBe(Math.round(panelBox.y + 40));
     const swatchBox = await swatch.boundingBox();
-    const hit = { x: swatchBox.x + swatchBox.width / 2, y: swatchBox.y + swatchBox.height / 2 };
-    expect(hit.x > panelBox.x && hit.x < panelBox.x + panelBox.width).toBe(true);
+    // Probe a point where the toolbar and the panel overlap horizontally, at the swatch's row.
+    const toolbarBox = await swatch.evaluate((element) => {
+      const { x, width } = element.closest('[data-center-x]').getBoundingClientRect();
+      return { x, width };
+    });
+    const overlapLeft = Math.max(toolbarBox.x, panelBox.x);
+    const overlapRight = Math.min(toolbarBox.x + toolbarBox.width, panelBox.x + panelBox.width);
+    expect(overlapRight - overlapLeft).toBeGreaterThan(0);
+    const hit = { x: (overlapLeft + overlapRight) / 2, y: swatchBox.y + swatchBox.height / 2 };
     expect(await panel.evaluate((element, { x, y }) => element.contains(document.elementFromPoint(x, y)), hit)).toBe(true);
 
     // Refining replaces those notes in place.

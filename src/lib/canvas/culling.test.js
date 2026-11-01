@@ -83,3 +83,11 @@ test("the visible graph leaves out hidden diagram layers, what Focus mode hides 
   const plain = { nodes: [rect("a", 0, 0)], connectors: [] };
   assert.equal(visibleGraph(plain), plain);
 });
+
+
+test("visible graph excludes personal hidden board layers and attached connectors", () => {
+  const graph = { nodes: [rect("shown", 0, 0), rect("hidden", 200, 0, { layerId: "notes" })],
+    connectors: [line("edge", "shown", "hidden")], settings: { layers: [{ id: "notes", name: "Notes" }] } };
+  assert.deepEqual(ids(visibleGraph(graph, null, ["notes"]).nodes), ["shown"]);
+  assert.deepEqual(visibleGraph(graph, null, ["notes"]).connectors, []);
+});

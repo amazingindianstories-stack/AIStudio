@@ -17,6 +17,9 @@
  * mounted, even when kept.
  */
 
+import { nodeBounds } from "./geometry";
+import { layeredView } from "./layers";
+
 /** Screen pixels mounted beyond each edge of the viewport. */
 export const CULL_OVERSCAN_PX = 900;
 /** How far a connector's curve can bow outside the box of its two ends (see connectorPath). */
@@ -40,7 +43,8 @@ function meets(rect, left, top, right, bottom) {
 /** The world box an endpoint can attach anywhere in: its node's bounds, or its free point. */
 function endpointBox(ep, nodesById) {
   if (!("nodeId" in ep)) return { x: ep.x, y: ep.y, w: 0, h: 0 };
-  return nodesById[ep.nodeId] ?? null;
+  const node = nodesById[ep.nodeId];
+  return node ? (node.rotation ? nodeBounds(node) : node) : null;
 }
 
 function connectorMeets(rect, connector, nodesById) {
@@ -127,7 +131,8 @@ export function hiddenBoardIds(graph, focusDiagramId = null) {
 }
 
 /** `graph` without what the board hides (see hiddenBoardIds): the objects a user sees, finds and reaches. */
-export function visibleGraph(graph, focusDiagramId = null) {
+export function visibleGraph(graph, focusDiagramId = null, hiddenLayerIds = []) {
+  if (hiddenLayerIds.length) graph = layeredView(graph, hiddenLayerIds);
   const hidden = hiddenBoardIds(graph, focusDiagramId);
   if (!hidden.nodes.size && !hidden.connectors.size) return graph;
   return {
@@ -153,10 +158,12 @@ export function cullBoard(graph, nodesById, viewport, size, keep = {}, hidden = 
     if ("nodeId" in connector.to) keptNodes.add(connector.to.nodeId);
     return true;
   });
-  const nodes = graph.nodes.filter(
-    (node) =>
-      !hidden.nodes.has(node.id) &&
-      (keptNodes.has(node.id) || meets(rect, node.x, node.y, node.x + node.w, node.y + node.h))
-  );
+  const nodes = graph.nodes.filter((node) => {
+    if (hidden.nodes.has(node.id)) return false;
+    if (keptNodes.has(node.id)) return true;
+    // A rotated node reaches past its unrotated box; cull by what it covers.
+    const b = node.rotation ? nodeBounds(node) : node;
+    return meets(rect, b.x, b.y, b.x + b.w, b.y + b.h);
+  });
   return { nodes, connectors };
 }
