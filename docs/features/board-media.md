@@ -9,8 +9,8 @@ format v1 node type (`audio`, `video`, `pdf`, `embed`, `linkcard`, `code`, `emoj
 ## Files
 
 - Uploads use the `canvas` upload purpose (`backend/apps/media/uploads.py`): raster images, SVG, flattened
-  PSD, PDF, video (MP4, MOV, WebM, at most 150 MiB) and audio. Every upload is sniffed against its declared
-  type.
+  PSD, PDF, video (MP4, MOV, WebM) and audio, at most 256 MiB each. Every upload is sniffed against its
+  declared type.
 - `BoardMedia` rows (`backend/apps/canvas/models.py`) record each stored file. Video, audio and raster
   images are ready at once and keep their original bytes. SVG, PSD and PDF are queued and rendered by the
   generation worker, one file at a time per process (`backend/apps/canvas/media_files.py`). SVG and PSD
@@ -18,7 +18,8 @@ format v1 node type (`audio`, `video`, `pdf`, `embed`, `linkcard`, `code`, `emoj
   megapixels). A job that fails three claims is marked failed.
 - Upload via URL (`POST /api/canvas-boards/<id>/import-url`) fetches a public HTTPS address with the SSRF
   guarded fetcher. An HTML page becomes a link card with its title, description, preview image and
-  favicon (stored as PNG, cached for an hour); a file goes through the same path as an upload.
+  favicon (stored as PNG, cached for an hour); a file goes through the same path as an upload, with an
+  imported video capped at 150 MiB.
 - Saved files (`GET /api/canvas-boards/<id>/media`) lists ready files from every board the person can
   read, newest first, 100 per page.
 

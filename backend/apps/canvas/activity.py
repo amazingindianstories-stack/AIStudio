@@ -2,7 +2,7 @@
 
 A graph save is compared with the graph it replaces, per node and connector id, in the save's own
 transaction. The server stamps every changed object with its author and time, so a client cannot
-forge them, and appends one `board_activity` row per change. Moves and emoji votes and sticker agreements are not changes
+forge them, and appends one `board_activity` row per change. Moves, emoji votes and click-to-agree marks are not changes
 (as in Miro): a node whose only difference is its position, frame, group or reactions, or a connector
 whose only difference is where a free end sits, keeps its stamps and records nothing. `textBy` names
 whoever last replaced an existing sticky's text (absent until then, so the creator wrote it), for
@@ -41,7 +41,7 @@ LABEL_FIELDS = {'frame': 'name', 'erd': 'name', 'swimlane': 'name', 'diagram': '
 
 
 def snippet(item):
-    """A short plain-text label for the History panel: the object's text, frame name or image alt text."""
+    """A short plain-text label for the History panel: the object's `LABEL_FIELDS` field or its text."""
     if not isinstance(item, dict):
         return None
     text = item.get(LABEL_FIELDS.get(item.get('type'), 'text'))

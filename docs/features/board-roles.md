@@ -19,8 +19,8 @@ ranks as co-owner.
 
 | Action | Needs | Route |
 |---|---|---|
-| List the board, open it, see who has access | view | `GET /api/canvas-boards`, `GET /api/canvas-boards/<id>`, `GET /api/canvas-boards/<id>/version`, `GET /api/canvas-boards/<id>/changes`, `GET /api/canvas-boards/<id>/access` |
-| Save the graph, upload media, read the board history | edit | `PUT` and `PATCH /api/canvas-boards/<id>`, `POST /api/canvas-boards/<id>/upload`, `GET /api/canvas-boards/<id>/activity` (`board-history.md`) |
+| List the board, open it, see who has access | view | `GET /api/canvas-boards`, `GET /api/canvas-boards/<id>`, `GET /api/canvas-boards/<id>/version`, `GET /api/canvas-boards/<id>/changes`, `GET /api/canvas-boards/<id>/access`, `GET /api/canvas-boards/<id>/media` and `/media/<mediaId>` (`board-media.md`) |
+| Save the graph, upload or import media, read the board history | edit | `PUT` and `PATCH /api/canvas-boards/<id>`, `POST /api/canvas-boards/<id>/upload` and `/import-url`, `GET /api/canvas-boards/<id>/activity` (`board-history.md`) |
 | Create with AI: quote, run, list and place jobs | edit | `/api/canvas-boards/<id>/ai-jobs` and its `quote` and `<jobId>` routes |
 | Set a protected lock (held by the setter; only they and the board's co-owners and owner may change, unlock or delete the object, so a setter who leaves never strands it), set the board start view | co-owner | `PUT` and `PATCH /api/canvas-boards/<id>`; a save that tries it below co-owner keeps its other changes (`backend/apps/canvas/locks.py`) |
 | Rename, add/change/remove board members | co-owner | `renameBoard`; `setMember`, `removeMember` on `/access` |

@@ -9,8 +9,8 @@ Each graph save is diffed against the stored graph per node and connector id, in
 after any 409 merge on the client, so the record reflects what was actually written:
 
 - a new id is an `add`, a missing one a `delete`, and a changed one an `edit`;
-- moves and votes are not changes (as in Miro): a node whose only difference is `x`, `y`, `parentId`, `groupId`
-  or its emoji `reactions`, or a connector whose only difference is where a free end sits, records nothing and keeps its stamps;
+- moves and votes are not changes (as in Miro): a node whose only difference is `x`, `y`, `parentId`, `groupId`,
+  its emoji `reactions` or an interactive emoji's click-to-agree `agreedBy`, or a connector whose only difference is where a free end sits, records nothing and keeps its stamps;
 - the stored graph is normalized first, so serializer defaults added since it was written are not edits;
 - matching is by id alone, and a deleted object's stamps are not kept: restoring one (undo of a delete, or a
   merge or draft restore that brings it back) records an `add` by the restoring person, who becomes its
@@ -23,8 +23,9 @@ carry the fields, and objects saved before stamping have none until they next ch
 count toward the board size limit (`content_length` in `serialization.py`).
 
 Every change appends a row to `board_activity`: board, actor, action, node id, node type (`connector` for
-connectors), a snippet of up to 120 characters (a node's text, the name of a frame, ERD, swimlane or
-diagram, or an image's alt text), the save time and its position within the save. Viewport-only saves
+connectors), a snippet of up to 120 characters (a node's text, the name of a frame, ERD, swimlane,
+diagram or PDF, an image's alt text, the title of audio, video, an embed or a link card, a code block's code
+or an emoji; `LABEL_FIELDS` in `activity.py`), the save time and its position within the save. Viewport-only saves
 and refused saves record nothing.
 `run_scheduler` deletes rows older than 90 days daily (`board_activity`, the 03:17 UTC slot); deleting a
 board deletes its rows. Versions, restore and content backups are not part of this.
