@@ -13,7 +13,8 @@ with refs `builtin:<slug>` and `blueprint:builtin:<slug>`. Custom templates are 
 snapshot. Media inside a template is copied under `canvas/templates/<id>/` and is never deleted, so
 boards made from a template keep working after the template is removed.
 
-Access levels: personal (owner only), project (members of the project) and everyone. Saving a board
+Access levels: personal (its creator), project (anyone who can see the project: its members and anyone
+who can open one of its boards) and everyone; admins see every level. Saving a board
 or a selection of it as a template needs edit rights on that board, and a blueprint needs edit rights on every board it includes.
 Only an admin shares a template or blueprint with everyone, and only a member of a project shares one
 with that project; the save dialog offers only the levels the person may use, and editing details

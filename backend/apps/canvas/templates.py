@@ -329,7 +329,6 @@ def create_template(user, data):
     scope, project_id = clean_scope(data.get('scope', 'personal'), data.get('projectId'), user)
     now = now_ms()
     identifier = uuid.uuid4()
-    editing_board = None
     if data.get('fromScratch') is True:
         project = data.get('projectId')
         if not isinstance(project, str) or not UUID_RE.fullmatch(project):
