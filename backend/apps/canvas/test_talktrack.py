@@ -291,6 +291,40 @@ class WorkerTests(TalktrackBase):
         self.assertFalse(TalktrackMoment.objects.filter(talktrack_id=made['id']).exists())
         self.call(self.ben, 'post', base + '/view', {'durationMs': 80000, 'watchedMs': 25000})
 
+    def test_an_offset_checked_while_a_cut_lands_waits_for_it_and_is_refused(self):
+        import threading
+        import time
+        from django.db import connection, transaction
+        from .facilitation import FacilitationError
+        made = self.record(mime='video/mp4')
+        self.call(self.cat, 'post', f'/talktracks/{made["id"]}/view', {'durationMs': 90000, 'watchedMs': 30000})
+        outcomes = {}
+
+        def report(name, work):
+            try:
+                work()
+                outcomes[name] = 200
+            except FacilitationError as error:
+                outcomes[name] = error.status
+            finally:
+                connection.close()
+
+        stale = {'durationMs': 90000, 'watchedMs': 85000, 'atMs': 85000, 'emoji': '👍'}
+        with transaction.atomic():
+            Talktrack.objects.select_for_update().get(pk=made['id'])
+            threads = [threading.Thread(target=report, args=('view', lambda: talktrack.record_view(BOARD, made['id'], self.cat.id, 5, stale))),
+                       threading.Thread(target=report, args=('moment', lambda: talktrack.add_moment(BOARD, made['id'], self.cat.id, 5, stale)))]
+            for thread in threads:
+                thread.start()
+            time.sleep(0.5)
+            Talktrack.objects.filter(pk=made['id']).update(duration_ms=80000)
+            TalktrackView.objects.filter(talktrack_id=made['id']).update(watched_ms=20000)
+        for thread in threads:
+            thread.join(10)
+        self.assertEqual(outcomes, {'view': 409, 'moment': 409})
+        self.assertEqual(TalktrackView.objects.get(talktrack_id=made['id'], user_id=self.cat.id).watched_ms, 20000)
+        self.assertFalse(TalktrackMoment.objects.filter(talktrack_id=made['id']).exists())
+
     def test_the_scheduler_runs_one_job_at_a_time_without_holding_up_its_other_handlers(self):
         import threading
         from apps.workers import scheduler

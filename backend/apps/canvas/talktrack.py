@@ -44,11 +44,12 @@ def _title(value, fallback='Talktrack'):
     return text or fallback
 
 
-def _row(board_id, talktrack_id):
-    from .views import UUID_PATTERN
-    if not isinstance(talktrack_id, str) or not UUID_PATTERN.fullmatch(talktrack_id):
+def _row(board_id, talktrack_id, lock=False):
+    """The board's recording; `lock` holds it for the caller's transaction, as a cut's write-back does."""
+    if not _valid(talktrack_id):
         raise FacilitationError('Talktrack not found.', 404)
-    row = Talktrack.objects.filter(pk=talktrack_id, board_id=board_id).first()
+    rows = Talktrack.objects.select_for_update() if lock else Talktrack.objects
+    row = rows.filter(pk=talktrack_id, board_id=board_id).first()
     if row is None:
         raise FacilitationError('Talktrack not found.', 404)
     return row
@@ -178,10 +179,7 @@ def _owns_or_manages(row, user_id, level):
 def update(board_id, talktrack_id, user_id, level, now, data):
     """Rename, trim (playback offsets) or request a cut of the middle."""
     with transaction.atomic():
-        row = Talktrack.objects.select_for_update().filter(pk=talktrack_id, board_id=board_id).first() \
-            if _valid(talktrack_id) else None
-        if row is None:
-            raise FacilitationError('Talktrack not found.', 404)
+        row = _row(board_id, talktrack_id, lock=True)
         _owns_or_manages(row, user_id, level)
         if 'title' in data:
             row.title = _title(data['title'], row.title)
@@ -217,10 +215,7 @@ def _valid(value):
 
 def delete(board_id, talktrack_id, user_id, level):
     with transaction.atomic():
-        row = Talktrack.objects.select_for_update().filter(pk=talktrack_id, board_id=board_id).first() \
-            if _valid(talktrack_id) else None
-        if row is None:
-            raise FacilitationError('Talktrack not found.', 404)
+        row = _row(board_id, talktrack_id, lock=True)
         _owns_or_manages(row, user_id, level)
         keys = [row.key, row.audio_key]
         row.delete()
@@ -238,12 +233,12 @@ def delete_board_talktracks(board_id):
 
 def record_view(board_id, talktrack_id, user_id, now, data):
     """Note that `user_id` watched: the furthest they got and whether they reached the end."""
-    row = _row(board_id, talktrack_id)
-    _measured_on(row, data)
     watched = _whole(data.get('watchedMs', 0), 0, MAX_DURATION_MS, 'watchedMs')
-    watched = min(watched, row.duration_ms)
     completed = data.get('completed') is True
     with transaction.atomic():
+        row = _row(board_id, talktrack_id, lock=True)
+        _measured_on(row, data)
+        watched = min(watched, row.duration_ms)
         view, created = TalktrackView.objects.select_for_update().get_or_create(
             talktrack=row, user_id=user_id, defaults={'first_at': now, 'last_at': now, 'watched_ms': watched, 'completed': completed})
         if not created:
@@ -284,18 +279,19 @@ def moments(board_id, talktrack_id):
 def add_moment(board_id, talktrack_id, user_id, now, data):
     """An emoji reaction or a comment at a point of the timeline."""
     from apps.authentication.models import User
-    row = _row(board_id, talktrack_id)
-    _measured_on(row, data)
-    at = _whole(data.get('atMs'), 0, row.duration_ms, 'atMs')
     emoji = data.get('emoji') if isinstance(data.get('emoji'), str) else ''
     text = data.get('text').strip()[:COMMENT_LIMIT] if isinstance(data.get('text'), str) else ''
-    if bool(emoji) == bool(text):
-        raise FacilitationError('Send either an emoji or a comment.')
-    if emoji and emoji not in EMOJIS:
-        raise FacilitationError('Unknown reaction.')
-    if TalktrackMoment.objects.filter(talktrack=row).count() >= 2000:
-        raise FacilitationError('This recording has reached its reaction limit.', 429)
-    moment = TalktrackMoment.objects.create(id=uuid4(), talktrack=row, user_id=user_id, at_ms=at, emoji=emoji, text=text, created_at=now)
+    with transaction.atomic():
+        row = _row(board_id, talktrack_id, lock=True)
+        _measured_on(row, data)
+        at = _whole(data.get('atMs'), 0, row.duration_ms, 'atMs')
+        if bool(emoji) == bool(text):
+            raise FacilitationError('Send either an emoji or a comment.')
+        if emoji and emoji not in EMOJIS:
+            raise FacilitationError('Unknown reaction.')
+        if TalktrackMoment.objects.filter(talktrack=row).count() >= 2000:
+            raise FacilitationError('This recording has reached its reaction limit.', 429)
+        moment = TalktrackMoment.objects.create(id=uuid4(), talktrack=row, user_id=user_id, at_ms=at, emoji=emoji, text=text, created_at=now)
     names = dict(User.objects.filter(id=user_id).values_list('id', 'name'))
     return _moment_dict(moment, names)
 
