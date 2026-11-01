@@ -87,13 +87,23 @@ def price_rows():
     return [{'model': row.model, 'unitCostCents': row.unit_cost_cents, 'unit': row.unit, 'notes': row.notes} for row in Pricing.objects.all()]
 
 
+def board_statistics():
+    """Board adoption figures, all SQL aggregates (activity is kept 90 days, so the 30 day windows are complete)."""
+    since = now_ms() - 30*86400000
+    boards = query('SELECT count(*)::int AS total,count(*) FILTER (WHERE created_at >= %s)::int AS recent FROM canvas_boards', [since])[0]
+    edits = query('SELECT count(*)::int AS changes,count(DISTINCT actor_id)::int AS editors,count(DISTINCT board_id)::int AS active FROM board_activity WHERE created_at >= %s', [since])[0]
+    jobs = query('SELECT count(*)::int AS total,count(*) FILTER (WHERE created_at >= %s)::int AS recent FROM canvas_board_ai_jobs', [since])[0]
+    return {'total': boards['total'], 'createdLast30Days': boards['recent'], 'activeLast30Days': edits['active'], 'editorsLast30Days': edits['editors'],
+            'changesLast30Days': edits['changes'], 'aiJobs': jobs['total'], 'aiJobsLast30Days': jobs['recent']}
+
+
 def statistics():
     totals = query('SELECT ' + COST + ' FROM generations')[0]
     kinds = {row['name']: row['value'] for row in query('SELECT kind AS name,count(*)::int AS value FROM generations GROUP BY kind')}
     models = query('SELECT model AS name,count(*)::int AS value FROM generations GROUP BY model ORDER BY count(*) DESC')
     days = query("SELECT to_char(to_timestamp(created_at/1000.0) at time zone 'utc','YYYY-MM-DD') AS day,count(*)::int AS count FROM generations WHERE created_at >= %s GROUP BY 1 ORDER BY 1 ASC", [now_ms() - 90*86400000])
     return {'totalGenerations': totals['count'], 'totalCostCents': totals['cost'], 'reconciledCostCents': totals['reconciled'], 'estimatedCostCents': totals['estimated'],
-            'byKind': [{'name': kind, 'value': kinds.get(kind, 0)} for kind in ('image', 'video')], 'byModel': models, 'overTime': days, 'models': [row['name'] for row in models]}
+            'byKind': [{'name': kind, 'value': kinds.get(kind, 0)} for kind in ('image', 'video')], 'byModel': models, 'overTime': days, 'boards': board_statistics(), 'models': [row['name'] for row in models]}
 
 
 # Dashboard controls whose routes the ingress gateway may refuse (deploy/gateway.py is the single authority).

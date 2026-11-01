@@ -237,6 +237,7 @@ function Overview({ data }) {
     byKind,
     byModel,
     overTime,
+    boards,
   } = data.stats;
 
   const costPerUser = data.users
@@ -264,6 +265,15 @@ function Overview({ data }) {
           detail="Recorded cost; may include provider estimates"
         />
       </div>
+
+      {boards && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4" data-testid="board-stats">
+          <Stat label="Boards" value={boards.total.toLocaleString()} detail={`${boards.createdLast30Days} created in 30 days`} />
+          <Stat label="Active boards" value={boards.activeLast30Days.toLocaleString()} detail="Edited in the last 30 days" />
+          <Stat label="Board editors" value={boards.editorsLast30Days.toLocaleString()} detail={`${boards.changesLast30Days.toLocaleString()} changes in 30 days`} />
+          <Stat label="Board AI jobs" value={boards.aiJobs.toLocaleString()} detail={`${boards.aiJobsLast30Days} in 30 days`} />
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Panel title="Cost per user ($)">

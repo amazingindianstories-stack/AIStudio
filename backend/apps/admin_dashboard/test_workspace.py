@@ -160,3 +160,19 @@ class WorkspaceTests(TransactionTestCase):
         rows = list(csv.DictReader(io.StringIO(b''.join(response.streaming_content).decode())))
         self.assertEqual([r['capability'] for r in rows], ['stickies', 'image', 'image'])
         self.assertEqual(rows[0]['prompt'], "'=boom")
+
+    def test_dashboard_reports_board_adoption_aggregates(self):
+        import uuid
+        from apps.canvas.models import BoardActivity, CanvasBoard
+        from apps.projects.models import Project
+        self.make_admin()
+        recent = int(time.time() * 1000)
+        project = Project.objects.create(id=uuid.uuid4(), name='P', created_at=1, updated_at=1)
+        old = CanvasBoard.objects.create(id=uuid.uuid4(), project_id=project.id, name='Old', data={}, created_at=1, updated_at=1)
+        new = CanvasBoard.objects.create(id=uuid.uuid4(), project_id=project.id, name='New', data={}, created_at=recent, updated_at=recent)
+        for index, board in enumerate((new, new, old)):
+            BoardActivity.objects.create(board_id=board.id, actor_id=fixtures.UID, action='add', node_id=f'n{index}', node_type='sticky', created_at=recent, ordinal=index)
+        BoardActivity.objects.create(board_id=old.id, actor_id=None, action='edit', node_id='x', node_type='sticky', created_at=1, ordinal=0)
+        boards = self.client.get('/api/admin/data').json()['stats']['boards']
+        self.assertEqual(boards, {'total': 2, 'createdLast30Days': 1, 'activeLast30Days': 2, 'editorsLast30Days': 1,
+                                  'changesLast30Days': 3, 'aiJobs': 0, 'aiJobsLast30Days': 0})
