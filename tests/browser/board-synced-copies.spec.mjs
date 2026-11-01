@@ -3,8 +3,8 @@ import { createHmac, randomUUID } from 'node:crypto';
 import { fixtureDatabase } from './fixture-db.mjs';
 
 // The board owner, and a teammate who only comments on the board holding the copies.
-const OWNER = { id: 'b0a2d000-0000-4000-8000-000000000051', name: 'Synced owner', email: 'synced-owner@example.test' };
-const MATE = { id: 'b0a2d000-0000-4000-8000-000000000052', name: 'Synced commenter', email: 'synced-commenter@example.test' };
+const OWNER = { id: 'b0a2d000-0000-4000-8000-000000000091', name: 'Synced owner', email: 'synced-owner@example.test' };
+const MATE = { id: 'b0a2d000-0000-4000-8000-000000000092', name: 'Synced commenter', email: 'synced-commenter@example.test' };
 
 function sessionCookie(userId) {
   const payload = Buffer.from(JSON.stringify({ uid: userId, ver: 0, exp: Date.now() + 3600000 })).toString('base64url');
