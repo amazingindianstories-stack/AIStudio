@@ -49,8 +49,9 @@ notes, and run **Organize frames**, which lays the frames out in a grid in their
 their contents with them. Notes are part of the board, so everyone who can open it can read them.
 A locked frame keeps its place: it cannot be dragged, others reorder around its slot, a move
 that would need to give it a new place is refused, Organize leaves it and its contents where they
-are and lays the other frames out around it, and its notes are read-only. Each refusal shows "Locked - unlock to edit", and notes typed
-before someone else locked the frame are reported as not saved.
+are and lays the other frames out around it, and its notes are read-only. Each refusal shows
+"Locked - unlock to edit", and notes typed before someone else locked the frame are reported as
+not saved.
 
 **Present frames** (Cmd/Ctrl+Alt+P) shows each frame as a slide on this screen only; nobody
 else's view follows. A slide is the live board fitted to the frame with everything around it
@@ -72,14 +73,17 @@ the entry fields. Keys typed into a field or editor never reach it, and single-c
 be turned off in the panel or palette so screen readers and voice control keep those letters.
 Lock (Cmd/Ctrl+Shift+L) and zoom (Cmd/Ctrl+= and -) are listed there too. The dock starts with
 Select, Hand and Lasso, and number keys 1 to 9 pick dock tools in that same dock order;
-**Customize toolbar** pins, unpins and reorders the creation tools (`src/lib/canvas/toolbar-tools.js`).
+**Customize toolbar** pins, unpins and reorders the creation tools
+(`src/lib/canvas/toolbar-tools.js`).
 
 Keyboard navigation (`src/lib/canvas/keyboard-nav.js`) reads the board like a page: B focuses the
 board, Tab walks one level in reading order (wrapping inside a frame, swimlane or diagram; at the
 top level, Tab past the last object or Shift+Tab before the first leaves the board for the next
 page control), Enter goes into one of those containers or a group (or edits text), Escape comes
 back out, and Cmd/Ctrl+arrows jump to the nearest object in that direction. Screen readers hear
-what is selected through a polite live region. Smart duplicate uses Alt+Arrow; resize uses Alt+Shift+Arrow (10px). The shortcut panel and command palette read these bindings from the registry.
+what is selected through a polite live region. Smart duplicate uses Alt+Arrow; resize uses
+Alt+Shift+Arrow (10px). The shortcut panel and command palette read these bindings from the
+registry.
 
 ## Accessibility tools
 
