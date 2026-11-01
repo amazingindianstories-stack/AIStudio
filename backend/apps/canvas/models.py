@@ -228,3 +228,62 @@ class BoardPrivateMode(models.Model):
     class Meta:
         managed = True
         db_table = 'board_private_mode'
+
+
+class Talktrack(models.Model):
+    """A recorded walk-through of a board (area D Talktrack). The recording lives in media storage under
+    `talktrack/<board>/`; trim is stored as playback offsets, a cut of the middle is made by a worker job that
+    writes a new file (`cut_*` hold the pending request, `status` the job state)."""
+    id = models.UUIDField(primary_key=True)
+    board_id = models.UUIDField(db_index=True)
+    owner_id = models.UUIDField(db_index=True)
+    title = models.TextField()
+    key = models.TextField()
+    mime = models.TextField()
+    size = models.BigIntegerField()
+    duration_ms = models.BigIntegerField()
+    trim_start_ms = models.BigIntegerField(db_default=0)
+    trim_end_ms = models.BigIntegerField(null=True)
+    status = models.TextField(db_default='ready')
+    cut_start_ms = models.BigIntegerField(null=True)
+    cut_end_ms = models.BigIntegerField(null=True)
+    audio_key = models.TextField(null=True)
+    transcript = models.JSONField(null=True)
+    summary = models.TextField(null=True)
+    chapters = models.JSONField(null=True)
+    created_at = models.BigIntegerField()
+    updated_at = models.BigIntegerField()
+
+    class Meta:
+        db_table = 'board_talktracks'
+        managed = True
+
+
+class TalktrackView(models.Model):
+    """Who watched a Talktrack: one row per person, updated as they watch."""
+    talktrack = models.ForeignKey(Talktrack, on_delete=models.CASCADE, related_name='views')
+    user_id = models.UUIDField()
+    first_at = models.BigIntegerField()
+    last_at = models.BigIntegerField()
+    watched_ms = models.BigIntegerField(db_default=0)
+    completed = models.BooleanField(db_default=False)
+
+    class Meta:
+        db_table = 'board_talktrack_views'
+        managed = True
+        constraints = [models.UniqueConstraint(fields=['talktrack', 'user_id'], name='talktrack_view_one_per_user')]
+
+
+class TalktrackMoment(models.Model):
+    """An emoji reaction or a comment pinned to a moment of a Talktrack's timeline."""
+    id = models.UUIDField(primary_key=True)
+    talktrack = models.ForeignKey(Talktrack, on_delete=models.CASCADE, related_name='moments')
+    user_id = models.UUIDField()
+    at_ms = models.BigIntegerField()
+    emoji = models.TextField(db_default='')
+    text = models.TextField(db_default='')
+    created_at = models.BigIntegerField()
+
+    class Meta:
+        db_table = 'board_talktrack_moments'
+        managed = True

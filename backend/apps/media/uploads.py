@@ -17,6 +17,8 @@ PURPOSES = {
     'portrait': ('uploads/portrait', r'image/(jpeg|png|webp|tiff|gif|heic|heif|avif|bmp)$'),
     'material': ('uploads/material', r'image/(jpeg|png|webp|tiff|gif|heic|heif|avif|bmp)$'),
     'canvas': ('uploads/canvas', r'image/(jpeg|png|webp|tiff|gif|heic|heif|avif|bmp)$'),
+    # Talktrack recordings: the MediaRecorder video and its audio-only twin used for transcription.
+    'talktrack': ('uploads/talktrack', r'(video/(webm|mp4)|audio/(webm|mp4|ogg))$'),
 }
 
 
@@ -73,7 +75,7 @@ CHUNK_BYTES = 8 * 1024 * 1024
 LIMITS = {'image-reference': 256*1024*1024, 'portrait': 256*1024*1024,
           'material': 256*1024*1024, 'canvas': 256*1024*1024,
           'audio-reference': 512*1024*1024, 'video-reference': 2*1024**3,
-          'depth-input': 2*1024**3}
+          'depth-input': 2*1024**3, 'talktrack': 2*1024**3}
 
 
 class UploadError(ValueError):
