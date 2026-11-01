@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { emptyCanvasState, validateCanvasState } from "../serialization.js";
 import { useCanvasStore } from "../../canvas-store.js";
 import { diagramToMermaid, layoutMermaid, mermaidToBoardObjects, parseMermaid, replaceDiagramContent } from "./mermaid.js";
+import { moveIntoFrame } from "./slides.js";
 
 test("flowchart nodes, shapes, chains and link labels", () => {
   const p = parseMermaid(`graph TD
@@ -264,4 +265,27 @@ test("a shape dragged into another diagram, or wrapped into a new one, is no lon
   store.getState().setSelection([shapeB.id]);
   store.getState().convertSelectionToDiagram("Wrapped");
   assert.equal(present().nodes.find((n) => n.id === shapeB.id).mermaidKey, undefined);
+});
+
+test("a diagram dropped into a slide frame made after it keeps its shapes when they are dragged", async (t) => {
+  const code = "graph TD\nA --> B";
+  const built = mermaidToBoardObjects(parseMermaid(code), { x: 0, y: 0 }, { source: code });
+  const [shapeA] = built.nodes;
+  const slide = { id: "slide", type: "frame", x: 3000, y: 0, w: built.diagram.w + 400, h: built.diagram.h + 400, text: "Slide", parentId: null, groupId: null };
+  const sticky = { id: "sticky", type: "sticky", x: 6000, y: 0, w: 50, h: 50, text: "", parentId: null, groupId: null };
+  const graph = validateCanvasState({ ...emptyCanvasState(), nodes: [built.diagram, ...built.nodes, sticky, slide], connectors: built.connectors });
+  const store = await editableBoard(t, validateCanvasState(moveIntoFrame(graph, built.diagram.id, slide)));
+  const present = () => store.getState().history.present;
+  const diagram = present().nodes.find((n) => n.id === built.diagram.id);
+  assert.equal(diagram.parentId, slide.id);
+  store.getState().setSelection([shapeA.id]);
+  store.getState().moveSelectionBy(5, 5);
+  const moved = present().nodes.find((n) => n.id === shapeA.id);
+  assert.equal(moved.parentId, built.diagram.id);
+  assert.equal(moved.mermaidKey, "A");
+  const next = replaceDiagramContent(present(), built.diagram.id, parseMermaid(code), code);
+  assert.deepEqual(next.nodes.filter((n) => n.mermaidKey === "A").map((n) => n.id), [shapeA.id]);
+  store.getState().setSelection([sticky.id]);
+  store.getState().moveSelectionBy(diagram.x + diagram.w - 40 - sticky.x, diagram.y + diagram.h - 40 - sticky.y);
+  assert.equal(present().nodes.find((n) => n.id === sticky.id).parentId, built.diagram.id);
 });

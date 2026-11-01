@@ -235,6 +235,19 @@ test("computeFrameMembership: overlapping frames — the front-most (highest arr
   assert.equal(computeFrameMembership(node, [b, a]), "A", "order flipped => A is now front-most => wins");
 });
 
+test("computeFrameMembership: a container nested inside another containing one wins, whatever the list order", () => {
+  const node = rect({ id: "child", x: 50, y: 50, w: 20, h: 20 }); // center (60,60)
+  const outer = frame({ id: "outer", x: 0, y: 0, w: 400, h: 400 });
+  const lane = frame({ id: "lane", type: "swimlane", x: 20, y: 20, w: 300, h: 300, parentId: "outer" });
+  const inner = frame({ id: "inner", type: "diagram", x: 30, y: 30, w: 100, h: 100, parentId: "lane" });
+  const sibling = frame({ id: "sibling", type: "diagram", x: 40, y: 40, w: 100, h: 100, parentId: "outer" });
+  assert.equal(computeFrameMembership(node, [inner, lane, outer]), "inner");
+  assert.equal(computeFrameMembership(node, [lane, inner, sibling, outer]), "inner");
+  assert.equal(computeFrameMembership(node, [sibling, outer]), "sibling");
+  assert.equal(computeFrameMembership(node, [inner, sibling, outer]), "sibling", "equally nested: front-most wins");
+  assert.equal(computeFrameMembership({ ...node, x: 200, y: 200 }, [inner, lane, outer]), "lane");
+});
+
 // ---------------------------------------------------------------------------
 // applyFrameMove
 // ---------------------------------------------------------------------------
