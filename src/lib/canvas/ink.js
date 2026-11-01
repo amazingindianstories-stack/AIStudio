@@ -7,6 +7,8 @@
  * strokes that viewport culling has not mounted.
  */
 
+import { unstamped } from "./stamps";
+
 /** Most points one stroke keeps; longer strokes are simplified harder. */
 export const MAX_INK_POINTS = 1500;
 /** Most numbers a stored stroke holds (two per point). */
@@ -209,14 +211,10 @@ export function eraseInkPart(node, point, radius) {
   }
   if (run.length) runs.push(run);
   const pieces = runs.filter((r) => r.length >= 2);
-  const style = { stroke: node.stroke, strokeWidth: node.strokeWidth, highlighter: node.highlighter === true };
   return pieces.map((piece, index) => {
-    const simplified = simplifyPoints(piece, 0.5);
-    const made = inkNodeFromPoints(simplified, style, index === 0 ? node.id : crypto.randomUUID());
-    made.parentId = node.parentId ?? null;
-    made.groupId = node.groupId ?? null;
-    if (node.opacity !== undefined) made.opacity = node.opacity;
-    return made;
+    const { x, y, w, h, vw, vh, pts } = inkNodeFromPoints(simplifyPoints(piece, 0.5), node);
+    if (index === 0) return { ...node, x, y, w, h, vw, vh, pts };
+    return { ...unstamped(node), id: crypto.randomUUID(), x, y, w, h, vw, vh, pts };
   });
 }
 

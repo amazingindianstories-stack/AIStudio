@@ -64,6 +64,31 @@ test("the precision eraser splits a stroke around the erased part", () => {
   assert.equal(eraseInkPart(node, { x: 50, y: 200 }, 8), null);
 });
 
+test("the precision eraser keeps the stroke's layer, tags and other fields on every piece", () => {
+  const drawn = inkNodeFromPoints(line(101), { ...style, highlighter: true }, "s");
+  const node = {
+    ...drawn, w: drawn.w * 2, layerId: "sketch", diagramLayerId: "notes", tags: ["t1"], parentId: "d", groupId: "g", opacity: 0.3,
+    createdBy: 7, createdAt: "2026-10-01T00:00:00Z",
+  };
+  const pieces = eraseInkPart(node, { x: 100, y: 0 }, 8);
+  assert.equal(pieces.length, 2);
+  for (const piece of pieces) {
+    assert.equal(piece.layerId, "sketch");
+    assert.equal(piece.diagramLayerId, "notes");
+    assert.deepEqual(piece.tags, ["t1"]);
+    assert.equal(piece.parentId, "d");
+    assert.equal(piece.groupId, "g");
+    assert.equal(piece.opacity, 0.3);
+    assert.equal(piece.highlighter, true);
+    assert.equal(piece.vw, piece.w);
+  }
+  assert.equal(pieces[0].createdBy, 7, "the piece that keeps the id keeps its stamps");
+  assert.equal("createdBy" in pieces[1], false, "a new piece starts unstamped");
+  assert.ok(pieces[0].x + pieces[0].w < 100 && pieces[1].x > 100, "pieces follow the resized box");
+  const state = eraseAt({ nodes: [node], connectors: [] }, { x: 100, y: 0 }, 8, true);
+  assert.deepEqual(state.nodes.map((n) => n.layerId), ["sketch", "sketch"]);
+});
+
 test("the precision eraser leaves nothing when it covers a short stroke", () => {
   const node = inkNodeFromPoints(line(5), style, "s");
   assert.deepEqual(eraseInkPart(node, { x: 2, y: 0 }, 20), []);
