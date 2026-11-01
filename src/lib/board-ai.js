@@ -23,12 +23,24 @@ async function readJson(response) {
   return response.json().catch(() => ({}));
 }
 
-async function send(path, method, body, headers = {}) {
+export async function send(path, method, body, headers = {}) {
   const response = await apiFetch(path, {
     method,
     headers: { "Content-Type": "application/json", ...headers },
     body: JSON.stringify(body),
   });
+  const json = await readJson(response);
+  if (!response.ok) {
+    const error = new Error(apiErrorMessage(json, response.status));
+    error.status = response.status;
+    error.code = json?.code;
+    throw error;
+  }
+  return json;
+}
+
+export async function getJson(path) {
+  const response = await apiFetch(path);
   const json = await readJson(response);
   if (!response.ok) {
     const error = new Error(apiErrorMessage(json, response.status));
