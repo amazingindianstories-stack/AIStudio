@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronUp, Layers, ListPlus, StickyNote } from "lucide-react";
+import { ChevronUp, Layers, LayoutTemplate, ListPlus, StickyNote } from "lucide-react";
+import { requestTemplates } from "@/lib/canvas/template-events";
 import { Dropdown, MenuItem } from "@/components/Dropdown";
 import { addBulkStickies, addStickyStack } from "@/lib/canvas/sticky-actions";
 import { MAX_BULK_STICKIES } from "@/lib/canvas/stickies";
@@ -44,6 +45,9 @@ export function StickyMenu({ onStickyTool, viewCenter }) {
             </MenuItem>
             <MenuItem onClick={() => { addStickyStack(viewCenter()); close(); }}>
               <Layers className="h-4 w-4 text-white/45" /> Sticky stack
+            </MenuItem>
+            <MenuItem onClick={() => { requestTemplates({ action: "open", tool: "sticky" }); close(); }}>
+              <LayoutTemplate className="h-4 w-4 text-white/45" /> Brainstorm templates
             </MenuItem>
           </>
         )}

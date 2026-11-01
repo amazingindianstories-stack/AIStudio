@@ -61,6 +61,7 @@ import { runArrangeMenuAction } from "./ArrangeMenu";
 import { useBoardWheel } from "./use-board-wheel";
 import { useViewPrefs } from "@/lib/canvas/view-prefs";
 import { surfaceBackground } from "@/lib/canvas/board-view";
+import { requestTemplates } from "@/lib/canvas/template-events";
 
  
 
@@ -898,6 +899,9 @@ export const CanvasSurface = forwardRef
         break;
       case "paste":
         s.paste();
+        break;
+      case "saveAsTemplate":
+        requestTemplates({ action: "save-selection" });
         break;
       case "delete":
         s.deleteSelected();
