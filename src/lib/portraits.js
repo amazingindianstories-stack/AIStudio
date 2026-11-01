@@ -248,7 +248,8 @@ export function portraitVideoProblem(info) {
   if (seconds > PORTRAIT_VIDEO_MAX_SECONDS) return `Too long (${Math.round(seconds)} s). Use a clip of ${PORTRAIT_VIDEO_MIN_SECONDS} to ${PORTRAIT_VIDEO_MAX_SECONDS} seconds.`;
   if (!(width > 0) || !(height > 0)) return null;
   const size = `${width} x ${height} px`;
-  if (Math.min(width, height) < PORTRAIT_MIN_SIDE || width * height < PORTRAIT_VIDEO_MIN_PIXELS) return `Too small (${size}). Use at least ${PORTRAIT_MIN_SIDE} px on each side.`;
+  if (Math.min(width, height) < PORTRAIT_MIN_SIDE) return `Too small (${size}). Use at least ${PORTRAIT_MIN_SIDE} px on each side.`;
+  if (width * height < PORTRAIT_VIDEO_MIN_PIXELS) return `Too small (${size}). Use at least 640 x 640 px.`;
   if (Math.max(width, height) > PORTRAIT_MAX_SIDE || width * height > PORTRAIT_VIDEO_MAX_PIXELS) return `Too large (${size}). Use 4K or smaller.`;
   const ratio = width / height;
   if (ratio > PORTRAIT_MAX_RATIO) return `Too wide (${size}). Crop it closer to the face.`;

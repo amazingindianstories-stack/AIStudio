@@ -80,8 +80,10 @@ def problem(info):
         return 'PORTRAIT_VIDEO_DURATION', f'Too long ({seconds:.0f} s). Use a clip of {MIN_SECONDS} to {MAX_SECONDS} seconds.'
     width, height = info['width'], info['height']
     size = f'{width} x {height} px'
-    if min(width, height) < image_limits.MIN_SIDE or width * height < MIN_PIXELS:
+    if min(width, height) < image_limits.MIN_SIDE:
         return 'PORTRAIT_VIDEO_SIZE', f'Too small ({size}). Use at least {image_limits.MIN_SIDE} px on each side.'
+    if width * height < MIN_PIXELS:
+        return 'PORTRAIT_VIDEO_SIZE', f'Too small ({size}). Use at least 640 x 640 px.'
     if max(width, height) > image_limits.MAX_SIDE or width * height > MAX_PIXELS:
         return 'PORTRAIT_VIDEO_SIZE', f'Too large ({size}). Use 4K or smaller.'
     ratio = width / height

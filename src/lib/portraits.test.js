@@ -159,7 +159,9 @@ test("clips are checked against the documented duration, size and shape before u
   assert.equal(portraitVideoProblem(null), null, "unreadable here: the server decides");
   assert.match(portraitVideoProblem({ ...ok, seconds: 1.2 }), /Too short \(1\.2 s\)\. Use a clip of 2 to 30 seconds\./);
   assert.match(portraitVideoProblem({ ...ok, seconds: 45 }), /Too long \(45 s\)/);
-  assert.match(portraitVideoProblem({ ...ok, width: 200, height: 400 }), /Too small \(200 x 400 px\)/);
+  assert.equal(portraitVideoProblem({ ...ok, width: 200, height: 400 }), "Too small (200 x 400 px). Use at least 300 px on each side.");
+  assert.equal(portraitVideoProblem({ ...ok, width: 480, height: 640 }), "Too small (480 x 640 px). Use at least 640 x 640 px.");
+  assert.equal(portraitVideoProblem({ ...ok, width: 640, height: 640 }), null);
   assert.match(portraitVideoProblem({ ...ok, width: 7000, height: 4000 }), /Too large/);
   assert.match(portraitVideoProblem({ ...ok, width: 3000, height: 1000 }), /Too wide/);
   assert.match(portraitVideoProblem({ ...ok, width: 600, height: 3000 }), /Too tall/);

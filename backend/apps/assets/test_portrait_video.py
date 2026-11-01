@@ -47,6 +47,12 @@ class VideoLimitsTests(SimpleTestCase):
                 self.assertTrue(found[1] and '—' not in found[1])
         self.assertEqual(video_limits.problem(None)[0], 'PORTRAIT_VIDEO_UNREADABLE')
 
+    def test_a_small_frame_names_the_rule_it_breaks(self):
+        self.assertEqual(video_limits.problem({**GOOD, 'width': 200, 'height': 400})[1],
+                         'Too small (200 x 400 px). Use at least 300 px on each side.')
+        self.assertEqual(video_limits.problem({**GOOD, 'width': 480, 'height': 640})[1],
+                         'Too small (480 x 640 px). Use at least 640 x 640 px.')
+
     def test_boundaries_are_inclusive(self):
         self.assertIsNone(video_limits.problem({**GOOD, 'seconds': 2, 'fps': 24, 'width': 640, 'height': 640}))
         self.assertIsNone(video_limits.problem({**GOOD, 'seconds': 30, 'fps': 60}))
