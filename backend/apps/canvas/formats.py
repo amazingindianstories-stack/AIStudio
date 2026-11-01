@@ -1,6 +1,8 @@
 """Validation of format objects (Docs, Slides, HTML embeds, draw.io diagrams) and the format fields on
 other nodes. Mirrors src/lib/canvas/formats/validate.js; shared fixture cases hold both to one output."""
 
+import re
+
 FORMAT_KINDS = ('doc', 'deck', 'html', 'drawio')
 FORMAT_STATUSES = ('draft', 'in_review', 'approved', 'done', 'outdated')
 DOC_BLOCK_TYPES = ('p', 'h1', 'h2', 'h3', 'ul', 'ol', 'todo', 'quote', 'code', 'table', 'diagram')
@@ -21,7 +23,10 @@ MAX_LANE_NAME = 60
 MAX_NOTES = 5000
 MAX_HTML = 100000
 MAX_DRAWIO_XML = 300000
+MAX_DRAWIO_PREVIEW = 300000
+DRAWIO_PREVIEW_PREFIX = 'data:image/svg+xml;base64,'
 MAX_SOURCE = 20000
+MERMAID_KEY = re.compile(r'[A-Za-z0-9_\u00C0-\U0010FFFF][A-Za-z0-9_\u00C0-\U0010FFFF-]*')
 
 
 def _utf16(text):
@@ -57,6 +62,13 @@ def with_screen_link(result, raw):
     value = identifier(raw.get('screenLink'))
     if value:
         result['screenLink'] = value
+    return result
+
+
+def with_mermaid_key(result, raw):
+    value = identifier(raw.get('mermaidKey'))
+    if value and MERMAID_KEY.fullmatch(value):
+        result['mermaidKey'] = value
     return result
 
 
@@ -164,6 +176,9 @@ def format_node(r, base):
         result['html'] = limited(r.get('html'), MAX_HTML)
     else:
         result['xml'] = limited(r.get('xml'), MAX_DRAWIO_XML)
+        preview = limited(r.get('preview'), MAX_DRAWIO_PREVIEW)
+        if preview.startswith(DRAWIO_PREVIEW_PREFIX):
+            result['preview'] = preview
     return result
 
 

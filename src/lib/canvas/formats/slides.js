@@ -22,3 +22,13 @@ export function addSlide(slides, frame, lane = "main") {
   if (!frame || frame.type !== "frame" || slides.length >= 100) return slides;
   return [...slides, { id: crypto.randomUUID(), title: frame.name || "Slide", frameId: frame.id, lane, notes: "" }];
 }
+
+/** Places board object `id` in `frame`, moving everything inside it by the same distance. */
+export function moveIntoFrame(graph, id, frame) {
+  const node = graph.nodes.find((n) => n.id === id);
+  if (!node || !frame || node.id === frame.id || ["format", "frame"].includes(node.type)) return graph;
+  const dx = frame.x + 40 - node.x;
+  const dy = frame.y + 60 - node.y;
+  const moved = new Set(frameContents(graph, id).nodes.map((n) => n.id));
+  return { ...graph, nodes: graph.nodes.map((n) => !moved.has(n.id) ? n : { ...n, x: n.x + dx, y: n.y + dy, ...(n.id === id ? { parentId: frame.id } : {}) }) };
+}

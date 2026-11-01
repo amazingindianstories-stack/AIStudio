@@ -6,6 +6,7 @@ import { useCanvasStore, selectReadOnly } from "@/lib/canvas-store";
 import { boardStatus, defaultViewNode, FORMAT_STATUSES, newFormatNode, STATUS_LABELS } from "@/lib/canvas/formats/model";
 import { formatUrl, openFormat, patchFormat, setDefaultFormat } from "@/lib/canvas/formats/actions";
 import { WIREFRAMES, wireframeNode } from "@/lib/canvas/formats/wireframes";
+import { staticEmbedHtml } from "@/lib/canvas/formats/html-embed";
 import { DocContent } from "./DocContent";
 import { SlidesEditor } from "./SlidesEditor";
 import { MermaidEditor } from "./MermaidEditor";
@@ -35,8 +36,13 @@ export function FormatsPanel({ boardId, touchViewOnly }) {
   useEffect(() => {
     if (!loaded || !boardId || loadedBoardId !== boardId || initialized.current === boardId) return;
     initialized.current = boardId;
-    const params = new URL(window.location.href).searchParams;
-    const requested = params.get("board") === boardId ? params.get("focus") : null;
+    const url = new URL(window.location.href);
+    const requested = url.searchParams.get("board") === boardId ? url.searchParams.get("focus") : null;
+    if (url.searchParams.has("board") || url.searchParams.has("focus")) {
+      url.searchParams.delete("board");
+      url.searchParams.delete("focus");
+      window.history.replaceState(window.history.state, "", url);
+    }
     setFocusId(requested || defaultViewNode(graph.nodes)?.id || null);
   }, [loaded, loadedBoardId, boardId, graph.nodes]);
   useEffect(() => {
@@ -49,9 +55,6 @@ export function FormatsPanel({ boardId, touchViewOnly }) {
   const close = () => {
     if (locked && readOnly) return;
     setFocusId(null);
-    const url = new URL(window.location.href);
-    url.searchParams.delete("focus");
-    window.history.replaceState(null, "", url);
   };
   const create = (kind) => {
     if (readOnly) return;
@@ -98,7 +101,7 @@ export function FormatsPanel({ boardId, touchViewOnly }) {
         {focusNode?.format === "doc" && <div className="mx-auto max-w-3xl rounded-xl border bg-white p-6 shadow-sm md:p-10"><DocContent node={focusNode} readOnly={readOnly} /></div>}
         {focusNode?.format === "deck" && <SlidesEditor node={focusNode} graph={graph} readOnly={readOnly} />}
         {focusNode?.format === "drawio" && <DrawioEditor node={focusNode} readOnly={readOnly} />}
-        {focusNode?.format === "html" && <>{!readOnly && <label className="block text-sm">HTML source<textarea aria-label="HTML source" className="mt-2 h-48 w-full rounded border bg-white p-3 font-mono" maxLength={100000} value={focusNode.html} onChange={(e) => patchFormat(focusNode.id, () => ({ html: e.target.value }), { coalesce: true })} /></label>}<iframe title="HTML prototype preview" className="h-[60vh] w-full rounded border bg-white" sandbox="allow-scripts" referrerPolicy="no-referrer" srcDoc={`<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'">${focusNode.html}`} /></>}
+        {focusNode?.format === "html" && <>{!readOnly && <label className="block text-sm">HTML source<textarea aria-label="HTML source" className="mt-2 h-48 w-full rounded border bg-white p-3 font-mono" maxLength={100000} value={focusNode.html} onChange={(e) => patchFormat(focusNode.id, () => ({ html: e.target.value }), { coalesce: true })} /></label>}<iframe title="HTML prototype preview" className="h-[60vh] w-full rounded border bg-white" sandbox="" referrerPolicy="no-referrer" srcDoc={staticEmbedHtml(focusNode.html)} /></>}
         {(focusId === "new-mermaid" || focusNode?.sourceKind === "mermaid") && <MermaidEditor key={focusId} node={focusNode} readOnly={readOnly} onCreated={(id) => setFocusId(id)} />}
         {focusNode && focusNode.type !== "format" && <FramePreview frame={focusNode} graph={graph} />}
         {focusId?.startsWith("prototype:") && <PrototypePreview key={focusId} initialId={focusId.slice(10)} graph={graph} />}

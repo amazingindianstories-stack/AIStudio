@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { addSlide, frameContents, moveSlide } from "./slides.js";
+import { addSlide, frameContents, moveIntoFrame, moveSlide } from "./slides.js";
 import { WIREFRAMES, wireframeNode } from "./wireframes.js";
 import { validateCanvasState } from "../serialization.js";
 
@@ -18,6 +18,17 @@ test("previews use all nested saved content and internal connectors, including o
   const graph = { nodes: [{ id: "f" }, { id: "nested", parentId: "f" }, { id: "offscreen", parentId: "nested", x: 100000 }, { id: "outside" }], connectors: [{ id: "inside", from: { nodeId: "nested" }, to: { nodeId: "offscreen" } }, { id: "external", from: { nodeId: "outside" }, to: { nodeId: "nested" } }] };
   assert.deepEqual(frameContents(graph, "f").nodes.map((n) => n.id), ["f", "nested", "offscreen"]);
   assert.deepEqual(frameContents(graph, "f").connectors.map((c) => c.id), ["inside"]);
+});
+
+test("dropping a container into a slide moves its contents with it", () => {
+  const frame = { id: "f", type: "frame", x: 1000, y: 1000, w: 400, h: 300 };
+  const graph = { nodes: [frame, { id: "d", type: "diagram", x: 0, y: 0, w: 200, h: 100 }, { id: "a", type: "rect", x: 40, y: 60, w: 20, h: 20, parentId: "d" }, { id: "other", type: "rect", x: 5, y: 5, w: 1, h: 1 }], connectors: [] };
+  const next = moveIntoFrame(graph, "d", frame);
+  const byId = Object.fromEntries(next.nodes.map((n) => [n.id, n]));
+  assert.deepEqual([byId.d.x, byId.d.y, byId.d.parentId], [1040, 1060, "f"]);
+  assert.deepEqual([byId.a.x, byId.a.y, byId.a.parentId], [1080, 1120, "d"]);
+  assert.equal(byId.other, graph.nodes[3]);
+  assert.equal(moveIntoFrame(graph, "f", frame), graph);
 });
 
 test("every wireframe component is a persistable native node with readable text", () => {

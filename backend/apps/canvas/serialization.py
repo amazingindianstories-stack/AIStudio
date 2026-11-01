@@ -4,7 +4,7 @@ import math
 import re
 
 from .svg_sanitize import sanitize_svg
-from .formats import drop_dangling_refs, format_node, with_diagram_source, with_screen_link
+from .formats import drop_dangling_refs, format_node, with_diagram_source, with_mermaid_key, with_screen_link
 
 NODE_TYPES = {'rect', 'ellipse', 'triangle', 'diamond', 'shape', 'text', 'sticky', 'stack', 'frame', 'image', 'erd', 'swimlane', 'diagram', 'format'}
 SHAPE_TYPES = ('rect', 'ellipse', 'triangle', 'diamond', 'shape')
@@ -371,7 +371,7 @@ def node(raw):
                 })
             if containers:
                 result['containers'] = containers
-    return with_stamps(with_screen_link(result, r), r)
+    return with_stamps(with_mermaid_key(with_screen_link(result, r), r), r)
 
 
 def endpoint(raw, identifiers):

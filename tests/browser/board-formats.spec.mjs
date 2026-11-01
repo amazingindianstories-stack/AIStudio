@@ -114,6 +114,13 @@ test('Board formats: docs, status, focus link, Mermaid code diagrams, HTML embed
     await dialog.getByLabel('Format title').click();
   }, (b) => blockText(b)?.text === 'Goals now');
 
+  // Closing a block editor from the keyboard keeps focus in focus mode, so board keys cannot delete the open doc.
+  await dialog.getByRole('button', { name: 'Edit block 2' }).click();
+  await page.keyboard.press('Escape');
+  await expect(dialog.getByRole('button', { name: 'Edit block 2' })).toBeFocused();
+  await page.keyboard.press('Backspace');
+  await expect(dialog.getByLabel('Format title')).toHaveValue('Launch plan');
+
   // Default view with lock, and the focus link restores the format after a reload.
   await dialog.getByLabel('Board default').check();
   board = await saved(page, () => dialog.getByLabel('Lock default').check(), (b) => b.data.nodes.some((n) => n.id === doc.id && n.defaultView && n.viewLocked));
@@ -142,13 +149,18 @@ test('Board formats: docs, status, focus link, Mermaid code diagrams, HTML embed
   await expect(dialog.getByRole('status')).toContainText('Unsupported');
   await dialog.getByRole('button', { name: 'Back to board' }).click();
 
-  // HTML embeds render in a sandboxed frame without same-origin access.
+  // HTML embeds are static pages in a permissionless sandbox: scripts, refreshes and links cannot navigate them.
   await openPanel();
   await page.getByRole('button', { name: 'New HTML embed', exact: true }).click();
-  await dialog.getByLabel('HTML source').fill('<button id="b">Hello</button>');
+  await dialog.getByLabel('HTML source').fill('<meta http-equiv="refresh" content="0;url=/?escaped=refresh"><script>location.href = "/?escaped=script"</script><a id="out" href="/?escaped=link">Out</a><button id="b">Hello</button>');
   const frame = dialog.locator('iframe[title="HTML prototype preview"]');
-  await expect(frame).toHaveAttribute('sandbox', 'allow-scripts');
-  await expect(page.frameLocator('iframe[title="HTML prototype preview"]').locator('#b')).toBeVisible();
+  await expect(frame).toHaveAttribute('sandbox', '');
+  const embed = page.frameLocator('iframe[title="HTML prototype preview"]');
+  await expect(embed.locator('#b')).toBeVisible();
+  await embed.locator('#out').click();
+  await page.waitForTimeout(1000);
+  expect((await (await frame.elementHandle()).contentFrame()).url()).toBe('about:srcdoc');
+  await expect(embed.locator('#b')).toBeVisible();
   await dialog.getByRole('button', { name: 'Back to board' }).click();
 
   // Wireframing: a mobile screen from the library lands on the board.
@@ -165,5 +177,7 @@ test('Board formats: docs, status, focus link, Mermaid code diagrams, HTML embed
   const awayDialog = away.page.getByRole('dialog', { name: 'Format focus mode' });
   await expect(awayDialog).toBeVisible();
   await expect(awayDialog.getByLabel('Format title')).toHaveValue('Launch plan');
+  // The link is used once: later visits follow the project and board the person picks.
+  await expect(away.page).not.toHaveURL(/[?&](board|focus)=/);
   await away.context.close();
 });

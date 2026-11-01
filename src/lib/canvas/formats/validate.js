@@ -9,6 +9,7 @@ import {
   MAX_BLOCK_TEXT,
   MAX_CELL_TEXT,
   MAX_DOC_BLOCKS,
+  MAX_DRAWIO_PREVIEW,
   MAX_DRAWIO_XML,
   MAX_HTML,
   MAX_ID,
@@ -21,11 +22,13 @@ import {
   MAX_TABLE_COLS,
   MAX_TABLE_ROWS,
   FORMAT_DEFAULTS,
+  DRAWIO_PREVIEW_PREFIX,
 } from "./model";
 import { validateMarks } from "../rich-text";
 
 const SUGGESTION_KINDS = ["replace", "delete"];
 const SOURCE_MAX = 20000;
+const MERMAID_KEY = /^[A-Za-z0-9_\u00C0-\uFFFF][\w\u00C0-\uFFFF-]*$/;
 
 function isFiniteNumber(v) {
   return typeof v === "number" && Number.isFinite(v);
@@ -59,6 +62,13 @@ export function withDiagramSource(node, r) {
 export function withScreenLink(node, r) {
   const id = identifier(r.screenLink);
   if (id) node.screenLink = id;
+  return node;
+}
+
+/** The Mermaid node id a diagram shape was built from, so a code update keeps the shape's identity. */
+export function withMermaidKey(node, r) {
+  const key = identifier(r.mermaidKey);
+  if (key && MERMAID_KEY.test(key)) node.mermaidKey = key;
   return node;
 }
 
@@ -178,6 +188,8 @@ export function validateFormatNode(r, base) {
     node.html = limited(r.html, MAX_HTML);
   } else if (r.format === "drawio") {
     node.xml = limited(r.xml, MAX_DRAWIO_XML);
+    const preview = limited(r.preview, MAX_DRAWIO_PREVIEW);
+    if (preview.startsWith(DRAWIO_PREVIEW_PREFIX)) node.preview = preview;
   }
   return node;
 }

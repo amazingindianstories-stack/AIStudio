@@ -17,7 +17,7 @@ import { SHAPE_KIND_PATTERN } from "./shapes";
 import { FONT_FAMILY_PATTERN } from "./fonts";
 import { uniqueStrings, validateReactions } from "./reactions";
 import { MAX_NODE_TAGS, MAX_TAG_ID, validateTags } from "./tags";
-import { dropDanglingFormatRefs, validateFormatNode, withDiagramSource, withScreenLink } from "./formats/validate";
+import { dropDanglingFormatRefs, validateFormatNode, withDiagramSource, withMermaidKey, withScreenLink } from "./formats/validate";
 
 export function emptyCanvasState() {
   return {
@@ -211,7 +211,7 @@ function withStickyExtras(node, r) {
 function validateNode(raw) {
   if (raw == null || typeof raw !== "object") return null;
   const node = validateNodeContent(raw);
-  return withStamps(node && withScreenLink(node, raw), raw);
+  return withStamps(node && withMermaidKey(withScreenLink(node, raw), raw), raw);
 }
 
 function validateNodeContent(raw) {

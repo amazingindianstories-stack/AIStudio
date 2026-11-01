@@ -9,7 +9,7 @@ import { useCanvasStore, selectReadOnly } from "@/lib/canvas-store";
 import { isCreateTool } from "@/lib/canvas/shapes";
 import { hiddenBoardIds } from "@/lib/canvas/culling";
 import { useBoardPolling } from "@/lib/canvas/use-board-polling";
-import { noteKeyboardCopy, pageTextSelected, useBoardClipboard } from "@/lib/canvas/use-board-clipboard";
+import { modalOpen, noteKeyboardCopy, pageTextSelected, useBoardClipboard } from "@/lib/canvas/use-board-clipboard";
 import { copySelectionStyle, pasteSelectionStyle } from "@/lib/canvas/sticky-actions";
 import {
   CanvasSurface,
@@ -241,7 +241,7 @@ export function CanvasView() {
       const target = e.target ;
       const editing =
         target?.isContentEditable || target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.tagName === "SELECT" ||
-        target?.closest?.('[data-crop-controls], [role="dialog"], [role="alertdialog"]');
+        target?.closest?.('[data-crop-controls], [role="dialog"], [role="alertdialog"]') || modalOpen();
       if (editing) return;
 
       const canvasState = useCanvasStore.getState();

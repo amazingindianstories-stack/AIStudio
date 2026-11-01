@@ -2,7 +2,7 @@
 
 import { NodeView } from "../nodes/NodeView";
 import { ConnectorLayer } from "../ConnectorLayer";
-import { frameContents } from "@/lib/canvas/formats/slides";
+import { frameContents, moveIntoFrame } from "@/lib/canvas/formats/slides";
 import { useCanvasStore } from "@/lib/canvas-store";
 
 const noop = () => {};
@@ -16,8 +16,7 @@ export function FramePreview({ frame, graph, onNavigate }) {
   return <div className="relative mx-auto w-full overflow-hidden rounded-lg border bg-slate-900" style={{ aspectRatio: `${width} / ${height}`, maxWidth: `min(100%, calc(70vh * ${width / height}))` }} onDragOver={(e) => e.preventDefault()} onDrop={(e) => {
     e.preventDefault();
     const id = e.dataTransfer.getData("text/board-node");
-    if (!id || id === frame.id) return;
-    useCanvasStore.getState().editBoard((g) => ({ ...g, nodes: g.nodes.map((n) => n.id === id && !["format", "frame"].includes(n.type) ? { ...n, parentId: frame.id, x: frame.x + 40, y: frame.y + 60 } : n) }));
+    if (id) useCanvasStore.getState().editBoard((g) => moveIntoFrame(g, id, frame));
   }}>
     <svg viewBox={`0 0 ${width} ${height}`} className="h-full w-full"><foreignObject width={width} height={height}><div className="relative" style={{ width, height }}>
       <div style={{ transform: `translate(${-frame.x}px, ${-frame.y}px)` }}>

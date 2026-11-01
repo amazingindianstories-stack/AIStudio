@@ -363,9 +363,20 @@ const SHAPE_NODE = {
 
 const CODE_SHAPE_TYPES = new Set(Object.values(SHAPE_NODE).map((spec) => spec.type));
 
-/** The children of `diagramId` its Mermaid code describes: the shape kinds the code builds. */
-function codeShapes(nodes, diagramId) {
-  return nodes.filter((n) => n.parentId === diagramId && CODE_SHAPE_TYPES.has(n.type));
+/**
+ * The Mermaid key of every shape inside `diagramId`, in board order: the key its code gave it, or
+ * (for shapes drawn by hand, or a copy whose key is already taken) one derived from its id.
+ */
+function shapeKeys(nodes, diagramId) {
+  const keys = new Map();
+  const used = new Set();
+  for (const n of nodes) {
+    if (n.parentId !== diagramId || !CODE_SHAPE_TYPES.has(n.type)) continue;
+    const key = n.mermaidKey && !used.has(n.mermaidKey) ? n.mermaidKey : `id_${n.id.replace(/\W/g, "_")}`;
+    used.add(key);
+    keys.set(n.id, key);
+  }
+  return keys;
 }
 
 function uuid() {
@@ -375,15 +386,16 @@ function uuid() {
 /**
  * Board objects for a parsed diagram: a `diagram` container carrying the source (so it can be
  * edited as text again), its shapes as children and its connectors. `origin` is the world
- * point of the container's top-left corner; `keepId` rebuilds an existing container.
+ * point of the container's top-left corner; `keepId` rebuilds an existing container and `shapeIds`
+ * (Mermaid key -> node id) keeps the identity of shapes that survive the rebuild.
  */
-export function mermaidToBoardObjects(parsed, origin, { keepId, name = "Mermaid diagram", source = "", status } = {}) {
+export function mermaidToBoardObjects(parsed, origin, { keepId, shapeIds, name = "Mermaid diagram", source = "", status } = {}) {
   const { positions, width, height } = layoutMermaid(parsed);
   const PAD_X = 40;
   const PAD_TOP = 60;
   const PAD_BOTTOM = 40;
   const diagramId = keepId ?? uuid();
-  const ids = new Map(parsed.nodes.map((n) => [n.id, uuid()]));
+  const ids = new Map(parsed.nodes.map((n) => [n.id, shapeIds?.get(n.id) ?? uuid()]));
   const diagram = {
     id: diagramId,
     type: "diagram",
@@ -424,6 +436,7 @@ export function mermaidToBoardObjects(parsed, origin, { keepId, name = "Mermaid 
       parentId: diagramId,
       groupId: null,
       diagramLayerId: "layer-main",
+      mermaidKey: n.id,
     };
     if (spec.cornerRadius) node.cornerRadius = spec.cornerRadius;
     nodes.push(node);
@@ -484,9 +497,8 @@ const OPEN_CLOSE = { rect: ["[", "]"], round: ["(", ")"], circle: ["((", "))"], 
 
 /** Mermaid source for the shapes inside `diagramId` and the connectors between them, in the direction of its code. */
 export function diagramToMermaid(state, diagramId) {
-  const nodes = codeShapes(state.nodes, diagramId);
-  const ids = new Map();
-  nodes.forEach((n, i) => ids.set(n.id, `n${i + 1}`));
+  const ids = shapeKeys(state.nodes, diagramId);
+  const nodes = state.nodes.filter((n) => ids.has(n.id));
   const source = state.nodes.find((n) => n.id === diagramId)?.source;
   const out = [`flowchart ${parseMermaid(source).direction}`];
   for (const n of nodes) {
@@ -506,25 +518,40 @@ export function diagramToMermaid(state, diagramId) {
 }
 
 /**
- * The board changes that rebuild diagram `diagramId` from new text: the shapes and connectors the old
- * code described are replaced; other children (images, frames) and their connectors stay.
+ * The board changes that rebuild diagram `diagramId` from new text. The code describes the shapes
+ * it built and any shape whose key it names; those are rebuilt (keeping their ids when their key
+ * survives) along with the connectors between them. Other children, and connectors whose ends
+ * still exist, stay.
  */
 export function replaceDiagramContent(state, diagramId, parsed, source) {
   const diagram = state.nodes.find((n) => n.id === diagramId);
   if (!diagram) return state;
+  const newKeys = new Set(parsed.nodes.map((n) => n.id));
+  const described = new Map();
+  for (const [id, key] of shapeKeys(state.nodes, diagramId)) {
+    const node = state.nodes.find((n) => n.id === id);
+    if (key === node.mermaidKey || newKeys.has(key)) described.set(id, key);
+  }
+  const shapeIds = new Map([...described].filter(([, key]) => newKeys.has(key)).map(([id, key]) => [key, id]));
   const built = mermaidToBoardObjects(parsed, { x: diagram.x, y: diagram.y }, {
     keepId: diagramId,
+    shapeIds,
     name: diagram.name,
     source,
     status: diagram.status,
   });
-  const childIds = new Set(codeShapes(state.nodes, diagramId).map((n) => n.id));
+  const remaining = state.nodes.filter((n) => !described.has(n.id));
+  const present = new Set([...remaining, ...built.nodes].map((n) => n.id));
   const nextDiagram = { ...diagram, w: Math.max(diagram.w, built.diagram.w), h: Math.max(diagram.h, built.diagram.h), containers: built.diagram.containers, source, sourceKind: "mermaid" };
   return {
     ...state,
-    nodes: [...state.nodes.filter((n) => !childIds.has(n.id)).map((n) => (n.id === diagramId ? nextDiagram : n)), ...built.nodes],
+    nodes: [...remaining.map((n) => (n.id === diagramId ? nextDiagram : n)), ...built.nodes],
     connectors: [
-      ...state.connectors.filter((c) => !childIds.has(c.from?.nodeId) && !childIds.has(c.to?.nodeId)),
+      ...state.connectors.filter((c) => {
+        const [from, to] = [c.from?.nodeId, c.to?.nodeId];
+        if (described.has(from) && described.has(to)) return false;
+        return (from == null || present.has(from)) && (to == null || present.has(to));
+      }),
       ...built.connectors,
     ],
   };

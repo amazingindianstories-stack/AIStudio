@@ -1,5 +1,5 @@
 {
- "description": "Format objects (docs, slides, HTML, draw.io), Mermaid diagram source and wireframe screen links: the frontend (src/lib/canvas/serialization.js) and backend (serialization.py) serializers must both turn each input into its expected board.",
+ "description": "Format objects (docs, slides, HTML, draw.io with its preview), Mermaid diagram source and shape keys, and wireframe screen links: the frontend (src/lib/canvas/serialization.js) and backend (serialization.py) serializers must both turn each input into its expected board.",
  "cases": {
   "doc_blocks_and_suggestions": {
    "input": {
@@ -479,6 +479,28 @@
       "y": 0,
       "w": 100,
       "h": 80,
+      "id": "xp",
+      "type": "format",
+      "format": "drawio",
+      "xml": "<mxfile/>",
+      "preview": "data:image/svg+xml;base64,PHN2Zy8+"
+     },
+     {
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "id": "xbad",
+      "type": "format",
+      "format": "drawio",
+      "xml": "<mxfile/>",
+      "preview": "data:text/html,<script>alert(1)</script>"
+     },
+     {
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
       "id": "u",
       "type": "format",
       "format": "video"
@@ -508,6 +530,33 @@
      },
      {
       "id": "x",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "format",
+      "format": "drawio",
+      "name": "Draw.io diagram",
+      "xml": "<mxfile/>"
+     },
+     {
+      "id": "xp",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "format",
+      "format": "drawio",
+      "name": "Draw.io diagram",
+      "xml": "<mxfile/>",
+      "preview": "data:image/svg+xml;base64,PHN2Zy8+"
+     },
+     {
+      "id": "xbad",
       "x": 0,
       "y": 0,
       "w": 100,
@@ -575,6 +624,26 @@
       "id": "dead",
       "type": "rect",
       "screenLink": "gone"
+     },
+     {
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "id": "ka",
+      "type": "rect",
+      "parentId": "dg",
+      "mermaidKey": "A"
+     },
+     {
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "id": "kb",
+      "type": "ellipse",
+      "parentId": "dg",
+      "mermaidKey": "bad key"
      }
     ]
    },
@@ -667,6 +736,33 @@
       "parentId": null,
       "groupId": null,
       "type": "rect",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1
+     },
+     {
+      "id": "ka",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": "dg",
+      "groupId": null,
+      "type": "rect",
+      "fill": "#ffffff",
+      "stroke": "#000000",
+      "strokeWidth": 1,
+      "mermaidKey": "A"
+     },
+     {
+      "id": "kb",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": "dg",
+      "groupId": null,
+      "type": "ellipse",
       "fill": "#ffffff",
       "stroke": "#000000",
       "strokeWidth": 1

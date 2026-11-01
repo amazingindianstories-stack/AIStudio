@@ -137,3 +137,46 @@ test("updating from code keeps children and connectors the code does not describ
   assert.deepEqual(next.nodes.filter((n) => n.parentId === built.diagram.id && n.type === "rect").map((n) => n.text), ["X", "Y", "Z"]);
   assert.equal(next.connectors.length, 3);
 });
+
+test("updating from code keeps shapes whose key survives, with their connectors", () => {
+  const source = "graph TD\nA --> B";
+  const built = mermaidToBoardObjects(parseMermaid(source), { x: 0, y: 0 }, { source });
+  const [shapeA] = built.nodes;
+  const outside = { id: "outside", type: "sticky", x: 900, y: 0, w: 50, h: 50 };
+  const image = { id: "img", type: "image", x: 10, y: 10, w: 40, h: 40, src: "/api/media/a.png", parentId: built.diagram.id };
+  const drawn = { id: "drawn", type: "rect", x: 20, y: 20, w: 40, h: 40, text: "Mine", parentId: built.diagram.id };
+  const link = (id, from, to) => ({ id, from: { nodeId: from, anchor: "auto" }, to: { nodeId: to, anchor: "auto" } });
+  const state = validateCanvasState({
+    nodes: [outside, built.diagram, ...built.nodes, image, drawn],
+    connectors: [...built.connectors, link("a-out", shapeA.id, "outside"), link("a-img", shapeA.id, "img")],
+  });
+  const code = "graph TD\nA --> B --> C";
+  const next = replaceDiagramContent(state, built.diagram.id, parseMermaid(code), code);
+  assert.equal(next.nodes.find((n) => n.mermaidKey === "A").id, shapeA.id);
+  assert.ok(next.connectors.some((c) => c.id === "a-out"));
+  assert.ok(next.connectors.some((c) => c.id === "a-img"));
+  assert.ok(next.nodes.some((n) => n.id === "drawn"));
+  assert.deepEqual(next.nodes.filter((n) => n.mermaidKey).map((n) => n.text), ["A", "B", "C"]);
+  assert.equal(next.connectors.length, 4);
+});
+
+test("shapes drawn into a diagram join the code once read, keeping their identity", () => {
+  const source = "graph TD\nA --> B";
+  const built = mermaidToBoardObjects(parseMermaid(source), { x: 0, y: 0 }, { source });
+  const [shapeA] = built.nodes;
+  const drawn = { id: "drawn-1", type: "rect", x: 20, y: 20, w: 40, h: 40, text: "Mine", parentId: built.diagram.id };
+  const copy = { ...shapeA, id: "copy-of-a", text: "Copy" };
+  const state = validateCanvasState({
+    nodes: [built.diagram, ...built.nodes, drawn, copy],
+    connectors: [...built.connectors, { id: "a-drawn", from: { nodeId: shapeA.id, anchor: "auto" }, to: { nodeId: "drawn-1", anchor: "auto" } }],
+  });
+  const code = diagramToMermaid(state, built.diagram.id);
+  assert.equal(parseMermaid(code).nodes.length, 4);
+  const next = replaceDiagramContent(state, built.diagram.id, parseMermaid(code), code);
+  const children = next.nodes.filter((n) => n.parentId === built.diagram.id);
+  assert.deepEqual(children.map((n) => n.id).sort(), [shapeA.id, built.nodes[1].id, "copy-of-a", "drawn-1"].sort());
+  assert.equal(next.nodes.find((n) => n.id === "drawn-1").text, "Mine");
+  assert.equal(next.connectors.length, 2);
+  const saved = validateCanvasState(next);
+  assert.equal(diagramToMermaid(saved, built.diagram.id), code);
+});
