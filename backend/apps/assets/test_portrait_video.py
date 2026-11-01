@@ -5,6 +5,7 @@ import json
 import threading
 from unittest.mock import patch
 
+from django.db.models import F
 from django.test import SimpleTestCase
 
 from apps.generation.references import resolve_submission_references
@@ -13,7 +14,7 @@ from apps.media import posters
 from apps.media.uploads import UploadError
 
 from . import managed_pool, video_limits
-from .models import ManagedPortraitAsset, ManagedPortraitPool, ReferenceFaceScan
+from .models import ManagedPortraitAsset, ManagedPortraitPool, ManagedPortraitWait, ReferenceFaceScan
 from .test_portrait_gallery import GalleryBase, landscape, session_fixtures
 
 GOOD = {'containers': ['mov', 'mp4', 'm4a'], 'width': 1080, 'height': 1920, 'seconds': 8.0, 'fps': 30.0}
@@ -282,3 +283,44 @@ class VideoGalleryTests(GalleryBase):
         fresh = ManagedPortraitAsset.objects.get(status='ACTIVE')
         self.assertEqual([part['video_url']['url'] for part in self.fake.seedance_payloads[-1]['content'] if part.get('type') == 'video_url'],
                          ['asset://' + fresh.byteplus_asset_id])
+
+    def expired_clip_job(self):
+        """A job that references a Gallery clip whose asset expired, so the job registers it again."""
+        with probe():
+            ref = self.upload(MP4, mime='video/mp4', purpose='portrait')
+            self.client.post('/api/portraits', {'uploads': [{**ref, 'name': 'Clip'}]}, content_type='application/json')
+            self.settle_uploads()
+        managed_pool._mark_deleting(ManagedPortraitAsset.objects.get(), 'expired', 1)
+        managed_pool.janitor()
+        return self.enqueue_with_clip(ref)
+
+    def rewind(self, job, minutes, processing=False):
+        """``minutes`` pass for the job's wait and, with ``processing``, for the asset it is registering."""
+        ms = minutes * 60 * 1000
+        ManagedPortraitWait.objects.filter(generation_id=job).update(started_at=F('started_at') - ms)
+        if processing:
+            asset = ManagedPortraitAsset.objects.get(status='PROCESSING')
+            asset.receipt = {**asset.receipt, 'registered_at': asset.receipt['registered_at'] - ms}
+            asset.save(update_fields=['receipt'])
+
+    def test_a_slot_wait_then_slow_video_processing_each_count_only_against_their_own_limit(self):
+        self.fake.asset_capacity, self.fake.asset_activation_polls = 0, 2
+        job = self.expired_clip_job()
+        self.run_worker(job, passes=2)
+        self.rewind(job, 4)                                 # 4 minutes waiting for a slot
+        self.fake.asset_capacity = None
+        ManagedPortraitPool.objects.update(last_quota_error_at=managed_pool.now_ms() - managed_pool.QUOTA_BACKOFF_MS - 1)
+        self.assertEqual(self.run_worker(job, passes=1).status, 'queued')
+        self.rewind(job, 12, processing=True)              # then 12 minutes of BytePlus processing the clip
+        row = self.run_worker(job)
+        self.assertEqual(row.status, 'succeeded', row.error)
+        self.assertEqual(len(self.fake.seedance_payloads), 1)
+
+    def test_a_clip_still_processing_past_its_limit_fails_saying_so_without_a_charge(self):
+        self.fake.asset_activation_polls = 5
+        job = self.expired_clip_job()
+        self.assertEqual(self.run_worker(job, passes=1).status, 'queued')
+        self.rewind(job, 16, processing=True)
+        row = self.run_worker(job, passes=1)
+        self.assertEqual((row.status, row.error), ('failed', managed_pool.PORTRAIT_STILL_PROCESSING))
+        self.assertEqual(self.fake.seedance_payloads, [])

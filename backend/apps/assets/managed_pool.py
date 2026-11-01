@@ -80,6 +80,8 @@ PORTRAIT_UNAVAILABLE = "We couldn't prepare a portrait from one of your referenc
 PORTRAIT_MISSING = 'The portrait disappeared while preparing. Try again.'
 PORTRAIT_BUSY = ('Portrait storage stayed busy for {minutes} minutes, so this generation was stopped.' + NOT_CHARGED.replace('submitted, so this', 'submitted, so it')
                  + ' Try again shortly.')
+PORTRAIT_STILL_PROCESSING = ('The portrait service was still processing a portrait when its time ran out, so this generation was stopped.'
+                             + NOT_CHARGED.replace('submitted, so this', 'submitted, so it') + ' Try again shortly.')
 
 
 def failed(message, reason='failed', detail=None):
@@ -610,9 +612,9 @@ def _poll(asset, client):
         if error.code in ('NotFound.asset_id', 'NotFound'):
             _finish(asset, status='FAILED', error_code='missing_after_create', receipt=_last_error(asset, error))
             return failed(PORTRAIT_MISSING, 'portrait_missing', error.provider_error)
-        return wait('portrait_processing', 5000)
+        return wait('portrait_uncertain', 5000)
     except Exception:
-        return wait('portrait_processing', 5000)
+        return wait('portrait_uncertain', 5000)
     status = str((remote or {}).get('Status', ''))
     if status == 'Active':
         with transaction.atomic():
@@ -645,7 +647,8 @@ def _poll(asset, client):
         detail = provider_errors.capture('byteplus-assets', phase='GetAsset', code=code, message='Asset status: ' + (status or 'unknown'),
                                          task_id=asset.byteplus_asset_id, source='veevee',
                                          body=json.dumps({key: value for key, value in (remote or {}).items() if key != 'URL'}, default=str))
-        return failed(PORTRAIT_UNPREPARED + NOT_CHARGED, 'portrait_rejected', detail)
+        message = PORTRAIT_UNPREPARED + NOT_CHARGED if status == 'Failed' else PORTRAIT_STILL_PROCESSING
+        return failed(message, 'portrait_rejected', detail)
     return wait('portrait_processing', 3000)
 
 
@@ -658,9 +661,9 @@ def _verify(asset, client):
         if error.code in ('NotFound.asset_id', 'NotFound'):
             _finish(asset, status='DELETED', deleted_at=now_ms(), error_code='missing_remotely')
             return None
-        return wait('portrait_processing', 5000)
+        return wait('portrait_uncertain', 5000)
     except Exception:
-        return wait('portrait_processing', 5000)
+        return wait('portrait_uncertain', 5000)
     if str((remote or {}).get('Status')) != 'Active':
         _finish(asset, status='PROCESSING')
         return wait('portrait_processing', 3000)

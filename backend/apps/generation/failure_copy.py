@@ -101,7 +101,7 @@ def _curated():
         upscale_submission.UPSCALE_REJECTED, upscale_submission.UPSCALE_PREPARE_FAILED,
         video_execution.FACE_NOT_READY, video_execution.LOOKUP_UNAVAILABLE,
         managed_pool.PORTRAIT_UNPREPARED + managed_pool.NOT_CHARGED, managed_pool.PORTRAIT_REFUSED + managed_pool.NOT_CHARGED,
-        managed_pool.PORTRAIT_MISSING,
+        managed_pool.PORTRAIT_MISSING, managed_pool.PORTRAIT_STILL_PROCESSING,
         seedream_references.CORRUPT, 'Reference is not a stored media file or secure URL.',
         'Reference dimensions must exceed 14 pixels with an aspect ratio between 1:16 and 16:1.',
         'Reference could not fit the 30 MB limit. Export a smaller PNG or JPEG.',

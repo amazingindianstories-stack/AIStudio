@@ -83,14 +83,20 @@ def prepare(item, *, storage=None, client=None, now=None):
         outcome = managed_pool.ensure(data, key, item.id, item.user_id, storage=storage, client=client, now=now)
         if outcome.kind == 'failed':
             return outcome
-        if outcome.kind == 'wait' and worst.kind != 'wait':
-            worst = outcome
+        worst = _reported(worst, outcome)
     for key, row in videos.items():
         outcome = managed_pool.ensure(b'', key, item.id, item.user_id, storage=storage, client=client, now=now, sha=row.content_sha256, media_kind='video')
         if outcome.kind == 'failed':
             return outcome
-        if outcome.kind == 'wait' and worst.kind != 'wait':
-            worst = outcome
+        worst = _reported(worst, outcome)
+    return worst
+
+
+def _reported(worst, outcome):
+    """The wait the job reports: the first one, except that any other wait outranks an asset still processing (whose time
+    counts only against its own processing limit, not the job's wait limit)."""
+    if outcome.kind == 'wait' and (worst.kind != 'wait' or worst.reason == 'portrait_processing'):
+        return outcome
     return worst
 
 
@@ -156,8 +162,13 @@ def video_assets_for(item):
 
 
 def wait_started(generation_id, reason, now):
+    """When the job's wait limit started counting. A wait for a registered asset to finish processing is bounded by the
+    asset's own processing limit instead: it never counts, and the job's clock starts again when that wait ends."""
     row, _ = ManagedPortraitWait.objects.get_or_create(generation_id=generation_id, defaults={'started_at': now, 'reason': reason})
-    return row.started_at
+    if reason != 'portrait_processing':
+        return row.started_at
+    ManagedPortraitWait.objects.filter(generation_id=generation_id).update(started_at=now)
+    return now
 
 
 def clear_wait(generation_id):

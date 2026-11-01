@@ -10,7 +10,8 @@ Nothing is deployed. Every production step below needs explicit owner approval.
   are pinned and never expired or evicted. Unused assets expire after `portraitAssetTtlHours` (4).
 - When the pool is full the least recently used unpinned asset is evicted; if everything is pinned
   the job waits (`PORTRAIT_WAITING`, card shows the reason) up to `portraitQueueWaitMinutes` (15),
-  then fails **without any paid submission**.
+  then fails **without any paid submission** ("Portrait storage stayed busy"). Time an asset spends processing at
+  BytePlus counts only against its own processing limit, and the wait limit starts again when that wait ends.
 - ACTIVE assets are re-confirmed with BytePlus (unbilled GetAsset) at most 60 s before a submission,
   and after any failed job; a vanished asset is registered again automatically.
 - The Portrait Gallery (v2) is one shared, flat grid: artists upload one or many images or short videos (they are
@@ -45,13 +46,13 @@ Nothing is deployed. Every production step below needs explicit owner approval.
   **Retry** then registers it and sends `asset://`. There is no automatic resubmission (the paid claim stays
   one-shot). Uploading the same image to the Gallery has the same effect.
 - A slot waiter's place in line is when it started waiting for a slot (not for processing); the overall
-  wait limit still counts from its first wait. No second eviction starts while an earlier delete is
+  wait limit counts from its first wait since it last waited for processing. No second eviction starts while an earlier delete is
   unresolved (DELETING or UNCERTAIN), so a failing DeleteAsset cannot empty the pool.
 - When BytePlus reports a full quota the pool takes what it had accepted as its size (0 when the quota is
   used elsewhere) and starts no registration for 60 s; after that one registration probes again.
-- Processing is timed from the start of registration (3 minutes), not from the upload. A timed-out or failed
-  asset that a generation still pins is not deleted: that generation fails (not charged) and the asset is
-  deleted once nothing holds it.
+- Processing is timed from the start of registration (3 minutes, 15 for video), not from the upload. A timed-out or
+  failed asset that a generation still pins is not deleted: that generation fails (not charged; a timeout says the
+  portrait was still processing) and the asset is deleted once nothing holds it.
 - Old references (a `#bp_asset_id=` marker on an image) are pooled by their bytes and never checked at
   BytePlus; a bare `asset://` link is refused at enqueue ("@imgN is an old portrait link that no longer exists").
 - The detector can take a non-human image (an animal, a sketch, tiny figures) for a face. When BytePlus
