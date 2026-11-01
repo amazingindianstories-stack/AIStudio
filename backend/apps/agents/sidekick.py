@@ -32,10 +32,6 @@ SIDEKICK_MAX_TURNS = 9
 SMALL_TURN_CHARS = 60_000
 SMALL_BODY_BYTES = 128 * 1024
 
-WEB_TOOLS = [{'google_search': {}}]
-WEB_SUFFIX = ('\n\nYou may search the web for current information. Reply with one JSON object only, matching the schema '
-              'below, with no markdown fence and no text around it.\nSchema: ')
-
 SIDEKICK_PROMPT = (
     'You are a Sidekick: an AI teammate working on a Veevee board, a whiteboard for filmmakers and artists. The user '
     'message holds the Sidekick\'s own instructions and knowledge, a compact summary of the board (one line per object: '
@@ -212,31 +208,14 @@ def parse_search(value):
             'createdByMe': value.get('createdByMe') is True, 'explanation': _text(value.get('explanation'), MAX_ITEM_CHARS)}
 
 
-def _web(prompt, schema):
-    """The prompt of a search-grounded variant: the schema is spelled out because the API cannot enforce it with tools."""
-    return prompt + WEB_SUFFIX + json.dumps(schema, separators=(',', ':'))
-
-
-def lenient_json(text):
-    """The JSON object in a model answer that may wrap it in a fence or a sentence (search-grounded variants)."""
-    fenced = re.search(r'```(?:json)?\s*(.*?)```', text, re.DOTALL)
-    candidate = fenced.group(1) if fenced else text
-    start, end = candidate.find('{'), candidate.rfind('}')
-    return candidate[start:end + 1] if 0 <= start < end else candidate
-
-
 SIDEKICK_LIMITS = {'max_turns': SIDEKICK_MAX_TURNS, 'max_turn_chars': SIDEKICK_TURN_CHARS, 'max_body_bytes': SIDEKICK_BODY_BYTES}
 SMALL_LIMITS = {'max_turns': 3, 'max_turn_chars': SMALL_TURN_CHARS, 'max_body_bytes': SMALL_BODY_BYTES}
 
 FORMATS = {
     'sidekick': {'prompt': SIDEKICK_PROMPT, 'schema': SIDEKICK_SCHEMA, 'max_output_tokens': 8192, 'temperature': 0.6,
                  'parse': parse_sidekick, **SIDEKICK_LIMITS},
-    'sidekick-web': {'prompt': _web(SIDEKICK_PROMPT, SIDEKICK_SCHEMA), 'schema': None, 'max_output_tokens': 8192, 'temperature': 0.6,
-                     'parse': parse_sidekick, 'tools': WEB_TOOLS, **SIDEKICK_LIMITS},
     'flowstep': {'prompt': FLOW_PROMPT, 'schema': FLOW_SCHEMA, 'max_output_tokens': 4096, 'temperature': 0.5,
                  'parse': parse_flow_step, **SMALL_LIMITS},
-    'flowstep-web': {'prompt': _web(FLOW_PROMPT, FLOW_SCHEMA), 'schema': None, 'max_output_tokens': 4096, 'temperature': 0.5,
-                     'parse': parse_flow_step, 'tools': WEB_TOOLS, **SMALL_LIMITS},
     'catchup': {'prompt': CATCHUP_PROMPT, 'schema': CATCHUP_SCHEMA, 'max_output_tokens': 4096, 'temperature': 0.3,
                 'parse': parse_catchup, **SMALL_LIMITS},
     'boardsearch': {'prompt': SEARCH_PROMPT, 'schema': SEARCH_SCHEMA, 'max_output_tokens': 1024, 'temperature': 0.0,

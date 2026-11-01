@@ -42,8 +42,8 @@ FLOW_TEMPLATES = [
     {'id': 'shot-list', 'name': 'Scene to shot list', 'description': 'Breaks a scene into shots, then writes a camera note for each.',
      'steps': [{'block': 'instruction', 'task': 'Break the connected scene into a numbered list of shots, one per line.'},
                {'block': 'instruction', 'task': 'For each shot, add a short camera and lens note on the same line.'}]},
-    {'id': 'research-and-brief', 'name': 'Research and brief', 'description': 'Researches a topic on the web, then writes a short brief.',
-     'steps': [{'block': 'instruction', 'task': 'Research the connected topic and list the five most useful facts.', 'webSearch': True},
+    {'id': 'facts-and-brief', 'name': 'Facts and brief', 'description': 'Lists the key facts on a topic, then writes a short brief.',
+     'steps': [{'block': 'instruction', 'task': 'List the five most useful facts about the connected topic.'},
                {'block': 'instruction', 'task': 'Write a short brief from those facts for a creative team.'}]},
 ]
 
@@ -77,8 +77,7 @@ def step_request(body):
     if total > FLOW_CHARS:
         raise _error('This step\'s inputs are too long.')
     context = f'TASK:\n{task}\n\nINPUTS:\n' + ('\n\n'.join(parts) if parts else '(none)')
-    name = 'flowstep-web' if body.get('webSearch') is True else 'flowstep'
-    return name, processing, [{'role': 'user', 'text': context}, {'role': 'model', 'text': ACK}, {'role': 'user', 'text': 'Run the step.'}], task
+    return 'flowstep', processing, [{'role': 'user', 'text': context}, {'role': 'model', 'text': ACK}, {'role': 'user', 'text': 'Run the step.'}], task
 
 
 def quote_step(actor, body):
@@ -244,7 +243,7 @@ def apply_search(actor, board, identifier):
 # ---- usage analytics ----------------------------------------------------------------------------------------------
 
 PERIODS = {'day': 'day', 'week': 'week', 'month': 'month', 'quarter': 'quarter'}
-FORMAT_LABELS = {'sidekick': 'Sidekick', 'sidekick-web': 'Sidekick', 'flowstep': 'Flow', 'flowstep-web': 'Flow', 'catchup': 'Catch up',
+FORMAT_LABELS = {'sidekick': 'Sidekick', 'flowstep': 'Flow', 'catchup': 'Catch up',
                  'boardsearch': 'AI search', 'stickies': 'Create with AI', 'image': 'Create with AI'}
 
 

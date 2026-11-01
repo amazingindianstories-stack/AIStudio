@@ -24,19 +24,20 @@ def body_of(name, turns):
 
 
 class SidekickFormatTests(SimpleTestCase):
-    def test_every_format_has_one_exact_allowed_shape_and_web_search_is_only_for_the_web_variants(self):
+    def test_every_format_has_one_exact_allowed_shape_and_no_format_carries_tools(self):
         turns = [{'role': 'user', 'text': 'context'}, {'role': 'model', 'text': 'Understood.'}, {'role': 'user', 'text': 'go'}]
         for name in sidekick.FORMATS:
             with self.subTest(name):
                 body = body_of(name, turns)
                 self.assertTrue(board_payload_allowed(body))
                 self.assertEqual(board_formats.body_format(body), name)
-                self.assertEqual('tools' in body, name.endswith('-web'))
+                self.assertNotIn('tools', body)
                 self.assertFalse(board_payload_allowed({**body, 'tools': [{'codeExecution': {}}]}))
                 self.assertFalse(board_payload_allowed({**body, 'safetySettings': []}))
         plain = body_of('sidekick', turns)
-        self.assertFalse(board_payload_allowed({**plain, 'tools': sidekick.WEB_TOOLS}))
-        self.assertFalse(board_payload_allowed({**body_of('flowstep-web', turns), 'tools': None}))
+        self.assertFalse(board_payload_allowed({**plain, 'tools': [{'google_search': {}}]}))
+        self.assertNotIn('sidekick-web', board_formats.TEXT_FORMATS)
+        self.assertNotIn('flowstep-web', board_formats.TEXT_FORMATS)
 
     def test_turn_limits_are_per_format(self):
         long_turns = [{'role': 'user', 'text': 'c'}, {'role': 'model', 'text': 'Understood.'}] * 4 + [{'role': 'user', 'text': 'go'}]
@@ -57,14 +58,13 @@ class SidekickFormatTests(SimpleTestCase):
         with self.assertRaises(board_formats.UnusableResult):
             sidekick.parse_flow_step({'text': '  '})
         self.assertEqual(sidekick.parse_search({'terms': ['a', 7], 'updatedWithinDays': 'x', 'createdByMe': 'yes'})['updatedWithinDays'], 0)
-        self.assertEqual(sidekick.lenient_json('```json\n{"text": "a"}\n```'), '{"text": "a"}')
 
     def test_attribution_and_flow_settings_survive_normalisation(self):
         raw = {'id': 'n1', 'type': 'sticky', 'x': 0, 'y': 0, 'w': 10, 'h': 10, 'text': 'a', 'aiCreated': True, 'aiEditedAt': 5,
                'flow': {'block': 'instruction', 'task': 'do it', 'webSearch': True, 'inputHash': 'abc', 'junk': 1}}
         result = node(raw)
         self.assertEqual((result['aiCreated'], result['aiEditedAt']), (True, 5))
-        self.assertEqual(result['flow'], {'block': 'instruction', 'task': 'do it', 'webSearch': True, 'inputHash': 'abc'})
+        self.assertEqual(result['flow'], {'block': 'instruction', 'task': 'do it', 'inputHash': 'abc'})
         bad = node({**raw, 'aiCreated': 'yes', 'aiEditedAt': 'x', 'flow': {'block': 'weird'}})
         self.assertNotIn('aiCreated', bad)
         self.assertNotIn('flow', bad)
@@ -104,13 +104,12 @@ class SidekickCatalogueTests(AssistantFixture):
         self.assertIn('summarize', [skill['name'] for skill in data['skills']])
         self.assertEqual(data['limits']['types'], ['.txt', '.md', '.csv'])
 
-    def test_a_custom_sidekick_is_validated_owned_and_shared(self):
+    def test_a_custom_sidekick_is_validated_and_private_to_its_owner(self):
         files = [{'name': 'notes.md', 'text': 'The hero is called Mara.'}]
-        created = self.personal('post', 'sidekicks', {'name': 'Mara Expert', 'instructions': 'Answer as Mara.', 'starters': ['Hi'], 'knowledge': files,
-                                                      'webSearch': True, 'hideInstructions': True})
+        created = self.personal('post', 'sidekicks', {'name': 'Mara Expert', 'instructions': 'Answer as Mara.', 'starters': ['Hi'], 'knowledge': files})
         self.assertEqual(created.status_code, 201, created.content)
         item = created.json()['sidekick']
-        self.assertEqual((item['name'], item['mine'], item['shared'], item['webSearch']), ('Mara Expert', True, False, True))
+        self.assertEqual((item['name'], item['mine'], 'shared' in item, 'webSearch' in item), ('Mara Expert', True, False, False))
         self.assertEqual(item['knowledge'], [{'name': 'notes.md', 'chars': len(files[0]['text'])}])
         for bad, message in (({'name': ' '}, 'name'), ({'name': 'x', 'knowledge': [{'name': 'a.pdf', 'text': 'x'}]}, 'type'),
                              ({'name': 'x', 'knowledge': [{'name': 'a.txt', 'text': 'x' * (sidekicks.KNOWLEDGE_CHARS + 1)}]}, 'tokens'),
@@ -118,19 +117,16 @@ class SidekickCatalogueTests(AssistantFixture):
                              ({'name': 'x', 'starters': ['a'] * 7}, 'starters'), ({'name': 'x', 'processing': 'turbo'}, 'processing')):
             with self.subTest(message):
                 self.assertEqual(self.personal('post', 'sidekicks', bad).status_code, 400)
-        updated = self.personal('patch', f"sidekicks/{item['id']}", {'shared': True}).json()['sidekick']
-        self.assertEqual((updated['shared'], updated['name']), (True, 'Mara Expert'))
-        # Another person sees a shared Sidekick but not its hidden instructions, and cannot change it.
+        updated = self.personal('patch', f"sidekicks/{item['id']}", {'shared': True, 'name': 'Mara Pro'}).json()['sidekick']
+        self.assertEqual((updated['name'], 'shared' in updated), ('Mara Pro', False))
+        # Another person neither sees nor changes it, even if they ask for it by id.
         other = User(id=uuid.uuid4(), name='Other', role='user')
         row = Sidekick.objects.get(pk=item['id'])
-        seen = sidekicks.sidekick_json(row, other)
-        self.assertNotIn('instructions', seen)
-        self.assertFalse(seen['mine'])
-        with self.assertRaises(sidekicks.JobError):
-            sidekicks.custom_row(other, str(row.id), owned=True)
-        Sidekick.objects.filter(pk=row.pk).update(shared=False)
         with self.assertRaises(sidekicks.JobError):
             sidekicks.custom_row(other, str(row.id))
+        with self.assertRaises(sidekicks.JobError):
+            sidekicks.custom_row(other, str(row.id), owned=True)
+        self.assertEqual(sidekicks.catalogue(other)['custom'], [])
         self.assertEqual(self.personal('delete', f"sidekicks/{item['id']}").status_code, 200)
         self.assertEqual(Sidekick.objects.count(), 0)
 
@@ -168,17 +164,17 @@ class SidekickChatTests(AssistantFixture):
         roles = [turn['role'] for turn in Generation.objects.get(pk=second['generationId']).submission_input['turns']]
         self.assertEqual(roles, ['user', 'model', 'user', 'model', 'user'])
 
-    def test_a_custom_sidekick_with_web_search_queues_the_web_format_and_sources_stay_inside_veevee(self):
-        made = self.personal('post', 'sidekicks', {'name': 'Scout', 'instructions': 'Find facts.', 'webSearch': True,
+    def test_a_custom_sidekick_queues_the_plain_format_with_its_knowledge_and_sources_stay_inside_veevee(self):
+        made = self.personal('post', 'sidekicks', {'name': 'Scout', 'instructions': 'Find facts.',
                                                    'knowledge': [{'name': 'a.txt', 'text': 'Fact sheet'}]}).json()['sidekick']
         chat = self.new_chat(made['id'])
         job = self.board_api('post', f"sidekick-chats/{chat['id']}/turns", {'message': 'Research it'}, key='turn-key-0003').json()['job']
         row = Generation.objects.get(pk=job['generationId'])
-        self.assertEqual(row.submission_input['format'], 'sidekick-web')
+        self.assertEqual(row.submission_input['format'], 'sidekick')
         self.assertIn('Fact sheet', row.submission_input['turns'][0]['text'])
         with FakeProviders() as fake:
             self.assertEqual(self.run_worker(job['generationId'])['kind'], 'succeeded')
-        self.assertEqual(fake.board_payloads[0]['tools'], sidekick.WEB_TOOLS)
+        self.assertNotIn('tools', fake.board_payloads[0])
         bad = self.board_api('post', f"sidekick-chats/{chat['id']}/quote", {'message': 'x', 'sources': [{'kind': 'url', 'id': 'http://example.com'}]})
         self.assertEqual(bad.status_code, 400)
         missing = self.board_api('post', f"sidekick-chats/{chat['id']}/quote", {'message': 'x', 'sources': [{'kind': 'board', 'id': str(uuid.uuid4())}]})
@@ -186,6 +182,9 @@ class SidekickChatTests(AssistantFixture):
 
     def test_chats_are_private_listed_renamed_and_deleted(self):
         chat = self.new_chat()
+        # A chat opened only for a quote has no history, so it is not listed until something is sent.
+        self.assertEqual(self.board_api('get', 'sidekick-chats').json()['chats'], [])
+        self.board_api('post', f"sidekick-chats/{chat['id']}/turns", {'message': 'hi'}, key='chat-list-0001')
         self.assertEqual([item['id'] for item in self.board_api('get', 'sidekick-chats').json()['chats']], [chat['id']])
         BoardSidekickChat.objects.filter(pk=chat['id']).update(user_id=uuid.uuid4())
         self.assertEqual(self.board_api('get', 'sidekick-chats').json()['chats'], [])
@@ -197,7 +196,7 @@ class SidekickChatTests(AssistantFixture):
         self.assertEqual(BoardSidekickChat.objects.count(), 0)
         self.assertEqual(self.board_api('post', 'sidekick-chats', {'sidekick': 'nope'}).status_code, 404)
 
-    def test_viewers_and_commenters_cannot_chat_or_run_flows_but_may_catch_up_and_search(self):
+    def test_viewers_and_commenters_cannot_chat_run_flows_or_catch_up_but_may_search(self):
         chat = self.new_chat()
         for role in ('view', 'comment'):
             self.board.team_role = role
@@ -208,7 +207,8 @@ class SidekickChatTests(AssistantFixture):
                                              ('post', 'flows/steps', {'task': 'x'}), ('post', 'flow-versions', {'nodeId': 'a', 'text': 'b'})):
                     self.assertEqual(self.board_api(method, action, body, key='viewer-key-0001').status_code, 403, action)
                 self.assertEqual(self.board_api('post', 'visit').status_code, 200)
-                self.assertEqual(self.board_api('get', 'catch-up').status_code, 200)
+                for method, action, body in (('get', 'catch-up', None), ('post', 'catch-up/quote', {}), ('post', 'catch-up/jobs', {})):
+                    self.assertEqual(self.board_api(method, action, body, key='viewer-key-0002').status_code, 403, action)
                 self.assertEqual(self.board_api('post', 'ai-search/quote', {'query': 'my boards'}).status_code, 200)
         self.assertEqual((Generation.objects.count(), BoardAiJob.objects.count()), (0, 0))
 
@@ -235,7 +235,7 @@ class AiCreditTests(AssistantFixture):
             # A replay of the accepted key still returns the first job.
             self.assertEqual(self.board_api('post', path, {'message': 'one'}, key='credit-key-0001').json()['job']['id'], job['id'])
         self.assertEqual(Generation.objects.count(), 1)
-        self.assertEqual(self.personal('post', 'credits/request', {'message': 'please'}).status_code, 200)
+        self.assertEqual(self.personal('post', 'credits/request', {'message': 'please'}).status_code, 404)
 
     def test_failed_jobs_do_not_use_credits_and_last_months_jobs_do_not_count(self):
         chat = self.new_chat()
@@ -259,16 +259,16 @@ class AiCreditTests(AssistantFixture):
 
 
 class FlowTests(AssistantFixture):
-    def test_steps_are_quoted_alone_and_as_a_run_then_submitted_and_run_with_the_web_variant_on_request(self):
+    def test_steps_are_quoted_alone_and_as_a_run_then_submitted_and_run(self):
         step = {'task': 'Summarize the notes.', 'inputs': [{'text': 'note one'}, {'text': 'note two'}]}
         single = self.board_api('post', 'flows/steps/quote', step).json()['quote']
-        run = self.board_api('post', 'flows/quote', {'steps': [step, {**step, 'webSearch': True}]}).json()['quote']
+        run = self.board_api('post', 'flows/quote', {'steps': [step, step]}).json()['quote']
         self.assertEqual(run['costCents'], sum(item['costCents'] for item in run['steps']))
         self.assertEqual(run['steps'][0]['costCents'], single['costCents'])
         self.assertEqual(Generation.objects.count(), 0)
-        job = self.board_api('post', 'flows/steps', {**step, 'webSearch': True}, key='flow-key-0001').json()['job']
+        job = self.board_api('post', 'flows/steps', step, key='flow-key-0001').json()['job']
         row = Generation.objects.get(pk=job['generationId'])
-        self.assertEqual(row.submission_input['format'], 'flowstep-web')
+        self.assertEqual(row.submission_input['format'], 'flowstep')
         self.assertIn('note two', row.submission_input['turns'][0]['text'])
         with FakeProviders():
             self.assertEqual(self.run_worker(job['generationId'])['kind'], 'succeeded')

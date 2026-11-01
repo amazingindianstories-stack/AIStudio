@@ -113,14 +113,14 @@ export function revertOutput(boardId, nodeId, text) {
 }
 
 /** Place a new step next to the selection or at the view centre; arrows from the selected objects feed it. */
-export function addStep(task, { webSearch = false } = {}) {
+export function addStep(task) {
   const canvas = useCanvasStore.getState();
   const state = canvas.history.present;
   const sources = state.nodes.filter((n) => canvas.selection.includes(n.id));
   const center = canvas.viewportCenter();
   const right = sources.length ? Math.max(...sources.map((n) => n.x + n.w)) + 120 : center.x - 120;
   const top = sources.length ? Math.min(...sources.map((n) => n.y)) : center.y - 100;
-  const step = newStep({ task, webSearch, x: right, y: top });
+  const step = newStep({ task, x: right, y: top });
   canvas.editBoard((present) => ({
     ...present,
     nodes: [...present.nodes, step],
@@ -137,7 +137,7 @@ export function addTemplate(template) {
   return graph.nodes.map((n) => n.id);
 }
 
-/** Change a step's instruction or web-search setting (clears the hash so the step is stale). */
+/** Change a step's instruction (clears the hash so the step is stale). */
 export function editStep(nodeId, patch) {
   useCanvasStore.getState().editBoard((present) => ({
     ...present,
@@ -145,7 +145,6 @@ export function editStep(nodeId, patch) {
       if (n.id !== nodeId || !n.flow) return n;
       const flow = { ...n.flow, ...patch };
       delete flow.inputHash;
-      if (flow.webSearch !== true) delete flow.webSearch;
       return { ...n, flow };
     }),
   }));

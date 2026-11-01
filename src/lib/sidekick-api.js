@@ -14,7 +14,6 @@ export const saveSidekick = (sidekick) => (sidekick.id
   : send(personal("sidekicks"), "POST", sidekick)).then((json) => json.sidekick);
 export const deleteSidekick = (id) => send(personal(`sidekicks/${part(id)}`), "DELETE");
 export const fetchCredits = () => getJson(personal("credits")).then((json) => json.credits);
-export const requestCredits = (message) => send(personal("credits/request"), "POST", { message });
 export const fetchFlowTemplates = () => getJson(personal("flow-templates")).then((json) => json.templates);
 export const fetchUsage = (request) => send(personal("usage"), "POST", request).then((json) => json.usage);
 

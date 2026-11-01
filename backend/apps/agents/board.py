@@ -124,18 +124,15 @@ def build_body(value):
     body = {'systemInstruction': {'parts': [{'text': TEXT_FORMATS[name]['prompt']}]},
             'contents': [{'role': turn['role'], 'parts': [{'text': turn['text']}]} for turn in value['turns']],
             'generationConfig': generation_config(name)}
-    if TEXT_FORMATS[name].get('tools'):
-        body['tools'] = TEXT_FORMATS[name]['tools']
     return body
 
 
 def body_format(body):
     """The text format whose exact request shape ``body`` has, else None."""
-    if not isinstance(body, dict) or not {'systemInstruction', 'contents', 'generationConfig'} <= set(body) <= {'systemInstruction', 'contents', 'generationConfig', 'tools'}:
+    if not isinstance(body, dict) or not {'systemInstruction', 'contents', 'generationConfig'} <= set(body) <= {'systemInstruction', 'contents', 'generationConfig'}:
         return None
     for name, spec in TEXT_FORMATS.items():
-        if (body['systemInstruction'] == {'parts': [{'text': spec['prompt']}]} and body['generationConfig'] == generation_config(name)
-                and body.get('tools') == spec.get('tools')):
+        if (body['systemInstruction'] == {'parts': [{'text': spec['prompt']}]} and body['generationConfig'] == generation_config(name)):
             contents = body['contents']
             if not isinstance(contents, list):
                 return None
@@ -156,7 +153,7 @@ def body_format(body):
 def parse_output(name, text):
     """The validated result of a board text job from the model's JSON text."""
     try:
-        value = json.loads(sidekick.lenient_json(text) if TEXT_FORMATS[name].get('tools') else text)
+        value = json.loads(text)
     except (TypeError, ValueError):
         raise UnusableResult('The AI answer was not valid JSON.') from None
     return TEXT_FORMATS[name]['parse'](value)

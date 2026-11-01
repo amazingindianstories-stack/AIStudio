@@ -50,9 +50,9 @@ BOARD_ROUTES = [
     ('GET', r'flow-versions', access.EDIT, lambda r, a, b: ({'versions': flows.list_versions(b, query(r, 'nodeId'))}, 200)),
     ('POST', r'flow-versions', access.EDIT, lambda r, a, b: (flows.record_version(a, b, body(r)), 201)),
     ('POST', r'visit', access.READ, lambda r, a, b: (flows.visit(a, b), 200)),
-    ('GET', r'catch-up', access.READ, lambda r, a, b: ({'catchUp': flows.catchup_info(a, b, query(r, 'period'))}, 200)),
-    ('POST', r'catch-up/quote', access.READ, lambda r, a, b: ({'quote': flows.quote_catchup(a, b, body(r))}, 200)),
-    ('POST', r'catch-up/jobs', access.READ, lambda r, a, b: ({'job': flows.submit_catchup(a, b, body(r), key_of(r))}, 201)),
+    ('GET', r'catch-up', access.WRITE, lambda r, a, b: ({'catchUp': flows.catchup_info(a, b, query(r, 'period'))}, 200)),
+    ('POST', r'catch-up/quote', access.WRITE, lambda r, a, b: ({'quote': flows.quote_catchup(a, b, body(r))}, 200)),
+    ('POST', r'catch-up/jobs', access.WRITE, lambda r, a, b: ({'job': flows.submit_catchup(a, b, body(r), key_of(r))}, 201)),
     ('POST', r'ai-search/quote', access.READ, lambda r, a, b: ({'quote': flows.quote_search(a, body(r))}, 200)),
     ('POST', r'ai-search/jobs', access.READ, lambda r, a, b: ({'job': flows.submit_search(a, b, body(r), key_of(r))}, 201)),
     ('GET', rf'ai-search/{ID}', access.READ, lambda r, a, b, j: (flows.apply_search(a, b, j), 200)),
@@ -65,7 +65,6 @@ PERSONAL_ROUTES = [
     ('PATCH', rf'sidekicks/{ID}', lambda r, a, i: ({'sidekick': sidekicks.save_sidekick(a, i, body(r))}, 200)),
     ('DELETE', rf'sidekicks/{ID}', lambda r, a, i: (sidekicks.delete_sidekick(a, i), 200)),
     ('GET', r'credits', lambda r, a: ({'credits': sidekicks.credits(a)}, 200)),
-    ('POST', r'credits/request', lambda r, a: (sidekicks.request_more_credits(a, (body(r) or {}).get('message')), 200)),
     ('GET', r'flow-templates', lambda r, a: ({'templates': flows.FLOW_TEMPLATES}, 200)),
 ]
 

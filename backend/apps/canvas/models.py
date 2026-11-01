@@ -92,8 +92,8 @@ class BoardAiJob(models.Model):
 
 
 class Sidekick(models.Model):
-    """A user-made Sidekick: instructions, conversation starters and knowledge text. Shared ones are visible to every
-    signed-in teammate (the existing workspace model); only the owner or an admin changes or deletes one."""
+    """A user-made Sidekick: instructions, conversation starters and knowledge text. Private to its owner; an admin
+    can also change or delete it."""
     id = models.UUIDField(primary_key=True, db_default=RandomUUID())
     owner_id = models.UUIDField()
     name = models.TextField()
@@ -101,9 +101,6 @@ class Sidekick(models.Model):
     instructions = models.TextField(db_default='')
     starters = models.JSONField(default=list)
     processing = models.TextField(db_default='basic')
-    web_search = models.BooleanField(db_default=False)
-    hide_instructions = models.BooleanField(db_default=False)
-    shared = models.BooleanField(db_default=False)
     # [{"name": ..., "text": ...}], at most SIDEKICK_KNOWLEDGE_CHARS characters of text in all.
     knowledge = models.JSONField(default=list)
     created_at = models.BigIntegerField()
@@ -112,8 +109,7 @@ class Sidekick(models.Model):
     class Meta:
         managed = True
         db_table = 'canvas_sidekicks'
-        indexes = [models.Index(fields=['owner_id'], name='canvas_sidekicks_owner_idx'),
-                   models.Index(fields=['shared', 'updated_at'], name='canvas_sidekicks_shared_idx')]
+        indexes = [models.Index(fields=['owner_id'], name='canvas_sidekicks_owner_idx')]
 
 
 class BoardSidekickChat(models.Model):

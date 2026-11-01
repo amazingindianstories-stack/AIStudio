@@ -19,9 +19,6 @@ class Migration(migrations.Migration):
                 ('instructions', models.TextField(db_default='')),
                 ('starters', models.JSONField(default=list)),
                 ('processing', models.TextField(db_default='basic')),
-                ('web_search', models.BooleanField(db_default=False)),
-                ('hide_instructions', models.BooleanField(db_default=False)),
-                ('shared', models.BooleanField(db_default=False)),
                 ('knowledge', models.JSONField(default=list)),
                 ('created_at', models.BigIntegerField()),
                 ('updated_at', models.BigIntegerField()),
@@ -29,8 +26,7 @@ class Migration(migrations.Migration):
             options={
                 'db_table': 'canvas_sidekicks',
                 'managed': True,
-                'indexes': [models.Index(fields=['owner_id'], name='canvas_sidekicks_owner_idx'),
-                            models.Index(fields=['shared', 'updated_at'], name='canvas_sidekicks_shared_idx')],
+                'indexes': [models.Index(fields=['owner_id'], name='canvas_sidekicks_owner_idx')],
             },
         ),
         migrations.CreateModel(

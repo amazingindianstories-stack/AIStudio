@@ -204,7 +204,6 @@ function withAi(item, r) {
   const flow = r.flow;
   if (flow && typeof flow === "object" && FLOW_BLOCKS.includes(flow.block)) {
     const step = { block: flow.block, task: (typeof flow.task === "string" ? flow.task : "").slice(0, MAX_FLOW_TASK) };
-    if (flow.webSearch === true) step.webSearch = true;
     if (typeof flow.inputHash === "string" && flow.inputHash.length <= 64) step.inputHash = flow.inputHash;
     item.flow = step;
   }

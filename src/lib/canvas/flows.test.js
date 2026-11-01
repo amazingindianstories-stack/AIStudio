@@ -42,20 +42,19 @@ test("a current step is skipped unless an input changed or the run is forced", (
   assert.deepEqual(planRun(edited, ["s1", "s2"]).steps.map((p) => p.skip), [false, false]);
 });
 
-test("the hash depends on task, web search and every input", () => {
-  const base = inputHash("t", false, [{ text: "a" }]);
-  assert.notEqual(base, inputHash("u", false, [{ text: "a" }]));
-  assert.notEqual(base, inputHash("t", true, [{ text: "a" }]));
-  assert.notEqual(base, inputHash("t", false, [{ text: "a" }, { text: "" }]));
-  assert.equal(base, inputHash("t", false, [{ text: "a" }]));
+test("the hash depends on task and every input", () => {
+  const base = inputHash("t", [{ text: "a" }]);
+  assert.notEqual(base, inputHash("u", [{ text: "a" }]));
+  assert.notEqual(base, inputHash("t", [{ text: "a" }, { text: "" }]));
+  assert.equal(base, inputHash("t", [{ text: "a" }]));
   assert.equal(base.length, 16);
 });
 
 test("a template becomes chained steps the server keeps whole", () => {
-  const graph = templateGraph({ steps: [{ task: "One", webSearch: true }, { task: "Two" }] }, { x: 10, y: 20 });
+  const graph = templateGraph({ steps: [{ task: "One" }, { task: "Two" }] }, { x: 10, y: 20 });
   assert.equal(graph.nodes.length, 2);
   assert.equal(graph.connectors.length, 1);
   const parsed = validateCanvasState(state(graph.nodes, graph.connectors));
-  assert.deepEqual(parsed.nodes.map((n) => n.flow), [{ block: "instruction", task: "One", webSearch: true }, { block: "instruction", task: "Two" }]);
+  assert.deepEqual(parsed.nodes.map((n) => n.flow), [{ block: "instruction", task: "One" }, { block: "instruction", task: "Two" }]);
   assert.equal(parsed.nodes[0].aiCreated, true);
 });

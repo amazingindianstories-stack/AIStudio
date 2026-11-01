@@ -4,7 +4,7 @@ import { useCanvasStore } from "./canvas-store";
 import { applyActions, summarize } from "./canvas/sidekick-actions";
 import * as api from "./sidekick-api";
 
-// Sidekick chat on a board. The catalogue (premade, own and shared Sidekicks, slash-command skills) and the user's
+// Sidekick chat on a board. The catalogue (premade, own Sidekicks, slash-command skills) and the user's
 // AI credits are personal; chats are per user and board. A turn is quoted first, then submitted on an explicit send
 // (one Idempotency-Key per message, reused on retry), then polled; the answer's actions are applied to the board
 // as one undo step and recorded on the job so a reload never applies them twice. Nothing here runs a paid job by itself.

@@ -25,7 +25,7 @@ from apps.library.services import idempotency
 from .ai_jobs import ORIGIN, PROCESSING, UUID, JobError, job_json, receipt_key
 from .models import BoardAiJob, BoardSidekickChat, Sidekick
 
-OWN_FORMATS = ('sidekick', 'sidekick-web', 'flowstep', 'flowstep-web', 'catchup', 'boardsearch')
+OWN_FORMATS = ('sidekick', 'flowstep', 'catchup', 'boardsearch')
 CREDIT_SETTING = 'boardAiMonthlyCapCents'
 CREDIT_DEFAULT_CENTS = 5000
 
@@ -143,14 +143,7 @@ def action_prices():
 def require_credits(actor, cost_cents):
     cap, used = credit_cap(actor.id), credits_used(actor.id)
     if used + cost_cents > cap:
-        raise _error('Your monthly AI credits are used up. Ask an administrator for more.', 'AI_CREDITS_EXHAUSTED', 402)
-
-
-def request_more_credits(actor, message):
-    from apps.common.responses import log_activity
-    text = message.strip()[:500] if isinstance(message, str) else ''
-    log_activity(actor.id, 'ai_credits_request', {'message': text, 'capCents': credit_cap(actor.id), 'usedCents': credits_used(actor.id)})
-    return {'ok': True}
+        raise _error('Your monthly AI credits are used up. Try again next month or ask an administrator to raise your limit.', 'AI_CREDITS_EXHAUSTED', 402)
 
 
 # ---- custom Sidekicks ---------------------------------------------------------------------------------------------
@@ -160,27 +153,23 @@ def _is_owner(actor, row):
 
 
 def sidekick_json(row, actor):
-    owner = _is_owner(actor, row)
-    hidden = row.hide_instructions and not owner
     result = {'id': str(row.id), 'name': row.name, 'description': row.description, 'starters': row.starters,
-              'processing': row.processing, 'webSearch': row.web_search, 'hideInstructions': row.hide_instructions,
-              'shared': row.shared, 'mine': owner, 'custom': True,
+              'processing': row.processing, 'instructions': row.instructions,
+              'mine': _is_owner(actor, row), 'custom': True,
               'knowledge': [{'name': item['name'], 'chars': len(item['text'])} for item in row.knowledge],
               'updatedAt': row.updated_at}
-    if not hidden:
-        result['instructions'] = row.instructions
     return result
 
 
 def premade_json(item):
     return {**{key: item[key] for key in ('id', 'name', 'description', 'instructions', 'starters')}, 'custom': False,
-            'processing': 'basic', 'webSearch': False, 'hideInstructions': False, 'shared': True, 'mine': False,
+            'processing': 'basic', 'mine': False,
             'knowledge': []}
 
 
 def catalogue(actor):
-    """Premade Sidekicks, the user's own and the teammates' shared ones, and the slash-command skills."""
-    rows = Sidekick.objects.filter(models.Q(owner_id=actor.id) | models.Q(shared=True)).order_by('-updated_at')[:200]
+    """Premade Sidekicks, the user's own, and the slash-command skills."""
+    rows = Sidekick.objects.filter(owner_id=actor.id).order_by('-updated_at')[:200]
     return {'premade': [premade_json(item) for item in PREMADE], 'custom': [sidekick_json(row, actor) for row in rows],
             'skills': SKILLS, 'limits': {'files': MAX_FILES, 'fileBytes': MAX_FILE_BYTES, 'knowledgeChars': KNOWLEDGE_CHARS,
                                           'types': list(KNOWLEDGE_TYPES)}}
@@ -233,9 +222,6 @@ def sidekick_values(body, existing=None):
         'instructions': _text(body.get('instructions', existing.instructions if existing else ''), MAX_INSTRUCTIONS, 'Instructions'),
         'starters': [item.strip()[:MAX_STARTER] for item in starters if item.strip()],
         'processing': processing,
-        'web_search': bool(body.get('webSearch', existing.web_search if existing else False)),
-        'hide_instructions': bool(body.get('hideInstructions', existing.hide_instructions if existing else False)),
-        'shared': bool(body.get('shared', existing.shared if existing else False)),
     }
     values['knowledge'] = knowledge_files(body['knowledge']) if 'knowledge' in body else (existing.knowledge if existing else [])
     return values
@@ -256,7 +242,7 @@ def save_sidekick(actor, identifier, body):
 
 def custom_row(actor, identifier, owned=False):
     row = Sidekick.objects.filter(pk=identifier).first() if isinstance(identifier, str) and UUID.fullmatch(identifier) else None
-    if row is None or not (row.shared or _is_owner(actor, row)):
+    if row is None or not _is_owner(actor, row):
         raise _error('Sidekick not found.', status=404)
     if owned and not _is_owner(actor, row):
         raise _error('Only the Sidekick\'s owner can change it.', 'FORBIDDEN', 403)
@@ -271,14 +257,14 @@ def delete_sidekick(actor, identifier):
 
 
 def resolve(actor, key):
-    """The Sidekick a chat uses: (id, display name, instructions, knowledge, processing, web search)."""
+    """The Sidekick a chat uses: (id, display name, instructions, knowledge, processing)."""
     premade = next((item for item in PREMADE if item['id'] == key), None)
     if premade is not None:
         return {'id': key, 'name': premade['name'], 'instructions': premade['instructions'], 'knowledge': [],
-                'processing': 'basic', 'webSearch': False}
+                'processing': 'basic'}
     row = custom_row(actor, key)
     return {'id': str(row.id), 'name': row.name, 'instructions': row.instructions, 'knowledge': row.knowledge,
-            'processing': row.processing, 'webSearch': row.web_search}
+            'processing': row.processing}
 
 
 # ---- chats --------------------------------------------------------------------------------------------------------
@@ -446,10 +432,9 @@ def turn_request(actor, board, chat_id, body):
     processing = body.get('processing', sidekick['processing'])
     if processing not in PROCESSING:
         raise _error('Unknown processing.', 'UNKNOWN_PROCESSING')
-    web = bool(body.get('webSearch', sidekick['webSearch']))
     context = context_turn(sidekick, board_summary(board.data, selection_ids(body)), source_context(actor, board, body.get('sources')))
     turns = [{'role': 'user', 'text': context}, {'role': 'model', 'text': ACK}, *history_turns(chat), {'role': 'user', 'text': message}]
-    return chat, 'sidekick-web' if web else 'sidekick', processing, turns, message
+    return chat, 'sidekick', processing, turns, message
 
 
 def quote_turn(actor, board, chat_id, body):

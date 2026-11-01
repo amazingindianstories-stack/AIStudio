@@ -8,7 +8,7 @@ import { KNOWLEDGE_EXTENSIONS, addKnowledge, estimateTokens, knowledgeFileProble
 
 const FIELD = "w-full rounded-lg border border-line bg-ink-900/60 px-2.5 py-1.5 text-sm text-white/90 placeholder:text-white/35";
 
-/** Create or edit a custom Sidekick: name, description, instructions, starters, model, knowledge, sharing. */
+/** Create or edit a custom Sidekick: name, description, instructions, starters, model, knowledge. */
 export function SidekickEditor({ sidekick, onDone }) {
   const editing = Boolean(sidekick?.id);
   const [name, setName] = useState(sidekick?.name ?? "");
@@ -16,9 +16,6 @@ export function SidekickEditor({ sidekick, onDone }) {
   const [instructions, setInstructions] = useState(sidekick?.instructions ?? "");
   const [starters, setStarters] = useState((sidekick?.starters ?? []).join("\n"));
   const [processing, setProcessing] = useState(sidekick?.processing ?? "basic");
-  const [webSearch, setWebSearch] = useState(sidekick?.webSearch ?? false);
-  const [shared, setShared] = useState(sidekick?.shared ?? false);
-  const [hideInstructions, setHideInstructions] = useState(sidekick?.hideInstructions ?? false);
   // null keeps the files the server holds; an array replaces them (the server does not send file text back).
   const [files, setFiles] = useState(null);
   const [problem, setProblem] = useState(null);
@@ -44,7 +41,7 @@ export function SidekickEditor({ sidekick, onDone }) {
     try {
       const body = {
         ...(editing ? { id: sidekick.id } : {}),
-        name, description, instructions, processing, webSearch, shared, hideInstructions,
+        name, description, instructions, processing,
         starters: starters.split("\n").map((line) => line.trim()).filter(Boolean),
         ...(files ? { knowledge: files } : {}),
       };
@@ -97,7 +94,6 @@ export function SidekickEditor({ sidekick, onDone }) {
               <option value="advanced">Advanced</option>
             </select>
           </label>
-          <label className="flex items-center gap-1.5"><input type="checkbox" checked={webSearch} onChange={(e) => setWebSearch(e.target.checked)} />Web search</label>
         </div>
         <div className="space-y-1.5 text-xs text-white/60">
           <div className="flex items-center justify-between">
@@ -116,8 +112,6 @@ export function SidekickEditor({ sidekick, onDone }) {
             </ul>
           )}
         </div>
-        <label className="flex items-center gap-1.5 text-xs text-white/60"><input type="checkbox" checked={shared} onChange={(e) => setShared(e.target.checked)} />Share with teammates</label>
-        <label className="flex items-center gap-1.5 text-xs text-white/60"><input type="checkbox" checked={hideInstructions} onChange={(e) => setHideInstructions(e.target.checked)} />Hide instructions from people it is shared with</label>
         {problem && <p role="alert" className="rounded-md bg-red-500/10 px-2.5 py-1.5 text-xs text-red-300">{problem}</p>}
       </div>
       <div className="flex items-center gap-2 border-t border-line p-3">
