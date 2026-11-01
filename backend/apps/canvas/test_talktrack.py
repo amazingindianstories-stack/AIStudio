@@ -259,16 +259,48 @@ class WorkerTests(TalktrackBase):
         self.gone(fields['key'])
         self.gone(fields['audio_key'])
 
-    def test_the_media_worker_runs_the_jobs_and_the_scheduler_does_not(self):
-        from threading import Event
-        from apps.exports import worker
+    def test_a_cut_moves_reactions_comments_and_view_progress_with_the_timeline(self):
+        made = self.record(mime='video/mp4')
+        base = f'/talktracks/{made["id"]}'
+        for at in (5000, 15000, 85000):
+            self.call(self.cat, 'post', base + '/moments', {'atMs': at, 'text': f'at {at}'})
+        for user, watched in ((self.ben, 85000), (self.cat, 15000), (self.dee, 5000)):
+            self.call(user, 'post', base + '/view', {'watchedMs': watched})
+        self.call(self.dee, 'patch', base, {'cut': {'startMs': 10000, 'endMs': 20000}})
+        self.run_job_with(lambda: None)
+        self.assertEqual(Talktrack.objects.get(pk=made['id']).duration_ms, 80000)
+        moments = self.call(self.ben, 'get', base + '/moments')['moments']
+        self.assertEqual([(item['atMs'], item['text']) for item in moments], [(5000, 'at 5000'), (10000, 'at 15000'), (75000, 'at 85000')])
+        watched = dict(TalktrackView.objects.filter(talktrack_id=made['id']).values_list('user_id', 'watched_ms'))
+        self.assertEqual(watched, {self.ben.id: 75000, self.cat.id: 10000, self.dee.id: 5000})
+
+    def test_the_scheduler_runs_one_job_at_a_time_without_holding_up_its_other_handlers(self):
+        import threading
         from apps.workers import scheduler
-        stop = Event()
-        with patch('apps.exports.worker.run_once', return_value={'claimed': 0}), \
-                patch('apps.canvas.talktrack.process_jobs', side_effect=lambda: stop.set()) as jobs:
-            worker.run_worker(interval=0, stop=stop)
-        self.assertEqual(jobs.call_count, 1)
-        self.assertNotIn('talktracks', scheduler.default_handlers())
+        entered, release = threading.Event(), threading.Event()
+
+        def job():
+            entered.set()
+            release.wait(5)
+
+        def join():
+            for thread in threading.enumerate():
+                if thread.name == 'talktrack-jobs':
+                    thread.join(5)
+        handlers = {'talktracks': scheduler.process_talktracks, 'depth': lambda: 'ran'}
+        with patch('apps.canvas.talktrack.process_jobs', side_effect=job) as jobs:
+            first = scheduler.tick(now=0, handlers=handlers)
+            self.assertTrue(entered.wait(5))
+            busy = scheduler.tick(now=60000, handlers=handlers)
+            release.set()
+            join()
+            again = scheduler.tick(now=120000, handlers=handlers)
+            join()
+        self.assertEqual(first, {'depth': 'ran', 'talktracks': {'ok': True, 'started': True}})
+        self.assertEqual(busy, {'depth': 'ran', 'talktracks': {'ok': True, 'started': False}})
+        self.assertEqual(again['talktracks'], {'ok': True, 'started': True})
+        self.assertEqual(jobs.call_count, 2)
+        self.assertIs(scheduler.default_handlers()['talktracks'], scheduler.process_talktracks)
         self.assertGreater(talktrack.STALE_JOB_MS, 2 * talktrack.FFMPEG_TIMEOUT_S * 1000)
 
     def test_a_job_that_fails_keeps_the_original_and_can_be_retried(self):

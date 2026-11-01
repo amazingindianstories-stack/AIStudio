@@ -3,10 +3,11 @@
 The browser records with MediaRecorder and uploads through the existing resumable upload path (purpose
 `talktrack`); `register` then copies the finished upload to `talktrack/<board>/<uuid>.<ext>`, the same step
 `board_upload` does for images. Trim is stored as playback offsets (the file is never touched). Cutting the
-middle out and the one-time remux that makes a MediaRecorder file seekable are ffmpeg jobs the media export
-worker runs between exports (`process_jobs`); a cut is applied to the audio twin too, so a later transcript matches
-the video. A transcript is made only when someone asks for it, through the audio transcription path
-that already exists, so nothing paid starts by itself.
+middle out and the one-time remux that makes a MediaRecorder file seekable are ffmpeg jobs the scheduler runs in
+a background thread, one at a time (`process_jobs`); a cut is applied to the audio twin too, so a later transcript
+matches the video, and moves the reactions, comments and view progress with the timeline. A transcript is made
+only when someone asks for it, through the audio transcription path that already exists, so nothing paid starts
+by itself.
 """
 import re
 import subprocess
@@ -15,7 +16,7 @@ from pathlib import Path
 from uuid import uuid4
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Count, Q, Sum
+from django.db.models import Case, Count, F, Q, Sum, Value, When
 from .models import Talktrack, TalktrackMoment, TalktrackView
 from .facilitation import FacilitationError
 
@@ -434,6 +435,18 @@ def _map_offset(value, start, end):
     return start
 
 
+def _offset_after_cut(field, start, end):
+    """`_map_offset` as an SQL expression over `field`, for rows filtered to `field > start`."""
+    return Case(When(**{f'{field}__gte': end}, then=F(field) - (end - start)), default=Value(start))
+
+
+def _timeline_after_cut(talktrack_id, start, end):
+    """Move the recording's reactions, comments and view progress across the removed [start, end)."""
+    TalktrackMoment.objects.filter(talktrack_id=talktrack_id, at_ms__gt=start).update(at_ms=_offset_after_cut('at_ms', start, end))
+    TalktrackView.objects.filter(talktrack_id=talktrack_id, watched_ms__gt=start).update(
+        watched_ms=_offset_after_cut('watched_ms', start, end))
+
+
 def _trim_after_cut(row, start, end, duration):
     """`row`'s trim marks moved across the removed [start, end). Read when the cut lands, so a trim set while
     the job ran is kept."""
@@ -495,7 +508,7 @@ def _process(row, now):
 
 
 def process_jobs(limit=1):
-    """Media worker step: finish up to `limit` waiting remux and cut jobs. A failed job leaves the original
+    """Talktrack job step: finish up to `limit` waiting remux and cut jobs. A failed job leaves the original
     recording in place and is marked `failed` so it can be tried again. A job writes back only while its row is
     still the one it claimed; the files it made for a recording deleted meanwhile are discarded."""
     import time
@@ -523,6 +536,7 @@ def process_jobs(limit=1):
             if current is not None:
                 if row.status == 'cutting':
                     fields.update(_trim_after_cut(current, row.cut_start_ms, row.cut_end_ms, fields['duration_ms']))
+                    _timeline_after_cut(row.id, row.cut_start_ms, row.cut_end_ms)
                 Talktrack.objects.filter(pk=row.id).update(**fields)
         if current is None:
             discard([fields['key'], fields.get('audio_key')])

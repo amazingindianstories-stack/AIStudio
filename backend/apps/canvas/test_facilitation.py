@@ -317,6 +317,30 @@ class PrivateModeTests(FacilitationBase):
         self.assertEqual(self.read(self.ben)['a']['textBy'], str(self.ben.id))
         self.assertEqual(BoardActivity.objects.get(board_id=BOARD, action='edit').actor_id, None)
 
+    def test_editing_an_anonymous_note_does_not_reveal_its_writer(self):
+        self.start_mode(anonymous=True)
+        self.save(self.ben, graph(sticky('b', 'Ben anonymous')))
+        self.call(self.ana, 'post', '/private-mode', {'action': 'reveal'})
+        self.tick(5000)
+        self.read(self.ana)
+        reply = self.save(self.ana, graph(sticky('b', 'Ben anonymous, fixed')))
+        self.assertNotIn(str(self.ben.id), json.dumps(reply))
+        seen = self.read(self.ana)['b']
+        self.assertNotIn(str(self.ben.id), json.dumps(seen))
+        self.assertEqual((seen['textBy'], seen['anonBy']), (str(self.ana.id), True))
+        own = self.read(self.ben)['b']
+        self.assertEqual(own['createdBy'], str(self.ben.id))
+        self.assertNotIn(str(self.ana.id), json.dumps(own))
+
+    def test_a_save_reply_does_not_name_the_writer_of_an_anonymous_note(self):
+        self.start_mode(anonymous=True)
+        self.save(self.ben, graph(sticky('b', 'Ben anonymous')))
+        reply = self.save(self.ana, graph(sticky('b', '', w=200)))
+        self.assertNotIn(str(self.ben.id), json.dumps(reply))
+        self.assertEqual((reply['stamps']['b']['updatedBy'], reply['stamps']['b']['hiddenText']), (str(self.ana.id), True))
+        stored = next(node for node in CanvasBoard.objects.get(pk=BOARD).data['nodes'] if node['id'] == 'b')
+        self.assertEqual((stored['text'], stored['w'], stored['createdBy']), ('Ben anonymous', 200, str(self.ben.id)))
+
     def test_viewers_cannot_start_or_reveal_but_never_see_hidden_text(self):
         BoardMember.objects.create(board_id=BOARD, user_id=self.cat.id, role='view', created_at=1, updated_at=1)
         CanvasBoard.objects.filter(pk=BOARD).update(team_role='view')

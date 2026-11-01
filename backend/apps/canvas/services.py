@@ -144,10 +144,11 @@ def save_board(identifier, data, base_version, save_id, actor, patch=None, level
                     private = {node['id'] for node in stamped['nodes'] if isinstance(node, dict) and node.get('privateBy') is not None}
                     anonymous = {node['id'] for node in stored['nodes'] + stamped['nodes'] if isinstance(node, dict) and node.get('anonBy') is True}
                     activity.record(identifier, actor, now, changes, hide=claimed | private, anonymous=anonymous)
-                saved = {'updatedAt': now, 'version': version, 'stamps': activity.stamps_of(stamped, changes)}
+                visible = private_mode.redact_graph(stamped, actor, now, mode)
+                saved = {'updatedAt': now, 'version': version, 'stamps': activity.stamps_of(visible, changes)}
                 if not corrected:
                     return saved
-                return {**saved, 'board': private_mode.redact_graph(stamped, actor, now, mode)}
+                return {**saved, 'board': visible}
     current = get_board(identifier, viewer=actor)
     if current is None:
         return None

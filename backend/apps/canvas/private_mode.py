@@ -6,8 +6,8 @@ sticky notes and flags them `hiddenText`. Every save goes through `restore_hidde
 text back, so a client that never held the text cannot erase it by moving or resizing the note. New and edited
 sticky notes are claimed by `claim` while the mode is on.
 
-A note is `privateBy` its author. `anonBy` marks a note written while names were anonymous: its author, editor
-and text attribution are withheld from everyone but its writer (`textBy`, else `createdBy`), for good (they stay
+A note is `privateBy` its author. `anonBy` marks a note written while names were anonymous: each attribution
+on it (author, editor, text writer, private owner) is shown only to the person it names, for good (it stays
 withheld after the reveal), and its History rows name no one.
 Revealing starts a countdown (`reveal_at`); `settle` then ends the mode and clears `privateBy` from the board
 in the same kind of server write a save makes, so open boards poll the new version and show the text.
@@ -22,7 +22,7 @@ REVEAL_COUNTDOWN_MS = 5000
 # What a hidden note withholds: the text, its formatting marks.
 HIDDEN_FIELDS = ('text', 'marks')
 # Attribution an anonymous note withholds from other people.
-ATTRIBUTION_KEYS = ('createdBy', 'updatedBy', 'textBy')
+ATTRIBUTION_KEYS = ('createdBy', 'updatedBy', 'textBy', 'privateBy')
 
 
 def mode_row(board_id):
@@ -50,8 +50,8 @@ def redact_node(node, viewer, hide):
     viewer = str(viewer)
     private_by, anon = node.get('privateBy'), node.get('anonBy') is True
     withhold = hide and private_by is not None and private_by != viewer
-    anonymise = anon and node.get('textBy', node.get('createdBy')) != viewer
-    if not withhold and not anonymise:
+    anonymised = [key for key in ATTRIBUTION_KEYS if key in node and node[key] != viewer] if anon else []
+    if not withhold and not anonymised:
         return node
     result = dict(node)
     if withhold:
@@ -59,9 +59,9 @@ def redact_node(node, viewer, hide):
             result.pop(key, None)
         result['text'] = ''
         result['hiddenText'] = True
-    if anonymise:
-        for key in ATTRIBUTION_KEYS + ('privateBy',):
-            result.pop(key, None)
+    if anonymised:
+        for key in anonymised:
+            result.pop(key)
         result.pop('showAuthor', None)
     return result
 

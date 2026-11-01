@@ -1,7 +1,4 @@
-"""Independent Python export worker: bounded streams, native bytes, private ZIPs.
-
-Between exports the same loop runs the Talktrack ffmpeg jobs (apps.canvas.talktrack.process_jobs), one at a
-time, so long media work never holds up the scheduler."""
+"""Independent Python export worker: bounded streams, native bytes, private ZIPs."""
 import hashlib
 import base64
 import hmac
@@ -189,18 +186,11 @@ def run_once(*, owner=None, storage=None, clock=None, stop=None):
         return {'claimed': 1, 'completed': 0, 'errors': 1}
 
 
-def talktrack_jobs():
-    from apps.canvas.talktrack import process_jobs
-    return process_jobs()
-
-
 def run_worker(*, interval=2.0, stop=None):
     failures = 0
     while stop is None or not stop.is_set():
         try:
             run_once(stop=stop)
-            if stop is None or not stop.is_set():
-                talktrack_jobs()
             failures = 0
         except Exception as error:
             failures += 1
