@@ -817,6 +817,181 @@
     ],
     "connectors": []
    }
+  },
+  "lone_surrogates_become_replacement_characters": {
+   "input": {
+    "nodes": [
+     {
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "id": "d",
+      "type": "format",
+      "format": "doc",
+      "name": "Notes \ud83d",
+      "blocks": [
+       {
+        "id": "b",
+        "type": "p",
+        "text": "a\ude0ab"
+       },
+       {
+        "id": "t",
+        "type": "table",
+        "rows": [
+         [
+          "\ud83d\ud83d\ud83d\ude0a"
+         ]
+        ]
+       }
+      ],
+      "suggestions": [
+       {
+        "id": "s",
+        "blockId": "b",
+        "kind": "replace",
+        "text": "x\ud83d",
+        "by": "u\ude00"
+       }
+      ]
+     },
+     {
+      "x": 200,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "id": "k",
+      "type": "format",
+      "format": "deck",
+      "name": "Deck",
+      "slides": [
+       {
+        "id": "s1",
+        "title": "T\ud83d",
+        "frameId": "",
+        "notes": "n\ude00",
+        "lane": "main"
+       }
+      ],
+      "lanes": [
+       {
+        "id": "main",
+        "name": "L\ud83d"
+       }
+      ]
+     },
+     {
+      "x": 400,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "id": "g",
+      "type": "diagram",
+      "sourceKind": "mermaid",
+      "source": "graph TD\nA[\"\ud83d\"]"
+     }
+    ]
+   },
+   "expected": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [
+     {
+      "id": "d",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "format",
+      "format": "doc",
+      "name": "Notes \ufffd",
+      "blocks": [
+       {
+        "id": "b",
+        "type": "p",
+        "text": "a\ufffdb"
+       },
+       {
+        "id": "t",
+        "type": "table",
+        "rows": [
+         [
+          "\ufffd\ufffd\ud83d\ude0a"
+         ]
+        ]
+       }
+      ],
+      "suggestions": [
+       {
+        "id": "s",
+        "blockId": "b",
+        "kind": "replace",
+        "text": "x\ufffd",
+        "by": "u\ufffd",
+        "at": 0
+       }
+      ]
+     },
+     {
+      "id": "k",
+      "x": 200,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "format",
+      "format": "deck",
+      "name": "Deck",
+      "slides": [
+       {
+        "id": "s1",
+        "title": "T\ufffd",
+        "frameId": "",
+        "notes": "n\ufffd",
+        "lane": "main"
+       }
+      ],
+      "lanes": [
+       {
+        "id": "main",
+        "name": "L\ufffd"
+       }
+      ]
+     },
+     {
+      "id": "g",
+      "x": 400,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "diagram",
+      "name": "Diagram",
+      "layers": [
+       {
+        "id": "default",
+        "name": "Main layer",
+        "visible": true
+       }
+      ],
+      "fill": "rgba(15,23,42,0.45)",
+      "stroke": "#6f9bd1",
+      "strokeWidth": 2,
+      "sourceKind": "mermaid",
+      "source": "graph TD\nA[\"\ufffd\"]"
+     }
+    ],
+    "connectors": []
+   }
   }
  }
 }

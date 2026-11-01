@@ -57,6 +57,7 @@ export function FormatsPanel({ boardId, touchViewOnly }) {
   const home = defaultViewNode(graph.nodes);
   const held = viewOnly && !!home?.viewLocked;
   const editable = !readOnly && !(focusNode && isLocked(graph, focusNode));
+  const homeLocked = !!home && home.id !== focusNode?.id && isLocked(graph, home);
   const close = () => {
     if (!held) setFocusId(null);
     else if (focusId !== home.id) setFocusId(home.id);
@@ -97,7 +98,7 @@ export function FormatsPanel({ boardId, touchViewOnly }) {
         <span className="text-xs font-semibold uppercase tracking-wide text-indigo-600">Focus mode</span>
         {focusNode && <input aria-label="Format title" className="min-w-0 flex-1 bg-transparent text-lg font-semibold" readOnly={!editable} maxLength={120} value={focusNode.name || ""} onChange={(e) => patchFormat(focusNode.id, () => ({ name: e.target.value }), { coalesce: true })} />}
         {focusNode && <select aria-label="Format status" disabled={!editable} value={focusNode.status || ""} onChange={(e) => patchFormat(focusNode.id, () => ({ status: e.target.value || undefined }))}><option value="">Set status</option>{FORMAT_STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABELS[s]}</option>)}</select>}
-        {focusNode?.type === "format" && editable && <><label className="text-xs"><input type="checkbox" checked={!!focusNode.defaultView} onChange={(e) => setDefaultFormat(focusNode.id, e.target.checked, locked)} /> Board default</label><label className="text-xs"><input type="checkbox" disabled={!focusNode.defaultView} checked={locked} onChange={(e) => setDefaultFormat(focusNode.id, true, e.target.checked)} /> Lock default</label></>}
+        {focusNode?.type === "format" && editable && <><label className="text-xs"><input type="checkbox" disabled={homeLocked} checked={!!focusNode.defaultView} onChange={(e) => setDefaultFormat(focusNode.id, e.target.checked, locked)} /> Board default</label>{homeLocked && <span className="text-xs text-slate-500">{home.name || "Another format"} is the board default and is locked; unlock it to change the default.</span>}<label className="text-xs"><input type="checkbox" disabled={!focusNode.defaultView} checked={locked} onChange={(e) => setDefaultFormat(focusNode.id, true, e.target.checked)} /> Lock default</label></>}
         {focusNode && <button onClick={async () => { try { await navigator.clipboard.writeText(formatUrl(boardId, focusNode.id)); setNotice("Focus link copied"); } catch { setNotice(formatUrl(boardId, focusNode.id)); } }}>Copy focus link</button>}
         <button disabled={held && focusId === home.id} className="rounded border px-3 py-2" onClick={close}>{held && focusId !== home.id ? "Back to default view" : "Back to board"}</button>
       </header>

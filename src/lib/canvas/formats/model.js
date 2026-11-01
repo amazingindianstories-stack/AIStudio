@@ -4,7 +4,7 @@
  * through the per-node save path, so they obey roles, culling and the 2 Mi limit.
  * Limits here are mirrored by backend/apps/canvas/serialization.py.
  */
-import { validateMarks } from "../rich-text";
+import { clipText, validateMarks } from "../rich-text";
 
 export const FORMAT_KINDS = ["doc", "deck", "html", "drawio"];
 export const FORMAT_STATUSES = ["draft", "in_review", "approved", "done", "outdated"];
@@ -202,7 +202,7 @@ export function listNumbers(blocks) {
 }
 
 export function setTableCell(rows, r, c, value) {
-  return rows.map((row, ri) => (ri === r ? row.map((cell, ci) => (ci === c ? value.slice(0, MAX_CELL_TEXT) : cell)) : row));
+  return rows.map((row, ri) => (ri === r ? row.map((cell, ci) => (ci === c ? clipText(value, MAX_CELL_TEXT) : cell)) : row));
 }
 
 export function addTableRow(rows) {

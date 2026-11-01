@@ -1,5 +1,6 @@
 import { isContainerNode, reparented } from "../geometry";
 import { isLocked } from "../locks";
+import { clipText } from "../rich-text";
 import { MAX_NAME, MAX_SLIDES } from "./model";
 
 export function moveSlide(slides, id, delta) {
@@ -24,7 +25,7 @@ export function frameContents(graph, id) {
 
 export function addSlide(slides, frame, lane = "main") {
   if (!frame || frame.type !== "frame" || slides.length >= MAX_SLIDES) return slides;
-  return [...slides, { id: crypto.randomUUID(), title: (frame.name || "Slide").slice(0, MAX_NAME), frameId: frame.id, lane, notes: "" }];
+  return [...slides, { id: crypto.randomUUID(), title: clipText(frame.name || "Slide", MAX_NAME), frameId: frame.id, lane, notes: "" }];
 }
 
 /** Places plain, unlocked board object `id` in `frame`; containers and formats never nest inside a slide. */

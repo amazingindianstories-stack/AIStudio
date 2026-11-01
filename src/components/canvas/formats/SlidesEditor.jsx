@@ -5,6 +5,8 @@ import { patchFormat } from "@/lib/canvas/formats/actions";
 import { addSlide, moveSlide } from "@/lib/canvas/formats/slides";
 import { isContainerNode } from "@/lib/canvas/geometry";
 import { isLocked } from "@/lib/canvas/locks";
+import { MAX_LANE_NAME } from "@/lib/canvas/formats/model";
+import { clipText } from "@/lib/canvas/rich-text";
 import { FramePreview } from "./FramePreview";
 
 export function SlidesEditor({ node, graph, readOnly }) {
@@ -20,7 +22,7 @@ export function SlidesEditor({ node, graph, readOnly }) {
     e.preventDefault();
     const name = laneName.trim();
     if (!name || node.lanes.length >= 6) return;
-    patchFormat(node.id, (n) => ({ lanes: [...n.lanes, { id: crypto.randomUUID(), name: name.slice(0, 60) }] }));
+    patchFormat(node.id, (n) => ({ lanes: [...n.lanes, { id: crypto.randomUUID(), name: clipText(name, MAX_LANE_NAME) }] }));
     setLaneName("");
   };
   const patchSlide = (patch, opts) => patchFormat(node.id, (n) => ({ slides: n.slides.map((s) => s.id === slide?.id ? { ...s, ...patch } : s) }), opts);

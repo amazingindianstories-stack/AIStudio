@@ -64,3 +64,8 @@ test("a locked object stays where it is, and slide titles fit a name", () => {
   assert.equal(moveIntoFrame(graph, "s", frame), graph);
   assert.equal(addSlide([], frame)[0].title.length, 120);
 });
+
+test("a slide title clipped to a name keeps whole emoji", () => {
+  const frame = { id: "f", type: "frame", x: 0, y: 0, w: 400, h: 300, name: "x".repeat(119) + "\u{1F60A}" };
+  assert.equal(addSlide([], frame)[0].title, "x".repeat(119));
+});

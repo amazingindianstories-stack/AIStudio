@@ -19,6 +19,7 @@ import {
   parseChips,
   rejectSuggestion,
   removeBlock,
+  setTableCell,
   userChip,
 } from "./model.js";
 
@@ -135,4 +136,13 @@ test("choosing a default view clears the previous one and a lock rides along", (
   assert.equal(patches.length, 2);
   assert.deepEqual(patches.find((p) => p.id === b.id).patch, { defaultView: true, viewLocked: true });
   assert.equal(patches.find((p) => p.id === a.id).patch.defaultView, undefined);
+});
+
+test("format text never keeps half an emoji: clips stop before it and saves replace a stray half", () => {
+  const smile = "\u{1F60A}";
+  assert.equal(setTableCell([["", ""]], 0, 0, "x".repeat(499) + smile)[0][0], "x".repeat(499));
+  const node = { ...newFormatNode("doc", { x: 0, y: 0 }), name: "x\uD83D", blocks: [{ id: "b", type: "p", text: `a${smile}\uDE0Ab` }] };
+  const saved = validateCanvasState({ nodes: [node] }).nodes[0];
+  assert.equal(saved.name, "x\uFFFD");
+  assert.equal(saved.blocks[0].text, `a${smile}\uFFFDb`);
 });

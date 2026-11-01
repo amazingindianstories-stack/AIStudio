@@ -36,11 +36,11 @@ function isFiniteNumber(v) {
 
 /** A string within `max` UTF-16 units, else the fallback. */
 function limited(value, max, fallback = "") {
-  return typeof value === "string" && value.length <= max ? value : fallback;
+  return typeof value === "string" && value.length <= max ? value.toWellFormed() : fallback;
 }
 
 function identifier(value) {
-  return typeof value === "string" && value.length > 0 && value.length <= MAX_ID ? value : null;
+  return typeof value === "string" && value.length > 0 && value.length <= MAX_ID ? value.toWellFormed() : null;
 }
 
 /** Fields every status-bearing node shares; present only when set. */
@@ -53,7 +53,7 @@ export function withFormatStatus(node, r) {
 export function withDiagramSource(node, r) {
   if (r.sourceKind === "mermaid" && typeof r.source === "string" && r.source.length <= SOURCE_MAX) {
     node.sourceKind = "mermaid";
-    node.source = r.source;
+    node.source = r.source.toWellFormed();
   }
   return withFormatStatus(node, r);
 }

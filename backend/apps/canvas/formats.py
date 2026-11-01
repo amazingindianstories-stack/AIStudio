@@ -34,12 +34,17 @@ def _utf16(text):
     return utf16_length(text)
 
 
+def _well_formed(text):
+    """`text` with each unpaired surrogate replaced by U+FFFD, as JavaScript's String.toWellFormed."""
+    return text.encode('utf-16-le', 'surrogatepass').decode('utf-16-le', 'replace')
+
+
 def limited(value, maximum, fallback=''):
-    return value if isinstance(value, str) and _utf16(value) <= maximum else fallback
+    return _well_formed(value) if isinstance(value, str) and _utf16(value) <= maximum else fallback
 
 
 def identifier(value):
-    return value if isinstance(value, str) and 0 < _utf16(value) <= MAX_ID else None
+    return _well_formed(value) if isinstance(value, str) and 0 < _utf16(value) <= MAX_ID else None
 
 
 def _finite(value):
@@ -55,7 +60,7 @@ def with_format_status(result, raw):
 def with_diagram_source(result, raw):
     if raw.get('sourceKind') == 'mermaid' and isinstance(raw.get('source'), str) and _utf16(raw['source']) <= MAX_SOURCE:
         result['sourceKind'] = 'mermaid'
-        result['source'] = raw['source']
+        result['source'] = _well_formed(raw['source'])
     return with_format_status(result, raw)
 
 

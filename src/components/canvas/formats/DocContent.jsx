@@ -3,13 +3,13 @@
 import { useRef, useState } from "react";
 import { RichTextContent, RichTextEditor } from "../nodes/RichText";
 import { usePeople } from "@/lib/canvas/use-people";
-import { validateMarks } from "@/lib/canvas/rich-text";
+import { clipText, validateMarks } from "@/lib/canvas/rich-text";
 import { useStore } from "@/lib/store";
 import { useCanvasStore } from "@/lib/canvas-store";
 import { patchFormat, openFormat } from "@/lib/canvas/formats/actions";
 import { FormatNode } from "./FormatNode";
 import { FramePreview } from "./FramePreview";
-import { acceptSuggestion, addSuggestion, addTableRow, addTableColumn, applyBlockShortcut, dateChip, formatChipDate, insertBlockAfter, listNumbers, moveBlock, newBlock, parseChips, rejectSuggestion, removeBlock, setTableCell, updateBlock, userChip } from "@/lib/canvas/formats/model";
+import { acceptSuggestion, addSuggestion, addTableRow, addTableColumn, applyBlockShortcut, dateChip, formatChipDate, insertBlockAfter, listNumbers, MAX_BLOCK_TEXT, moveBlock, newBlock, parseChips, rejectSuggestion, removeBlock, setTableCell, updateBlock, userChip } from "@/lib/canvas/formats/model";
 
 export function ChipText({ text = "", marks, openLinks = false }) {
   return parseChips(text).map((part, i) => part.kind === "text" ?
@@ -52,7 +52,7 @@ export function DocContent({ node, readOnly, preview = false }) {
   const append = (type) => patchFormat(node.id, (n) => ({ blocks: insertBlockAfter(n.blocks, active ?? n.blocks.at(-1)?.id, newBlock(type)) }));
   const appendText = (text) => {
     const id = active ?? blocks.at(-1)?.id;
-    patchFormat(node.id, (n) => ({ blocks: n.blocks.map((b) => b.id === id && typeof b.text === "string" ? { ...b, text: (b.text + text).slice(0, 5000) } : b) }));
+    patchFormat(node.id, (n) => ({ blocks: n.blocks.map((b) => b.id === id && typeof b.text === "string" ? { ...b, text: clipText(b.text + text, MAX_BLOCK_TEXT) } : b) }));
   };
   const closeEditor = (id) => {
     closedEditor.current = id;
