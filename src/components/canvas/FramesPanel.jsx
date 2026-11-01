@@ -96,14 +96,23 @@ export function FramesPanel({ canEdit, onClose }) {
   };
 
   const moveBy = (id, step) => {
-    const moving = pickedIds.includes(id) ? pickedIds : [id];
+    const locked = lockedIdSet(useCanvasStore.getState().history.present);
+    if (locked.has(id)) {
+      useBoardUi.getState().notify(LOCKED_COPY);
+      return;
+    }
+    // One step is one place among the unlocked frames; locked frames keep their slots.
+    const free = ids.filter((x) => !locked.has(x));
+    const moving = (pickedIds.includes(id) ? pickedIds : [id]).filter((x) => !locked.has(x));
     const movingSet = new Set(moving);
-    const kept = ids.filter((x) => !movingSet.has(x));
-    const at = ids.slice(0, ids.findIndex((x) => movingSet.has(x))).filter((x) => !movingSet.has(x)).length;
+    const kept = free.filter((x) => !movingSet.has(x));
+    const at = free.slice(0, free.findIndex((x) => movingSet.has(x))).filter((x) => !movingSet.has(x)).length;
     const target = Math.max(0, Math.min(kept.length, at + step));
-    if (target === at) return;
-    // There is room to move, so an unchanged order means a locked frame holds it.
-    if (isLocked(useCanvasStore.getState().history.present, id) || !reorder(moving, kept[target] ?? null)?.size) {
+    if (target === at) {
+      if (locked.has(step < 0 ? ids[0] : ids.at(-1))) useBoardUi.getState().notify(LOCKED_COPY);
+      return;
+    }
+    if (!reorder(moving, kept[target] ?? null)) {
       useBoardUi.getState().notify(LOCKED_COPY);
       return;
     }

@@ -69,6 +69,21 @@ test("moving a frame keeps a placed locked frame in its slot", async (t) => {
   assert.equal(notice(), "Locked - unlock to edit");
 });
 
+test("Alt+Arrow steps a frame past a locked frame in the middle, which keeps its slot", async (t) => {
+  await renderPanel(t, [frame("A", 0, { frameOrder: 0 }), frame("B", 400, { locked: true, frameOrder: 1 }), frame("C", 800, { frameOrder: 2 })]);
+  await altArrow(row("A"), "ArrowDown");
+  assert.deepEqual(order(), ["C", "B", "A"]);
+  await altArrow(row("A"), "ArrowUp");
+  assert.deepEqual(order(), ["A", "B", "C"]);
+  await altArrow(row("C"), "ArrowUp");
+  assert.deepEqual(order(), ["C", "B", "A"]);
+  assert.equal(notice(), "");
+  // At the very end there is nowhere to go, and nothing to report.
+  await altArrow(row("A"), "ArrowDown");
+  assert.deepEqual(order(), ["C", "B", "A"]);
+  assert.equal(notice(), "");
+});
+
 test("on a never-reordered board a move that would send the locked frame last is refused", async (t) => {
   await renderPanel(t, [frame("A", 0, { locked: true }), frame("B", 400), frame("C", 800)]);
   await altArrow(row("C"), "ArrowUp");
