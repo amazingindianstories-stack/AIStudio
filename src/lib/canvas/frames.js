@@ -7,6 +7,7 @@
  * people's edits like any other change. Frames without a stored place (new
  * ones, or every frame before the first reorder) follow in reading order.
  */
+import { nodeBounds } from "./geometry";
 import { readingOrder } from "./keyboard-nav";
 import { lockedIdSet } from "./locks";
 
@@ -65,9 +66,9 @@ export function moveInOrderLocked(ids, moving, beforeId, locked) {
 /**
  * The node edits that move the frames in `moving` before `beforeId` (null:
  * to the end) in presentation order, locked frames keeping their slots.
- * Empty when the order stays the same; null when saving it would change a
- * locked frame's stored place (it has none yet, or another one), which the
- * lock forbids.
+ * Locked frames get no edit, as the lock forbids. Empty when the order stays
+ * the same; null when the saved order would then differ from the requested
+ * one (a locked frame would lose its slot).
  */
 export function reorderFrameEdits(present, moving, beforeId) {
   const ids = orderedFrames(present).map((f) => f.id);
@@ -75,8 +76,9 @@ export function reorderFrameEdits(present, moving, beforeId) {
   const next = moveInOrderLocked(ids, moving, beforeId, locked);
   if (next.every((id, i) => id === ids[i])) return new Map();
   const edits = frameOrderEdits(present, next);
-  for (const id of edits.keys()) if (locked.has(id)) return null;
-  return edits;
+  for (const id of locked) edits.delete(id);
+  const after = { ...present, nodes: present.nodes.map((n) => edits.get(n.id) ?? n) };
+  return orderedFrames(after).every((f, i) => f.id === next[i]) ? edits : null;
 }
 
 /** `ids` with the frames in `moving` moved together to sit before `beforeId` (null: at the end). */
@@ -94,13 +96,16 @@ export function moveInOrder(ids, moving, beforeId) {
  * "Organize frames": the node edits that lay the frames out in a grid in
  * their order, left to right then top to bottom, starting where the frames
  * now begin. Each frame's contents move with it. Locked frames, and
- * everything in them, stay where they are and take no place in the grid; a
- * locked object inside a moved frame stays put too, as when dragging.
+ * everything in them, stay where they are and take no place in the grid,
+ * which steps past them so nothing lands within `gap` of one; a locked
+ * object inside a moved frame stays put too, as when dragging.
  */
 export function organizeFrameEdits(present, gap = FRAME_GAP) {
   const locked = lockedIdSet(present);
   const frames = orderedFrames(present).filter((f) => !locked.has(f.id));
   if (!frames.length) return new Map();
+  const held = framesOf(present).filter((f) => locked.has(f.id)).map(nodeBounds);
+  const blocker = (x, y, f) => held.find((b) => x < b.x + b.w + gap && b.x < x + f.w + gap && y < b.y + b.h + gap && b.y < y + f.h + gap);
   const columns = Math.ceil(Math.sqrt(frames.length));
   const originX = Math.min(...frames.map((f) => f.x));
   const originY = Math.min(...frames.map((f) => f.y));
@@ -110,6 +115,7 @@ export function organizeFrameEdits(present, gap = FRAME_GAP) {
     const cells = frames.slice(row * columns, (row + 1) * columns);
     let x = originX;
     for (const frame of cells) {
+      for (let b = blocker(x, y, frame); b; b = blocker(x, y, frame)) x = b.x + b.w + gap;
       moves.set(frame.id, { dx: x - frame.x, dy: y - frame.y });
       x += frame.w + gap;
     }

@@ -79,6 +79,11 @@ test("reordering around a placed locked frame keeps it in its slot once saved", 
   const board = { nodes: [frame("a", 0, 0, { locked: true, frameOrder: 0 }), frame("b", 400, 0, { frameOrder: 1 }), frame("c", 800, 0, { frameOrder: 2 })], connectors: [] };
   assert.deepEqual(order(saved(board, reorderFrameEdits(board, ["c"], "a"))), ["a", "c", "b"]);
   assert.deepEqual(order(saved(board, reorderFrameEdits(board, ["b"], null))), ["a", "c", "b"]);
+  // A locked frame last with no stored place keeps reading last.
+  const last = { nodes: [frame("a", 0, 0), frame("b", 400, 0), frame("c", 800, 0, { locked: true })], connectors: [] };
+  const edits = reorderFrameEdits(last, ["b"], "a");
+  assert.equal(edits.has("c"), false);
+  assert.deepEqual(order(saved(last, edits)), ["b", "a", "c"]);
   // Without locks every frame gets a place.
   const open = { nodes: [frame("a", 0, 0), frame("b", 400, 0), frame("c", 800, 0)], connectors: [] };
   assert.deepEqual(order(saved(open, reorderFrameEdits(open, ["c"], "a"))), ["c", "a", "b"]);
@@ -104,4 +109,25 @@ test("organize leaves locked frames and their contents in place, and locked cont
   assert.deepEqual([edits.get("free").x, edits.get("free").y], [1000, 910]);
   const allLocked = { nodes: [frame("x", 0, 0, { locked: true }), frame("y", 900, 0, { locked: true })], connectors: [] };
   assert.equal(organizeFrameEdits(allLocked).size, 0);
+});
+
+test("organize steps past a locked frame inside the grid instead of landing on it", () => {
+  const board = {
+    nodes: [
+      frame("b", 0, 0, { frameOrder: 0 }),
+      frame("a", 280, 0, { frameOrder: 1, locked: true }),
+      frame("c", 560, 0, { frameOrder: 2 }),
+      frame("d", 3000, 3000, { frameOrder: 3 }),
+      { id: "kid", type: "sticky", x: 570, y: 10, w: 50, h: 50, parentId: "c", groupId: null },
+    ],
+    connectors: [],
+  };
+  const after = saved(board, organizeFrameEdits(board, 80));
+  const at = Object.fromEntries(after.nodes.map((n) => [n.id, [n.x, n.y]]));
+  assert.deepEqual(at, { b: [0, 0], a: [280, 0], c: [560, 0], d: [0, 180], kid: [570, 10] });
+  const locked = after.nodes.find((n) => n.id === "a");
+  for (const f of after.nodes.filter((n) => n.type === "frame" && n.id !== "a")) {
+    const apart = f.x + f.w + 80 <= locked.x || locked.x + locked.w + 80 <= f.x || f.y + f.h + 80 <= locked.y || locked.y + locked.h + 80 <= f.y;
+    assert.ok(apart, `${f.id} keeps the gap from the locked frame`);
+  }
 });

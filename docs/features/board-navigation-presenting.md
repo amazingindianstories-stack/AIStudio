@@ -49,7 +49,7 @@ notes, and run **Organize frames**, which lays the frames out in a grid in their
 their contents with them. Notes are part of the board, so everyone who can open it can read them.
 A locked frame keeps its place: it cannot be dragged, others reorder around its slot, a move
 that would need to give it a new place is refused, Organize leaves it and its contents where they
-are, and its notes are read-only. Each refusal shows "Locked - unlock to edit", and notes typed
+are and lays the other frames out around it, and its notes are read-only. Each refusal shows "Locked - unlock to edit", and notes typed
 before someone else locked the frame are reported as not saved.
 
 **Present frames** (Cmd/Ctrl+Alt+P) shows each frame as a slide on this screen only; nobody
