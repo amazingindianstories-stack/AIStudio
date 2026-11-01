@@ -30,7 +30,8 @@ board data and polling; there is no realtime service.
   replaced files are deleted. A failed job leaves the original playable.
 - Registering deletes the staged uploads. Deleting a board deletes its recordings, views, moments and files.
 - Transcript, chapters: only on request (`POST /talktracks/<id>/transcript`), through the existing paid audio
-  transcription path and its paid guard. Chapters are derived from the transcript every minute. No summary is
+  transcription path and its paid guard. It is refused while a remux or cut is pending, and kept only if the
+  audio it read is still the recording's. Chapters are derived from the transcript every minute. No summary is
   generated, since that would need an automatic LLM job.
 - Analytics: `TalktrackView` keeps each person's furthest point. Reactions and comments are `TalktrackMoment`
   rows. Viewing and listing need view access, reacting needs comment access, editing and viewer reports need

@@ -397,13 +397,13 @@ class TranscriptTests(TalktrackBase):
         self.assertIsNone(made['transcript'])
         with patch('apps.canvas.talktrack.transcription_available', return_value=True):
             self.call(self.dee, 'post', f'/talktracks/{made["id"]}/transcript', expect=409)
-        with_audio = self.record(audioReferenceId=self.upload(self.dee, b'opus', 'audio/webm'))
+        with_audio = self.record(mime='video/mp4', audioReferenceId=self.upload(self.dee, b'opus', 'audio/webm'))
         with patch('apps.canvas.talktrack.transcription_available', return_value=False):
             self.call(self.dee, 'post', f'/talktracks/{with_audio["id"]}/transcript', expect=503)
         self.call(self.cat, 'post', f'/talktracks/{with_audio["id"]}/transcript', expect=403)
 
     def test_a_requested_transcript_goes_through_the_audio_job_path_once(self):
-        made = self.record(audioReferenceId=self.upload(self.dee, b'opus', 'audio/webm'))
+        made = self.record(mime='video/mp4', audioReferenceId=self.upload(self.dee, b'opus', 'audio/webm'))
         saved = SimpleNamespace(prompt=self.TEXT)
         with patch('apps.canvas.talktrack.transcription_available', return_value=True), \
                 patch('apps.generation.services.audio_submission.persist_audio_intent', return_value='intent') as persist, \
@@ -416,6 +416,24 @@ class TranscriptTests(TalktrackBase):
         self.assertEqual(len(first['transcript']), 3)
         self.assertEqual([chapter['startMs'] for chapter in first['chapters']], [0, 72000])
         self.assertEqual(again['transcript'], first['transcript'])
+
+    def test_a_transcript_of_audio_a_cut_replaced_is_not_kept(self):
+        made = self.record(mime='video/mp4', audioReferenceId=self.upload(self.dee, b'opus', 'audio/webm'))
+        url = f'/talktracks/{made["id"]}/transcript'
+
+        def cut_lands(intent):
+            Talktrack.objects.filter(pk=made['id']).update(audio_key=f'talktrack/{BOARD}/cut.webm')
+            return SimpleNamespace(prompt=self.TEXT)
+
+        with patch('apps.canvas.talktrack.transcription_available', return_value=True), \
+                patch('apps.generation.services.audio_submission.persist_audio_intent', return_value='intent') as persist, \
+                patch('apps.media.audio_wait.wait_for_audio', side_effect=cut_lands):
+            self.call(self.dee, 'post', url, expect=409)
+            for status in ('processing', 'cutting', 'working:cutting'):
+                Talktrack.objects.filter(pk=made['id']).update(status=status, cut_start_ms=1000, cut_end_ms=2000)
+                self.call(self.dee, 'post', url, expect=409)
+        self.assertEqual(persist.call_count, 1)
+        self.assertIsNone(Talktrack.objects.get(pk=made['id']).transcript)
 
 
 class DashboardTests(TalktrackBase):

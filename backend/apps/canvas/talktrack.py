@@ -342,7 +342,8 @@ def chapters_from(segments, window=CHAPTER_WINDOW_MS):
 
 def make_transcript(board_id, talktrack_id, user_id, now):
     """Transcribe the recording's audio track once, when the person asks. Uses the audio transcription path
-    (paid guard, generation worker, Gemini) exactly like `/api/audio/transcribe`."""
+    (paid guard, generation worker, Gemini) exactly like `/api/audio/transcribe`. The transcript is kept only
+    while that audio is still the recording's and no job is pending on it."""
     from apps.generation.services import audio_submission
     from apps.generation.services.audio_submission import AUDIO_READY
     from apps.media.audio_inputs import InvalidAudioType, capture_audio_input
@@ -353,6 +354,8 @@ def make_transcript(board_id, talktrack_id, user_id, now):
         return row
     if not row.audio_key:
         raise FacilitationError('This recording has no separate audio track to transcribe.', 409)
+    if row.status.removeprefix(WORKING) in JOB_STATUSES:
+        raise FacilitationError('This recording is still being processed.', 409)
     if not transcription_available():
         raise FacilitationError('Transcription is not configured.', 503)
     model = getattr(settings, 'AUDIO_TRANSCRIPTION_MODEL', 'gemini-2.5-flash')
@@ -374,7 +377,10 @@ def make_transcript(board_id, talktrack_id, user_id, now):
     except AudioFailed as error:
         raise FacilitationError(str(error), 429 if error.busy else 502)
     segments = parse_transcript(saved.prompt)
-    Talktrack.objects.filter(pk=row.id).update(transcript=segments, chapters=chapters_from(segments), updated_at=now)
+    written = Talktrack.objects.filter(pk=row.id, audio_key=row.audio_key).exclude(status__in=JOB_STATUSES) \
+        .exclude(status__startswith=WORKING).update(transcript=segments, chapters=chapters_from(segments), updated_at=now)
+    if not written:
+        raise FacilitationError('The recording changed while it was transcribed. Try again.', 409)
     return Talktrack.objects.get(pk=row.id)
 
 
