@@ -15,6 +15,7 @@ import {
   setReactionOnSelection,
   setSelectedStickyShape,
   setTagOnSelection,
+  votable,
 } from "@/lib/canvas/sticky-actions";
 import { findTagByName, searchTags, TAG_COLORS } from "@/lib/canvas/tags";
 import { cn } from "@/lib/utils";
@@ -188,10 +189,13 @@ function TagEditor({ tag, onDone }) {
   );
 }
 
-/** Vote on the selected stickies with an emoji; picking one you already gave takes it back. */
+/** Vote on the selected stickies with an emoji, locked ones included; picking one you already gave takes it back. */
 export function ReactionPicker({ stickies }) {
   const userId = currentUserId();
-  const mineOnAll = (emoji) => Boolean(userId) && stickies.every((node) => node.reactions?.[emoji]?.includes(userId));
+  const role = useCanvasStore((s) => s.boardRole);
+  const voting = stickies.filter((node) => votable(node, userId, role));
+  if (!voting.length) return null;
+  const mineOnAll = (emoji) => Boolean(userId) && voting.every((node) => node.reactions?.[emoji]?.includes(userId));
   return (
     <Dropdown
       label="React"

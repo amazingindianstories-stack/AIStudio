@@ -15,6 +15,8 @@ import {
   Scissors,
 } from "lucide-react";
 import { MenuItem } from "@/components/Dropdown";
+import { LockMenuItems, UnlockAllMenuItem } from "./LockControls";
+import { ArrangeMenuItems } from "./ArrangeMenu";
 
  
 
@@ -93,6 +95,13 @@ export function CanvasContextMenu({
     <motion.div
       ref={panelRef}
       role="menu"
+      // The portal still bubbles React events to the board surface, whose
+      // background press would clear the selection before a row's click runs.
+      onPointerDown={(e) => e.stopPropagation()}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
       initial={{ opacity: 0, y: -6, scale: 0.97 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ type: "spring", stiffness: 480, damping: 32 }}
@@ -106,11 +115,14 @@ export function CanvasContextMenu({
       {connectorOnly ? (
         <DeleteRow onAction={onAction} />
       ) : !nodeTarget ? (
-        <MenuItem disabled={!flags.canPaste} onClick={() => onAction("paste")}>
-          <ClipboardPaste className="h-4 w-4 text-white/50" />
-          <span className="flex-1">Paste</span>
-          <span className="ml-auto pl-6 text-xs text-white/40">⌘V</span>
-        </MenuItem>
+        <>
+          <MenuItem disabled={!flags.canPaste} onClick={() => onAction("paste")}>
+            <ClipboardPaste className="h-4 w-4 text-white/50" />
+            <span className="flex-1">Paste</span>
+            <span className="ml-auto pl-6 text-xs text-white/40">⌘V</span>
+          </MenuItem>
+          <UnlockAllMenuItem onDone={onClose} />
+        </>
       ) : (
         <>
           <MenuItem onClick={() => onAction("duplicate")}>
@@ -162,6 +174,11 @@ export function CanvasContextMenu({
               <span className="ml-auto pl-6 text-xs text-white/40">⌘⇧G</span>
             </MenuItem>
           )}
+
+          <ArrangeMenuItems onAction={onAction} />
+
+          <div className="my-1 h-px bg-line" />
+          <LockMenuItems onDone={onClose} />
 
           <div className="my-1 h-px bg-line" />
 

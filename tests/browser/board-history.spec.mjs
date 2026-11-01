@@ -25,6 +25,8 @@ async function signIn(browser, baseURL, user, projectId) {
   await context.addCookies([{ name: 'veevee_session', value: sessionCookie(user.id), url: baseURL }]);
   await context.addInitScript((id) => {
     localStorage.setItem('veevee-draft-settings-v1', JSON.stringify({ activeProjectId: id }));
+    // Scripted wheels read as a mouse wheel (which zooms in auto mode); this person scrolls like a trackpad.
+    localStorage.setItem('veevee.board.viewPrefs', JSON.stringify({ navigationMode: 'trackpad' }));
   }, projectId);
   const page = await context.newPage();
   return { context, page };
