@@ -75,3 +75,13 @@ test("a scribble targets objects it passes through, never frames", () => {
   const points = Array.from({ length: 10 }, (_, i) => ({ x: i % 2 ? 80 : 10, y: i * 8 }));
   assert.deepEqual(scribbleTargets(nodes, points), ["a"]);
 });
+
+test("a scribble over an object inside a diagram or swimlane erases the object, never the container", () => {
+  const nodes = [
+    { id: "flow", type: "diagram", x: 0, y: 0, w: 400, h: 400 },
+    { id: "lane", type: "swimlane", x: 0, y: 0, w: 400, h: 400 },
+    { id: "a", type: "sticky", x: 0, y: 0, w: 100, h: 100, parentId: "flow" },
+  ];
+  const points = Array.from({ length: 10 }, (_, i) => ({ x: i % 2 ? 80 : 10, y: i * 8 }));
+  assert.deepEqual(scribbleTargets(nodes, points), ["a"]);
+});

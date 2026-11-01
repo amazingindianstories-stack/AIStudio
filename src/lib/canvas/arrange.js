@@ -12,7 +12,7 @@
  * - Moving a container carries its unselected children along, and a moved object
  *   joins whichever container its center lands in, as with a drag.
  */
-import { computeFrameMembership, descendantIds, isContainerNode, nodeBounds, unionBounds } from "./geometry";
+import { computeFrameMembership, descendantRoots, isContainerNode, nodeBounds, unionBounds } from "./geometry";
 import { lockedIdSet } from "./locks";
 import { isShapeNode } from "./shapes";
 
@@ -177,9 +177,7 @@ export function applyDeltas(state, deltas) {
   const fixed = lockedIdSet(state);
   for (const id of deltas.keys()) fixed.add(id);
   const moves = new Map(deltas);
-  for (const [id, move] of deltas) {
-    for (const carried of descendantIds(state.nodes, [id], fixed)) moves.set(carried, move);
-  }
+  for (const [carried, root] of descendantRoots(state.nodes, [...deltas.keys()], fixed)) moves.set(carried, deltas.get(root));
   let nodes = state.nodes.map((n) => {
     const move = moves.get(n.id);
     return move ? { ...n, x: n.x + move.dx, y: n.y + move.dy } : n;

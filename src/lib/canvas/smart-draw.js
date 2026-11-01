@@ -4,6 +4,7 @@
  * or diamond (a square becomes a sticky note), a straight stroke a line, and a back-and-forth scribble
  * erases what it crosses.
  */
+import { isContainerNode } from "./geometry";
 import { pointsBounds, simplifyPoints } from "./ink";
 
 const MIN_SIZE = 24;
@@ -137,11 +138,11 @@ export function recognizeStroke(points) {
   return null;
 }
 
-/** Ids of the objects a scribble crosses: those with at least `minHits` scribble points inside (frames are never erased). */
+/** Ids of the objects a scribble crosses: those with at least `minHits` scribble points inside (containers, such as frames and diagrams, are never erased). */
 export function scribbleTargets(nodes, points, minHits = 3) {
   const hits = [];
   for (const node of nodes) {
-    if (node.type === "frame") continue;
+    if (isContainerNode(node)) continue;
     let count = 0;
     if (node.type === "ink") {
       // A stroke counts when the scribble runs along it.

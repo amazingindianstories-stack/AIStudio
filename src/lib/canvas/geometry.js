@@ -195,21 +195,27 @@ export function moveNodesBy(
  * stay put together with their own contents.
  */
 export function descendantIds(nodes, ids, stop = null) {
-  const frames = new Set(ids.filter((id) => nodes.some((n) => n.id === id && isContainerNode(n))));
-  const out = new Set();
+  return new Set(descendantRoots(nodes, ids, stop).keys());
+}
+
+/** The same walk as descendantIds in one pass over the board, mapping each id found to the id in `ids` it sits under. */
+export function descendantRoots(nodes, ids, stop = null) {
+  const wanted = new Set(ids);
+  const queue = [];
   const childrenOf = new Map();
   for (const n of nodes) {
+    if (wanted.has(n.id) && isContainerNode(n)) queue.push([n.id, n.id]);
     if (!n.parentId) continue;
     if (!childrenOf.has(n.parentId)) childrenOf.set(n.parentId, []);
     childrenOf.get(n.parentId).push(n);
   }
-  const queue = [...frames];
+  const out = new Map();
   while (queue.length) {
-    const parent = queue.pop();
+    const [parent, root] = queue.pop();
     for (const child of childrenOf.get(parent) ?? []) {
       if (out.has(child.id) || stop?.has(child.id)) continue;
-      out.add(child.id);
-      if (isContainerNode(child)) queue.push(child.id);
+      out.set(child.id, root);
+      if (isContainerNode(child)) queue.push([child.id, root]);
     }
   }
   return out;
