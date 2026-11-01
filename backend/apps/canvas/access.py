@@ -17,7 +17,7 @@ PROJECT_LEVELS = {'viewer': VIEW, 'commenter': COMMENT, 'editor': EDIT, 'co_owne
 # Minimum effective level for each board action.
 READ = VIEW
 WRITE = EDIT          # save the graph, upload media
-SHARE = CO_OWNER      # rename, add/change/remove board members
+SHARE = CO_OWNER      # rename, add/change/remove board members, collaboration tools setting
 OWN = OWNER           # delete, team access, transfer ownership
 
 

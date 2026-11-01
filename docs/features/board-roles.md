@@ -20,10 +20,12 @@ ranks as co-owner.
 | Action | Needs | Route |
 |---|---|---|
 | List the board, open it, see who has access | view | `GET /api/canvas-boards`, `GET /api/canvas-boards/<id>`, `GET /api/canvas-boards/<id>/version`, `GET /api/canvas-boards/<id>/changes`, `GET /api/canvas-boards/<id>/access` |
+| Read comments and presence, mark comments read, follow threads | view | `GET /api/canvas-boards/<id>/comments`, `POST` its `read` and `follow` routes, `POST /api/canvas-boards/<id>/pulse` |
+| Comment, reply, react, resolve, suggest @mentions; change the words of your own comments only (editors may also move any comment pin), delete your own (co-owners and owners delete any) | comment | `POST /api/canvas-boards/<id>/comments`, `PATCH`/`DELETE` `/comments/<commentId>`, its `resolve` and `react` routes, `GET /comments/mentions` (`backend/apps/canvas/views_collab.py`) |
 | Save the graph, upload media, read the board history | edit | `PUT` and `PATCH /api/canvas-boards/<id>`, `POST /api/canvas-boards/<id>/upload`, `GET /api/canvas-boards/<id>/activity` (`board-history.md`) |
 | Create with AI: quote, run, list and place jobs | edit | `/api/canvas-boards/<id>/ai-jobs` and its `quote` and `<jobId>` routes |
 | Set a protected lock (held by the setter; only they and the board's co-owners and owner may change, unlock or delete the object, so a setter who leaves never strands it), set the board start view | co-owner | `PUT` and `PATCH /api/canvas-boards/<id>`; a save that tries it below co-owner keeps its other changes (`backend/apps/canvas/locks.py`) |
-| Rename, add/change/remove board members | co-owner | `renameBoard`; `setMember`, `removeMember` on `/access` |
+| Rename, add/change/remove board members, choose who may start collaboration tools (every editor, or co-owners and owners) | co-owner | `renameBoard`; `setMember`, `removeMember`, `setCollabTools` on `/access` |
 | Delete, set team access, transfer ownership | owner | `deleteBoard`; `setTeamRole`, `transferOwner` on `/access` |
 
 A user below view gets 404 for the board; a user below the needed role gets 403 `FORBIDDEN`.
