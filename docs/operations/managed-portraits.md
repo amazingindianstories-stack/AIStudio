@@ -46,7 +46,7 @@ Nothing is deployed. Every production step below needs explicit owner approval.
   **Retry** then registers it and sends `asset://`. There is no automatic resubmission (the paid claim stays
   one-shot). Uploading the same image to the Gallery has the same effect.
 - A slot waiter's place in line is when it started waiting for a slot (not for processing); the overall
-  wait limit counts from its first wait since it last waited for processing. No second eviction starts while an earlier delete is
+  wait limit counts from its first wait and starts again after each wait for processing. No second eviction starts while an earlier delete is
   unresolved (DELETING or UNCERTAIN), so a failing DeleteAsset cannot empty the pool.
 - When BytePlus reports a full quota the pool takes what it had accepted as its size (0 when the quota is
   used elsewhere) and starts no registration for 60 s; after that one registration probes again.
