@@ -20,7 +20,8 @@ test("LIMIT_DEFINITIONS: every entry has a positive default at or above its own 
   // fresh install (or a corrupted-row fallback) start out invalid.
   for (const def of LIMIT_DEFINITIONS) {
     assert.ok(def.defaultValue >= def.min, `${def.key}: default below min`);
-    assert.ok(def.min >= 1, `${def.key}: min must be at least 1`);
+    // A feature switch is 1 (on) or 0 (off); every other limit must stay at least 1.
+    assert.ok(def.min >= (def.switch ? 0 : 1), `${def.key}: min must be at least 1`);
   }
 });
 
@@ -66,4 +67,14 @@ test("seedanceConcurrency is a global-only limit: default 3 per model, at most 5
   assert.equal(def.globalOnly, true);
   assert.ok(!USER_LIMIT_DEFINITIONS.some((d) => d.key === "seedanceConcurrency"));
   assert.ok(USER_LIMIT_DEFINITIONS.some((d) => d.key === "maxConcurrentJobs"));
+});
+
+test("a feature switch is 0 or 1, defaults on, and a corrupted value falls back to on", () => {
+  const def = limitDefinition("boardAiEnabled");
+  assert.equal(def.switch, true);
+  assert.equal(parseLimitValue("0", def), 0);
+  assert.equal(parseLimitValue("1", def), 1);
+  assert.equal(parseLimitValue("5", def), 1);
+  assert.equal(parseLimitValue("junk", def), 1);
+  assert.equal(isLimitValueAllowed(2, def), false);
 });

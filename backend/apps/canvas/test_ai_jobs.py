@@ -481,6 +481,36 @@ class BoardAiAllowanceTests(BoardFixture):
         self.assertEqual((again.status_code, again.json()['job']['id']), (201, first['id']))
 
 
+class BoardAiSwitchTests(BoardFixture):
+    """The admin switch boardAiEnabled turns Create with AI off for everyone or for one user."""
+
+    def set_switch(self, value, user=False):
+        from apps.admin_dashboard.models import AppSetting, UserLimit
+        if user:
+            UserLimit.objects.create(user_id=self.actor_id, key='boardAiEnabled', value=str(value), updated_at=1)
+        else:
+            AppSetting.objects.create(key='boardAiEnabled', value=str(value), updated_at=1)
+
+    def test_the_feature_is_on_until_an_admin_turns_it_off(self):
+        self.assertEqual(self.submit({'format': 'stickies', 'prompt': 'ideas'}).status_code, 201)
+
+    def test_a_global_off_refuses_the_job_and_stores_nothing(self):
+        self.set_switch(0)
+        response = self.submit({'format': 'stickies', 'prompt': 'ideas'})
+        self.assertEqual((response.status_code, response.json()['code']), (403, 'AI_DISABLED'))
+        self.assertNotIn('\u2014', response.json()['error'])
+        self.assertEqual((Generation.objects.count(), BoardAiJob.objects.count()), (0, 0))
+
+    def test_a_per_user_on_overrides_a_global_off(self):
+        self.set_switch(0)
+        self.set_switch(1, user=True)
+        self.assertEqual(self.submit({'format': 'stickies', 'prompt': 'ideas'}).status_code, 201)
+
+    def test_a_per_user_off_blocks_that_user_only(self):
+        self.set_switch(0, user=True)
+        self.assertEqual(self.submit({'format': 'stickies', 'prompt': 'ideas'}).status_code, 403)
+
+
 class BoardAiPaidGuardTests(BoardFixture):
     @contextlib.contextmanager
     def guard(self, ledger, config=UNLIMITED):

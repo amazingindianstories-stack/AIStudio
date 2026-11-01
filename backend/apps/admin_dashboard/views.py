@@ -14,7 +14,9 @@ LIMITS = {'maxPromptLength': (30000, 1, None), 'maxConcurrentJobs': (PER_USER_DE
           'mcpDailyCapCents': (2000, 1, 100000), 'mcpActiveJobs': (4, 1, 8),
           # Board AI (Create with AI): estimator cents per user per calendar month. The default is the ceiling, so
           # no cap applies until an admin sets one.
-          'boardAiMonthlyCapCents': (10000000, 1, 10000000)}
+          'boardAiMonthlyCapCents': (10000000, 1, 10000000),
+          # Board feature switches: 1 is on (the default), 0 is off. See apps.canvas.switches.
+          'boardAiEnabled': (1, 0, 1)}
 GLOBAL_ONLY = {LANE_SETTING}        # account-wide provider limits: no per-user override
 USER_LIMITS = {key: value for key, value in LIMITS.items() if key not in GLOBAL_ONLY}
 # What the composer reads back through /api/settings; agent limits are enforced by apps.mcp_auth instead.

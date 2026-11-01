@@ -73,6 +73,17 @@ export const LIMIT_DEFINITIONS = [
     min: 1,
     max: 10000000,
   },
+  {
+    key: "boardAiEnabled",
+    label: "Board AI switch",
+    description:
+      "Turns Create with AI on boards on (1) or off (0). Off blocks new board AI jobs for everyone, or for one user when set on that user. Jobs already running finish.",
+    unit: "1 on, 0 off",
+    switch: true,
+    defaultValue: 1,
+    min: 0,
+    max: 1,
+  },
 ];
 
 /** Limits an administrator may override for one user. */

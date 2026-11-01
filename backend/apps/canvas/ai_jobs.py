@@ -23,7 +23,7 @@ from apps.generation.models import Generation
 from apps.generation.serialization import generation_item
 from apps.generation.services import submission, text_submission
 from apps.library.services import idempotency
-from . import ai_allowance
+from . import ai_allowance, switches
 from .models import BoardAiJob
 
 ENGINES = {'stickies': 'text', 'image': 'image'}
@@ -140,6 +140,8 @@ def submit(actor, board, body, idempotency_key):
         created = {}
 
         def admit(item):
+            if not switches.enabled(actor.id, switches.AI):
+                raise JobError(403, 'Create with AI is turned off. Ask an admin to turn it on.', 'AI_DISABLED')
             state = ai_allowance.exceeded(actor.id, item.get('costCents'))
             if state:
                 raise JobError(429, 'You have used this month\'s Create with AI allowance. It resets on the first of next month, or ask an admin to raise it.',
