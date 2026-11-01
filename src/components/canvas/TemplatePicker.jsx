@@ -102,11 +102,11 @@ function Detail({ template, mode, canInsert, isAdmin, onUse, onChanged, onEdit, 
       </button>
       {!canInsert && <p className="text-[11px] text-white/45">You can only view this board, so templates cannot be added.</p>}
       <div className="flex flex-wrap gap-1.5 text-xs text-white/70">
-        <button type="button" onClick={like} aria-pressed={template.liked} className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-line px-2 py-1 hover:bg-white/10">
+        <button type="button" onClick={like} aria-pressed={template.liked} aria-label="Like" title="Like" className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-line px-2 py-1 hover:bg-white/10">
           <Heart className={cn("h-3.5 w-3.5", template.liked && "fill-red-400 text-red-400")} /> {template.likes}
         </button>
         <button type="button" onClick={copyLink} className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-line px-2 py-1 hover:bg-white/10"><Link2 className="h-3.5 w-3.5" /> Copy link</button>
-        {isAdmin && <button type="button" onClick={feature} className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-line px-2 py-1 hover:bg-white/10"><Star className={cn("h-3.5 w-3.5", template.featured && "fill-yellow-300 text-yellow-300")} /> {template.featured ? "Unfeature" : "Feature"}</button>}
+        {isAdmin && template.kind === "custom" && <button type="button" onClick={feature} className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-line px-2 py-1 hover:bg-white/10"><Star className={cn("h-3.5 w-3.5", template.featured && "fill-yellow-300 text-yellow-300")} /> {template.featured ? "Unfeature" : "Feature"}</button>}
         {template.canManage && (
           <>
             {onEdit && <button type="button" onClick={() => onEdit(template)} className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-line px-2 py-1 hover:bg-white/10"><Pencil className="h-3.5 w-3.5" /> Edit details</button>}
@@ -229,13 +229,14 @@ export function TemplatePicker({
           </div>
         </div>
 
-        {tab === "blueprints" && <BlueprintsTab projectId={projectId} onMade={onBlueprintMade} />}
+        {tab === "blueprints" && <BlueprintsTab projectId={projectId} isAdmin={isAdmin} onMade={onBlueprintMade} />}
         {tab === "insights" && <InsightsTab />}
         {tab === "templates" && (
           <div className="grid min-h-0 flex-1 grid-cols-[11rem_minmax(0,1fr)_20rem] max-lg:grid-cols-[minmax(0,1fr)] max-lg:overflow-y-auto">
             <nav aria-label="Template filters" className="scroll-thin flex flex-col gap-0.5 overflow-y-auto border-r border-line p-3 max-lg:flex-row max-lg:flex-wrap max-lg:border-b max-lg:border-r-0">
               {TEMPLATE_COLLECTIONS.map((item) => sideButton(!mine && collection === item.id, item.label, () => { setMine(false); setCollection(item.id); }))}
               {sideButton(mine, "My templates", () => { setMine(true); setCollection("all"); })}
+              {sideButton(!mine && collection === "liked", "Liked", () => { setMine(false); setCollection("liked"); })}
               <div className="my-2 h-px bg-line max-lg:hidden" />
               {sideButton(category === "all", "All categories", () => setCategory("all"))}
               {Object.entries(TEMPLATE_CATEGORY_LABELS).map(([id, label]) => sideButton(category === id, label, () => setCategory(id)))}

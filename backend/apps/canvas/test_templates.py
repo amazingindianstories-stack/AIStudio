@@ -1,15 +1,20 @@
 """Board templates and blueprints: the library, custom templates, access levels, insert helpers, usage counts."""
 import json
+from unittest.mock import patch
 from uuid import uuid4
+from django.db import connection
 from django.test import SimpleTestCase, TransactionTestCase, override_settings
 from apps.authentication.models import User
 from apps.authentication.session import sign_session
+from apps.media.storage import MemoryAdapter, StorageService
 from apps.projects.models import Project, ProjectMember
 from . import template_catalog, templates
-from .models import BoardTemplate, CanvasBoard
+from .models import Blueprint, BoardTemplate, CanvasBoard
 from .serialization import validate_state
 
 PROJECT = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+LAYERED_SETTINGS = {'background': '#112233', 'startView': {'x': 40, 'y': 50, 'zoom': 2},
+                    'layers': [{'id': 'notes', 'name': 'Notes'}, {'id': 'base', 'name': 'Base', 'locked': True}]}
 
 
 def make_user(name, role='user'):
@@ -76,6 +81,14 @@ class GraphHelperTests(SimpleTestCase):
         self.assertEqual(by_type['text']['text'], 'Heading')
         self.assertEqual(by_type['frame']['name'], 'Frame')
         self.assertEqual(by_type['sticky']['fill'], '#fff59d')
+
+    def test_instantiate_keeps_background_layers_and_layer_locks_but_not_the_start_view(self):
+        graph = templates.snapshot({**self.graph, 'settings': LAYERED_SETTINGS,
+                                    'nodes': [{**self.graph['nodes'][0], 'layerId': 'base'}, {**self.graph['nodes'][2], 'layerId': 'notes'}]})
+        for blank in (False, True):
+            board = templates.instantiate(graph, blank=blank)
+            self.assertEqual(board['settings'], {'background': '#112233', 'layers': LAYERED_SETTINGS['layers']})
+            self.assertEqual([item['layerId'] for item in board['nodes']], ['base', 'notes'])
 
     def test_snapshot_drops_stamps_and_viewport(self):
         stored = templates.snapshot({**self.graph, 'viewport': {'x': 5, 'y': 5, 'zoom': 2}})
@@ -331,6 +344,52 @@ class TemplateApiTests(TransactionTestCase):
         self.assertTrue(all(n['text'] == '' for n in data['nodes'] if n['type'] == 'sticky'))
         self.assertTrue(any(n['type'] == 'text' and n['text'] for n in data['nodes']))
 
+    def test_boards_from_a_whole_board_template_or_blueprint_keep_its_layers(self):
+        layered = {'version': 1, 'nodes': [sticky('s1', 'Hello', layerId='base'), sticky('s2', 'Top', layerId='notes')],
+                   'connectors': [], 'settings': LAYERED_SETTINGS}
+        CanvasBoard.objects.filter(pk=self.board.id).update(data=layered)
+        entry = self.make()
+        self.as_user(self.owner)
+        blueprint = self.send('post', '/api/canvas-blueprints', {'name': 'Layered', 'sourceProjectId': PROJECT}).json()['blueprint']
+        from_template = self.send('post', '/api/canvas-boards', {'op': 'createBoard', 'projectId': PROJECT, 'name': 'T', 'templateId': entry['id']})
+        from_blueprint = self.send('post', f'/api/canvas-blueprints/{blueprint["id"]}/use', {'name': 'B'})
+        for board_id in (from_template.json()['board']['id'], from_blueprint.json()['boards'][0]['id']):
+            data = CanvasBoard.objects.get(pk=board_id).data
+            self.assertEqual(data['settings'], {'background': '#112233', 'layers': LAYERED_SETTINGS['layers']})
+            self.assertEqual({item['text']: item['layerId'] for item in data['nodes']}, {'Hello': 'base', 'Top': 'notes'})
+
+    def test_template_and_blueprint_media_is_copied_outside_any_transaction(self):
+        storage = StorageService(MemoryAdapter())
+        image = b'\x89PNG\r\n\x1a\nfixture'
+        source = f'canvas/{self.board.id}/{uuid4()}.png'
+        storage.primary.put(source, image, 'image/png', 'private')
+        CanvasBoard.objects.filter(pk=self.board.id).update(data={'version': 1, 'connectors': [], 'nodes': [
+            {'id': 'i1', 'type': 'image', 'x': 0, 'y': 0, 'w': 100, 'h': 80, 'parentId': None, 'groupId': None, 'src': '/api/media/' + source}]})
+        uploads = []
+        upload = storage.upload_stream
+
+        def recording(stream, key, *args):
+            uploads.append((key, connection.in_atomic_block))
+            return upload(stream, key, *args)
+
+        with patch('apps.media.storage.get_storage', return_value=storage), patch.object(storage, 'upload_stream', recording):
+            entry = self.make()
+            self.as_user(self.owner)
+            blueprint = self.send('post', '/api/canvas-blueprints', {'name': 'Media', 'sourceProjectId': PROJECT}).json()['blueprint']
+            scratch = self.send('post', '/api/canvas-templates', {'name': 'Scratch', 'fromScratch': True, 'projectId': PROJECT}).json()['template']
+            CanvasBoard.objects.filter(pk=scratch['boardId']).update(data=CanvasBoard.objects.get(pk=self.board.id).data)
+            self.assertEqual(self.send('patch', f'/api/canvas-templates/{scratch["id"]}', {'syncBoard': True}).status_code, 200)
+        template_src = BoardTemplate.objects.get(pk=entry['id']).graph['nodes'][0]['src']
+        synced_src = BoardTemplate.objects.get(pk=scratch['id']).graph['nodes'][0]['src']
+        blueprint_src = Blueprint.objects.get(pk=blueprint['id'].removeprefix('blueprint:')).boards[0]['graph']['nodes'][0]['src']
+        self.assertTrue(template_src.startswith(f'/api/media/canvas/templates/{entry["id"]}/'))
+        self.assertTrue(synced_src.startswith(f'/api/media/canvas/templates/{scratch["id"]}/'))
+        self.assertTrue(blueprint_src.startswith(f'/api/media/canvas/blueprints/{blueprint["id"].removeprefix("blueprint:")}/'))
+        for src in (template_src, synced_src, blueprint_src):
+            self.assertEqual(storage.read(src.removeprefix('/api/media/')), image)
+        self.assertEqual(len(uploads), 3)
+        self.assertFalse(any(in_atomic for _, in_atomic in uploads))
+
     def test_creating_from_an_unknown_or_hidden_template_fails_without_a_board(self):
         hidden = self.make('personal')
         before = CanvasBoard.objects.count()
@@ -421,3 +480,17 @@ class TemplateApiTests(TransactionTestCase):
         reply = self.send('post', '/api/canvas-blueprints', {'name': 'Copy', 'sourceProjectId': PROJECT})
         self.assertEqual(reply.status_code, 201, reply.content)
         self.assertEqual([b['name'] for b in reply.json()['blueprint']['boards']], ['Board', 'Read only'])
+
+    def test_a_blueprint_keeps_the_first_boards_and_reports_how_many_were_left_out(self):
+        for index in range(3):
+            CanvasBoard.objects.create(id=uuid4(), project_id=PROJECT, name=f'Extra {index}', created_by=self.owner.id,
+                                       data={'version': 1, 'nodes': [sticky(f'e{index}')], 'connectors': []},
+                                       created_at=10 + index, updated_at=10 + index)
+        self.as_user(self.owner)
+        with patch.object(templates, 'BLUEPRINT_MAX_BOARDS', 2):
+            reply = self.send('post', '/api/canvas-blueprints', {'name': 'Capped', 'sourceProjectId': PROJECT})
+        self.assertEqual(reply.status_code, 201, reply.content)
+        self.assertEqual(reply.json()['leftOut'], 2)
+        self.assertEqual([b['name'] for b in reply.json()['blueprint']['boards']], ['Board', 'Extra 0'])
+        whole = self.send('post', '/api/canvas-blueprints', {'name': 'Whole', 'sourceProjectId': PROJECT}).json()
+        self.assertEqual((whole['leftOut'], len(whole['blueprint']['boards'])), (0, 4))

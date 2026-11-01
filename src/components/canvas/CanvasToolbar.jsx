@@ -32,6 +32,7 @@ import { isShapeTool } from "@/lib/canvas/shapes";
 import { ShapeGlyph } from "./ShapeGlyph";
 import { ShapesPanel } from "./ShapesPanel";
 import { StickyMenu } from "./StickyMenu";
+import { FrameMenu } from "./FrameMenu";
 import { ACTIVE_STATUSES, useBoardAi } from "@/lib/board-ai";
 
 /**
@@ -177,6 +178,7 @@ export function CanvasToolbar({
             locked={toolLocked && tool === "frame"}
             onClick={(e) => arm("frame", e)}
           />
+          <FrameMenu onFrameTool={() => setTool("frame")} />
           <ToolButton
             id="connector"
             active={tool === "connector"}

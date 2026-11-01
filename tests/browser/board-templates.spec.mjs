@@ -99,6 +99,16 @@ test('Board templates: picker, pre-filled and blank, Cmd+Delete, save and delete
   await pixelClean(page, picker);
   await info.attach('template-picker', { body: await page.screenshot(), contentType: 'image/png' });
 
+  // A liked template is found again under Liked.
+  await picker.getByRole('button', { name: 'All templates' }).click();
+  await picker.getByRole('button', { name: 'SWOT analysis' }).click();
+  const likeButton = picker.getByTestId('template-detail').getByRole('button', { name: 'Like', exact: true });
+  await likeButton.click();
+  await expect(likeButton).toHaveAttribute('aria-pressed', 'true');
+  await picker.getByRole('button', { name: 'Liked', exact: true }).click();
+  await expect(picker.getByRole('button', { name: 'SWOT analysis' })).toBeVisible();
+  await expect(picker.getByRole('button', { name: /Prompt lab/ })).toHaveCount(0);
+
   // Add pre-filled, then the board holds the template and it is selected.
   await picker.getByRole('button', { name: 'All templates' }).click();
   await picker.getByRole('button', { name: 'SWOT analysis' }).click();
@@ -109,17 +119,30 @@ test('Board templates: picker, pre-filled and blank, Cmd+Delete, save and delete
   const count = swot.data.nodes.length;
   expect(new Set(swot.data.nodes.map((n) => n.id)).size).toBe(count);
 
-  // Cmd+Delete clears the selected stickies' text and keeps them, as one undo step.
+  // Cmd+Delete clears the selected stickies' text and keeps them, as one undo step; locked objects keep their text.
   const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
   if (stickyTexts.length) {
     await page.getByRole('application', { name: 'Board canvas' }).focus();
     await page.keyboard.press(`${modifier}+a`);
+    await page.keyboard.press('ControlOrMeta+Shift+L');
+    await storedBoard(context, boardId, (board) => board.data.nodes.every((n) => n.locked));
+    await page.keyboard.press(`${modifier}+Delete`);
+    await page.keyboard.press('ControlOrMeta+Shift+L');
+    const kept = await storedBoard(context, boardId, (board) => board.data.nodes.every((n) => !n.locked));
+    expect(kept.data.nodes.filter((n) => n.type === 'sticky' && n.text).length).toBe(stickyTexts.length);
     await page.keyboard.press(`${modifier}+Delete`);
     const cleared = await storedBoard(context, boardId, (board) => board.data.nodes.filter((n) => n.type === 'sticky' && n.text).length === 0);
     expect(cleared.data.nodes.length).toBe(count);
     await page.keyboard.press(`${modifier}+z`);
     await storedBoard(context, boardId, (board) => board.data.nodes.filter((n) => n.type === 'sticky' && n.text).length === stickyTexts.length);
   }
+
+  // The frame menu offers the planning templates.
+  await page.getByRole('button', { name: 'Frame options' }).click();
+  await page.getByRole('menuitem', { name: 'Planning templates' }).click();
+  await expect(picker.getByRole('button', { name: 'SWOT analysis' })).toBeVisible();
+  await expect(picker.getByRole('button', { name: /Prompt lab/ })).toHaveCount(0);
+  await picker.getByRole('button', { name: 'Close' }).click();
 
   // Save the board as a personal template; it lists under My templates, can be edited, and deletes with an undo.
   await page.getByRole('button', { name: 'Templates', exact: true }).click();
@@ -137,6 +160,23 @@ test('Board templates: picker, pre-filled and blank, Cmd+Delete, save and delete
   await expect(picker.getByRole('button', { name: 'My team canvas' })).toHaveCount(0);
   await picker.getByRole('button', { name: 'Undo' }).click();
   await expect(picker.getByRole('button', { name: 'My team canvas' })).toBeVisible();
+
+  // Save the project as a blueprint, then edit its details from the Blueprints tab.
+  await picker.getByRole('tab', { name: 'Blueprints' }).click();
+  const blueprints = picker.getByTestId('blueprints');
+  await blueprints.getByLabel('Blueprint name').fill('Team kit');
+  await blueprints.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(blueprints.getByRole('status')).toHaveText('Blueprint saved.');
+  await blueprints.getByRole('listitem').filter({ hasText: 'Team kit' }).getByRole('button', { name: 'Edit', exact: true }).click();
+  const blueprintForm = blueprints.getByRole('form', { name: 'Edit Team kit' });
+  await blueprintForm.getByLabel('Blueprint name').fill('Team kit v2');
+  await expect.poll(async () => (await blueprintForm.getByLabel('Who can use it').locator('option').allTextContents()).join('|')).toBe('Only me|Everyone in this project');
+  await blueprintForm.getByLabel('Who can use it').selectOption('personal');
+  await pixelClean(page, picker);
+  await info.attach('blueprint-editor', { body: await page.screenshot(), contentType: 'image/png' });
+  await blueprintForm.getByRole('button', { name: 'Save details' }).click();
+  await expect(blueprints.getByRole('heading', { name: 'Team kit v2' })).toBeVisible();
+  await expect(blueprintForm).toHaveCount(0);
   await picker.getByRole('button', { name: 'Close' }).click();
 
   // A shared link opens the picker on that template.
@@ -254,6 +294,13 @@ test('Board templates: save permissions, scope options, selection source, scratc
   expect((await post(admin.context.request, '/api/canvas-templates', { name: 'Admin kit', boardId, scope: 'everyone' })).status()).toBe(201);
   await openBoard(admin.page);
   await admin.page.getByRole('button', { name: 'Templates', exact: true }).click();
+  // Only custom templates can be featured from the picker; shipped ones are featured in code.
+  const adminPicker = admin.page.getByRole('dialog', { name: 'Templates' });
+  await adminPicker.getByRole('button', { name: 'SWOT analysis' }).click();
+  await expect(adminPicker.getByTestId('template-detail')).toContainText('SWOT analysis');
+  await expect(adminPicker.getByRole('button', { name: 'Feature', exact: true })).toHaveCount(0);
+  await adminPicker.getByRole('button', { name: 'Admin kit' }).click();
+  await expect(adminPicker.getByRole('button', { name: 'Feature', exact: true })).toBeVisible();
   await admin.page.getByRole('button', { name: 'Save board as template' }).click();
   await expect.poll(async () => admin.page.getByRole('dialog', { name: 'Save as template' }).getByLabel('Who can use it')
     .locator('option').allTextContents()).toContain('Everyone');
