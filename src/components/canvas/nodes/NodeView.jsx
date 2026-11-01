@@ -17,6 +17,7 @@ import { ImageNode } from "./ImageNode";
 import { ErdNode } from "./ErdNode";
 import { SwimlaneNode } from "./SwimlaneNode";
 import { DiagramNode } from "./DiagramNode";
+import { VoteBadge } from "../facilitation/VoteBadge";
 
 ;
 
@@ -204,6 +205,8 @@ export function NodeView({
             return <ImageNode node={node} cropMode={cropMode} cropDraft={cropDraft} onCropChange={onCropChange} onApplyCrop={onApplyCrop} onCancelCrop={onCancelCrop} onResetCrop={onResetCrop} />;
         }
       })()}
+
+      <VoteBadge node={node} />
 
       {showRing && (
         <div

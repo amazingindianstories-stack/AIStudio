@@ -34,6 +34,7 @@ import { ObjectInfo } from "./ObjectInfo";
 import { BoardViewOverlays } from "./BoardViewOverlays";
 import { useBoardView } from "./use-board-view";
 import { zoomToLevel } from "@/lib/canvas/viewport-nav";
+import { FacilitationButton, FacilitationDock } from "./facilitation/FacilitationDock";
 
 // Miro's keys: N sticky note, T text, F frame; S opens the shapes panel.
 const TOOL_SHORTCUTS = {
@@ -534,6 +535,7 @@ export function CanvasView() {
               History
             </button>
           )}
+          {boardId && loaded && <FacilitationButton boardId={boardId} />}
           {showEditToggle && (
             <button
               type="button"
@@ -611,6 +613,7 @@ export function CanvasView() {
 
       <StyleInspector hidden={transientActive || readOnly || touchViewOnly || noBoards} insetLeft={narrow ? 0 : assetPanelWidth} />
       {!noBoards && !transientActive && <ObjectInfo style={{ left: assetPanelWidth + 16 }} />}
+      {boardId && loaded && <FacilitationDock />}
       {historyOpen && boardId && loaded && !readOnly && (
         <BoardHistoryPanel key={boardId} boardId={boardId} onClose={closeHistory} />
       )}
