@@ -269,10 +269,11 @@ export function CanvasView() {
           (ui-spec §9); the asset panel loads independently */}
       <div className={cn((boardsLoading || (!loaded && boardId)) && "pointer-events-none opacity-50")}>
         {/* The bar spans the width so it can wrap on phones; only its pills
-            take pointer events, the gaps between them reach the canvas. */}
+            take pointer events, the gaps between them reach the canvas. An
+            open Board menu lifts the bar over the z-40 side panels. */}
         <div
           className={cn(
-            "pointer-events-none absolute top-4 z-30 flex flex-wrap items-center gap-2 transition-[left] duration-200",
+            "pointer-events-none absolute top-4 z-30 flex has-[[role=menu]]:z-[45] flex-wrap items-center gap-2 transition-[left] duration-200",
             !(boardsLoading || (!loaded && boardId)) && "[&>*]:pointer-events-auto"
           )}
           style={{ left: assetPanelWidth + 16, right: "1rem" }}
