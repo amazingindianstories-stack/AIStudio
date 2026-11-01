@@ -195,7 +195,7 @@ export function stickyAuthor(node) {
   return node.textBy ?? node.createdBy ?? null;
 }
 
-function csvCell(value) {
+export function csvCell(value) {
   let text = String(value ?? "");
   // A cell a spreadsheet would run as a formula is kept as text.
   if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
