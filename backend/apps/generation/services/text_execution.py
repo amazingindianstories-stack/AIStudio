@@ -21,6 +21,18 @@ def mock_output(value):
     import json
     if value['format'] == 'stickies':
         return parse_output('stickies', json.dumps({'notes': [{'text': f'Mock idea {index}', 'color': 'yellow'} for index in (1, 2, 3)]}))
+    samples = {
+        'rewrite': {'items': []}, 'cluster': {'groups': [{'title': 'Mock group', 'ids': []}]},
+        'summary': {'title': 'Mock summary', 'body': 'A mock summary of the selected notes.'},
+        'layout': {'title': 'Mock board', 'frames': [{'title': 'Mock frame', 'notes': [{'text': 'Mock note', 'color': 'yellow'}]}]},
+        'diagram': {'kind': 'flowchart', 'nodes': [{'id': 'a', 'label': 'Start', 'shape': 'ellipse', 'color': ''},
+                                                   {'id': 'b', 'label': 'Finish', 'shape': 'rect', 'color': ''}],
+                    'edges': [{'from': 'a', 'to': 'b', 'label': ''}]}}
+    if value['format'] in samples:
+        sample = dict(samples[value['format']])
+        if value['format'] == 'rewrite':
+            sample['items'] = [{'id': item['id'], 'text': 'Mock ' + item['text']} for item in json.loads(value['turns'][-1]['text'].rsplit('\n', 1)[-1])]
+        return parse_output(value['format'], json.dumps(sample))
     raise ValueError('No mock result for this board format.')
 
 

@@ -126,6 +126,32 @@ def mp4_bytes(size='160x90'):
             return handle.read()
 
 
+def board_reply(name, body):
+    """A deterministic, valid answer for each board text format, built from the request's own selection."""
+    last = body['contents'][-1]['parts'][0]['text']
+    selected = []
+    if '\n\nSelected board content (JSON):\n' in body['contents'][0]['parts'][0]['text']:
+        selected = json.loads(body['contents'][0]['parts'][0]['text'].split('Selected board content (JSON):\n', 1)[1])
+    if name == 'rewrite':
+        return {'items': [{'id': item['id'], 'text': 'EDITED ' + item['text']} for item in selected]}
+    if name == 'cluster':
+        half = (len(selected) + 1) // 2
+        return {'groups': [{'title': 'First half', 'ids': [item['id'] for item in selected[:half]]},
+                           {'title': 'Second half', 'ids': [item['id'] for item in selected[half:]]}]}
+    if name == 'summary':
+        return {'title': 'Summary', 'body': 'Summary of ' + '; '.join(item['text'] for item in selected)}
+    if name == 'layout':
+        return {'title': 'Workshop', 'frames': [{'title': 'Warm up', 'notes': [{'text': 'Icebreaker', 'color': 'yellow'}]},
+                                                {'title': 'Ideas', 'notes': [{'text': 'Idea one', 'color': 'blue'}, {'text': 'Idea two', 'color': 'green'}]}]}
+    if name == 'diagram':
+        extra = [{'id': 'd', 'label': 'Review', 'shape': 'rect', 'color': ''}] if len(body['contents']) > 1 else []
+        return {'kind': 'flowchart', 'nodes': [{'id': 'a', 'label': 'Start', 'shape': 'ellipse', 'color': ''},
+                                               {'id': 'b', 'label': 'Decide', 'shape': 'diamond', 'color': '#6f9bd1'},
+                                               {'id': 'c', 'label': 'Finish', 'shape': 'rect', 'color': ''}] + extra,
+                'edges': [{'from': 'a', 'to': 'b', 'label': ''}, {'from': 'b', 'to': 'c', 'label': 'yes'}]}
+    return {'notes': BOARD_NOTES}
+
+
 class MediaFault(Exception):
     """An injected failure of a media download (the server answers with this HTTP status)."""
     def __init__(self, status):
@@ -192,10 +218,11 @@ class FakeProviders:
             with self.lock:
                 self.gemini_payloads.append((gemini[1], data))
             from apps.agents.board import body_format
-            if body_format(data) == 'stickies':     # a board "Create with AI" sticky-notes job
+            board = body_format(data)
+            if board:     # a board "Create with AI" text job (any format)
                 with self.lock:
                     self.board_payloads.append(data)
-                return 200, {'candidates': [{'content': {'role': 'model', 'parts': [{'text': json.dumps({'notes': BOARD_NOTES})}]},
+                return 200, {'candidates': [{'content': {'role': 'model', 'parts': [{'text': json.dumps(board_reply(board, data))}]},
                                              'finishReason': 'STOP'}], 'usageMetadata': {'promptTokenCount': 300, 'candidatesTokenCount': 90}}
             if 'systemInstruction' in data:     # the admin chat agent (apps/agents)
                 return 200, {'candidates': [{'content': {'role': 'model', 'parts': [{'text': AGENT_REPLY}]}, 'finishReason': 'STOP'}],

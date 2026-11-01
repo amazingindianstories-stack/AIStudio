@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
+import { setAiInputs } from "@/lib/board-ai-panel";
 import {
   MousePointer2,
   Hand,
@@ -52,6 +53,7 @@ export function CanvasToolbar({
   onAddImageClick,
   aiOpen,
   onAiClick,
+  aiInputs = true,
   /** World point at the middle of the view, where bulk stickies and stacks go. */
   viewCenter,
 }
@@ -203,6 +205,17 @@ export function CanvasToolbar({
         <Divider />
 
         <ToolGroup>
+          {!aiInputs ? (
+            <button
+              type="button"
+              className="grid h-9 w-9 cursor-pointer place-items-center rounded-lg text-white/35 transition-colors hover:bg-white/[0.07] hover:text-white max-sm:h-8 max-sm:w-8"
+              title="Turn on AI inputs"
+              aria-label="Turn on AI inputs"
+              onClick={() => setAiInputs(true)}
+            >
+              <Sparkles className="h-4 w-4" />
+            </button>
+          ) : (
           <button
             type="button"
             className={cn(
@@ -217,6 +230,7 @@ export function CanvasToolbar({
             <Sparkles className="h-4 w-4" />
             {aiRunning && <span className="absolute right-1 top-1 h-1.5 w-1.5 animate-pulse rounded-full bg-brand" aria-hidden />}
           </button>
+          )}
         </ToolGroup>
         </>)}
       </div>

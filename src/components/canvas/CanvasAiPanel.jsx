@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, History, Image as ImageIcon, Loader2, Sparkles, StickyNote, X } from "lucide-react";
+import { ChevronDown, History, Image as ImageIcon, LayoutDashboard, Loader2, Mic, Power, Sparkles, StickyNote, Workflow, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import { fallbackModel, pickerModels } from "@/lib/config";
@@ -10,8 +10,14 @@ import { formatCost } from "@/lib/format-cost";
 import { ACTIVE_STATUSES, quoteBoardAi, requestFingerprint, trackPanelLayout, useBoardAi } from "@/lib/board-ai";
 import { AI_FORMATS, AI_FORMAT_ORDER } from "@/lib/canvas/ai-formats";
 import { Dropdown, MenuItem } from "@/components/Dropdown";
+import { useCanvasStore } from "@/lib/canvas-store";
+import { setAiInputs, useAiPanelIntent } from "@/lib/board-ai-panel";
+import { dictationSupported, startDictation } from "@/lib/canvas/dictation";
+import {
+  LANGUAGES, SELECTION_ACTIONS, SELECTION_FORMATS, TONES, actionApplies, contextFields, selectionContext, toneAction, translateAction,
+} from "@/lib/canvas/ai-selection";
 
-const FORMAT_ICONS = { stickies: StickyNote, image: ImageIcon };
+const FORMAT_ICONS = { stickies: StickyNote, image: ImageIcon, diagram: Workflow, layout: LayoutDashboard };
 const BOARD_RATIOS = ["1:1", "16:9", "9:16", "4:3", "3:4"];
 const QUOTE_DELAY_MS = 350;
 const PROCESSING = [
@@ -20,11 +26,13 @@ const PROCESSING = [
 ];
 
 /** The request the panel would submit right now (null while the prompt is empty). */
-export function panelRequest({ format, prompt, processing = "basic", model, aspectRatio, parentJobId }) {
+export function panelRequest({ format, prompt, processing = "basic", model, aspectRatio, parentJobId, extra }) {
   const text = prompt.trim();
   if (!text) return null;
   const request = { format, prompt: text, processing };
   if (parentJobId) request.parentJobId = parentJobId;
+  // The selection: text context, or reference images for a new image (a refinement edits its own image).
+  if (extra && !(format === "image" && parentJobId)) Object.assign(request, extra);
   // A refinement keeps the image's own model and aspect ratio (it edits that image).
   if (format === "image" && !parentJobId) {
     if (model) request.model = model;
@@ -66,6 +74,15 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
   const [aspectRatio, setAspectRatio] = useState("1:1");
   const [chosenModel, setChosenModel] = useState(null);
   const [quote, setQuote] = useState({ state: "idle" });
+  const [useSelection, setUseSelection] = useState(true);
+  const [action, setAction] = useState(null);
+  const [listening, setListening] = useState(false);
+  const stopListening = useRef(null);
+  const nodes = useCanvasStore((s) => s.history.present.nodes);
+  const selection = useCanvasStore((s) => s.selection);
+  const context = useMemo(() => selectionContext(nodes, selection), [nodes, selection]);
+  const preset = useAiPanelIntent((s) => s.preset);
+  const consumePreset = useAiPanelIntent((s) => s.consume);
   const textareaRef = useRef(null);
   const panelRef = useRef(null);
 
@@ -81,15 +98,50 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
 
   // Refining continues the result this panel last placed, in its format.
   const refining = Boolean(placed);
-  const activeFormat = refining ? placed.format : format;
+  const activeFormat = refining ? placed.format : action ? action.format : format;
+  const selectionFormat = SELECTION_FORMATS.includes(activeFormat);
+  const extra = useSelection || selectionFormat ? contextFields(activeFormat, context) : null;
   const spec = AI_FORMATS[activeFormat];
   const running = Boolean(job && ACTIVE_STATUSES.includes(job.status));
-  const request = panelRequest({ format: activeFormat, prompt, processing, model, aspectRatio: ratio, parentJobId: refining ? placed.jobId : null });
+  const request = panelRequest({ format: activeFormat, prompt, processing, model, aspectRatio: ratio, parentJobId: refining ? placed.jobId : null, extra });
   const fingerprint = request && boardId ? requestFingerprint(boardId, request) : null;
 
   useEffect(() => {
     textareaRef.current?.focus();
   }, [refining, activeFormat]);
+
+  // A one-click action (context menu): fill the prompt; the person still presses Generate.
+  useEffect(() => {
+    if (!preset) return;
+    if (!placed) {
+      setAction(preset.format ? preset : null);
+      setPrompt(preset.prompt ?? "");
+    }
+    consumePreset();
+  }, [preset, placed, consumePreset]);
+  useEffect(() => () => stopListening.current?.(), []);
+
+  const pickAction = (next) => {
+    setAction(next);
+    setPrompt(next.prompt);
+    textareaRef.current?.focus();
+  };
+  const toggleDictation = () => {
+    if (listening) {
+      stopListening.current?.();
+      return;
+    }
+    const base = prompt.trim() ? `${prompt.trim()} ` : "";
+    setListening(true);
+    stopListening.current = startDictation({
+      lang: typeof navigator === "undefined" ? undefined : navigator.language,
+      onText: (text) => setPrompt(`${base}${text}`.slice(0, 4000)),
+      onEnd: () => {
+        stopListening.current = null;
+        setListening(false);
+      },
+    });
+  };
 
   // Placement keeps results in view: report this panel's rect and the canvas left visible beside the asset panel
   // (`leftInset` wide), relative to the canvas, which shares the panel's positioned parent.
@@ -123,7 +175,7 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
     setQuote((current) => (current.fingerprint === fingerprint ? current : { state: "loading", fingerprint }));
     const timer = setTimeout(() => {
       quoteBoardAi(boardId, request, { signal: controller.signal })
-        .then((value) => setQuote({ state: "ready", fingerprint, costCents: value.costCents }))
+        .then((value) => setQuote({ state: "ready", fingerprint, costCents: value.costCents, model: value.model }))
         .catch((error) => {
           if (error?.name !== "AbortError") setQuote({ state: "error", fingerprint, message: error?.message || "Cost estimate unavailable." });
         });
@@ -141,8 +193,12 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
 
   const run = async () => {
     if (!canRun) return;
+    stopListening.current?.();
     const created = await submit(request);
-    if (created) setPrompt("");
+    if (created) {
+      setPrompt("");
+      setAction(null);
+    }
   };
 
   const onKeyDown = (event) => {
@@ -171,14 +227,17 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
           <div role="radiogroup" aria-label="Format" className="ml-2 flex items-center gap-1 rounded-lg bg-ink-900/60 p-0.5">
             {AI_FORMAT_ORDER.map((id) => {
               const Icon = FORMAT_ICONS[id];
-              const selected = id === format;
+              const selected = !action && id === format;
               return (
                 <button
                   key={id}
                   type="button"
                   role="radio"
                   aria-checked={selected}
-                  onClick={() => setFormat(id)}
+                  onClick={() => {
+                    setFormat(id);
+                    setAction(null);
+                  }}
                   className={cn(
                     "flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
                     selected ? "bg-ink-600 text-white ring-1 ring-line" : "text-white/55 hover:bg-white/[0.07] hover:text-white"
@@ -193,12 +252,24 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
         )}
         <button
           type="button"
+          aria-label="Turn AI off"
+          title="Turn AI inputs off (hides the sparkle button and the AI menu rows)"
+          onClick={() => {
+            setAiInputs(false);
+            onClose();
+          }}
+          className="ml-auto grid h-7 w-7 place-items-center rounded-md text-white/50 transition-colors hover:bg-white/[0.07] hover:text-white"
+        >
+          <Power className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
           aria-label="Recent results"
           aria-expanded={showRecent}
           title="Recent results"
           onClick={() => setShowRecent((value) => !value)}
           className={cn(
-            "ml-auto grid h-7 w-7 place-items-center rounded-md transition-colors hover:bg-white/[0.07] hover:text-white",
+            "grid h-7 w-7 place-items-center rounded-md transition-colors hover:bg-white/[0.07] hover:text-white",
             showRecent ? "bg-white/[0.07] text-white" : "text-white/50"
           )}
         >
@@ -258,6 +329,20 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
         </div>
       )}
 
+      {!refining && context.count > 0 && (
+        <SelectionStrip
+          context={context}
+          nodes={nodes}
+          action={action}
+          useSelection={useSelection}
+          onUseSelection={setUseSelection}
+          onPick={pickAction}
+          onClear={() => setAction(null)}
+          showContextToggle={!selectionFormat && (activeFormat === "image" ? context.images.length > 0 : context.items.length > 0)}
+        />
+      )}
+
+      <div className="relative mt-2">
       <textarea
         ref={textareaRef}
         aria-label={refining ? "Refinement" : "Prompt"}
@@ -267,8 +352,24 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
         rows={2}
         maxLength={4000}
         placeholder={refining ? spec.refinePlaceholder : spec.placeholder}
-        className="mt-2 block max-h-40 min-h-[56px] w-full resize-y rounded-xl border border-line bg-ink-900/70 px-3 py-2 text-sm text-white/90 placeholder:text-white/35 focus:border-lineStrong focus:outline-none"
+        className="block max-h-40 min-h-[56px] w-full resize-y rounded-xl border border-line bg-ink-900/70 py-2 pl-3 pr-9 text-sm text-white/90 placeholder:text-white/35 focus:border-lineStrong focus:outline-none"
       />
+      {dictationSupported() && (
+        <button
+          type="button"
+          aria-label={listening ? "Stop dictation" : "Dictate the prompt"}
+          aria-pressed={listening}
+          title={listening ? "Stop dictation" : "Dictate the prompt"}
+          onClick={toggleDictation}
+          className={cn(
+            "absolute right-1.5 top-1.5 grid h-7 w-7 place-items-center rounded-md transition-colors hover:bg-white/[0.07]",
+            listening ? "text-red-300" : "text-white/50 hover:text-white"
+          )}
+        >
+          <Mic className={cn("h-4 w-4", listening && "animate-pulse")} />
+        </button>
+      )}
+      </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <div role="radiogroup" aria-label="Processing" className="flex items-center gap-1 rounded-lg bg-ink-900/60 p-0.5">
@@ -340,7 +441,7 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
         )}
       </div>
 
-      {!refining && !prompt.trim() && (
+      {!refining && !prompt.trim() && !selectionFormat && (
         <div className="mt-2 flex flex-wrap gap-1.5" aria-label="Suggestions">
           {spec.suggestions.map((suggestion) => (
             <button
@@ -370,7 +471,7 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
           ) : !request ? (
             <span className="text-white/40">Enter to run · Shift+Enter for a new line</span>
           ) : quote.state === "ready" && quoted ? (
-            <span className="text-white/60">Estimated cost <span className="font-medium text-white/85">≈{formatCost(quote.costCents)}</span></span>
+            <span className="text-white/60">Estimated cost <span className="font-medium text-white/85">≈{formatCost(quote.costCents)}</span>{quote.model ? <span className="text-white/40" title="Model"> · {quote.model}</span> : null}</span>
           ) : quote.state === "error" && quote.fingerprint === fingerprint ? (
             <span className="block truncate text-amber-200/85" title={quote.message}>{quote.message}</span>
           ) : (
@@ -388,5 +489,58 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
         </button>
       </footer>
     </section>
+  );
+}
+
+function ActionMenu({ label, items, onPick }) {
+  return (
+    <Dropdown
+      side="top"
+      label={label}
+      trigger={(open) => (
+        <span className={cn("flex items-center gap-1 rounded-full border border-line px-2.5 py-1 text-xs text-white/65 transition-colors hover:border-lineStrong hover:text-white/85", open && "bg-white/[0.07]")}>
+          {label}
+          <ChevronDown className={cn("h-3 w-3 transition-transform", open && "rotate-180")} />
+        </span>
+      )}
+    >
+      {(close) => items.map((item) => (
+        <MenuItem key={item.id} onClick={() => { onPick(item); close(); }}>
+          <span className="flex-1">{item.label}</span>
+        </MenuItem>
+      ))}
+    </Dropdown>
+  );
+}
+
+/** What the selection offers: use it as context, or run a one-click action on it (nothing runs until Generate). */
+function SelectionStrip({ context, nodes, action, useSelection, onUseSelection, onPick, onClear, showContextToggle }) {
+  const applies = (item) => actionApplies(item, context, nodes);
+  const presets = SELECTION_ACTIONS.filter(applies);
+  const tones = TONES.map((tone) => ({ ...toneAction(tone), label: tone }));
+  const languages = LANGUAGES.map((language) => ({ ...translateAction(language), label: language }));
+  const text = context.items.length > 0;
+  return (
+    <div aria-label="Selection" className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+      <span className="text-white/45">{context.count} selected</span>
+      {showContextToggle && (
+        <label className="flex cursor-pointer items-center gap-1.5 text-white/65">
+          <input type="checkbox" checked={useSelection} onChange={(event) => onUseSelection(event.target.checked)} />
+          Use selection as context
+        </label>
+      )}
+      {action && (
+        <button type="button" onClick={onClear} className="rounded-full bg-ink-600 px-2.5 py-1 font-medium text-white ring-1 ring-line" title="Clear this action">
+          {action.label ?? action.prompt} <X className="inline h-3 w-3" aria-hidden />
+        </button>
+      )}
+      {presets.filter((item) => item.id !== action?.id).map((item) => (
+        <button key={item.id} type="button" onClick={() => onPick(item)} className="rounded-full border border-line px-2.5 py-1 text-white/60 transition-colors hover:border-lineStrong hover:text-white/85">
+          {item.label}
+        </button>
+      ))}
+      {text && <ActionMenu label="Change tone" items={tones} onPick={onPick} />}
+      {text && <ActionMenu label="Translate" items={languages} onPick={onPick} />}
+    </div>
   );
 }
