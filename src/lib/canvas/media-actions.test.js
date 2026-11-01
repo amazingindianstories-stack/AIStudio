@@ -7,7 +7,7 @@ import {
   addCodeBlock, addEmoji, addFromLink, addIcon, addMedia, extractPdfPages, looksLikeLink, objectLinkHref,
   renameMedia, replaceImage, setObjectLink, setPdfPage, toggleAgreement,
 } from "./media-actions.js";
-import { isBoardFile, mediaNodeFields } from "./media-upload.js";
+import { isBoardFile, isBrowserImage, mediaNodeFields } from "./media-upload.js";
 
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 const nodes = () => useCanvasStore.getState().history.present.nodes;
@@ -103,6 +103,12 @@ test("helpers: link detection, file kinds and node fields from uploaded files", 
   assert.equal(looksLikeLink('<iframe src="x">'), true);
   assert.equal(isBoardFile({ type: "video/mp4", name: "a.mp4" }), true);
   assert.equal(isBoardFile({ type: "application/zip", name: "a.zip" }), false);
+  assert.equal(isBrowserImage({ type: "image/png", name: "a.png" }), true);
+  for (const file of [{ type: "image/vnd.adobe.photoshop", name: "a.psd" }, { type: "image/x-photoshop", name: "a.psd" },
+    { type: "", name: "a.psd" }, { type: "image/svg+xml", name: "a.svg" }, { type: "", name: "a.svg" }]) {
+    assert.equal(isBrowserImage(file), false, `${file.type || file.name} is converted by the server`);
+    assert.equal(isBoardFile(file), true);
+  }
   assert.deepEqual(mediaNodeFields({ contentType: "application/pdf", url: "/api/media/k", name: "D", pages: 2 }),
     { type: "pdf", src: "/api/media/k", name: "D", pages: 2, page: 1, aspectLocked: true });
   assert.equal(mediaNodeFields({ contentType: "video/mp4", url: "/api/media/v", name: "V" }).type, "video");

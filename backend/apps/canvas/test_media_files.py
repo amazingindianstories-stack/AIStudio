@@ -1,6 +1,9 @@
 import io
 import tempfile
+import threading
+from contextlib import contextmanager
 from datetime import timedelta
+from pathlib import Path
 from uuid import uuid4
 from unittest.mock import patch
 from django.test import TestCase, SimpleTestCase
@@ -107,6 +110,56 @@ class BoardMediaTests(TestCase):
         self.assertIn('after 3 attempts', row.error)
         self.assertIsNone(queued_media())
         self.assertEqual(self.client.get(f'/api/canvas-boards/{self.board.id}/media/{row.id}').json()['error'], row.error)
+
+    def test_flattened_psd_publishes_png(self):
+        psd = b'8BPS' + bytes([0, 1, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 1, 0, 0, 0, 1, 0, 8, 0, 3]) + bytes(12) + bytes([0, 0, 0xcc, 0x33, 0x33])
+        response, _ = self.upload(psd, 'image/vnd.adobe.photoshop', 'layers.psd')
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(process_media(response.json()['id']), 'media_ready')
+        row = BoardMedia.objects.get(pk=response.json()['id'])
+        self.assertTrue(self.storage.read(row.key).startswith(b'\x89PNG'))
+        self.assertEqual((row.width, row.height), (1, 1))
+
+    def test_worker_stop_requeues_conversion_without_spending_an_attempt(self):
+        from PIL import Image
+        output = io.BytesIO()
+        Image.new('RGB', (40, 60), 'red').save(output, format='PDF')
+        response, _ = self.upload(output.getvalue(), 'application/pdf')
+        identifier = response.json()['id']
+        stop = threading.Event()
+        stop.set()
+        self.assertEqual(process_media(identifier, stop), 'stopped')
+        row = BoardMedia.objects.get(pk=identifier)
+        self.assertEqual((row.state, row.attempts, row.error, row.lease_token), ('queued', 0, '', None))
+        self.assertEqual(queued_media().id, row.id)
+        self.assertEqual(process_media(identifier), 'media_ready')
+
+    def import_url(self, data, mime, url='https://files.example.test/clip.png'):
+        @contextmanager
+        def open_file(*args, **kwargs):
+            yield io.BytesIO(data), mime
+        with patch('apps.canvas.media_views.fetcher') as fetch, patch('apps.canvas.media_views.get_storage', return_value=self.storage):
+            fetch.return_value.open_file = open_file
+            return self.client.post(f'/api/canvas-boards/{self.board.id}/import-url', {'url': url}, content_type='application/json')
+
+    def test_url_import_refuses_bytes_that_do_not_match_their_declared_type(self):
+        response = self.import_url(b'<!doctype html><title>Not found</title>', 'image/png')
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(BoardMedia.objects.exists())
+        self.assertEqual(list(Path(self.directory.name).rglob('*canvas-imports*')), [])
+
+    def test_url_import_keeps_one_stored_copy(self):
+        png = b'\x89PNG\r\n\x1a\n' + b'fixture'
+        response = self.import_url(png, 'image/png')
+        self.assertEqual(response.status_code, 200)
+        row = BoardMedia.objects.get(pk=response.json()['id'])
+        self.assertEqual((row.state, self.storage.read(row.key)), ('ready', png))
+        self.assertTrue(row.source_key.startswith('canvas-imports/'))
+        self.assertFalse(self.storage.exists(row.source_key))
+
+    def test_malformed_file_ids_are_bad_requests(self):
+        self.assertEqual(self.client.get(f'/api/canvas-boards/{self.board.id}/media/not-a-uuid').status_code, 400)
+        self.assertEqual(self.client.get(f'/api/canvas-boards/{self.board.id}/media?before=not-a-uuid').status_code, 400)
 
     def test_viewer_cannot_import_or_upload(self):
         viewer = User.objects.create(id=uuid4(), email='viewer-media@example.test', name='Viewer', role='user', password_hash='x', password_salt='', created_at=1)

@@ -8,6 +8,9 @@ const OWNER = { id: 'b0a2d000-0000-4000-8000-000000000041', name: 'Media owner',
 const HAS_VIPS = ['/opt/homebrew/lib/libvips.42.dylib', '/usr/local/lib/libvips.42.dylib', '/usr/lib/x86_64-linux-gnu/libvips.so.42', '/usr/lib/aarch64-linux-gnu/libvips.so.42'].some((path) => existsSync(path));
 // A 1x1 PNG, and a tiny MP4 header the server stores byte for byte (no transcoding).
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==', 'base64');
+// A flattened 1x1 RGB Photoshop file: header, empty colour/resource/layer sections, raw pixel channels.
+const PSD = Buffer.concat([Buffer.from('8BPS', 'latin1'), Buffer.from([0, 1, 0, 0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 1, 0, 0, 0, 1, 0, 8, 0, 3]),
+  Buffer.alloc(12), Buffer.from([0, 0, 0xcc, 0x33, 0x33])]);
 const SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="30"><rect width="40" height="30" fill="#c33"/><script>alert(1)</script></svg>';
 
 function sessionCookie(userId) {
@@ -130,10 +133,11 @@ test('Board media: embed code, code block, emoji, interactive sticker, icon, upl
   await expect(dialog.getByRole('alert')).toBeVisible();
   await dialog.getByRole('button', { name: 'Cancel' }).click();
 
-  // Uploads through the file picker: image, SVG (sanitized to PNG) and video.
+  // Uploads through the file picker: image, SVG and PSD (converted to PNG) and video.
   const picker = page.locator('input[type="file"][multiple]');
   const files = [{ name: 'dot.png', mimeType: 'image/png', buffer: PNG }];
-  if (HAS_VIPS) files.push({ name: 'shape.svg', mimeType: 'image/svg+xml', buffer: Buffer.from(SVG) });
+  if (HAS_VIPS) files.push({ name: 'shape.svg', mimeType: 'image/svg+xml', buffer: Buffer.from(SVG) },
+    { name: 'layers.psd', mimeType: 'image/vnd.adobe.photoshop', buffer: PSD });
   await picker.setInputFiles(files);
   board = await storedBoard(context, boardId, (b) => ofType(b, 'image').length === files.length);
   for (const image of ofType(board, 'image')) expect(image.src).toMatch(/^\/api\/media\//);

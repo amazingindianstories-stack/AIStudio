@@ -6,13 +6,14 @@ from html.parser import HTMLParser
 from urllib.parse import urljoin, urlsplit
 from uuid import uuid4
 from django.core.cache import cache
+from django.core.exceptions import ValidationError
 from apps.authentication.session import lookup
 from apps.integrations.remote import SafeMediaFetcher, UnsafeMediaURL
 from apps.media.storage import get_storage
-from apps.media.uploads import PURPOSES, LIMITS
+from apps.media.uploads import PURPOSES, LIMITS, _sniff
 from . import access, embeds
 from .models import BoardMedia
-from .media_files import register, describe
+from .media_files import register, describe, RASTER_TYPES
 from .views import node_route, reply, body
 
 
@@ -96,7 +97,7 @@ def media_detail(request, identifier, media_id):
         return reply(request, describe(row)) if row else reply(request, {'error': 'File not found.'}, 404)
     except access.AccessError as error:
         return reply(request, {'error': str(error)}, error.status)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, ValidationError):
         return reply(request, {'error': 'Invalid file id.'}, 400)
 
 
@@ -123,7 +124,7 @@ def media_library(request, identifier):
         return reply(request, {'files': result, 'next': str(scanned[-1].id) if len(scanned) == 100 else None})
     except access.AccessError as error:
         return reply(request, {'error': str(error)}, error.status)
-    except (ValueError, TypeError):
+    except (ValueError, TypeError, ValidationError):
         return reply(request, {'error': 'Invalid library cursor.'}, 400)
 
 
@@ -157,9 +158,17 @@ def import_url(request, identifier):
                 return reply(request, {'node': node})
             # Imported originals remain private and use the same conversion path
             # as READY upload manifests. Never inline payloads into board JSON.
+            if not _sniff(stream.read(128), mime):
+                raise ValueError('The file does not match its declared type.')
+            stream.seek(0)
+            storage = get_storage()
             key = f'canvas-imports/{actor.id}/{uuid4()}'
-            get_storage().upload_stream(stream, key, 'application/octet-stream', 'private, max-age=0')
-            row = register(actor, identifier, key, mime, urlsplit(url).path.rsplit('/', 1)[-1] or 'Imported file')
+            storage.upload_stream(stream, key, 'application/octet-stream', 'private, max-age=0')
+            try:
+                row = register(actor, identifier, key, mime, urlsplit(url).path.rsplit('/', 1)[-1] or 'Imported file')
+            finally:
+                if mime not in RASTER_TYPES:
+                    storage.primary.delete(key)
             return reply(request, describe(row), 200 if row.state == 'ready' else 202)
     except access.AccessError as error:
         return reply(request, {'error': str(error)}, error.status)

@@ -37,7 +37,7 @@ def _content(item, connector):
 
 # The field that names an object in the History panel; every other type is labelled by its text.
 LABEL_FIELDS = {'frame': 'name', 'erd': 'name', 'swimlane': 'name', 'diagram': 'name', 'image': 'alt', 'pdf': 'name',
-                'video': 'title', 'embed': 'title', 'linkcard': 'title', 'code': 'code', 'emoji': 'emoji'}
+                'audio': 'title', 'video': 'title', 'embed': 'title', 'linkcard': 'title', 'code': 'code', 'emoji': 'emoji'}
 
 
 def snippet(item):

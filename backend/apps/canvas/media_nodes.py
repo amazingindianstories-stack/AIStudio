@@ -31,6 +31,12 @@ def _finite(value):
     return type(value) in (int, float) and math.isfinite(value)
 
 
+def _integer(value):
+    if type(value) is float and math.isfinite(value) and value.is_integer():
+        return int(value)
+    return value if type(value) is int else None
+
+
 def _units(text):
     return len(text.encode('utf-16-le', 'surrogatepass')) // 2
 
@@ -97,12 +103,12 @@ def coerce(kind, r, result):
             result['captions'] = captions
     elif kind == 'pdf':
         src = media_ref(r.get('src'))
-        pages = r.get('pages')
-        if not src or type(pages) is not int or not 1 <= pages <= 2000:
+        pages = _integer(r.get('pages'))
+        if not src or pages is None or not 1 <= pages <= 2000:
             return None
-        page = r.get('page')
+        page = _integer(r.get('page'))
         result.update(src=src, name=_string(r.get('name'), 'Document', 200), pages=pages,
-                      page=page if type(page) is int and 1 <= page <= pages else 1,
+                      page=page if page is not None and 1 <= page <= pages else 1,
                       aspectLocked=r.get('aspectLocked') is not False)
     elif kind == 'embed':
         found = embeds.classify(r.get('src'))

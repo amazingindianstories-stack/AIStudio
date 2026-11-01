@@ -11,7 +11,7 @@ from pathlib import Path
 from uuid import uuid4
 from django.conf import settings
 from django.db import transaction, connections
-from django.db.models import Q
+from django.db.models import F, Q
 from apps.media import storage as media_storage
 from apps.media.storage import MIME
 
@@ -186,7 +186,9 @@ def process_media(identifier, stop=None):
                 raise ValueError('Page exceeds the 40 megapixel limit.')
             for page in range(pages):
                 if stop and stop.is_set():
-                    raise ValueError('Conversion interrupted. Upload the file again.')
+                    BoardMedia.objects.filter(pk=row.id, lease_token=token).update(
+                        state='queued', lease_token=None, lease_until=0, attempts=F('attempts') - 1)
+                    return 'stopped'
                 if not BoardMedia.objects.filter(pk=row.id, lease_token=token).update(lease_until=now_ms() + 300_000):
                     return 'unclaimed'
                 image = loader(str(source), page=page, access='sequential') if is_pdf else header

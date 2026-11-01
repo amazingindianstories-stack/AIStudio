@@ -5,6 +5,11 @@ export const BOARD_FILE_ACCEPT = 'image/*,.psd,.pdf,video/mp4,video/quicktime,vi
 export function isBoardFile(file) {
   return /^(image\/|video\/(mp4|quicktime|webm)$|audio\/(mpeg|wav|ogg|mp4|webm)$|application\/pdf$)/.test(uploadContentType(file));
 }
+const SERVER_RASTERIZED = new Set(['image/svg+xml', 'image/vnd.adobe.photoshop', 'image/x-photoshop']);
+export function isBrowserImage(file) {
+  const type = uploadContentType(file);
+  return type.startsWith('image/') && !SERVER_RASTERIZED.has(type);
+}
 
 async function responseJson(response) {
   const value = await response.json();

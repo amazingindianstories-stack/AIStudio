@@ -35,7 +35,7 @@ import { BoardViewOverlays } from "./BoardViewOverlays";
 import { useBoardView } from "./use-board-view";
 import { zoomToLevel } from "@/lib/canvas/viewport-nav";
 import { MediaSelectionBar } from "./MediaSelectionBar";
-import { BOARD_FILE_ACCEPT, isBoardFile, uploadBoardFile } from "@/lib/canvas/media-upload";
+import { BOARD_FILE_ACCEPT, isBoardFile, isBrowserImage, uploadBoardFile } from "@/lib/canvas/media-upload";
 import { addFromLink, placeBoardFile } from "@/lib/canvas/media-actions";
 
 // Miro's keys: N sticky note, T text, F frame; S opens the shapes panel.
@@ -198,7 +198,7 @@ export function CanvasView() {
     async (files, worldPoint) => {
       if (!boardId || selectReadOnly(useCanvasStore.getState())) return;
       const all = Array.from(files).filter(isBoardFile);
-      const accepted = all.filter((file) => file.type.startsWith("image/") && !/svg/.test(file.type));
+      const accepted = all.filter(isBrowserImage);
       const others = all.filter((file) => !accepted.includes(file));
       if (!all.length) return;
       setImportNotice(`Uploading ${all.length} file${all.length === 1 ? "" : "s"}…`);

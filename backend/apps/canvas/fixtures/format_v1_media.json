@@ -75,6 +75,27 @@
       "src": "/api/media/canvas/b/d.pdf",
       "pages": 3,
       "page": 2
+     },
+     {
+      "id": "p4",
+      "type": "pdf",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "src": "/api/media/canvas/b/d.pdf",
+      "pages": 2.5
+     },
+     {
+      "id": "p5",
+      "type": "pdf",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "src": "/api/media/canvas/b/d.pdf",
+      "pages": 4,
+      "page": 1.5
      }
     ],
     "connectors": []
@@ -144,6 +165,21 @@
       "name": "Document",
       "pages": 3,
       "page": 2,
+      "aspectLocked": true
+     },
+     {
+      "id": "p5",
+      "x": 0,
+      "y": 0,
+      "w": 100,
+      "h": 80,
+      "parentId": null,
+      "groupId": null,
+      "type": "pdf",
+      "src": "/api/media/canvas/b/d.pdf",
+      "name": "Document",
+      "pages": 4,
+      "page": 1,
       "aspectLocked": true
      }
     ],
