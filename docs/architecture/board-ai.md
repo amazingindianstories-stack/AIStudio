@@ -122,8 +122,8 @@ The board owns its graph and autosave, so the browser places the result (`src/li
    current zoom. The pan is not an undo step.
 
 The selection toolbar (`StyleInspector`) uses the same top-chips inset on desktop as on phones, so it never covers
-the chips: with no room above a selection it goes below it, or stays just under the chips when below would leave
-the canvas. Without that inset the desktop toolbar covered the top chips (before:
+the chips: with no room above a selection it goes below it (under a frame's or diagram's own controls), or stays just
+under the chips when below would leave the canvas or reach the object actions bar at its bottom. Without that inset the desktop toolbar covered the top chips (before:
 `/Users/rohit/.no-mistakes/evidence/01M6E9J8C86ER3QGC9KGY6JP5R/style-inspector-before-over-chips.png`, after:
 `/Users/rohit/.no-mistakes/evidence/01M6E9J8C86ER3QGC9KGY6JP5R/style-inspector-after-below-selection.png`).
 

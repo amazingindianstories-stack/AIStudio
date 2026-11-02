@@ -54,6 +54,10 @@ const RICH_TEXT_TYPES = new Set(["text", "sticky"]);
 const FRAME_TITLE_HEIGHT = 24;
 /** World height GridNode keeps above a selected grid for its own controls (`-top-9`). */
 const GRID_TOOLBAR_HEIGHT = 36;
+/** Screen reach of FrameControls, the strip 12px under a lone selected frame or diagram. */
+const FRAME_CONTROLS_REACH = 12 + 34;
+/** Screen height MediaSelectionBar keeps at the canvas bottom for a lone object (`bottom-44` and a wrapped row). */
+const OBJECT_ACTIONS_REACH = 176 + 84;
 
 export function StyleInspector({ hidden, insetLeft = 0, insetTop = 8 }) {
   const selection = useCanvasStore((s) => s.selection);
@@ -134,9 +138,12 @@ export function StyleInspector({ hidden, insetLeft = 0, insetTop = 8 }) {
   const panelHeight = 44;
   // `insetTop` keeps the panel under the board's top bar rather than over it: without room above the selection
   // there, it goes below, or stays just under the bar when below is past the canvas.
+  // Below, it clears a lone frame's or diagram's own controls and the object actions bar at the canvas bottom.
+  const lone = selection.length === 1 && !hasConnectors ? selectedNodes[0]?.type : undefined;
   const above = topLeftScreen.y - panelHeight - gap;
-  const below = bottomRightScreen.y + gap;
-  const flipBelow = above < insetTop && below + panelHeight <= useCanvasStore.getState().viewportSize().h;
+  const below = bottomRightScreen.y + gap + (lone === "frame" || lone === "diagram" ? FRAME_CONTROLS_REACH : 0);
+  const floor = useCanvasStore.getState().viewportSize().h - (lone && lone !== "frame" && lone !== "stack" ? OBJECT_ACTIONS_REACH : 0);
+  const flipBelow = above < insetTop && below + panelHeight <= floor;
   const top = flipBelow ? below : Math.max(above, insetTop);
 
   const types = new Set(selectedNodes.map((n) => n.type));

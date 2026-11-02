@@ -94,3 +94,15 @@ test("a tall selection under the top bar keeps the panel on the canvas, just und
   await openInspector(t, "edit", [sticky("tall", { y: 150, h: 800 })], { insetTop: 180 });
   assert.equal(parseFloat(document.querySelector("[data-center-x]").style.top), 180);
 });
+
+test("below a lone diagram the panel clears the diagram's own controls", async (t) => {
+  useCanvasStore.getState().setViewportSize(1600, 900);
+  await openInspector(t, "edit", [{ ...sticky("flow", { y: 150, h: 100 }), type: "diagram", layers: [] }], { insetTop: 180 });
+  assert.ok(parseFloat(document.querySelector("[data-center-x]").style.top) >= 250 + 46, "under the Copies strip");
+});
+
+test("a lone object whose below would reach the object actions bar keeps the panel just under the top bar", async (t) => {
+  useCanvasStore.getState().setViewportSize(390, 600);
+  await openInspector(t, "edit", [sticky("low", { y: 150, h: 200 })], { insetTop: 180 });
+  assert.equal(parseFloat(document.querySelector("[data-center-x]").style.top), 180);
+});
