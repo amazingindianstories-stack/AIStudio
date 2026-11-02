@@ -3,7 +3,8 @@ and `generate` runs when an editor asks. It goes through the audio transcription
 guard, generation worker, Gemini), as the Talktrack transcript does, then turns the timestamped transcript into
 WebVTT. The VTT lives in its own table, outside the board JSON, and is served as same-origin text. The caption row
 is committed with its transcription job, so a run that outlives its request is finished by a later quote, never
-submitted twice."""
+submitted twice. A run whose job failed, became uncertain or outlived `RUN_LIFETIME_MS` is marked failed, and only
+then can an editor start another."""
 import base64
 import subprocess
 import tempfile
@@ -21,6 +22,8 @@ MAX_VIDEO_BYTES = 200 * 1024 * 1024
 FFMPEG_TIMEOUT_S = 60
 # The request answers within this, inside the gateway's 125 s wait; a run still going then is finished later.
 BUDGET_S = 110
+# The audio job's own 120 s provider timeout, plus room for the worker to admit it.
+RUN_LIFETIME_MS = (120 + 180) * 1000
 MAX_VTT_CHARS = 400_000
 
 
@@ -74,18 +77,19 @@ def model_name():
     return getattr(settings, 'AUDIO_TRANSCRIPTION_MODEL', 'gemini-2.5-flash')
 
 
-def quote(board_id, src):
+def quote(board_id, src, now):
     """What a run would do, for the cost step that comes before it. No provider call; a run in flight is finished
-    here once its job has ended."""
+    here once its job has ended, and a failed run reports why."""
     from apps.media.audio_inputs import MAX_AUDIO_BYTES
     key = _video_src(board_id, src)
     row = BoardCaption.objects.filter(board_id=board_id, media_key=key).first()
     if row is not None:
         try:
-            row = _settle(row)
+            row = _settle(row, now)
         except FacilitationError:
-            row = None
-    return {'available': transcription_available(), 'exists': bool(row and row.vtt), 'pending': bool(row and not row.vtt),
+            row = BoardCaption.objects.filter(pk=row.pk).first()
+    return {'available': transcription_available(), 'exists': bool(row and row.vtt),
+            'pending': bool(row and not row.vtt and not row.error), 'failure': row.error if row else '',
             'model': f'Gemini ({model_name()})', 'costCents': 0, 'costBasis': 'estimated', 'maxAudioBytes': MAX_AUDIO_BYTES,
             'format': 'webvtt'}
 
@@ -98,11 +102,11 @@ def vtt_for(board_id, src):
     return row.vtt
 
 
-def _audio_reference(storage, key, src, deadline):
-    """An audio reference for the transcription path: the file itself when it is audio, else the video's audio
-    track extracted to a small mono AAC file, handed over as a data URI so no extra object is stored. The video is
-    streamed to a temporary file, never held in memory."""
-    from apps.media.audio_inputs import AUDIO_EXTENSIONS, MAX_AUDIO_BYTES
+def _audio_reference(storage, key, deadline):
+    """An audio reference for the transcription path: the video's audio track extracted to a small mono AAC file,
+    handed over as a data URI so no extra object is stored. The video is streamed to a temporary file, never held in
+    memory."""
+    from apps.media.audio_inputs import MAX_AUDIO_BYTES
     from apps.media.errors import MediaTooLargeError
     from apps.media.keys import is_export_key
     if is_export_key(key):
@@ -111,10 +115,7 @@ def _audio_reference(storage, key, src, deadline):
         source, target = Path(directory, 'in'), Path(directory, 'out.m4a')
         media = storage.open(key)
         try:
-            mime = str(media.content_type).lower()
-            if mime in AUDIO_EXTENSIONS:
-                return src
-            if not mime.startswith('video/'):
+            if not str(media.content_type).lower().startswith('video/'):
                 raise FacilitationError('This media cannot be captioned.', 400)
             if media.content_length > MAX_VIDEO_BYTES:
                 raise MediaTooLargeError('Media exceeds the configured input size limit.')
@@ -140,37 +141,44 @@ def _audio_reference(storage, key, src, deadline):
     return 'data:audio/mp4;base64,' + base64.b64encode(audio).decode()
 
 
-def _settle(row, timeout=0):
-    """Follow a row's transcription job for up to `timeout` seconds. The row gets its VTT once the job succeeded and
-    goes once the job definitely failed or is gone, so only then can a new run start. While the job runs, or its
-    submission is uncertain, the row stays as it is and is returned without VTT."""
+def _settle(row, now, timeout=0):
+    """Follow a row's transcription job for up to `timeout` seconds. The row gets its VTT once the job succeeded. It
+    is marked failed, with the reason raised, once the job failed, is gone or uncertain, or the run outlived
+    `RUN_LIFETIME_MS`. While the job still runs, the row is returned as it is."""
     from apps.generation.models import Generation
     from apps.media.audio_wait import AudioFailed, AudioResultPending, wait_for_audio
-    if row.vtt:
+    if row.vtt or row.error:
         return row
-    job = Generation.objects.filter(pk=row.generation_id).first()
-    pending = BoardCaption.objects.filter(pk=row.pk, vtt='')
-    if job is None:
-        pending.delete()
-        raise FacilitationError('The caption run is gone. Try again.', 409)
+    run = BoardCaption.objects.filter(pk=row.pk, generation_id=row.generation_id, vtt='', error='')
     try:
-        saved = wait_for_audio(job, timeout=timeout)
-    except AudioResultPending:
-        return row
-    except AudioFailed as error:
-        pending.delete()
-        raise FacilitationError(str(error), 429 if error.busy else 502)
-    vtt = vtt_from_transcript(saved.prompt)
-    if not vtt or len(vtt) > MAX_VTT_CHARS:
-        pending.delete()
-        raise FacilitationError('No speech could be captioned in this video.', 422)
-    pending.update(vtt=vtt)
+        job = Generation.objects.filter(pk=row.generation_id).first()
+        if job is None:
+            raise FacilitationError('The caption run is gone.', 409)
+        try:
+            saved = wait_for_audio(job, timeout=timeout)
+        except AudioResultPending:
+            running = Generation.objects.filter(pk=job.pk).exclude(status__in=('failed', 'cancelled')) \
+                .exclude(provider_status='SUBMISSION_UNCERTAIN').exists()
+            if running and now - row.created_at <= RUN_LIFETIME_MS:
+                return row
+            raise FacilitationError('The caption run did not finish.', 504)
+        except AudioFailed as error:
+            raise FacilitationError(str(error), 429 if error.busy else 502)
+        except RuntimeError:
+            raise FacilitationError('The caption run could not be checked.', 502)
+        vtt = vtt_from_transcript(saved.prompt)
+        if not vtt or len(vtt) > MAX_VTT_CHARS:
+            raise FacilitationError('No speech could be captioned in this video.', 422)
+    except FacilitationError as error:
+        run.update(error=error.error)
+        raise
+    run.update(vtt=vtt)
     return BoardCaption.objects.get(pk=row.pk)
 
 
 def generate(board_id, src, user_id, now):
     """Caption one board video, once. A later call returns the stored captions, or the run still in flight,
-    without another provider job."""
+    without another provider job; only a failed run is taken over by a new one."""
     from apps.generation.services import audio_submission
     from apps.generation.services.audio_submission import AUDIO_READY
     from apps.media.audio_inputs import InvalidAudioType, capture_audio_input
@@ -179,14 +187,19 @@ def generate(board_id, src, user_id, now):
     key = _video_src(board_id, src)
     existing = BoardCaption.objects.filter(board_id=board_id, media_key=key).first()
     if existing is not None:
-        return _settle(existing)
+        try:
+            existing = _settle(existing, now)
+        except FacilitationError:
+            existing = BoardCaption.objects.get(pk=existing.pk)
+        if not existing.error:
+            return existing
     if not transcription_available():
         raise FacilitationError('Captions are not configured.', 503)
     model = model_name()
     identifier, started = uuid4(), int(time.time() * 1000)
     try:
         storage = get_storage()
-        reference = _audio_reference(storage, key, src, deadline)
+        reference = _audio_reference(storage, key, deadline)
         snapshot = capture_audio_input(storage, reference, identifier, model=model, name='Video captions')
     except MediaNotFoundError:
         raise FacilitationError('That video could not be found.', 404)
@@ -196,13 +209,20 @@ def generate(board_id, src, user_id, now):
         raise FacilitationError('The audio type cannot be captioned.', 400)
     try:
         with transaction.atomic():
-            row = BoardCaption.objects.create(board_id=board_id, actor_id=user_id, media_key=key, generation_id=identifier,
-                                              created_at=now)
+            if existing is None:
+                BoardCaption.objects.create(board_id=board_id, actor_id=user_id, media_key=key, generation_id=identifier,
+                                            created_at=now)
+            elif not BoardCaption.objects.filter(pk=existing.pk, generation_id=existing.generation_id).update(
+                    generation_id=identifier, actor_id=user_id, error='', created_at=now):
+                raise IntegrityError('Another run took over this caption.')
             audio_submission.persist_audio_intent(dict(
                 id=identifier, kind='audio', status='queued', prompt='', model=f'Gemini ({model})', aspect_ratio='audio',
                 reference_audios=[snapshot['source']], project_id=None, user_id=user_id, cost_cents=0,
                 cost_basis='estimated', created_at=started, updated_at=started, provider_status=AUDIO_READY,
                 submission_input=snapshot))
     except IntegrityError:
-        return _settle(BoardCaption.objects.get(board_id=board_id, media_key=key))
-    return _settle(row, max(0, deadline - time.monotonic()))
+        pass
+    row = _settle(BoardCaption.objects.get(board_id=board_id, media_key=key), now, max(0, deadline - time.monotonic()))
+    if row.error:
+        raise FacilitationError(row.error, 409)
+    return row

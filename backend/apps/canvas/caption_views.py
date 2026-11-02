@@ -14,7 +14,7 @@ def board_captions(request, identifier):
     """GET quotes a run (no provider call); POST generates, when an editor asks, and answers 202 while it runs."""
     def handle(request, user, board, level, now):
         if request.method in ('GET', 'HEAD'):
-            return {'captions': captions.quote(board['id'], request.GET.get('src', ''))}, 200
+            return {'captions': captions.quote(board['id'], request.GET.get('src', ''), now)}, 200
         row = captions.generate(board['id'], _data(request).get('src'), user.id, now)
         done = bool(row.vtt)
         return {'captions': {'exists': done, 'pending': not done, 'createdAt': row.created_at}}, 200 if done else 202

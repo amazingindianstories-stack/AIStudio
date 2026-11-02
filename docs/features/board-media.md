@@ -54,7 +54,10 @@ as a blob `<track>`, so the video never sets `crossOrigin` and CDN redirects kee
 toggle CC but cannot generate.
 
 `POST` waits up to 110 s and answers 202 with `pending: true` if the job is still running then. The quote finishes
-that run once the job ends: it stores the VTT on success, and on a definite failure it removes the row so the run can
-be started again. The panel checks again every few seconds while the run is pending. The gateway lets the `POST`
+that run once the job ends: it stores the VTT on success. A run whose job failed, became uncertain or is still not
+done five minutes after it started (the audio job's 120 s provider timeout plus room for admission) is marked failed;
+the quote reports the reason as `failure`, the panel shows "Captions failed, try again." and offers Start again, and
+the next run takes over the row. Nothing sweeps or cancels audio jobs; the check happens when the row is read. The
+panel checks again every few seconds while the run is pending. The gateway lets the `POST`
 through only with the paid initial routes on, and waits 125 s for it, the same as `/api/audio/transcribe`
 (`deploy/gateway.py` `BOARD_TRANSCRIPTIONS`, which also covers the Talktrack transcript).

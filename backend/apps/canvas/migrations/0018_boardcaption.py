@@ -16,6 +16,7 @@ class Migration(migrations.Migration):
                 ('media_key', models.TextField()),
                 ('generation_id', models.UUIDField()),
                 ('vtt', models.TextField(default='')),
+                ('error', models.TextField(default='')),
                 ('created_at', models.BigIntegerField()),
             ], options={'db_table': 'canvas_board_captions',
                 'constraints': [models.UniqueConstraint(fields=['board', 'media_key'], name='canvas_caption_media_uniq')]},

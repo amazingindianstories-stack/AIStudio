@@ -1,5 +1,5 @@
 """Board video captions: WebVTT conversion, the quote that comes before any spend, the generate route's roles,
-guard and failure path, a run that outlives its request, and same-origin VTT serving."""
+guard and failure path, a run that outlives its request, a run that fails or expires, and same-origin VTT serving."""
 import shutil
 import tempfile
 from types import SimpleNamespace
@@ -86,8 +86,8 @@ class CaptionRouteTests(FacilitationBase):
 
     def test_quote_shows_the_cost_and_starts_nothing(self):
         quote = self.quote(self.ben)
-        self.assertEqual((quote['exists'], quote['pending'], quote['available'], quote['costCents'], quote['format']),
-                         (False, False, True, 0, 'webvtt'))
+        self.assertEqual((quote['exists'], quote['pending'], quote['failure'], quote['available'], quote['costCents'], quote['format']),
+                         (False, False, '', True, 0, 'webvtt'))
         self.assertTrue(quote['model'].startswith('Gemini ('))
         self.persist.assert_not_called()
         self.assertEqual(BoardCaption.objects.count(), 0)
@@ -123,7 +123,8 @@ class CaptionRouteTests(FacilitationBase):
             Generation.objects.create(id=winner, kind='audio', status='queued', prompt='', model='Gemini (m)', aspect_ratio='audio',
                                       reference_audios=[], user_id=self.ana.id, cost_cents=0, cost_basis='estimated',
                                       created_at=1, updated_at=1, provider_status='READY', submission_input={})
-            BoardCaption.objects.create(board_id=BOARD, actor_id=self.ana.id, media_key='uploads/clip.mp4', generation_id=winner, created_at=1)
+            BoardCaption.objects.create(board_id=BOARD, actor_id=self.ana.id, media_key='uploads/clip.mp4', generation_id=winner,
+                                        created_at=self.clock)
             return {'source': '/api/media/references/x'}
         with patch('apps.media.audio_inputs.capture_audio_input', side_effect=race), \
                 patch('apps.media.audio_wait.wait_for_audio', side_effect=AudioResultPending('x')):
@@ -131,15 +132,41 @@ class CaptionRouteTests(FacilitationBase):
         self.assertEqual(list(Generation.objects.values_list('id', flat=True)), [winner])
         self.assertEqual(list(BoardCaption.objects.values_list('generation_id', flat=True)), [winner])
 
-    def test_definite_failures_store_nothing_and_allow_a_new_run(self):
+    def test_a_definite_failure_is_reported_and_the_next_run_takes_over(self):
         with patch('apps.media.audio_wait.wait_for_audio', side_effect=failed()):
             self.generate(self.dee, 502)
-        self.assertEqual(BoardCaption.objects.count(), 0)
+        first = BoardCaption.objects.get(board_id=BOARD)
+        self.assertEqual((self.quote()['pending'], self.quote()['failure']), (False, 'The provider could not transcribe this audio.'))
         with patch('apps.media.audio_wait.wait_for_audio', return_value=SimpleNamespace(prompt='no timestamps here')):
             self.generate(self.dee, 422)
-        self.assertEqual((BoardCaption.objects.count(), self.persist.call_count), (0, 2))
+        row = BoardCaption.objects.get(board_id=BOARD)
+        self.assertNotEqual(row.generation_id, first.generation_id)
+        self.assertEqual((row.vtt, row.error, self.persist.call_count), ('', 'No speech could be captioned in this video.', 2))
         self.call(self.dee, 'get', f'/captions/vtt?src={SRC}', expect=404)
-        self.assertEqual(self.quote()['exists'], False)
+        with patch('apps.media.audio_wait.wait_for_audio', return_value=SimpleNamespace(prompt=TEXT)):
+            self.assertTrue(self.generate(self.dee)['captions']['exists'])
+        self.assertEqual((self.quote()['exists'], self.quote()['failure'], self.persist.call_count), (True, '', 3))
+
+    def test_a_run_past_its_lifetime_fails_and_can_be_started_again(self):
+        with patch('apps.media.audio_wait.wait_for_audio', side_effect=AudioResultPending('x')):
+            self.generate(self.dee, 202)
+        first = BoardCaption.objects.get(board_id=BOARD).generation_id
+        BoardCaption.objects.update(created_at=self.clock - captions.RUN_LIFETIME_MS)
+        self.assertEqual((self.quote()['pending'], self.quote()['failure']), (True, ''))
+        self.tick(1)
+        self.assertEqual((self.quote()['pending'], self.quote()['failure']), (False, 'The caption run did not finish.'))
+        with patch('apps.media.audio_wait.wait_for_audio', return_value=SimpleNamespace(prompt=TEXT)):
+            self.assertTrue(self.generate(self.dee)['captions']['exists'])
+        row = BoardCaption.objects.get(board_id=BOARD)
+        self.assertNotEqual(row.generation_id, first)
+        self.assertEqual((row.error, self.persist.call_count), ('', 2))
+
+    def test_an_uncertain_submission_fails_without_waiting_for_the_lifetime(self):
+        with patch('apps.media.audio_wait.wait_for_audio', side_effect=AudioResultPending('x')):
+            self.generate(self.dee, 202)
+        Generation.objects.filter(pk=BoardCaption.objects.get(board_id=BOARD).generation_id).update(provider_status='SUBMISSION_UNCERTAIN')
+        self.assertEqual((self.quote()['pending'], self.quote()['failure']), (False, 'The caption run did not finish.'))
+        self.assertEqual(self.persist.call_count, 1)
 
     def test_unconfigured_provider_and_foreign_media_are_refused(self):
         with patch('apps.canvas.captions.transcription_available', return_value=False):
@@ -157,13 +184,14 @@ class AudioReferenceTests(SimpleTestCase):
 
     def reference(self, key, data, mime):
         self.storage.primary.put(key, data, mime, 'private')
-        return captions._audio_reference(self.storage, key, '/api/media/' + key, __import__('time').monotonic() + 60)
+        return captions._audio_reference(self.storage, key, __import__('time').monotonic() + 60)
 
-    def test_audio_is_handed_over_as_it_is_and_other_media_is_refused(self):
-        self.assertEqual(self.reference('uploads/a.mp3', b'ID3', 'audio/mpeg'), '/api/media/uploads/a.mp3')
-        with self.assertRaises(captions.FacilitationError) as raised:
-            self.reference('uploads/a.png', b'png', 'image/png')
-        self.assertEqual(raised.exception.status, 400)
+    def test_only_video_is_extracted(self):
+        for key, data, mime in (('uploads/a.mp3', b'ID3', 'audio/mpeg'), ('uploads/a.png', b'png', 'image/png')):
+            with patch('subprocess.run') as run, self.assertRaises(captions.FacilitationError) as raised:
+                self.reference(key, data, mime)
+            self.assertEqual(raised.exception.status, 400)
+            run.assert_not_called()
 
     def test_a_video_over_the_limit_is_refused_before_ffmpeg(self):
         from apps.media.errors import MediaTooLargeError

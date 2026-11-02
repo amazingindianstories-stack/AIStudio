@@ -83,6 +83,8 @@ export function CaptionControls({ captions }) {
   if (!quote) return null;
   const available = quote.available !== false;
   const pending = Boolean(quote.pending);
+  const failure = !exists && !pending && quote.failure ? `Captions failed, try again. ${quote.failure}` : "";
+  const message = error || failure;
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-2 bg-black/70 px-2 py-1 text-[11px] text-white/80" data-captions-controls="" onPointerDown={stop}>
       {exists ? (
@@ -109,7 +111,7 @@ export function CaptionControls({ captions }) {
           <button type="button" disabled={busy} onClick={() => setConfirming(false)} className="rounded bg-white/15 px-1.5 py-0.5">Cancel</button>
         </span>
       )}
-      {error && <span role="alert" className="text-red-300" data-captions-error="">{error}</span>}
+      {message && <span role="alert" className="text-red-300" data-captions-error="">{message}</span>}
     </div>
   );
 }

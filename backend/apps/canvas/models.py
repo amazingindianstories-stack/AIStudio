@@ -585,14 +585,16 @@ from .collab_models import (BoardComment, BoardPresence, CommentFollow, CommentR
 
 
 class BoardCaption(models.Model):
-    """On-demand WebVTT captions for one stored board video, kept outside the board JSON. A row with no VTT yet is
-    the run in flight: `generation_id` is its transcription job, committed with the row, so no second job starts."""
+    """On-demand WebVTT captions for one stored board video, kept outside the board JSON. A row with neither VTT nor
+    error is the run in flight: `generation_id` is its transcription job, committed with the row, so no second job
+    starts. A row with an error is a failed run, which the next run takes over."""
     id = models.UUIDField(primary_key=True, db_default=RandomUUID())
     board = models.ForeignKey(CanvasBoard, on_delete=models.CASCADE, db_index=False)
     actor_id = models.UUIDField()
     media_key = models.TextField()
     generation_id = models.UUIDField()
     vtt = models.TextField(default='')
+    error = models.TextField(default='')
     created_at = models.BigIntegerField()
 
     class Meta:
