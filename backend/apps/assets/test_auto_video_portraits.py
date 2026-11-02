@@ -292,3 +292,21 @@ class AutoVideoPortraitTests(AutoVideoBase):
         self.assertEqual((row.status, row.error), ('failed', managed_pool.PORTRAIT_UNPREPARED + managed_pool.NOT_CHARGED))
         self.assertEqual((len(self.fake.seedance_payloads), len(creates)), (sent, 1))
         self.assertIsNone(ReferenceFaceScan.objects.get().forced)
+
+    def test_a_clip_whose_gallery_upload_failed_still_goes_as_a_url_when_its_asset_fails_again(self):
+        data = make_clip(self.directory, 'face.mp4')
+        original = self.fake.asset_api
+
+        def fail(action, body):
+            if action == 'GetAsset' and body.get('Id') in self.fake.assets:
+                self.fake.assets[body['Id']]['Status'] = 'Failed'
+            return original(action, body)
+        with patch.object(self.fake, 'asset_api', fail):
+            hand = self.reference_clip(data, purpose='portrait')
+            self.client.post('/api/portraits', {'uploads': [{**hand, 'name': 'Mine'}]}, content_type='application/json')
+            self.settle_uploads()
+            self.assertEqual(ManagedPortraitAsset.objects.get(origin='upload').status, 'FAILED')
+            row = self.run_worker(self.enqueue_video(self.reference_clip(data)))
+        self.assertEqual(row.status, 'succeeded', row.error)
+        self.assertFalse(self.sent_videos()[0].startswith('asset://'))
+        self.assertEqual(ReferenceFaceScan.objects.get().forced, managed_pool.REFUSED)
