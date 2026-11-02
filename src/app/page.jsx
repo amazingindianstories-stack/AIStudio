@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { AlertCircle, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { useStore } from "@/lib/store";
+import { watchBoardLinks } from "@/lib/canvas/board-links";
 import { cn } from "@/lib/utils";
 import { LocalDataStatus } from "@/components/LocalDataStatus";
 import { TopBar } from "@/components/TopBar";
@@ -72,6 +73,7 @@ export default function Page() {
   const setRightPanelOpen = useStore((s) => s.setRightPanelOpen);
   const currentUser = useStore((s) => s.currentUser);
   const setView = useStore((s) => s.setView);
+  const openBoardLink = useStore((s) => s.openBoardLink);
   const mobileDrawerRef = useRef(null);
   const mobileCloseRef = useRef(null);
 
@@ -92,6 +94,7 @@ export default function Page() {
   useEffect(() => {
     if (pageObjectLink() || templateRefFromSearch(window.location.search)) setView("canvas");
   }, [setView]);
+  useEffect(() => watchBoardLinks(window, openBoardLink), [openBoardLink]);
 
   useEffect(() => {
     loadMe();

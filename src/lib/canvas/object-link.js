@@ -16,11 +16,12 @@ export function objectLink(origin, { project, board, object }) {
   return url.toString();
 }
 
-/** `{project, board, object}` from a URL's search string; null unless it names a board. */
+/** `{project, board, object}` from a URL's search string; null unless it names a board. A link with a `comment`
+ * is a notification link, which the page opens itself (`board-links.js`). */
 export function parseObjectLink(search) {
   const params = new URLSearchParams(search);
   const board = params.get("board");
-  if (!board || !ID.test(board)) return null;
+  if (!board || !ID.test(board) || params.has("comment")) return null;
   const pick = (key) => {
     const value = params.get(key);
     return value && ID.test(value) ? value : null;

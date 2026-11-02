@@ -16,6 +16,7 @@
 | [features/board-shapes-rich-text.md](features/board-shapes-rich-text.md) | Board path shapes and the shapes panel, rich-text marks, their format v1 fields and sanitizing |
 | [features/board-stickies-text.md](features/board-stickies-text.md) | Sticky options, tags, emoji votes, authors, stacks, clustering, lists, fonts, colors and styles |
 | [features/board-navigation-presenting.md](features/board-navigation-presenting.md) | Board find and replace, frames panel and presenting (`frameOrder`, `notes`), command palette, shortcut registry, accessibility tools, copy as text or image, object links and recent boards |
+| [features/board-comments.md](features/board-comments.md) | Board comment threads, mentions, the notification feed and bell, presence and Web Push |
 | [features/board-diagramming.md](features/board-diagramming.md) | Shape packs, custom SVG packs, ERD, swimlane and diagram objects, connector routing, caps, labels and line jumps |
 | [features/board-drawing-frames.md](features/board-drawing-frames.md) | Pen, highlighter, eraser and smart drawing, grids, synced copies, visual notes, frame presets, nesting and hiding |
 | [features/board-formats.md](features/board-formats.md) | Docs, Slides, HTML and Draw.io formats, focus mode, Mermaid code diagrams, click-through prototypes, their format v1 fields and caps |

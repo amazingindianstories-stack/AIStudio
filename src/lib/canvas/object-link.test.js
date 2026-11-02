@@ -9,6 +9,7 @@ test("builds links to a board or to one object on it", () => {
 
 test("parses a link and ignores malformed ids", () => {
   assert.deepEqual(parseObjectLink("?project=p1&board=b1&object=n1"), { project: "p1", board: "b1", object: "n1" });
+  assert.equal(parseObjectLink("?board=b1&project=p1&comment=c1"), null);
   assert.deepEqual(parseObjectLink("?board=b1&object=bad%20id"), { project: null, board: "b1", object: null });
   assert.equal(parseObjectLink("?object=n1"), null);
   assert.equal(parseObjectLink("?board=../etc"), null);

@@ -17,6 +17,7 @@ MAX_HREF_LENGTH = 2048
 SIMPLE_MARKS = ('b', 'i', 'u', 's')
 # ASCII-only scheme letters without re.IGNORECASE, which folds some non-ASCII
 # letters onto ASCII ones where JavaScript does not.
+MENTION_ID = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
 SAFE_HREF = re.compile(r'(?:[hH][tT][tT][pP][sS]?://|[mM][aA][iI][lL][tT][oO]:)[^\x00-\x20\x7f]+')
 HIGHLIGHT = re.compile(r'#[0-9a-fA-F]{6}')
 # Mirrors src/lib/canvas/stickies.js, tags.js and fonts.js.
@@ -129,6 +130,8 @@ def marks(raw, text):
             result.append([start, end, 'h', value])
         elif kind == 'a' and isinstance(value, str) and len(value) <= MAX_HREF_LENGTH and SAFE_HREF.fullmatch(value):
             result.append([start, end, 'a', value])
+        elif kind == 'm' and isinstance(value, str) and MENTION_ID.fullmatch(value):
+            result.append([start, end, 'm', value])
     return result or None
 
 

@@ -619,6 +619,13 @@ export const useStore = create((set, get) => ({
 
   setView: (view) => set({ view }),
 
+  // The board, and thread, a notification or link asked for: the Board view opens and takes it.
+  boardLink: null,
+  openBoardLink: ({ boardId, projectId, commentId }) => {
+    if (boardId) set({ view: "canvas", boardLink: { boardId, projectId: projectId ?? null, commentId: commentId ?? null } });
+  },
+  clearBoardLink: () => set({ boardLink: null }),
+
   setSeed: (seed) => set({ seed }),
   setFirstFrameMode: (firstFrameMode) =>
     set({

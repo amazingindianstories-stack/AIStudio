@@ -343,6 +343,7 @@ BOARD_ACCESS_OPERATIONS = {
     'setMember': lambda user, board, data: access.set_board_member(user, board, property_of(data, 'userId'), property_of(data, 'role')),
     'removeMember': lambda user, board, data: access.remove_board_member(user, board, property_of(data, 'userId')),
     'setTeamRole': lambda user, board, data: access.set_team_role(user, board, property_of(data, 'role')),
+    'setCollabTools': lambda user, board, data: access.set_collab_tools(user, board, property_of(data, 'who')),
     'transferOwner': lambda user, board, data: access.transfer_owner(user, board, property_of(data, 'userId')),
 }
 

@@ -38,6 +38,7 @@ import { FormatsPanel } from "./formats/FormatsPanel";
 import { MediaSelectionBar } from "./MediaSelectionBar";
 import { BOARD_FILE_ACCEPT, isBoardFile, isBrowserImage, uploadBoardFile } from "@/lib/canvas/media-upload";
 import { addFromLink, placeBoardFile } from "@/lib/canvas/media-actions";
+import { CollabLayer } from "./collab/CollabLayer";
 
 export function CanvasView() {
   const activeProjectId = useStore((s) => s.activeProjectId);
@@ -166,20 +167,19 @@ export function CanvasView() {
   // A synced copy's "open the original" jump. In another project the board switcher picks that project's
   // board on arrival, so the wanted board is remembered and wins over its pick.
   const wantedBoard = useRef(null);
-  useOpenBoardRequests(
-    useCallback(
-      (target, projectId) => {
-        if (projectId && projectId !== activeProjectId) {
-          wantedBoard.current = target;
-          handleBoardProjectChange(projectId);
-        } else {
-          flushSave({ keepalive: true });
-          setBoardId(target);
-        }
-      },
-      [activeProjectId, flushSave, handleBoardProjectChange]
-    )
+  const openBoardById = useCallback(
+    (target, projectId) => {
+      if (projectId && projectId !== activeProjectId) {
+        wantedBoard.current = target;
+        handleBoardProjectChange(projectId);
+      } else {
+        flushSave({ keepalive: true });
+        setBoardId(target);
+      }
+    },
+    [activeProjectId, flushSave, handleBoardProjectChange]
   );
+  useOpenBoardRequests(openBoardById);
   const onBoardIdChange = useCallback((id) => {
     const wanted = wantedBoard.current;
     wantedBoard.current = null;
@@ -204,6 +204,18 @@ export function CanvasView() {
     },
     [setActiveProject]
   );
+  // A notification link: open its board, then hand its thread to CollabLayer. Each link is taken once.
+  const boardLink = useStore((s) => s.boardLink);
+  const takenLink = useRef(null);
+  const [commentLink, setCommentLink] = useState(null);
+  const clearCommentLink = useCallback(() => setCommentLink(null), []);
+  useEffect(() => {
+    if (!boardLink || takenLink.current === boardLink) return;
+    takenLink.current = boardLink;
+    useStore.getState().clearBoardLink();
+    setCommentLink(boardLink.commentId ? boardLink : null);
+    if (boardLink.boardId !== boardId) openBoardById(boardLink.boardId, boardLink.projectId);
+  }, [boardLink, boardId, openBoardById]);
 
   const placeAsset = useCallback(
     (asset) => {
@@ -484,6 +496,8 @@ export function CanvasView() {
           e.target.value = "";
         }}
       />
+
+      {!noBoards && <CollabLayer boardId={boardId} commentLink={commentLink} onCommentLinkDone={clearCommentLink} />}
 
       {shareOpen && boardId && (
         <BoardShareDialog

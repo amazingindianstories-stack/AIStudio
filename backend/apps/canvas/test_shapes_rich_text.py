@@ -31,6 +31,10 @@ class ShapesRichTextSerializationTests(SimpleTestCase):
         self.assertTrue(all('marks' not in node for node in output['nodes']))
         self.assertEqual(output, FIXTURE['cases']['legacy']['expected'])
 
+    def test_mention_marks_keep_only_lowercase_user_ids(self):
+        who = '0f8fad5b-d9cb-469f-a165-70867728950e'
+        self.assertEqual(marks([[0, 5, 'm', who], [0, 5, 'm', who.upper()], [0, 5, 'm', 'nope'], [0, 5, 'm']], '@Asha x'), [[0, 5, 'm', who]])
+
     def test_marks_use_utf16_offsets_and_the_per_node_cap(self):
         # '😀' is two UTF-16 code units, as in JavaScript string indices.
         self.assertEqual(marks([[0, 9, 'b'], [2, 3, 'i'], [3, 4, 'u']], '😀a'), [[0, 3, 'b'], [2, 3, 'i']])
