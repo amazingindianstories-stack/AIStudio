@@ -268,7 +268,8 @@ class DiscoveryAndRegistrationTests(AgentAccessCase):
         self.assertNotIn('offline_access', document['scopes_supported'])
         resource = self.client.get('/api/oauth/protected-resource').json()
         self.assertEqual(resource, {'resource': RESOURCE, 'authorization_servers': [SITE], 'resource_name': 'Veevee',
-                                    'scopes_supported': ['veevee.read', 'veevee.generate', 'veevee.organize', 'veevee.admin'],
+                                    'scopes_supported': ['veevee.read', 'veevee.generate', 'veevee.organize', 'veevee.boards.read',
+                                                         'veevee.boards.write', 'veevee.admin'],
                                     'bearer_methods_supported': ['header']})
         preflight = self.client.options('/api/oauth/token', HTTP_ORIGIN='http://localhost:6274')
         self.assertEqual((preflight.status_code, preflight['Access-Control-Allow-Origin']), (204, '*'))
@@ -452,7 +453,8 @@ class AuthorizationFlowTests(AgentAccessCase):
         self.assertEqual(body['client']['name'], 'Inspector')
         self.assertEqual(body['client']['redirectHost'], '127.0.0.1:33418')
         self.assertEqual(body['requestedScopes'], ['veevee.read'])
-        self.assertEqual([scope['id'] for scope in body['scopes']], ['veevee.read', 'veevee.generate', 'veevee.organize'])
+        self.assertEqual([scope['id'] for scope in body['scopes']], ['veevee.read', 'veevee.generate', 'veevee.organize',
+                                                                     'veevee.boards.read', 'veevee.boards.write'])
         self.assertEqual((body['defaults'], body['userDailyCapCents'], body['autoApproveMaxCents'], body['confirmAtCents']),
                          ({'dailyCapCents': 1000, 'autoApproveCents': 25, 'expiresInDays': 90}, 2000, 100, 100))
         self.client.cookies.clear()

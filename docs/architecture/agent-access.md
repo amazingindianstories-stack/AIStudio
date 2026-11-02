@@ -60,6 +60,28 @@ Users manage tokens and connected apps in Account settings, Agent access (`/api/
   clients call them cross-origin, and they answer CORS. Everything else keeps the browser-origin checks.
 - `src/middleware.js` forwards the two well-known paths to Django; the gateway allows their preflights.
 
+## Board API
+
+`/api/v1/boards` is the item-level REST view of a board for scripts and integrations (`apps/canvas/api_v1.py`,
+`board_items.py`). It adds no auth scheme: the bearer tokens are the existing agent tokens (personal access tokens
+and OAuth access tokens from Settings, Agent access), with the same per-user opt-in and revocation. Session
+cookies are refused. Two scopes: `veevee.boards.read` and `veevee.boards.write`. A token acts as its user, so board
+roles decide: a viewer or commenter token reads but never writes, whatever its scopes.
+
+| Method and path | Scope | Purpose |
+|---|---|---|
+| `GET /api/v1/boards` | read | Boards the user can see, with role |
+| `GET /api/v1/boards/{id}` | read | One board's summary |
+| `GET`, `POST /api/v1/boards/{id}/items` | read, write | Page nodes (`type`, `cursor`, `limit`); create one or a bulk batch (50 at most, all or none) |
+| `GET`, `PATCH`, `DELETE /api/v1/boards/{id}/items/{itemId}` | read, write | One node |
+| `GET`, `POST /api/v1/boards/{id}/connectors` and `.../connectors/{itemId}` | read, write | Same for connectors |
+| `GET /api/v1/boards/{id}/changes?since=<version>` | read | Polled change feed, standing in for webhooks |
+
+Rate limits are credit based: one budget per grant (`policy.BOARD_CREDITS`), spent per call by cost level
+(`policy.BOARD_COSTS`: read 10, list 50, write 100, bulk 500). Every response carries `X-RateLimit-Limit`,
+`X-RateLimit-Remaining` and `X-RateLimit-Reset`; an exhausted budget is 429 with `Retry-After`, and the refused
+call still counts. The MCP board tools spend the same credits.
+
 ## Interface for the MCP service
 
 ```python

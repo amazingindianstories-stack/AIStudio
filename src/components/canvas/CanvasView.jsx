@@ -6,14 +6,10 @@ import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { useCanvasStore, selectReadOnly } from "@/lib/canvas-store";
-import { isCreateTool } from "@/lib/canvas/shapes";
-import { hiddenBoardIds } from "@/lib/canvas/culling";
 import { useBoardPolling } from "@/lib/canvas/use-board-polling";
-import { noteKeyboardCopy, pageTextSelected, useBoardClipboard } from "@/lib/canvas/use-board-clipboard";
-import { copySelectionStyle, pasteSelectionStyle } from "@/lib/canvas/sticky-actions";
+import { useBoardClipboard } from "@/lib/canvas/use-board-clipboard";
 import {
   CanvasSurface,
-  buildDefaultNode,
   uploadImageFiles,
 
 } from "./CanvasSurface";
@@ -24,23 +20,31 @@ import { BoardProjectSelector } from "./BoardProjectSelector";
 import { CanvasAssetPanel } from "./CanvasAssetPanel";
 import { BoardShareDialog } from "./BoardShareDialog";
 import { CanvasAiPanel } from "./CanvasAiPanel";
+import { BoardTemplates } from "./BoardTemplates";
+import { SidekickPanel } from "./SidekickPanel";
+import { CatchUpChip } from "./CatchUpChip";
 import { useBoardAi } from "@/lib/board-ai";
+import { useAiInputs, useAiPanelIntent } from "@/lib/board-ai-panel";
 import { BoardHistoryPanel } from "./BoardHistoryPanel";
 import { LayersPanel } from "./LayersPanel";
-import { useLockShortcut } from "./use-lock-shortcut";
-import { useArrangeShortcuts } from "./use-arrange-shortcuts";
-import { layeredView } from "@/lib/canvas/layers";
+import { WorkTools } from "./WorkTools";
 import { ObjectInfo } from "./ObjectInfo";
+import { useBoardShortcuts } from "./useBoardShortcuts";
+import { useBoardLinks } from "./useBoardLinks";
+import { BoardExtras, BoardMenu, BoardSkipLink } from "./BoardExtras";
+import { useBoardUi } from "@/lib/canvas/board-ui";
+import { useOpenBoardRequests } from "@/lib/open-board";
+import { NotesButton, NotesPanel } from "./NotesPanel";
 import { BoardViewOverlays } from "./BoardViewOverlays";
 import { useBoardView } from "./use-board-view";
-import { zoomToLevel } from "@/lib/canvas/viewport-nav";
-
-// Miro's keys: N sticky note, T text, F frame; S opens the shapes panel.
-const TOOL_SHORTCUTS = {
-  n: "sticky",
-  t: "text",
-  f: "frame",
-};
+import { FormatsPanel } from "./formats/FormatsPanel";
+import { MediaSelectionBar } from "./MediaSelectionBar";
+import { BOARD_FILE_ACCEPT, isBoardFile, isBrowserImage, uploadBoardFile } from "@/lib/canvas/media-upload";
+import { addFromLink, placeBoardFile } from "@/lib/canvas/media-actions";
+import { CollabLayer } from "./collab/CollabLayer";
+import { FacilitationButton, FacilitationDock } from "./facilitation/FacilitationDock";
+import { RecorderBar, TalktrackButton } from "./talktrack/TalktrackPanel";
+import { TalktrackPlayer } from "./talktrack/TalktrackPlayer";
 
 export function CanvasView() {
   const activeProjectId = useStore((s) => s.activeProjectId);
@@ -54,21 +58,44 @@ export function CanvasView() {
   const [assetPanelCollapsed, setAssetPanelCollapsed] = useState(false);
   const [transientActive, setTransientActive] = useState(false);
   const [importNotice, setImportNotice] = useState("");
+  // One timer for the notice, so an older message's clear cannot wipe a newer one.
+  const noticeTimer = useRef(0);
+  // On a phone the top bar wraps into many rows; the style inspector stays below it.
+  const topBarRef = useRef(null);
+  const [topBarBottom, setTopBarBottom] = useState(0);
+  const showNotice = useCallback((message, lingerMs = 3500) => {
+    window.clearTimeout(noticeTimer.current);
+    setImportNotice(message);
+    if (lingerMs) noticeTimer.current = window.setTimeout(() => setImportNotice(""), lingerMs);
+  }, []);
   const [shareOpen, setShareOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const closeHistory = useCallback(() => setHistoryOpen(false), []);
   const [layersOpen, setLayersOpen] = useState(false);
   const closeLayers = useCallback(() => setLayersOpen(false), []);
+  // Work tools render their buttons here so they wrap with the bar instead of floating over it.
+  const [workSlot, setWorkSlot] = useState(null);
   const [shapesOpen, setShapesOpen] = useState(false);
   const [boardsReload, setBoardsReload] = useState(0);
   const [noBoards, setNoBoards] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
+  const aiInputs = useAiInputs();
+  const aiIntent = useAiPanelIntent((s) => s.nonce);
+  useEffect(() => {
+    if (aiIntent > 0) setAiOpen(true);
+  }, [aiIntent]);
+  useEffect(() => {
+    if (!aiInputs) setAiOpen(false);
+  }, [aiInputs]);
+  const [sidekick, setSidekick] = useState(null); // null, or the tab the Sidekick panel opens on
 
   const surfaceRef = useRef(null);
+  const rootRef = useRef(null);
 
   const loaded = useCanvasStore((s) => s.loaded);
   const saveStatus = useCanvasStore((s) => s.saveStatus);
   const saveError = useCanvasStore((s) => s.saveError);
+  const saveLimitMessage = useCanvasStore((s) => s.saveLimitMessage);
   const readOnly = useCanvasStore(selectReadOnly);
   const touchEditMode = useCanvasStore((s) => s.touchEditMode);
   const setTouchEditMode = useCanvasStore((s) => s.setTouchEditMode);
@@ -80,26 +107,8 @@ export function CanvasView() {
   const flushSave = useCanvasStore((s) => s.flushSave);
   const pollRemote = useCanvasStore((s) => s.pollRemote);
   const setTool = useCanvasStore((s) => s.setTool);
-  const undo = useCanvasStore((s) => s.undo);
-  const redo = useCanvasStore((s) => s.redo);
-  const deleteSelected = useCanvasStore((s) => s.deleteSelected);
-  const duplicateSelected = useCanvasStore((s) => s.duplicateSelected);
-  const selectAll = useCanvasStore((s) => s.selectAll);
-  const clearSelection = useCanvasStore((s) => s.clearSelection);
-  const zoomToFit = useCanvasStore((s) => s.zoomToFit);
-  const setViewport = useCanvasStore((s) => s.setViewport);
-  const addNode = useCanvasStore((s) => s.addNode);
   const addImageFromAsset = useCanvasStore((s) => s.addImageFromAsset);
   const addImageBatch = useCanvasStore((s) => s.addImageBatch);
-  const group = useCanvasStore((s) => s.group);
-  const ungroup = useCanvasStore((s) => s.ungroup);
-  const bringForward = useCanvasStore((s) => s.bringForward);
-  const sendBackward = useCanvasStore((s) => s.sendBackward);
-  const bringToFront = useCanvasStore((s) => s.bringToFront);
-  const sendToBack = useCanvasStore((s) => s.sendToBack);
-  const copy = useCanvasStore((s) => s.copy);
-  const paste = useCanvasStore((s) => s.paste);
-  const cut = useCanvasStore((s) => s.cut);
 
   const imageFileInputRef = useRef(null);
 
@@ -160,10 +169,17 @@ export function CanvasView() {
   // the top controls wrap. Touch-first devices open every board view-only
   // (pan and zoom) until Edit is tapped; a mouse-driven desktop never does.
   const narrow = useMediaQuery("(max-width: 767px)");
+  useEffect(() => {
+    const bar = topBarRef.current;
+    if (!bar || !narrow || typeof ResizeObserver === "undefined") return undefined;
+    const measure = () => setTopBarBottom(bar.offsetTop + bar.offsetHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(bar);
+    return () => observer.disconnect();
+  }, [narrow, boardId, noBoards]);
   const coarsePointer = useMediaQuery("(pointer: coarse)");
   const touchViewOnly = coarsePointer && !touchEditMode;
-  useLockShortcut(touchViewOnly);
-  useArrangeShortcuts(touchViewOnly);
 
   // Explicit board-project switch (BoardProjectSelector) — distinct from
   // CanvasAssetPanel's `scope`, which only filters displayed assets and must
@@ -183,6 +199,59 @@ export function CanvasView() {
     [activeProjectId, flushSave, reset, setActiveProject]
   );
 
+  // A synced copy's "open the original" jump. In another project the board switcher picks that project's
+  // board on arrival, so the wanted board is remembered and wins over its pick.
+  const wantedBoard = useRef(null);
+  const openBoardById = useCallback(
+    (target, projectId) => {
+      if (projectId && projectId !== activeProjectId) {
+        wantedBoard.current = target;
+        handleBoardProjectChange(projectId);
+      } else {
+        flushSave({ keepalive: true });
+        setBoardId(target);
+      }
+    },
+    [activeProjectId, flushSave, handleBoardProjectChange]
+  );
+  useOpenBoardRequests(openBoardById);
+  const onBoardIdChange = useCallback((id) => {
+    const wanted = wantedBoard.current;
+    wantedBoard.current = null;
+    setBoardId(wanted ?? id);
+  }, []);
+  // A template's editing board may be new or live in another project, so the switcher reloads to list it.
+  const openTemplateBoard = useCallback(
+    (id, projectId) => {
+      if (projectId !== activeProjectId) {
+        wantedBoard.current = id;
+        setActiveProject(projectId);
+      } else setBoardsReload((count) => count + 1);
+      setBoardId(id);
+    },
+    [activeProjectId, setActiveProject]
+  );
+  const openBoardProject = useCallback(
+    (projectId) => {
+      if (!useStore.getState().projects.some((p) => p.id === projectId)) return false;
+      setActiveProject(projectId);
+      return true;
+    },
+    [setActiveProject]
+  );
+  // A notification link: open its board, then hand its thread to CollabLayer. Each link is taken once.
+  const boardLink = useStore((s) => s.boardLink);
+  const takenLink = useRef(null);
+  const [commentLink, setCommentLink] = useState(null);
+  const clearCommentLink = useCallback(() => setCommentLink(null), []);
+  useEffect(() => {
+    if (!boardLink || takenLink.current === boardLink) return;
+    takenLink.current = boardLink;
+    useStore.getState().clearBoardLink();
+    setCommentLink(boardLink.commentId ? boardLink : null);
+    if (boardLink.boardId !== boardId) openBoardById(boardLink.boardId, boardLink.projectId);
+  }, [boardLink, boardId, openBoardById]);
+
   const placeAsset = useCallback(
     (asset) => {
       const center = surfaceRef.current?.getViewportCenterWorld() ?? { x: 0, y: 0 };
@@ -194,28 +263,48 @@ export function CanvasView() {
   const importImageFiles = useCallback(
     async (files, worldPoint) => {
       if (!boardId || selectReadOnly(useCanvasStore.getState())) return;
-      const accepted = Array.from(files).filter((file) => file.type.startsWith("image/"));
-      if (!accepted.length) return;
-      setImportNotice(`Uploading ${accepted.length} image${accepted.length === 1 ? "" : "s"}…`);
-      const { images, failed } = await uploadImageFiles(accepted, boardId);
-      if (images.length) {
-        const target = worldPoint ?? surfaceRef.current?.getViewportCenterWorld() ?? { x: 0, y: 0 };
-        addImageBatch(images, target);
+      const all = Array.from(files).filter(isBoardFile);
+      const accepted = all.filter(isBrowserImage);
+      const others = all.filter((file) => !accepted.includes(file));
+      if (!all.length) return;
+      showNotice(`Uploading ${all.length} file${all.length === 1 ? "" : "s"}…`, 0);
+      const target = worldPoint ?? surfaceRef.current?.getViewportCenterWorld() ?? { x: 0, y: 0 };
+      let added = 0;
+      let failed = 0;
+      let lastError = "";
+      if (accepted.length) {
+        const result = await uploadImageFiles(accepted, boardId);
+        if (result.images.length) addImageBatch(result.images, target);
+        added += result.images.length;
+        failed += result.failed;
       }
-      setImportNotice(failed
-        ? `${images.length} image${images.length === 1 ? "" : "s"} added; ${failed} failed.`
-        : `${images.length} image${images.length === 1 ? "" : "s"} added.`);
-      window.setTimeout(() => setImportNotice(""), 3500);
+      for (const [index, file] of others.entries()) {
+        try {
+          placeBoardFile(await uploadBoardFile(file, boardId), { x: target.x + index * 40, y: target.y + index * 40 });
+          added += 1;
+        } catch (error) {
+          failed += 1;
+          lastError = error.message;
+        }
+      }
+      showNotice(failed
+        ? `${added} file${added === 1 ? "" : "s"} added; ${failed} failed.${lastError ? ` ${lastError}` : ""}`
+        : `${added} file${added === 1 ? "" : "s"} added.`);
     },
-    [boardId, addImageBatch]
+    [boardId, addImageBatch, showNotice]
+  );
+
+  const importLink = useCallback(
+    async (text) => {
+      if (!boardId || selectReadOnly(useCanvasStore.getState())) return;
+      await addFromLink(text, boardId, surfaceRef.current?.getViewportCenterWorld() ?? { x: 0, y: 0 });
+    },
+    [boardId]
   );
 
   const viewCenter = useCallback(() => surfaceRef.current?.getViewportCenterWorld() ?? { x: 0, y: 0 }, []);
-  const notify = useCallback((message) => {
-    setImportNotice(message);
-    window.setTimeout(() => setImportNotice(""), 3500);
-  }, []);
-  useBoardClipboard({ importImageFiles, touchViewOnly, viewCenter, notify });
+  const notify = useCallback((message) => showNotice(message), [showNotice]);
+  useBoardClipboard({ importImageFiles, importLink, touchViewOnly, viewCenter, notify });
 
   // Single source of truth for "add image" (⇧I shortcut B / toolbar button)
   // — one hidden file input, one code path, so the toolbar's "(⇧I)" tooltip
@@ -225,196 +314,20 @@ export function CanvasView() {
     imageFileInputRef.current?.click();
   }, []);
 
-  // ── document-level keyboard shortcuts (ui-spec §11) ─────────────────
+  // Document-level keyboard shortcuts, from the registry in lib/canvas/shortcuts.
+  const openShapes = useCallback(() => setShapesOpen(true), []);
+  const toggleAi = useCallback(() => setAiOpen((v) => !v), []);
+  const toggleSidekick = useCallback(() => setSidekick((v) => (v === null ? "chat" : null)), []);
+  const runToolbarTool = useBoardShortcuts({ surfaceRef, toolLocked, touchViewOnly, openShapes, openImagePicker, toggleAi, toggleSidekick });
+  const openBoard = useBoardLinks({ boardId, setBoardId });
+
+  // One side panel at a time: a board panel replaces History and back.
+  const boardPanel = useBoardUi((s) => s.panel);
   useEffect(() => {
-    const onKeyDown = (e) => {
-      const target = e.target ;
-      const editing =
-        target?.isContentEditable || target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || target?.tagName === "SELECT" ||
-        target?.closest?.('[data-crop-controls], [role="dialog"], [role="alertdialog"]');
-      if (editing) return;
-
-      const canvasState = useCanvasStore.getState();
-      if (canvasState.croppingImageId && (e.key === "Enter" || e.key === "Escape")) {
-        e.preventDefault();
-        if (e.key === "Enter") canvasState.applyCrop();
-        else canvasState.cancelCrop();
-        return;
-      }
-
-      const mod = e.metaKey || e.ctrlKey;
-
-      // View only on touch: a hardware keyboard may move the view, never edit.
-      if (touchViewOnly && !(mod && e.key === "0") && !(e.key === "!" && e.shiftKey)) return;
-
-      if (mod && e.key.toLowerCase() === "z") {
-        e.preventDefault();
-        if (e.shiftKey) redo();
-        else undo();
-        return;
-      }
-      if (mod && e.key.toLowerCase() === "d") {
-        e.preventDefault();
-        duplicateSelected();
-        return;
-      }
-      if (mod && e.key.toLowerCase() === "a") {
-        e.preventDefault();
-        selectAll();
-        return;
-      }
-      if (mod && e.key === "0") {
-        e.preventDefault();
-        const vp = useCanvasStore.getState().history.present.viewport;
-        setViewport(zoomToLevel(vp, 1, useCanvasStore.getState().viewportSize()));
-        return;
-      }
-      if (mod && e.key.toLowerCase() === "g") {
-        e.preventDefault();
-        if (e.shiftKey) ungroup();
-        else group();
-        return;
-      }
-      // Bracket keys MUST be detected via e.code ("BracketRight"/"BracketLeft"),
-      // not e.key — with Shift held, e.key for "]"/"[" becomes "}"/"{" on a US
-      // layout, so e.code is the only robust, shift-independent discriminator.
-      if (mod && e.code === "BracketRight") {
-        e.preventDefault();
-        if (e.shiftKey) bringToFront();
-        else bringForward();
-        return;
-      }
-      if (mod && e.code === "BracketLeft") {
-        e.preventDefault();
-        if (e.shiftKey) sendToBack();
-        else sendBackward();
-        return;
-      }
-      if (mod && e.altKey && e.code === "KeyC") {
-        e.preventDefault();
-        copySelectionStyle();
-        return;
-      }
-      if (mod && e.altKey && e.code === "KeyV") {
-        e.preventDefault();
-        pasteSelectionStyle();
-        return;
-      }
-      // The browser's copy and cut events that follow also mark the system clipboard (useBoardClipboard).
-      if (mod && e.key.toLowerCase() === "c") {
-        if (!pageTextSelected() && copy()) noteKeyboardCopy();
-        return;
-      }
-      if (mod && e.key.toLowerCase() === "x") {
-        if (!pageTextSelected() && cut()) noteKeyboardCopy();
-        return;
-      }
-      if (mod && e.key.toLowerCase() === "v") {
-        // Browser paste event decides whether OS images or internal nodes win.
-        return;
-      }
-      if (!mod && e.shiftKey && e.key.toLowerCase() === "i") {
-        e.preventDefault();
-        openImagePicker();
-        return;
-      }
-      if (e.key === "Delete" || e.key === "Backspace") {
-        e.preventDefault();
-        deleteSelected();
-        return;
-      }
-      if (e.key === "Escape") {
-        clearSelection();
-        setTool("select");
-        return;
-      }
-      if (e.key === "!" && e.shiftKey) {
-        zoomToFit();
-        return;
-      }
-      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
-        const selection = useCanvasStore.getState().selection;
-        if (!selection.length) return;
-        e.preventDefault();
-        const step = e.shiftKey ? 10 : 1;
-        const dx = e.key === "ArrowLeft" ? -step : e.key === "ArrowRight" ? step : 0;
-        const dy = e.key === "ArrowUp" ? -step : e.key === "ArrowDown" ? step : 0;
-        useCanvasStore.getState().moveSelectionBy(dx, dy);
-        return;
-      }
-      if (e.key === "Tab") {
-        const s = useCanvasStore.getState();
-        const hidden = hiddenBoardIds(s.history.present, s.focusedDiagramId).nodes;
-        const nodes = layeredView(s.history.present, s.hiddenLayerIds).nodes.filter((n) => !hidden.has(n.id));
-        if (!nodes.length) return;
-        e.preventDefault();
-        const curIdx = s.selection.length ? nodes.findIndex((n) => n.id === s.selection[0]) : -1;
-        const nextIdx = e.shiftKey
-          ? (curIdx - 1 + nodes.length) % nodes.length
-          : (curIdx + 1) % nodes.length;
-        s.setSelection([nodes[nextIdx].id]);
-        return;
-      }
-      if (e.key === "Enter") {
-        const tool = useCanvasStore.getState().tool;
-        if (isCreateTool(tool)) {
-          const center = surfaceRef.current?.getViewportCenterWorld() ?? { x: 0, y: 0 };
-          const node = buildDefaultNode(tool , center);
-          addNode(node);
-          useCanvasStore.getState().setSelection([node.id]);
-          if (node.type === "text" || node.type === "sticky") {
-            useCanvasStore.getState().setEditingTextId(node.id);
-          }
-          if (!toolLocked) setTool("select");
-        }
-        return;
-      }
-
-      // Latent-bug fix: without this guard, an unhandled mod-combination
-      // (e.g. mod+C once it didn't `return` above) falls through to the
-      // tool-letter switch below and wrongly re-arms a tool (mod+C used to
-      // switch to the connector tool). Every new mod binding above already
-      // `return`s before reaching here; this is belt-and-suspenders so NO
-      // mod+<letter> combination can ever leak into a tool switch.
-      if (mod) return;
-
-      // tool letter shortcuts
-      const key = e.key.toLowerCase();
-      if (key === "v") setTool("select");
-      else if (key === "h") setTool("hand");
-      else if (key === "r") setTool("rect");
-      else if (key === "c") setTool("connector");
-      else if (key === "s") {
-        if (!selectReadOnly(useCanvasStore.getState())) setShapesOpen(true);
-      } else if (TOOL_SHORTCUTS[key]) setTool(TOOL_SHORTCUTS[key]);
-    };
-
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [
-    undo,
-    redo,
-    duplicateSelected,
-    selectAll,
-    clearSelection,
-    deleteSelected,
-    setTool,
-    zoomToFit,
-    setViewport,
-    addNode,
-    toolLocked,
-    group,
-    ungroup,
-    bringForward,
-    sendBackward,
-    bringToFront,
-    sendToBack,
-    copy,
-    cut,
-    paste,
-    openImagePicker,
-    touchViewOnly,
-  ]);
+    if (boardPanel) { setHistoryOpen(false); setLayersOpen(false); }
+  }, [boardPanel]);
+  // A slide hides the board's controls; a break to the board shows them again.
+  const presentingSlide = useBoardUi((s) => Boolean(s.presenting && !s.presenting.onBoard));
 
   // Board AI jobs follow the loaded, editable board: unfinished jobs resume and finished, unplaced results are placed.
   const loadedBoardId = useCanvasStore((s) => s.boardId);
@@ -430,7 +343,14 @@ export function CanvasView() {
   const showEditToggle = coarsePointer && !readOnly && !noBoards && !!boardId && loaded;
 
   return (
-    <div className="relative min-w-0 flex-1 overflow-hidden bg-ink-900">
+    <div
+      ref={rootRef}
+      className={cn(
+        "relative min-w-0 flex-1 overflow-hidden bg-ink-900",
+        presentingSlide && "[&>*:not([data-board-surface]):not([data-presentation]):not([role=status])]:hidden"
+      )}
+    >
+      {!noBoards && boardId && loaded && <BoardSkipLink />}
       <CanvasSurface
         ref={surfaceRef}
         toolLocked={toolLocked}
@@ -441,6 +361,7 @@ export function CanvasView() {
         touchViewOnly={touchViewOnly}
       />
       <BoardViewOverlays insetLeft={narrow ? 0 : assetPanelWidth} gestureActive={transientActive} />
+      <FormatsPanel boardId={boardId} touchViewOnly={touchViewOnly} />
 
       {noBoards && (
         <div
@@ -469,10 +390,12 @@ export function CanvasView() {
           (ui-spec §9); the asset panel loads independently */}
       <div className={cn((boardsLoading || (!loaded && boardId)) && "pointer-events-none opacity-50")}>
         {/* The bar spans the width so it can wrap on phones; only its pills
-            take pointer events, the gaps between them reach the canvas. */}
+            take pointer events, the gaps between them reach the canvas. An
+            open Board menu lifts the bar over the z-40 side panels. */}
         <div
+          ref={topBarRef}
           className={cn(
-            "pointer-events-none absolute top-4 z-30 flex flex-wrap items-center gap-2 transition-[left] duration-200",
+            "pointer-events-none absolute top-4 z-30 flex has-[[role=menu]]:z-[45] flex-wrap items-center gap-2 transition-[left] duration-200",
             !(boardsLoading || (!loaded && boardId)) && "[&>*]:pointer-events-auto"
           )}
           style={{ left: assetPanelWidth + 16, right: "1rem" }}
@@ -485,9 +408,10 @@ export function CanvasView() {
           <BoardSwitcher
             projectId={activeProjectId}
             boardId={boardId}
-            onBoardIdChange={setBoardId}
+            onBoardIdChange={onBoardIdChange}
             onLoadingChange={setBoardsLoading}
             onEmptyChange={setNoBoards}
+            onBoardInOtherProject={openBoardProject}
             reloadToken={boardsReload}
           />
           {boardId && loaded && (
@@ -505,6 +429,7 @@ export function CanvasView() {
               type="button"
               aria-expanded={layersOpen}
               onClick={() => {
+                useBoardUi.getState().closePanel();
                 setLayersOpen((open) => !open);
                 setHistoryOpen(false);
               }}
@@ -522,6 +447,7 @@ export function CanvasView() {
               type="button"
               aria-expanded={historyOpen}
               onClick={() => {
+                useBoardUi.getState().closePanel();
                 setHistoryOpen((open) => !open);
                 setLayersOpen(false);
               }}
@@ -534,6 +460,10 @@ export function CanvasView() {
               History
             </button>
           )}
+          {boardId && loaded && <NotesButton />}
+          {boardId && loaded && <BoardMenu />}
+          {boardId && loaded && <FacilitationButton boardId={boardId} />}
+          {boardId && loaded && <TalktrackButton boardId={boardId} activeProjectId={activeProjectId} onOpenBoard={openBoardById} />}
           {showEditToggle && (
             <button
               type="button"
@@ -550,20 +480,24 @@ export function CanvasView() {
               {touchEditMode ? "Done" : "Edit"}
             </button>
           )}
+          <div ref={setWorkSlot} className="contents" />
           {!noBoards && (
-            <span className="ml-auto">
+            <span className="min-[1700px]:ml-auto">
               {readOnly ? (
                 <AccessChip role={boardRole} accessLost={accessLost} />
               ) : touchViewOnly && (saveStatus === "idle" || saveStatus === "saved") ? (
                 <AccessChip role="view" accessLost={false} />
               ) : (
-                <SaveStatusChip status={saveStatus} error={saveError} onRetry={() => flushSave()} />
+                <SaveStatusChip status={saveStatus} error={saveError} limitMessage={saveLimitMessage} onRetry={() => flushSave()} />
               )}
             </span>
           )}
         </div>
+        {!noBoards && <WorkTools viewCenter={viewCenter} viewOnly={touchViewOnly} triggerSlot={workSlot} />}
         {!noBoards && (
           <CanvasToolbar
+            projectId={activeProjectId}
+            boardId={boardId}
             readOnly={readOnly}
             viewOnly={touchViewOnly}
             insetLeft={narrow ? 0 : assetPanelWidth}
@@ -572,18 +506,27 @@ export function CanvasView() {
             onShapesOpenChange={setShapesOpen}
             onToggleLock={() => setToolLocked((v) => !v)}
             onAddImageClick={openImagePicker}
+            onUrl={importLink}
             aiOpen={aiOpen && Boolean(boardId)}
             onAiClick={() => setAiOpen((v) => !v)}
+            aiInputs={aiInputs}
+            sidekickOpen={sidekick !== null && Boolean(boardId)}
+            onSidekickClick={toggleSidekick}
             viewCenter={viewCenter}
           />
         )}
+        {boardId && !noBoards && <NotesPanel />}
+
+        {boardId && loaded && <BoardTemplates boardId={boardId} projectId={activeProjectId} viewCenter={viewCenter} onOpenBoard={openTemplateBoard} />}
         {aiOpen && boardId && !readOnly && !touchViewOnly && <CanvasAiPanel boardId={boardId} leftInset={assetPanelWidth} onClose={() => setAiOpen(false)} />}
+        {sidekick !== null && boardId && !readOnly && !touchViewOnly && <SidekickPanel boardId={boardId} projectId={activeProjectId} initialTab={sidekick} onClose={() => setSidekick(null)} />}
+        {boardId && loaded && !readOnly && !touchViewOnly && sidekick === null && <CatchUpChip boardId={boardId} onOpen={() => setSidekick("catchup")} />}
       </div>
 
       <input
         ref={imageFileInputRef}
         type="file"
-        accept="image/*"
+        accept={BOARD_FILE_ACCEPT}
         multiple
         className="hidden"
         tabIndex={-1}
@@ -593,6 +536,8 @@ export function CanvasView() {
           e.target.value = "";
         }}
       />
+
+      {!noBoards && <CollabLayer boardId={boardId} commentLink={commentLink} onCommentLinkDone={clearCommentLink} />}
 
       {shareOpen && boardId && (
         <BoardShareDialog
@@ -609,12 +554,25 @@ export function CanvasView() {
 
       {importNotice && <div role="status" className="absolute bottom-20 left-1/2 z-40 -translate-x-1/2 rounded-lg border border-line bg-ink-750/95 px-3 py-2 text-xs text-white/80 shadow-pop">{importNotice}</div>}
 
-      <StyleInspector hidden={transientActive || readOnly || touchViewOnly || noBoards} insetLeft={narrow ? 0 : assetPanelWidth} />
+      <StyleInspector hidden={transientActive || readOnly || touchViewOnly || noBoards} insetLeft={narrow ? 0 : assetPanelWidth} insetTop={narrow ? topBarBottom + 8 : undefined} />
+      {!noBoards && !transientActive && <MediaSelectionBar hidden={touchViewOnly} boardId={boardId} notify={notify} />}
       {!noBoards && !transientActive && <ObjectInfo style={{ left: assetPanelWidth + 16 }} />}
+      {boardId && loaded && <FacilitationDock />}
+      {boardId && loaded && <div className="pointer-events-none absolute left-1/2 top-16 z-40 -translate-x-1/2 [&>*]:pointer-events-auto"><RecorderBar /></div>}
+      {boardId && loaded && <TalktrackPlayer />}
       {historyOpen && boardId && loaded && !readOnly && (
         <BoardHistoryPanel key={boardId} boardId={boardId} onClose={closeHistory} />
       )}
       {layersOpen && boardId && loaded && !historyOpen && <LayersPanel key={boardId} onClose={closeLayers} />}
+
+      <BoardExtras
+        boardId={boardId}
+        loaded={loaded && loadedBoardId === boardId}
+        canEdit={!readOnly && !touchViewOnly}
+        runToolbarTool={runToolbarTool}
+        openBoard={openBoard}
+        rootRef={rootRef}
+      />
 
       {loadError && (
         <div className="absolute inset-0 z-40 grid place-items-center bg-ink-900/90">
@@ -657,6 +615,7 @@ function AccessChip({ role, accessLost }) {
 export function SaveStatusChip({
   status,
   error,
+  limitMessage,
   onRetry,
 }
 
@@ -666,7 +625,7 @@ export function SaveStatusChip({
     return (
       <div role="alert" className="flex items-center gap-2 whitespace-nowrap rounded-full bg-amber-400/15 px-3 py-1.5 text-xs font-medium text-amber-200 ring-1 ring-amber-400/40">
         <AlertTriangle className="h-3.5 w-3.5" />
-        Board too large to save - remove some items and try again
+        {limitMessage || "Board too large to save - remove some items and try again"}
       </div>
     );
   }

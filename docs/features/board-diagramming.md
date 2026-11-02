@@ -48,6 +48,10 @@ scripts or loads subresources.
   outside one diagram (anything nested in it or centered on it stays) until its banner's Exit; it
   is local view state and never saved.
 - `erd`, `swimlane` and `diagram` keep a diagram theme's `headerFill` and text `color`.
+- A `diagram`, like a frame, can be the source of a synced copy on another board: a view-only copy
+  of the diagram and everything inside it that skips nodes on its hidden layers, refreshes on its
+  own and lists its copies (`backend/apps/canvas/synced.py`). Doc sources follow once boards have a
+  doc object.
 - A callout shape's `tail` is a world point or a node anchor and follows its target.
 
 ## Connection lines

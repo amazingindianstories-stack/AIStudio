@@ -10,13 +10,16 @@ import {
   BringToFront,
   SendToBack,
   Group,
+  Frame,
   Ungroup,
   Trash2,
   Scissors,
+  LayoutTemplate,
 } from "lucide-react";
 import { MenuItem } from "@/components/Dropdown";
 import { LockMenuItems, UnlockAllMenuItem } from "./LockControls";
 import { ArrangeMenuItems } from "./ArrangeMenu";
+import { AiMenuItems } from "./AiMenuItems";
 
  
 
@@ -130,6 +133,10 @@ export function CanvasContextMenu({
             <span className="flex-1">Duplicate</span>
             <span className="ml-auto pl-6 text-xs text-white/40">⌘D</span>
           </MenuItem>
+          <MenuItem onClick={() => onAction("saveAsTemplate")}>
+            <LayoutTemplate className="h-4 w-4 text-white/50" />
+            <span className="flex-1">Save as template</span>
+          </MenuItem>
           <MenuItem onClick={() => onAction("copy")}>
             <Copy className="h-4 w-4 text-white/50" />
             <span className="flex-1">Copy</span>
@@ -159,6 +166,14 @@ export function CanvasContextMenu({
             <span className="ml-auto pl-6 text-xs text-white/40">⌘⇧[</span>
           </MenuItem>
 
+          {flags.canFrame && (
+            <MenuItem onClick={() => onAction("frame")}>
+              <Frame className="h-4 w-4 text-white/50" />
+              <span className="flex-1">Create frame around selection</span>
+              <span className="ml-auto pl-6 text-xs text-white/40">⌘⌥F</span>
+            </MenuItem>
+          )}
+
           {showGroupBlock && <div className="my-1 h-px bg-line" />}
           {flags.canGroup && (
             <MenuItem onClick={() => onAction("group")}>
@@ -176,6 +191,8 @@ export function CanvasContextMenu({
           )}
 
           <ArrangeMenuItems onAction={onAction} />
+
+          <AiMenuItems onDone={onClose} />
 
           <div className="my-1 h-px bg-line" />
           <LockMenuItems onDone={onClose} />

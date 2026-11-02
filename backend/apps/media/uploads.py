@@ -16,7 +16,9 @@ PURPOSES = {
     'depth-input': ('uploads/depth-input', r'video/(mp4|quicktime|x-m4v|webm)$'),
     'portrait': ('uploads/portrait', r'(image/(jpeg|png|webp|tiff|gif|heic|heif|avif|bmp)|video/(mp4|quicktime))$'),
     'material': ('uploads/material', r'image/(jpeg|png|webp|tiff|gif|heic|heif|avif|bmp)$'),
-    'canvas': ('uploads/canvas', r'image/(jpeg|png|webp|tiff|gif|heic|heif|avif|bmp)$'),
+    'canvas': ('uploads/canvas', r'(image/(jpeg|png|webp|tiff|gif|heic|heif|avif|bmp|svg\+xml|vnd\.adobe\.photoshop|x-photoshop)|video/(mp4|quicktime|webm)|audio/(mpeg|wav|ogg|mp4|webm)|application/pdf)$'),
+    # Talktrack recordings: the MediaRecorder video and its audio-only twin used for transcription.
+    'talktrack': ('uploads/talktrack', r'(video/(webm|mp4)|audio/(webm|mp4|ogg))$'),
 }
 
 
@@ -73,7 +75,7 @@ CHUNK_BYTES = 8 * 1024 * 1024
 LIMITS = {'image-reference': 256*1024*1024, 'portrait': 256*1024*1024,
           'material': 256*1024*1024, 'canvas': 256*1024*1024,
           'audio-reference': 512*1024*1024, 'video-reference': 2*1024**3,
-          'depth-input': 2*1024**3}
+          'depth-input': 2*1024**3, 'talktrack': 2*1024**3}
 
 
 class UploadError(ValueError):
@@ -231,6 +233,10 @@ def _sniff(data, mime):
     if mime == 'image/webp': return data[:4] == b'RIFF' and data[8:12] == b'WEBP'
     if mime == 'image/tiff': return data.startswith((b'II*\x00', b'MM\x00*'))
     if mime == 'image/bmp': return data.startswith(b'BM')
+    if mime in ('image/vnd.adobe.photoshop', 'image/x-photoshop'): return data.startswith(b'8BPS')
+    if mime == 'application/pdf': return data.startswith(b'%PDF-')
+    if mime == 'image/svg+xml':  # Text: the board media worker parses and sanitizes the whole document.
+        return data.lstrip(b'\xef\xbb\xbf \t\r\n').startswith((b'<svg', b'<?xml', b'<!'))
     if mime in ('image/heic', 'image/heif', 'image/avif'):
         brands = data[8:128] if data[4:8] == b'ftyp' else b''
         return any(brand in brands for brand in ((b'avif', b'avis') if mime == 'image/avif'

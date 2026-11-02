@@ -3,7 +3,10 @@
 Sources are the board's team access (what every signed-in teammate gets), the user's board
 membership, the user's project membership, board ownership (`created_by`) and the admin role.
 Every board route asks `role_for`/`roles_for` and compares levels; nothing else decides access.
+`readable_boards` is the SQL twin of `_level(...) >= READ` for listing queries; change the two together.
 """
+from django.db.models import Q
+
 from apps.authentication.models import User
 from apps.projects.models import PROJECT_ROLES, Project, ProjectMember
 from .models import BOARD_ROLES, BoardMember, CanvasBoard
@@ -17,7 +20,7 @@ PROJECT_LEVELS = {'viewer': VIEW, 'commenter': COMMENT, 'editor': EDIT, 'co_owne
 # Minimum effective level for each board action.
 READ = VIEW
 WRITE = EDIT          # save the graph, upload media
-SHARE = CO_OWNER      # rename, add/change/remove board members
+SHARE = CO_OWNER      # rename, add/change/remove board members, collaboration tools setting
 OWN = OWNER           # delete, team access, transfer ownership
 
 
@@ -43,6 +46,28 @@ def roles_for(user, boards):
     return {str(row['id']): _level(user, row, board_roles.get(row['id']), project_roles.get(row['project_id'])) for row in boards}
 
 
+def readable(user):
+    """A filter for the boards `user` may at least view, from the same sources `_level` counts; `roles_for`
+    still decides each board's level."""
+    if user.role == 'admin':
+        return Q()
+    return (Q(created_by=user.id) | Q(team_role__in=BOARD_LEVELS)
+            | Q(id__in=BoardMember.objects.filter(user_id=user.id, role__in=BOARD_LEVELS).values('board_id'))
+            | Q(project_id__in=ProjectMember.objects.filter(user_id=user.id, role__in=PROJECT_LEVELS).values('project_id')))
+
+
+def readable_boards(user):
+    """Ids of the boards the user may at least view, as a subquery: `roles_for(...) >= READ` in SQL."""
+    boards = CanvasBoard.objects.all()
+    if user.role != 'admin':
+        board_roles = [role for role, level in BOARD_LEVELS.items() if level >= READ]
+        project_roles = [role for role, level in PROJECT_LEVELS.items() if level >= READ]
+        boards = boards.filter(Q(created_by=user.id) | Q(team_role__in=board_roles)
+            | Q(pk__in=BoardMember.objects.filter(user_id=user.id, role__in=board_roles).values('board_id'))
+            | Q(project_id__in=ProjectMember.objects.filter(user_id=user.id, role__in=project_roles).values('project_id')))
+    return boards.values('id')
+
+
 def role_for(user, board):
     return roles_for(user, [board])[str(board['id'])]
 
@@ -56,7 +81,7 @@ def require(user, board, needed):
 
 
 def board_row(identifier):
-    return CanvasBoard.objects.filter(pk=identifier).values('id', 'project_id', 'created_by', 'team_role').first()
+    return CanvasBoard.objects.filter(pk=identifier).values('id', 'project_id', 'created_by', 'team_role', 'collab_tools').first()
 
 
 def project_level(user, project_id):
@@ -98,11 +123,11 @@ def describe(user, board):
     mine = project_level(user, board['project_id']) if project else NONE
     return {'boardId': str(board['id']), 'projectId': str(board['project_id']),
             'ownerId': str(board['created_by']) if board['created_by'] else None,
-            'teamRole': board['team_role'], 'role': LEVEL_NAMES[level],
+            'teamRole': board['team_role'], 'collabTools': board.get('collab_tools', 'edit'), 'role': LEVEL_NAMES[level],
             'members': [{'userId': str(row['user_id']), 'role': row['role']} for row in
                         BoardMember.objects.filter(board_id=board['id']).order_by('created_at').values('user_id', 'role')],
             'projectMembers': [{'userId': str(row['user_id']), 'role': row['role']} for row in project_members],
-            'canShare': level >= SHARE, 'canOwn': level >= OWN,
+            'canShare': level >= SHARE, 'canOwn': level >= OWN, 'canStartCollabTools': can_start_collab_tools(user, board),
             'canManageProject': bool(project) and mine >= CO_OWNER, 'projectRole': LEVEL_NAMES.get(mine)}
 
 
@@ -134,6 +159,20 @@ def set_team_role(actor, board, role):
         raise AccessError('Invalid role.', 400)
     # Access changes leave updated_at and version alone: they track the graph, not its sharing.
     CanvasBoard.objects.filter(pk=board['id']).update(team_role=role)
+
+
+def set_collab_tools(actor, board, who):
+    """Whether every editor or only owners and co-owners may start collaboration tools (timer, voting, attention)."""
+    require(actor, board, SHARE)
+    if who not in ('edit', 'owner'):
+        raise AccessError('Invalid setting.', 400)
+    CanvasBoard.objects.filter(pk=board['id']).update(collab_tools=who)
+
+
+def can_start_collab_tools(user, board):
+    """The server-side check for starting a collaboration tool, per the board's setting."""
+    level = role_for(user, board)
+    return level >= (CO_OWNER if board.get('collab_tools') == 'owner' else EDIT)
 
 
 def transfer_owner(actor, board, user_id):

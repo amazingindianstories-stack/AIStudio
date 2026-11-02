@@ -43,13 +43,17 @@ test("a refinement is placed where the result it replaces still is", () => {
 });
 
 test("every offered format has panel copy, suggestions and a node builder", () => {
-  assert.deepEqual(AI_FORMAT_ORDER, ["stickies", "image"]);
+  assert.deepEqual(AI_FORMAT_ORDER, ["stickies", "image", "diagram", "layout"]);
   for (const id of AI_FORMAT_ORDER) {
     const format = AI_FORMATS[id];
     assert.equal(format.id, id);
     assert.ok(format.label && format.placeholder && format.refinePlaceholder);
     assert.ok(format.suggestions.length >= 3);
-    assert.equal(typeof format.nodes, "function");
+    assert.equal(typeof (format.nodes ?? format.graph), "function");
+  }
+  for (const id of ["rewrite", "cluster", "summary"]) {
+    assert.equal(AI_FORMATS[id].id, id);
+    assert.equal(typeof (AI_FORMATS[id].edit ?? AI_FORMATS[id].graph), "function");
   }
   assert.equal(AI_FORMATS.stickies.resultLabel({ notes: [{}] }), "1 sticky note");
   assert.equal(AI_FORMATS.stickies.resultLabel(notes(4)), "4 sticky notes");

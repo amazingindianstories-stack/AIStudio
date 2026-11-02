@@ -5,9 +5,11 @@ import dynamic from "next/dynamic";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { AlertCircle, ChevronLeft, ChevronRight, X } from "lucide-react";
 import { useStore } from "@/lib/store";
+import { watchBoardLinks } from "@/lib/canvas/board-links";
 import { cn } from "@/lib/utils";
 import { LocalDataStatus } from "@/components/LocalDataStatus";
 import { TopBar } from "@/components/TopBar";
+import { WorkspaceBanner } from "@/components/WorkspaceBanner";
 import { ConversationPanel } from "@/components/ConversationPanel";
 import { PromptComposer } from "@/components/PromptComposer";
 import { HistoryPanel } from "@/components/HistoryPanel";
@@ -19,6 +21,8 @@ import { StudioView } from "@/components/StudioView";
 import { Toaster } from "@/components/Toaster";
 import { TextPromptDialog } from "@/components/TextPromptDialog";
 import { useDesktopLayout } from "@/lib/use-desktop-layout";
+import { pageObjectLink } from "@/lib/canvas/object-link";
+import { templateRefFromSearch } from "@/lib/canvas/templates";
 
 function BoardPlaceholder({ children }) {
   return <div className="grid min-w-0 flex-1 place-items-center bg-ink-900">{children}</div>;
@@ -70,6 +74,7 @@ export default function Page() {
   const setRightPanelOpen = useStore((s) => s.setRightPanelOpen);
   const currentUser = useStore((s) => s.currentUser);
   const setView = useStore((s) => s.setView);
+  const openBoardLink = useStore((s) => s.openBoardLink);
   const mobileDrawerRef = useRef(null);
   const mobileCloseRef = useRef(null);
 
@@ -83,6 +88,14 @@ export default function Page() {
       setView("studio");
     }
   }, [view, currentUser, setView]);
+
+  // A link to a board object opens the board view; CanvasView opens the board.
+  // This runs after the composer restores the last view, so the link wins.
+  // A `?template=<id>` link opens the board with that template in the picker (BoardTemplates).
+  useEffect(() => {
+    if (pageObjectLink() || templateRefFromSearch(window.location.search)) setView("canvas");
+  }, [setView]);
+  useEffect(() => watchBoardLinks(window, openBoardLink), [openBoardLink]);
 
   useEffect(() => {
     loadMe();
@@ -105,6 +118,11 @@ export default function Page() {
       stopFreezeWatchdog();
     };
   }, [loadMe, loadUsers, loadHistory, loadProjects, loadLimits, loadAssets, startLiveUpdates, stopLiveUpdates]);
+
+  // A board link (?board=...) opens on the Board, whichever view was used last.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).has("board")) setView("canvas");
+  }, [setView]);
 
   useEffect(() => {
     if (!mobileHistoryOpen) return;
@@ -158,6 +176,7 @@ export default function Page() {
     >
       <div className="flex h-full flex-col overflow-hidden bg-ink-900">
         <TopBar />
+        <WorkspaceBanner />
         <LocalDataStatus />
 
         <div className="flex min-h-0 flex-1">

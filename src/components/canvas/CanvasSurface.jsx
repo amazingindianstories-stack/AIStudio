@@ -13,8 +13,9 @@ import { Shapes, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
 import { uploadFileDirect } from "@/lib/client-reference-upload";
+import { isBoardFile } from "@/lib/canvas/media-upload";
 import { useStore } from "@/lib/store";
-import { useCanvasStore, hasClipboard, selectReadOnly } from "@/lib/canvas-store";
+import { useCanvasStore, asEdited, hasClipboard, selectReadOnly } from "@/lib/canvas-store";
 import { getAssetDragData } from "@/lib/asset-drag-contract";
 
 import {
@@ -28,10 +29,15 @@ import {
   resizeNode,
   resolveEndpoint,
   screenToWorld,
+  worldToScreen,
 } from "@/lib/canvas/geometry";
 import { snapPointToAngle } from "@/lib/canvas/connector-routing";
 import { ensureShapePacksLoaded, getCustomShapeByTool, isCreateTool, isKnownShapeKind, shapeKindOfTool } from "@/lib/canvas/shapes";
 import { getDiagramTheme } from "@/lib/canvas/diagram-themes";
+import { INK_TOOLS } from "@/lib/ink-prefs";
+import { InkOverlay } from "./InkOverlay";
+import { FrameControls } from "./FrameControls";
+import { frameSelection } from "@/lib/frame-actions";
 import {
   LONG_PRESS_MS,
   doubleTapAction,
@@ -61,6 +67,7 @@ import { runArrangeMenuAction } from "./ArrangeMenu";
 import { useBoardWheel } from "./use-board-wheel";
 import { useViewPrefs } from "@/lib/canvas/view-prefs";
 import { surfaceBackground } from "@/lib/canvas/board-view";
+import { requestTemplates } from "@/lib/canvas/template-events";
 
  
 
@@ -374,6 +381,22 @@ export const CanvasSurface = forwardRef
       x: viewport.x + size.w / 2 / viewport.zoom,
       y: viewport.y + size.h / 2 / viewport.zoom,
     }),
+    focusBoard: () => containerRef.current?.focus(),
+    // Cmd/Ctrl+Enter: the right-click menu, opened at the selection's center.
+    openContextMenuAtSelection: () => {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect || readOnly || touchViewOnly || !selectedNodes.length) return false;
+      const x = Math.min(...selectedNodes.map((n) => n.x));
+      const y = Math.min(...selectedNodes.map((n) => n.y));
+      const x1 = Math.max(...selectedNodes.map((n) => n.x + n.w));
+      const y1 = Math.max(...selectedNodes.map((n) => n.y + n.h));
+      const center = worldToScreen({ x: (x + x1) / 2, y: (y + y1) / 2 }, viewport);
+      setContextMenu({
+        x: rect.left + Math.min(Math.max(center.x, 0), rect.width),
+        y: rect.top + Math.min(Math.max(center.y, 0), rect.height),
+      });
+      return true;
+    },
   }));
 
   useEffect(() => {
@@ -899,6 +922,9 @@ export const CanvasSurface = forwardRef
       case "paste":
         s.paste();
         break;
+      case "saveAsTemplate":
+        requestTemplates({ action: "save-selection" });
+        break;
       case "delete":
         s.deleteSelected();
         break;
@@ -907,6 +933,9 @@ export const CanvasSurface = forwardRef
         break;
       case "sendToBack":
         s.sendToBack();
+        break;
+      case "frame":
+        frameSelection();
         break;
       case "group":
         s.group();
@@ -1036,13 +1065,15 @@ export const CanvasSurface = forwardRef
         lockX: e.shiftKey && constrainedDx === 0,
         lockY: e.shiftKey && constrainedDy === 0,
       });
-      const next = moveNodesBy(present, selection, snapped.dx, snapped.dy);
+      const editing = useCanvasStore.getState();
+      const next = asEdited(editing, moveNodesBy(present, selection, snapped.dx, snapped.dy));
       // container drop-highlight preview
       const movedNode = next.nodes.find((n) => n.id === (selection.find((id) => !lockedIds.has(id)) ?? selection[0]));
       if (movedNode && !isContainerNode(movedNode)) {
         const containers = next.nodes.filter((n) => isContainerNode(n));
         const targetFrame = computeFrameMembership(movedNode, containers);
-        setDropHighlightFrameId(targetFrame);
+        const dropped = asEdited(editing, { ...next, nodes: next.nodes.map((n) => (n.id === movedNode.id ? { ...n, parentId: targetFrame } : n)) });
+        setDropHighlightFrameId(dropped.nodes.find((n) => n.id === movedNode.id)?.parentId ?? null);
       }
       setPreview(next);
       return;
@@ -1062,7 +1093,7 @@ export const CanvasSurface = forwardRef
       const snapped = arrange.snapResizeDelta(drag.resizeStartNode, drag.resizeHandle, worldDx, worldDy, keepAspect);
       const resized = resizeNode(drag.resizeStartNode, drag.resizeHandle, snapped.dx, snapped.dy, keepAspect);
       const nextNodes = present.nodes.map((n) => (n.id === drag.resizeNodeId ? resized : n));
-      setPreview({ ...present, nodes: nextNodes });
+      setPreview(asEdited(useCanvasStore.getState(), { ...present, nodes: nextNodes }));
       return;
     }
 
@@ -1365,10 +1396,10 @@ export const CanvasSurface = forwardRef
           (assetPayload.items && assetPayload.items.find((i) => i.id === id)) ||
           useStore.getState().items.find((i) => i.id === id);
         if (item) {
-          const src = item.kind === "video" ? item.poster ?? item.url : item.url;
+          const src = item.url;
           if (src) {
             addImageFromAsset(
-              { url: src, aspectRatio: item.aspectRatio },
+              { url: src, aspectRatio: item.aspectRatio, kind: item.kind, title: item.name || "Video" },
               { x: worldPoint.x + offset, y: worldPoint.y + offset }
             );
             offset += 30;
@@ -1378,7 +1409,7 @@ export const CanvasSurface = forwardRef
       return;
     }
     // Direct OS file drop (best-effort; not the primary/AC path).
-    const files = Array.from(e.dataTransfer.files).filter((f) => f.type.startsWith("image/"));
+    const files = Array.from(e.dataTransfer.files).filter(isBoardFile);
     if (files.length && boardId) {
       const screen = toScreenLocal(e.clientX, e.clientY);
       const worldPoint = screenToWorld(screen, viewport);
@@ -1426,6 +1457,7 @@ export const CanvasSurface = forwardRef
       ref={containerRef}
       role="application"
       aria-label="Board canvas"
+      data-board-surface=""
       tabIndex={0}
       onPointerDownCapture={onPointerDownCapture}
       onPointerDown={onPointerDownBackground}
@@ -1548,6 +1580,9 @@ export const CanvasSurface = forwardRef
         </div>
       )}
 
+      {!touchViewOnly && <FrameControls />}
+
+      {INK_TOOLS.includes(tool) && !readOnly && !touchViewOnly && <InkOverlay tool={tool} viewport={viewport} />}
       <ArrangeOverlay
         containerRef={containerRef}
         view={present}

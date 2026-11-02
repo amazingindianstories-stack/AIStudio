@@ -12,11 +12,15 @@ import {
   CANVAS_STATE_VERSION,
 
 } from "./types";
+import { cleanWorkNode } from "./work-records";
 import { validateMarks } from "./rich-text";
 import { SHAPE_KIND_PATTERN } from "./shapes";
 import { FONT_FAMILY_PATTERN } from "./fonts";
 import { uniqueStrings, validateReactions } from "./reactions";
 import { MAX_NODE_TAGS, MAX_TAG_ID, validateTags } from "./tags";
+import { validateGrid, validateInk, validateNotes, validateSynced } from "./extras";
+import { dropDanglingFormatRefs, validateFormatNode, withDiagramSource, withMermaidKey, withScreenLink } from "./formats/validate";
+import { MEDIA_NODE_TYPES, validateLink, validateMediaNode } from "./media-nodes";
 
 export function emptyCanvasState() {
   return {
@@ -28,6 +32,8 @@ export function emptyCanvasState() {
 }
 
 const NODE_TYPES = new Set([
+  "card",
+  "work",
   "rect",
   "ellipse",
   "triangle",
@@ -41,6 +47,11 @@ const NODE_TYPES = new Set([
   "erd",
   "swimlane",
   "diagram",
+  "ink",
+  "grid",
+  "synced",
+  "format",
+  ...MEDIA_NODE_TYPES,
 ]);
 const TEXT_ALIGNS = ["left", "center", "right"];
 
@@ -183,14 +194,33 @@ function validateSettings(raw) {
  * on every save (backend/apps/canvas/activity.py) and ignores what a client
  * sends, so they only ride along here; boards saved before them have none.
  */
-export const STAMP_KEYS = ["createdBy", "createdAt", "updatedBy", "updatedAt", "textBy"];
+export const STAMP_KEYS = ["createdBy", "createdAt", "updatedBy", "updatedAt", "textBy", "privateBy", "anonBy", "hiddenText"];
 
 function withStamps(item, r) {
   if (!item) return null;
   // `textBy` is who last replaced the text, for sticky author labels.
   for (const key of ["createdBy", "updatedBy", "textBy"]) if (typeof r[key] === "string") item[key] = r[key];
   for (const key of ["createdAt", "updatedAt"]) if (isFiniteNumber(r[key])) item[key] = r[key];
+  // Private mode (backend/apps/canvas/private_mode.py): who wrote a hidden note, and that its text is withheld.
+  if (typeof r.privateBy === "string") item.privateBy = r.privateBy;
+  for (const key of ["anonBy", "hiddenText"]) if (r[key] === true) item[key] = true;
+  withAi(item, r);
   return item;
+}
+
+const FLOW_BLOCKS = ["format", "instruction"];
+const MAX_FLOW_TASK = 4000;
+
+/** AI attribution (`aiCreated`, `aiEditedAt`) and a Flow step's settings (`flow`), each only when set. */
+function withAi(item, r) {
+  if (r.aiCreated === true) item.aiCreated = true;
+  if (isFiniteNumber(r.aiEditedAt)) item.aiEditedAt = r.aiEditedAt;
+  const flow = r.flow;
+  if (flow && typeof flow === "object" && FLOW_BLOCKS.includes(flow.block)) {
+    const step = { block: flow.block, task: (typeof flow.task === "string" ? flow.task : "").slice(0, MAX_FLOW_TASK) };
+    if (typeof flow.inputHash === "string" && flow.inputHash.length <= 64) step.inputHash = flow.inputHash;
+    item.flow = step;
+  }
 }
 
 function withFont(node, r) {
@@ -208,7 +238,11 @@ function withStickyExtras(node, r) {
 
 function validateNode(raw) {
   if (raw == null || typeof raw !== "object") return null;
-  return withStamps(validateNodeContent(raw), raw);
+  const node = validateNodeContent(raw);
+  // Any object may carry one link (a website, a board or an object).
+  const link = node ? validateLink(raw.link) : null;
+  if (link) node.link = link;
+  return withStamps(node && withMermaidKey(withScreenLink(node, raw), raw), raw);
 }
 
 function validateNodeContent(raw) {
@@ -218,7 +252,12 @@ function validateNodeContent(raw) {
   if (!base) return null;
   const type = r.type ;
 
+  if (MEDIA_NODE_TYPES.includes(type)) return validateMediaNode(type, r, base);
+
   switch (type) {
+    case "card":
+    case "work":
+      return { ...base, type, ...cleanWorkNode(r) };
     case "rect":
     case "ellipse":
     case "triangle":
@@ -317,8 +356,19 @@ function validateNodeContent(raw) {
         fill: str(r.fill, "transparent"),
         stroke: str(r.stroke, "#000000"),
       };
+      // The frames panel's board-wide order and the presenter notes; both optional.
+      if (isFiniteNumber(r.frameOrder)) node.frameOrder = r.frameOrder;
+      if (typeof r.notes === "string" && r.notes) node.notes = r.notes;
+      // Set by an owner; the server hides what is inside from everyone else (apps/canvas/hidden.py).
+      if (r.hidden === true) node.hidden = true;
       return node;
     }
+    case "ink":
+      return validateInk(r, base);
+    case "grid":
+      return validateGrid(r, base);
+    case "synced":
+      return validateSynced(r, base);
     case "image": {
       const src = str(r.src, "");
       // Only ever our own media proxy: never embedded base64 (design.md
@@ -426,6 +476,7 @@ function validateNodeContent(raw) {
         strokeWidth: num(r.strokeWidth, 2),
       };
       withStructuredTheme(node, r);
+      withDiagramSource(node, r);
       if (Array.isArray(r.containers)) {
         const containers = [];
         for (const c of r.containers.slice(0, 50)) {
@@ -445,6 +496,8 @@ function validateNodeContent(raw) {
       }
       return node;
     }
+    case "format":
+      return validateFormatNode(r, base);
     default:
       return null;
   }
@@ -537,6 +590,8 @@ export function validateCanvasState(raw) {
     if (n.layerId && !layerIds.has(n.layerId)) delete n.layerId;
   }
 
+  dropDanglingFormatRefs(nodes, nodeIds);
+
   const connectors = Array.isArray(obj.connectors)
     ? obj.connectors
         .map((c) => validateConnector(c, nodeIds))
@@ -546,6 +601,8 @@ export function validateCanvasState(raw) {
   const state = { version: CANVAS_STATE_VERSION, viewport, nodes, connectors };
   // Present only once the board has a tag, so boards without tags keep their shape.
   if (tags.length) state.tags = tags;
+  const notes = validateNotes(obj.notes);
+  if (notes) state.notes = notes;
   if (settings) state.settings = settings;
   return state;
 }

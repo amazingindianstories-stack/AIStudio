@@ -16,6 +16,14 @@ const TYPE_LABELS = {
   stack: "sticky stack",
   frame: "frame",
   image: "image",
+  audio: "audio",
+  video: "video",
+  pdf: "PDF",
+  embed: "embed",
+  linkcard: "link card",
+  code: "code block",
+  emoji: "emoji",
+  icon: "icon",
   connector: "connector",
 };
 

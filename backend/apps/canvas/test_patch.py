@@ -121,6 +121,16 @@ class PatchSaveTests(TransactionTestCase):
                                                 for item in data['nodes']]}
         self.assertEqual(strip(self.stored()), strip(stored))
 
+    def test_pdf_page_counts_survive_full_and_patch_saves(self):
+        deck = {'id': 'p', 'type': 'pdf', 'x': 0, 'y': 0, 'w': 100, 'h': 80, 'src': '/api/media/canvas/b/d.pdf',
+                'name': 'Deck', 'pages': 12, 'page': 1}
+        self.put(self.ana, graph(deck))
+        self.assertEqual([(item['id'], item['pages'], item['page']) for item in self.stored()['nodes']], [('p', 12, 1)])
+        self.patch(self.ben, {'nodes': {'upsert': [{**deck, 'page': 5}]}})
+        stored = self.stored()['nodes']
+        self.assertEqual([(item['id'], item['pages'], item['page']) for item in stored], [('p', 12, 5)])
+        self.assertIs(type(stored[0]['page']), int)
+
     def test_stamps_and_history_cover_exactly_the_patched_objects(self):
         ana, ben = str(self.ana.id), str(self.ben.id)
         self.put(self.ana, graph(rect('a', text='A'), rect('b', text='B'), rect('c', text='C')))
@@ -191,16 +201,16 @@ class PatchSaveTests(TransactionTestCase):
 
     def test_the_size_limit_is_measured_on_the_resulting_board(self):
         def nodes(text):
-            return [rect(f'n{index:04}') for index in range(2000)] + [rect('pad', text=text)]
+            return [rect(f'n{index:04}') for index in range(2000)] + [rect('pad', type='frame', name=text)]
         room = MAX_BOARD_JSON_UNITS - content_length(validate_state(graph(*nodes(''))))
         self.put(self.ana, graph(*nodes('x' * (room - 10))))
         version = CanvasBoard.objects.get(pk=BOARD).version
         # A small patch that would take the whole board one unit over is refused without writing anything.
-        refused = self.patch(self.ben, {'nodes': {'upsert': [rect('pad', text='x' * (room + 1))]}}, expect=413)
+        refused = self.patch(self.ben, {'nodes': {'upsert': [rect('pad', type='frame', name='x' * (room + 1))]}}, expect=413)
         self.assertEqual(refused, {'error': 'Board is too large to save.'})
         self.assertEqual((CanvasBoard.objects.get(pk=BOARD).version, len(self.history())), (version, 2001))
         # Exactly at the limit saves.
-        self.patch(self.ben, {'nodes': {'upsert': [rect('pad', text='x' * room)]}})
+        self.patch(self.ben, {'nodes': {'upsert': [rect('pad', type='frame', name='x' * room)]}})
         self.assertEqual(CanvasBoard.objects.get(pk=BOARD).version, version + 1)
 
     def test_a_patch_is_measured_as_the_board_it_produces_not_by_its_own_size(self):
@@ -289,7 +299,8 @@ class ChangesMigrationTests(TransactionTestCase):
             old.get_model('canvas', 'CanvasBoardSave').objects.create(board_id=board, save_id=uuid4(), version=2, applied_at=2)
             executor = MigrationExecutor(connection)
             self.assertEqual([(m.app_label, m.name) for m, backward in executor.migration_plan(final)],
-                             [('canvas', '0007_canvasboardsave_changes'), ('canvas', '0008_customshapepack')])
+                             [('canvas', '0007_canvasboardsave_changes'), ('canvas', '0008_customshapepack'),
+                              ('canvas', '0009_work_records'), ('canvas', '0010_work_permissions'), ('canvas', '0011_work_relation_kinds'), ('canvas', '0012_boardmedia'), ('canvas', '0013_board_templates'), ('canvas', '0014_collaboration'), ('canvas', '0015_facilitation'), ('canvas', '0016_talktrack'), ('canvas', '0017_sidekicks_flows')])
             executor.migrate(final)
             self.assertEqual(list(CanvasBoardSave.objects.filter(board_id=board).values_list('version', 'changes')), [(2, None)])
             # A board saved before the upgrade is fetched whole by editors that missed that save.

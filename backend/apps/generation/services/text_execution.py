@@ -21,6 +21,25 @@ def mock_output(value):
     import json
     if value['format'] == 'stickies':
         return parse_output('stickies', json.dumps({'notes': [{'text': f'Mock idea {index}', 'color': 'yellow'} for index in (1, 2, 3)]}))
+    from apps.agents.sidekick import MOCK_OUTPUTS
+    mock = MOCK_OUTPUTS.get(value['format'])
+    if mock is not None:
+        return parse_output(value['format'], json.dumps(mock))
+    first = value['turns'][0]['text']
+    selected = json.loads(first.split('Selected board content (JSON):\n', 1)[1]) if 'Selected board content (JSON):\n' in first else []
+    half = (len(selected) + 1) // 2
+    samples = {
+        'rewrite': lambda: {'items': [{'id': item['id'], 'text': 'Mock ' + item['text']} for item in selected]},
+        'cluster': lambda: {'groups': [{'title': 'Mock group', 'ids': [item['id'] for item in selected[:half]]},
+                                       {'title': 'Another mock group', 'ids': [item['id'] for item in selected[half:]]}]},
+        'summary': lambda: {'title': 'Mock summary', 'body': 'A mock summary of the selected notes.'},
+        'layout': lambda: {'title': 'Mock board', 'frames': [{'title': 'Mock frame', 'notes': [{'text': 'Mock note', 'color': 'yellow'}]}]},
+        'diagram': lambda: {'kind': 'flowchart', 'nodes': [{'id': 'a', 'label': 'Start', 'shape': 'ellipse', 'color': ''},
+                                                           {'id': 'b', 'label': 'Finish', 'shape': 'rect', 'color': ''}],
+                            'edges': [{'from': 'a', 'to': 'b', 'label': ''}]},
+    }
+    if value['format'] in samples:
+        return parse_output(value['format'], json.dumps(samples[value['format']]()))
     raise ValueError('No mock result for this board format.')
 
 

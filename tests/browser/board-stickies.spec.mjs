@@ -222,7 +222,7 @@ test('Board stickies: bulk mode, colors, shape, auto size, tags, reactions, auth
   const viewer = await signIn(browser, baseURL, VIEWER, project.id);
   const writes = [];
   viewer.page.on('request', (request) => {
-    if (request.url().includes('/api/canvas-boards/') && request.method() !== 'GET') writes.push(request.url());
+    if (request.url().includes('/api/canvas-boards/') && !request.url().includes('/pulse') && request.method() !== 'GET') writes.push(request.url());
   });
   await openBoard(viewer.page);
   await expect(viewer.page.getByRole('status').filter({ hasText: 'View only' })).toBeVisible();
@@ -358,7 +358,7 @@ test('Board text: lists, custom colors, fonts and the remembered style', async (
   board = await storedBoard(context, boardId, (b) => b.data.nodes.some((node) => node.text === 'after'));
   expect(board.data.nodes.find((node) => node.text === 'after')).toMatchObject({ color: '#123abc', fontFamily: 'lora' });
 
-  // Text inside a shape stops at 6,000 characters and aligns from the inspector (centered by default).
+  // Text inside a shape stops at 3,000 characters (the plan limit) and aligns from the inspector (centered by default).
   await page.keyboard.press('Escape');
   await page.keyboard.press('r');
   await canvas.click({ position: { x: 300, y: 650 } });
@@ -369,14 +369,14 @@ test('Board text: lists, custom colors, fonts and the remembered style', async (
   await expect(editor).toBeFocused();
   await editor.evaluate((el) => {
     const data = new DataTransfer();
-    data.setData('text/plain', 'x'.repeat(5998) + 'abcdef');
+    data.setData('text/plain', 'x'.repeat(2998) + 'abcdef');
     el.dispatchEvent(new ClipboardEvent('paste', { clipboardData: data, bubbles: true, cancelable: true }));
   });
   await page.keyboard.type('yz');
   await page.keyboard.press('Enter');
   await page.keyboard.press('ControlOrMeta+Enter');
   board = await storedBoard(context, boardId, (b) => Boolean(b.data.nodes.find((node) => node.id === rect.id)?.text));
-  expect(board.data.nodes.find((node) => node.id === rect.id).text).toBe('x'.repeat(5998) + 'ab');
+  expect(board.data.nodes.find((node) => node.id === rect.id).text).toBe('x'.repeat(2998) + 'ab');
   await expect(rectNode.locator('div').filter({ hasText: /^x+ab$/ }).last()).toHaveCSS('text-align', 'center');
   await rectNode.click();
   await expect(page.getByRole('button', { name: 'Align center' })).toHaveClass(/bg-ink-600/);

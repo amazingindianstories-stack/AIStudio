@@ -23,12 +23,24 @@ async function readJson(response) {
   return response.json().catch(() => ({}));
 }
 
-async function send(path, method, body, headers = {}) {
+export async function send(path, method, body, headers = {}) {
   const response = await apiFetch(path, {
     method,
     headers: { "Content-Type": "application/json", ...headers },
     body: JSON.stringify(body),
   });
+  const json = await readJson(response);
+  if (!response.ok) {
+    const error = new Error(apiErrorMessage(json, response.status));
+    error.status = response.status;
+    error.code = json?.code;
+    throw error;
+  }
+  return json;
+}
+
+export async function getJson(path) {
+  const response = await apiFetch(path);
   const json = await readJson(response);
   if (!response.ok) {
     const error = new Error(apiErrorMessage(json, response.status));
@@ -108,10 +120,18 @@ function occupied(canvas, exclude = []) {
   return [...nodes, ...covered.map((rect) => screenRectToBoard(rect, viewport))];
 }
 
+/** The nodes and connectors a finished job builds at `center`: a format builds either nodes or a graph of both. */
+function buildResult(format, job, canvas, center, inPlace = false) {
+  if (format.graph) {
+    return format.graph(job, center, canvas.history.present, canvas.selection, inPlace);
+  }
+  return { nodes: format.nodes?.(job, center) ?? [], connectors: [] };
+}
+
 /** Insert `nodes` as one undo step, then pan (instantly) if they are not fully visible outside the panels. */
-function insertVisible(nodes, replaceIds) {
+function insertVisible(nodes, replaceIds, connectors = []) {
   const canvas = useCanvasStore.getState();
-  canvas.placeGeneratedNodes(nodes, replaceIds);
+  canvas.placeGeneratedNodes(nodes, replaceIds, connectors);
   const { viewport } = useCanvasStore.getState().history.present;
   const { panel, visible } = layout(canvas);
   const shown = viewportShowing(nodes, viewport, visible, panel);
@@ -231,9 +251,14 @@ export const useBoardAi = create((set, get) => ({
     await oneAtATime(() => {
       if (mine !== generation || !onItsBoard(job)) return;
       const canvas = useCanvasStore.getState();
-      const nodes = inFreeSpace(format.nodes(job, canvas.viewportCenter()), occupied(canvas));
+      if (format.edit) {
+        applyEdit(set, format, job);
+        return;
+      }
+      const built = buildResult(format, job, canvas, canvas.viewportCenter());
+      const nodes = inFreeSpace(built.nodes, occupied(canvas));
       if (!nodes.length) return;
-      insertVisible(nodes, []);
+      insertVisible(nodes, [], built.connectors);
       set({ error: null, placed: placedResult(job, nodes) });
     });
   },
@@ -325,14 +350,17 @@ async function claimAndInsert(get, set, job, mine, chosen) {
     return;
   }
   const canvas = useCanvasStore.getState();
+  if (format.edit) {
+    await claimAndEdit(get, set, job, mine, chosen, format);
+    return;
+  }
   const previous = get().placed;
   const refines = previous && job.parentJobId === previous.jobId;
   const replaceIds = refines ? previous.nodeIds : [];
   const previousCenter = refines ? placedCenter(canvas.history.present.nodes, replaceIds) : null;
   // A refinement takes the place of the result it refines; a new result goes to free space near the viewport centre.
-  const nodes = previousCenter
-    ? format.nodes(job, previousCenter)
-    : inFreeSpace(format.nodes(job, canvas.viewportCenter()), occupied(canvas, replaceIds));
+  const built = buildResult(format, job, canvas, previousCenter ?? canvas.viewportCenter(), Boolean(previousCenter));
+  const nodes = previousCenter ? built.nodes : inFreeSpace(built.nodes, occupied(canvas, replaceIds));
   let marked;
   try {
     // Claim the placement first: only the caller whose mark succeeds inserts the nodes.
@@ -347,6 +375,38 @@ async function claimAndInsert(get, set, job, mine, chosen) {
     return;
   }
   if (mine !== generation || !onItsBoard(job)) return;
-  insertVisible(nodes, replaceIds);
+  insertVisible(nodes, replaceIds, built.connectors);
   set(panelState(get, job, chosen, { job: marked, error: null, placed: placedResult(job, nodes) }));
+}
+
+/** Rewrite the selected objects in place (an edit format): claim the objects it will change, then apply it as one undo step. */
+async function claimAndEdit(get, set, job, mine, chosen, format) {
+  const canvas = useCanvasStore.getState();
+  const basis = canvas.history.present;
+  const computed = format.edit(job, basis);
+  const { touched } = computed;
+  let marked;
+  try {
+    marked = await markBoardAiPlaced(job.boardId, job.id, touched);
+  } catch (error) {
+    if (mine !== generation) return;
+    if (error?.code === "ALREADY_PLACED") {
+      set(panelState(get, job, chosen, { job: { ...job, placedAt: Date.now() } }));
+      return;
+    }
+    set(panelState(get, job, chosen, { job, error: error?.message || "Could not apply the result." }));
+    return;
+  }
+  if (mine !== generation || !onItsBoard(job)) return;
+  const changed = touched.length ? useCanvasStore.getState().applyBoardAiEdit((present) => (present === basis ? computed : format.edit(job, present))) : [];
+  set(panelState(get, job, chosen, {
+    job: marked,
+    error: changed.length ? null : "Nothing changed: the AI result matched none of the selected objects.",
+  }));
+}
+
+/** Apply a finished edit result to the board again (no claim, no new job). */
+function applyEdit(set, format, job) {
+  const changed = useCanvasStore.getState().applyBoardAiEdit((present) => format.edit(job, present));
+  set({ error: changed.length ? null : "Nothing changed: the AI result matched none of the selected objects." });
 }

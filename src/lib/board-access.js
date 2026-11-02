@@ -34,6 +34,8 @@ const rank = (role) => RANK[role] ?? 0;
 
 /** Unknown (not yet loaded) roles stay editable so loading never flashes a read-only UI. */
 export const canEditRole = (role) => role == null || rank(role) >= RANK.edit;
+/** Commenters vote in a voting session; unknown (not yet loaded) roles count as allowed, like canEditRole. */
+export const canCommentRole = (role) => role == null || rank(role) >= RANK.comment;
 export const canShareRole = (role) => rank(role) >= RANK.co_owner;
 export const canOwnRole = (role) => rank(role) >= RANK.owner;
 
@@ -58,6 +60,11 @@ export async function changeBoardAccess(boardId, change) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(change),
   }));
+}
+
+/** The caller's role in a project (`role` is null for someone who is not a member). */
+export async function fetchProjectAccess(projectId) {
+  return readJson(await apiFetch(`/api/projects/${projectId}/members`, { cache: "no-store" }));
 }
 
 export async function changeProjectMembers(projectId, change) {

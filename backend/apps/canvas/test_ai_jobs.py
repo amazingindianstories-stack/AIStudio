@@ -372,6 +372,16 @@ class BoardAiJobTests(BoardFixture):
         self.assertEqual(self.submit({'format': 'stickies', 'prompt': 'x'}).status_code, 401)
         self.assertEqual(self.client.get(self.base).status_code, 401)
 
+    def test_an_admin_can_switch_board_ai_off_and_nothing_is_queued(self):
+        from apps.admin_dashboard import workspace
+        workspace.save(workspace.FEATURES_KEY, {'board_ai': {'mode': 'none', 'userIds': []}})
+        for response in (self.quote({'format': 'stickies', 'prompt': 'x'}), self.submit({'format': 'stickies', 'prompt': 'x'})):
+            self.assertEqual(response.status_code, 403)
+            self.assertEqual(response.json()['code'], 'FEATURE_DISABLED')
+        self.assertEqual(BoardAiJob.objects.count(), 0)
+        workspace.save(workspace.FEATURES_KEY, {'board_ai': {'mode': 'users', 'userIds': [str(self.actor_id)]}})
+        self.assertEqual(self.submit({'format': 'stickies', 'prompt': 'x'}).status_code, 201)
+
     def test_only_a_user_who_can_edit_the_board_may_use_its_ai_jobs(self):
         job = self.submit({'format': 'stickies', 'prompt': 'ideas'}).json()['job']
         # Another user owns the board and gives the team view or comment access only.
@@ -393,6 +403,89 @@ class BoardAiJobTests(BoardFixture):
                                            content_type='application/json').status_code, 200)
         self.assertEqual(self.submit({'format': 'stickies', 'prompt': 'x'}, key='board-key-editor').status_code, 201)
         self.assertEqual(BoardAiJob.objects.count(), 2)
+
+
+class BoardAiSelectionTests(BoardFixture):
+    """The selection formats (edit text, cluster, summarize), the generated graphs (diagram, layout) and image references."""
+    ITEMS = [{'id': 'n1', 'type': 'sticky', 'text': 'teh cat'}, {'id': 'n2', 'type': 'sticky', 'text': 'a dog'}]
+
+    def run_job(self, body, key):
+        created = self.submit(body, key=key)
+        self.assertEqual(created.status_code, 201, created.content)
+        job = created.json()['job']
+        with FakeProviders() as fake:
+            self.assertEqual(self.run_worker(job['generationId'])['kind'], 'succeeded')
+        (read,) = self.jobs(job['id'])
+        return read, fake
+
+    def test_each_format_runs_through_the_worker_and_returns_its_parsed_result(self):
+        cases = (
+            ('rewrite', {'context': self.ITEMS}, {'items': [{'id': 'n1', 'text': 'EDITED teh cat'}, {'id': 'n2', 'text': 'EDITED a dog'}]}),
+            ('cluster', {'context': self.ITEMS}, {'groups': [{'title': 'First half', 'ids': ['n1']}, {'title': 'Second half', 'ids': ['n2']}]}),
+            ('summary', {'context': self.ITEMS}, {'title': 'Summary', 'body': 'Summary of teh cat; a dog'}),
+            ('layout', {}, None),
+            ('diagram', {}, None),
+        )
+        for index, (name, extra, expected) in enumerate(cases):
+            with self.subTest(format=name):
+                read, fake = self.run_job({'format': name, 'prompt': f'do {name}', **extra}, f'board-key-select-{index}')
+                self.assertEqual(read['format'], name)
+                if expected is not None:
+                    self.assertEqual(read['result'], expected)
+                else:
+                    self.assertTrue(read['result'])
+                (payload,) = fake.board_payloads
+                first = payload['contents'][0]['parts'][0]['text']
+                self.assertTrue(first.startswith(f'do {name}'))
+                self.assertEqual('Selected board content' in first, bool(extra))
+                # The row keeps the person's own words as its prompt; the selection rides in the first turn only.
+                self.assertEqual(Generation.objects.get(pk=read['generationId']).prompt, f'do {name}')
+
+    def test_selection_formats_need_a_selection_and_the_context_is_validated(self):
+        self.assertEqual(self.submit({'format': 'rewrite', 'prompt': 'fix'}).json()['code'], 'SELECTION_REQUIRED')
+        self.assertEqual(self.quote({'format': 'cluster', 'prompt': 'group'}).json()['code'], 'SELECTION_REQUIRED')
+        for context in ([], 'text', [{'id': 'n1'}], [{'id': f'n{i}', 'text': 'x' * 2000} for i in range(8)], [{'id': 'n1', 'text': 5}]):
+            with self.subTest(context=str(context)[:30]):
+                response = self.quote({'format': 'rewrite', 'prompt': 'fix', 'context': context})
+                self.assertEqual((response.status_code, response.json()['code']), (400, 'INVALID_CONTEXT'))
+        self.assertEqual(self.quote({'format': 'image', 'prompt': 'lamp', 'context': self.ITEMS}).status_code, 400)
+        self.assertEqual(Generation.objects.count(), 0)
+
+    def test_the_selection_does_not_count_toward_the_prompt_limit_and_is_priced(self):
+        plain = self.quote({'format': 'summary', 'prompt': 'short', 'context': self.ITEMS[:1]}).json()['quote']['costCents']
+        big = [{'id': f'n{i}', 'type': 'sticky', 'text': 'word ' * 380} for i in range(6)]
+        priced = self.quote({'format': 'summary', 'prompt': 'short', 'context': big})
+        self.assertEqual(priced.status_code, 200, priced.content)
+        self.assertGreaterEqual(priced.json()['quote']['costCents'], plain)
+
+    def test_a_refinement_of_a_layout_keeps_its_first_turn(self):
+        first, _ = self.run_job({'format': 'layout', 'prompt': 'a workshop'}, 'board-key-layout-1')
+        refined = self.submit({'format': 'layout', 'prompt': 'add risks', 'parentJobId': first['id']}, key='board-key-layout-2')
+        self.assertEqual(refined.status_code, 201, refined.content)
+        turns = Generation.objects.get(pk=refined.json()['job']['generationId']).submission_input['turns']
+        self.assertEqual([turn['role'] for turn in turns], ['user', 'model', 'user'])
+        self.assertEqual((turns[0]['text'], turns[2]['text']), ('a workshop', 'add risks'))
+
+    def test_a_refinement_of_a_summary_needs_no_selection_and_keeps_the_original_one(self):
+        first, _ = self.run_job({'format': 'summary', 'prompt': 'sum up', 'context': self.ITEMS}, 'board-key-summary-1')
+        body = {'format': 'summary', 'prompt': 'make it shorter', 'parentJobId': first['id']}
+        self.assertEqual(self.quote(body).status_code, 200)
+        refined = self.submit(body, key='board-key-summary-2')
+        self.assertEqual(refined.status_code, 201, refined.content)
+        turns = Generation.objects.get(pk=refined.json()['job']['generationId']).submission_input['turns']
+        self.assertEqual([turn['role'] for turn in turns], ['user', 'model', 'user'])
+        self.assertIn('teh cat', turns[0]['text'])
+        self.assertEqual(turns[2]['text'], 'make it shorter')
+
+    def test_an_image_job_takes_up_to_four_board_images_as_references(self):
+        refs = ['/api/media/generations/a/master.png', '/api/media/generations/b/master.png']
+        created = self.submit({'format': 'image', 'prompt': 'blend these', 'referenceImages': refs}, key='board-key-refs-1')
+        self.assertEqual(created.status_code, 201, created.content)
+        self.assertEqual(Generation.objects.get(pk=created.json()['job']['generationId']).reference_images, refs)
+        for bad in ([], ['https://elsewhere.example/x.png'], refs * 3, 'x', [5]):
+            with self.subTest(bad=str(bad)[:30]):
+                response = self.quote({'format': 'image', 'prompt': 'blend', 'referenceImages': bad})
+                self.assertEqual(response.status_code, 400)
 
 
 class BoardAiAdmissionTests(BoardFixture):
@@ -435,6 +528,80 @@ class BoardAiAdmissionTests(BoardFixture):
         with patch.dict('os.environ', {'GEMINI_SPEND_LIMIT_CENTS': '10'}):
             self.assertTrue(admission.queue_position(image.id)['heldForBudget'])
             self.assertIsNone(admission.admit_job(image.id))
+
+
+class BoardAiAllowanceTests(BoardFixture):
+    """The monthly Create with AI allowance (admin limit boardAiMonthlyCapCents) is enforced on submit."""
+
+    def set_cap(self, value, user=False):
+        from apps.admin_dashboard.models import AppSetting, UserLimit
+        if user:
+            UserLimit.objects.create(user_id=self.actor_id, key='boardAiMonthlyCapCents', value=str(value), updated_at=1)
+        else:
+            AppSetting.objects.create(key='boardAiMonthlyCapCents', value=str(value), updated_at=1)
+
+    def board_row(self, cost, created_at=None):
+        stamp = now()
+        return Generation.objects.create(id=uuid.uuid4(), kind='text', status='succeeded', prompt='x', model='Gemini', aspect_ratio='',
+                                         user_id=self.actor_id, cost_cents=cost, created_via='board',
+                                         created_at=created_at or stamp, updated_at=stamp)
+
+    def test_no_cap_applies_until_an_admin_sets_one(self):
+        self.board_row(5000)
+        self.assertEqual(self.submit({'format': 'stickies', 'prompt': 'ideas'}).status_code, 201)
+
+    def test_a_job_over_the_remaining_allowance_is_refused_and_stores_nothing(self):
+        self.set_cap(10)
+        self.board_row(10)
+        response = self.submit({'format': 'stickies', 'prompt': 'ideas'})
+        self.assertEqual((response.status_code, response.json()['code']), (429, 'AI_ALLOWANCE_REACHED'))
+        self.assertNotIn('\u2014', response.json()['error'])
+        self.assertEqual((Generation.objects.count(), BoardAiJob.objects.count()), (1, 0))
+
+    def test_a_per_user_cap_overrides_the_global_one_and_last_months_spend_does_not_count(self):
+        from . import ai_allowance
+        self.set_cap(1)
+        self.set_cap(1000, user=True)
+        self.board_row(500, created_at=ai_allowance.month_start_ms() - 1000)
+        self.board_row(10)
+        self.assertEqual(self.submit({'format': 'stickies', 'prompt': 'ideas'}).status_code, 201)
+        self.assertEqual(ai_allowance.status(self.actor_id)['capCents'], 1000)
+
+    def test_a_replayed_request_returns_its_job_even_when_the_cap_is_now_reached(self):
+        first = self.submit({'format': 'stickies', 'prompt': 'ideas'}).json()['job']
+        self.set_cap(1)
+        again = self.submit({'format': 'stickies', 'prompt': 'ideas'})
+        self.assertEqual((again.status_code, again.json()['job']['id']), (201, first['id']))
+
+
+class BoardAiSwitchTests(BoardFixture):
+    """The admin switch boardAiEnabled turns Create with AI off for everyone or for one user."""
+
+    def set_switch(self, value, user=False):
+        from apps.admin_dashboard.models import AppSetting, UserLimit
+        if user:
+            UserLimit.objects.create(user_id=self.actor_id, key='boardAiEnabled', value=str(value), updated_at=1)
+        else:
+            AppSetting.objects.create(key='boardAiEnabled', value=str(value), updated_at=1)
+
+    def test_the_feature_is_on_until_an_admin_turns_it_off(self):
+        self.assertEqual(self.submit({'format': 'stickies', 'prompt': 'ideas'}).status_code, 201)
+
+    def test_a_global_off_refuses_the_job_and_stores_nothing(self):
+        self.set_switch(0)
+        response = self.submit({'format': 'stickies', 'prompt': 'ideas'})
+        self.assertEqual((response.status_code, response.json()['code']), (403, 'AI_DISABLED'))
+        self.assertNotIn('\u2014', response.json()['error'])
+        self.assertEqual((Generation.objects.count(), BoardAiJob.objects.count()), (0, 0))
+
+    def test_a_per_user_on_overrides_a_global_off(self):
+        self.set_switch(0)
+        self.set_switch(1, user=True)
+        self.assertEqual(self.submit({'format': 'stickies', 'prompt': 'ideas'}).status_code, 201)
+
+    def test_a_per_user_off_blocks_that_user_only(self):
+        self.set_switch(0, user=True)
+        self.assertEqual(self.submit({'format': 'stickies', 'prompt': 'ideas'}).status_code, 403)
 
 
 class BoardAiPaidGuardTests(BoardFixture):
@@ -487,7 +654,8 @@ class BoardAiJobMigrationTests(TransactionTestCase):
             old.objects.create(id=identifier, project_id=uuid.uuid4(), name='Kept', data={'version': 1, 'nodes': []}, created_at=1, updated_at=2)
             executor = MigrationExecutor(connection)
             self.assertEqual([(m.app_label, m.name) for m, backward in executor.migration_plan(final)],
-                             [('canvas', '0006_boardaijob'), ('canvas', '0007_canvasboardsave_changes'), ('canvas', '0008_customshapepack')])
+                             [('canvas', '0006_boardaijob'), ('canvas', '0007_canvasboardsave_changes'), ('canvas', '0008_customshapepack'),
+                              ('canvas', '0009_work_records'), ('canvas', '0010_work_permissions'), ('canvas', '0011_work_relation_kinds'), ('canvas', '0012_boardmedia'), ('canvas', '0013_board_templates'), ('canvas', '0014_collaboration'), ('canvas', '0015_facilitation'), ('canvas', '0016_talktrack'), ('canvas', '0017_sidekicks_flows')])
             executor.migrate(final)
             board = CanvasBoard.objects.get(pk=identifier)
             self.assertEqual((board.name, board.data, board.updated_at), ('Kept', {'version': 1, 'nodes': []}, 2))
@@ -496,7 +664,7 @@ class BoardAiJobMigrationTests(TransactionTestCase):
             with connection.cursor() as cursor:
                 cursor.execute("SELECT indexname FROM pg_indexes WHERE tablename = 'canvas_board_ai_jobs' ORDER BY indexname")
                 self.assertEqual([row[0] for row in cursor.fetchall()],
-                                 ['canvas_ai_jobs_board_user_idx', 'canvas_ai_jobs_parent_idx', 'canvas_board_ai_jobs_generation_id_key',
+                                 ['canvas_ai_jobs_board_user_idx', 'canvas_ai_jobs_chat_idx', 'canvas_ai_jobs_parent_idx', 'canvas_board_ai_jobs_generation_id_key',
                                   'canvas_board_ai_jobs_pkey'])
             self.assertFalse(MigrationExecutor(connection).migration_plan(final))
         finally:

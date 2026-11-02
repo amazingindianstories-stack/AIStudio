@@ -203,7 +203,7 @@ test('Board touch: a phone opens the board view-only, pans and zooms by touch, a
   // One finger on empty space pans; the sticky (world 400,200) starts past the phone's right edge.
   const offscreen = await sticky.boundingBox();
   expect(offscreen.x).toBeGreaterThan(box.width - 1);
-  await touch.drag(at(300, 650), at(80, 650));
+  await touch.drag(at(300, 500), at(80, 500));
   const before = await sticky.boundingBox();
   expect(before.x).toBeLessThan(box.width - 60);
   expect(offscreen.x - before.x).toBeGreaterThan(200);
@@ -274,11 +274,11 @@ test('Board touch: a phone opens the board view-only, pans and zooms by touch, a
   // Long press on empty space then drag draws a marquee that selects the node; the style inspector shows.
   const inspector = phone.page.getByRole("button", { name: "More", exact: true });
   await expect(inspector).toBeVisible(); // still selected from the move
-  await touch.tap(at(20, 700)); // tap empty space: clears the selection
+  await touch.tap(at(30, 560)); // tap empty space: clears the selection
   await expect(inspector).toHaveCount(0);
   await centreNode(touch, sticky, box);
   const target = await sticky.boundingBox();
-  await touch.drag(at(target.x - box.x - 30, target.y - box.y - 30), at(target.x - box.x + target.width + 30, target.y - box.y + target.height + 30), { holdMs: 650 });
+  await touch.drag(at(target.x - box.x - 16, target.y - box.y - 16), at(target.x - box.x + target.width + 16, target.y - box.y + target.height + 16), { holdMs: 650 });
   await expect(inspector).toBeVisible();
   await pixelClean(phone.page);
   await shot(phone.page, info, 'phone-marquee-selection');
@@ -357,7 +357,7 @@ test('Board touch: a tablet lays out every control and a view-role teammate neve
   const viewer = await signIn(browser, baseURL, VIEWER, project.id, TABLET);
   const writes = [];
   viewer.page.on('request', (request) => {
-    if (request.url().includes('/api/canvas-boards/') && request.method() !== 'GET') writes.push(request.url());
+    if (request.url().includes('/api/canvas-boards/') && !request.url().includes('/pulse') && request.method() !== 'GET') writes.push(request.url());
   });
   await viewer.page.goto('/');
   const loaded = viewer.page.waitForResponse((response) => response.url().endsWith(boardPath) && response.request().method() === 'GET');
@@ -461,7 +461,7 @@ test('Board touch: viewing, a keyboard cannot edit, save trouble stays visible, 
   await phone.page.route(isBoard, (route) => (['PUT', 'PATCH'].includes(route.request().method())
     ? route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"down"}' })
     : route.continue()));
-  await touch.drag(at(300, 650), at(120, 650));
+  await touch.drag(at(300, 500), at(120, 500));
   await expect(phone.page.getByText(/Could not save/)).toBeVisible({ timeout: 10000 });
   await expect(viewOnly).toHaveCount(0);
   await phone.page.unroute(isBoard);
@@ -517,7 +517,7 @@ test('Board touch: after a one-finger crop drag, taps select, a double tap opens
   const touch = new Touch(await phone.context.newCDPSession(phone.page));
   const box = await canvas.boundingBox();
   const at = (x, y) => ({ x: box.x + x, y: box.y + y });
-  const empty = at(330, 560); // below the centred image and above the tool dock
+  const empty = at(330, 530); // below the centred image and above the comment cluster and the tool dock
   const node = phone.page.locator(`[data-node-id="${imageId}"]`);
   const cropButton = phone.page.getByRole('button', { name: 'Crop image', exact: true });
   const cropControls = phone.page.locator('[data-crop-controls]');
@@ -557,7 +557,7 @@ test('Board touch: after a one-finger crop drag, taps select, a double tap opens
   // One finger on empty space pans by the finger's travel and leaves the zoom alone.
   const before = await node.boundingBox();
   await phone.page.waitForTimeout(400);
-  await touch.drag(empty, at(150, 560));
+  await touch.drag(empty, at(150, 530));
   const after = await node.boundingBox();
   expect(before.x - after.x).toBeGreaterThan(150);
   expect(before.x - after.x).toBeLessThan(200);

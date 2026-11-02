@@ -21,6 +21,8 @@ test('auto-approve cents are whole numbers within the limit', () => {
 
 test('labels, times and the Claude Code command', () => {
   assert.equal(scopeTitle('veevee.generate'), 'Create images and videos');
+  assert.equal(scopeTitle('veevee.boards.read'), 'Read boards');
+  assert.equal(scopeTitle('veevee.boards.write'), 'Edit boards');
   assert.equal(scopeTitle('unknown.scope'), 'unknown.scope');
   const now = Date.UTC(2026, 9, 28, 12);
   assert.equal(relativeTime(null, now), 'Never used');

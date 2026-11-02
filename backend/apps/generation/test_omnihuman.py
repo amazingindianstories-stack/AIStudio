@@ -42,7 +42,7 @@ def audio(seconds=4):
     return out.getvalue()
 
 
-class OmniHumanProtocolTests(SimpleTestCase):
+class OmniHumanProtocolTests(TransactionTestCase):
     def test_signed_submit_and_query_use_exact_bytes_and_fixed_scope(self):
         transport = Mock(request=Mock(return_value=response({'code': 10000, 'data': {'task_id': 'task-1'}})))
         identifier = api.create_video_task({'imageUrls': ['https://fixture.invalid/i.png'], 'audioUrls': ['https://fixture.invalid/a.wav'],

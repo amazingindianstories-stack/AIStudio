@@ -6,7 +6,7 @@ import { apiErrorMessage } from "./api-error";
 const MIME_BY_EXTENSION = Object.freeze({
   jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp",
   gif: "image/gif", tif: "image/tiff", tiff: "image/tiff", heic: "image/heic", heif: "image/heif",
-  avif: "image/avif", bmp: "image/bmp",
+  avif: "image/avif", bmp: "image/bmp", svg: "image/svg+xml", psd: "image/vnd.adobe.photoshop", pdf: "application/pdf",
   mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg", webm: "audio/webm",
   m4a: "audio/mp4", aac: "audio/aac", flac: "audio/flac",
   mp4: "video/mp4", mov: "video/quicktime", m4v: "video/x-m4v",

@@ -1,14 +1,16 @@
 "use client";
 
+import { useMemo } from "react";
 import { create, } from "zustand";
 import { DRAFT_SYNC_MAX_AGE_MS, clearPendingDraft, readPendingDraft, savePendingDraft, shouldUseKeepalive } from "./canvas-pending-draft";
 
 import { apiFetch } from "./api";
-import { canEditRole } from "./board-access";
+import { canEditRole, canShareRole } from "./board-access";
 import { emptyCanvasState, validateCanvasState } from "./canvas/serialization";
 import { mergeCanvasStates, rebaseHistory, sameValue } from "./canvas/merge";
 import { boardFromChanges, buildBoardPatch } from "./canvas/patch";
-import { unstamped, withServerStamps } from "./canvas/stamps";
+import { unstamped, withNotesStamp, withServerStamps } from "./canvas/stamps";
+import { copyOrigin, holdsCopied, keepHiddenFrames, pasteDestinations, renameDuplicatedFrames, renestFrames } from "./canvas/frames";
 import { isLocked, unlockedIds, withoutLock } from "./canvas/locks";
 import { connectorShown, hiddenNodeIds, placeCopies, placeOnLayer } from "./canvas/layers";
 import { lockLayerActions } from "./canvas/lock-layer-actions";
@@ -25,13 +27,15 @@ import {
   screenToWorld,
   nodeBounds,
   computeFrameMembership,
-  resolveEndpoint,
+  connectorBounds,
   isContainerNode,
   connectorPointAt,
   resizeAnchored,
+  reparented,
 } from "./canvas/geometry";
+import { inColumnsCell } from "./canvas/work-records";
 import { getDiagramTheme, loadDiagramThemeId, saveDiagramThemeId } from "./canvas/diagram-themes";
-import { hiddenBoardIds } from "./canvas/culling";
+import { hiddenBoardIds, visibleGraph } from "./canvas/culling";
 import {
   bringToFront as zBringToFront,
   sendToBack as zSendToBack,
@@ -211,8 +215,10 @@ export function applyStylePatchToNode(n, patch) {
       if (patch.color !== undefined) next.color = patch.color;
       return applyDiagramLayerPatch(next, patch);
     }
-    case "image":
+    default:
       return applyDiagramLayerPatch({ ...n, opacity }, patch);
+    case "format":
+      return { ...n, opacity };
   }
 }
 
@@ -278,7 +284,11 @@ function shiftFreeEndpoint(ep, dx, dy) {
  * `duplicateSelectionInPlace`: new ids, a group-id remap (each distinct
  * source `groupId` gets one new shared id, so duplicated grouped nodes stay
  * grouped with each other but not with the originals), a `parentId` remap
- * when the parent was ALSO cloned, and a uniform (dx,dy) offset.
+ * when the parent was ALSO cloned, and a uniform (dx,dy) offset. A copy
+ * keeps its Mermaid key only inside a copy of its diagram, so the key still
+ * names one shape per diagram; click-through links and slide frames follow
+ * their targets when those were copied too, and a copy is never the board's
+ * default view.
  *
  * `keepUnmappedParent` preserves the two callers' pre-existing (and
  * different!) behavior when a clone's parent frame ISN'T itself in the
@@ -316,7 +326,13 @@ function buildClones(
         ? n.parentId ?? null
         : null;
     // A copy is a new object: the server stamps it on save.
-    clones.push({ ...withoutLock(unstamped(n)), id: newId, x: n.x + dx, y: n.y + dy, parentId: newParentId, groupId: newGroupId });
+    const clone = { ...withoutLock(unstamped(n)), id: newId, x: n.x + dx, y: n.y + dy, parentId: newParentId, groupId: newGroupId };
+    if (!idMap.has(n.parentId)) delete clone.mermaidKey;
+    if (idMap.has(n.screenLink)) clone.screenLink = idMap.get(n.screenLink);
+    if (n.slides) clone.slides = n.slides.map((slide) => (idMap.has(slide.frameId) ? { ...slide, frameId: idMap.get(slide.frameId) } : slide));
+    delete clone.defaultView;
+    delete clone.viewLocked;
+    clones.push(clone);
   }
   return { clones: placeCopies(present, clones, layerId), idMap };
 }
@@ -358,6 +374,12 @@ function scheduleGestureEnd(set, get) {
   }, GESTURE_IDLE_MS);
 }
 
+/** `next`, an edit of the live graph, as the server will keep it from this person: below co-owner, hidden frames
+ * stay exactly as they are (apps.canvas.hidden.preserve). Previews of a gesture go through it too. */
+export function asEdited(state, next) {
+  return canShareRole(state.boardRole) ? next : keepHiddenFrames(state.history.present, next);
+}
+
 /** Applies `compute` to the live graph. Coalesced gestures (drag/resize)
  * freeze past/future at the pre-gesture baseline and only push ONE history
  * step once the gesture goes idle (design.md: "commit once on pointer-up",
@@ -371,7 +393,7 @@ function mutateGraph(
 ) {
   const state = get();
   if (!state.boardId || selectReadOnly(state)) return;
-  const nextPresent = compute(state.history.present);
+  const nextPresent = asEdited(state, compute(state.history.present));
   // An edit that changes nothing is no undo step and no save.
   if (sameValue(nextPresent, state.history.present)) return;
   if (opts?.coalesce) {
@@ -551,8 +573,8 @@ function markDirty(set, get) {
 }
 
 /** Stamps a save returned, on every undo/redo snapshot (stamps are not undoable). */
-function historyWithStamps(history, stamps) {
-  const stamp = (snapshot) => withServerStamps(snapshot, stamps);
+function historyWithStamps(history, stamps, notesStamp) {
+  const stamp = (snapshot) => withNotesStamp(withServerStamps(snapshot, stamps), notesStamp);
   return { past: history.past.map(stamp), present: stamp(history.present), future: history.future.map(stamp) };
 }
 
@@ -572,7 +594,7 @@ async function flushSaveImpl(
 
   saveInFlight = (async () => {
     const boardId = state.boardId ;
-    set({ saveStatus: "saving", saveError: null });
+    set({ saveStatus: "saving", saveError: null, saveLimitMessage: null });
     try {
       if (unresolvedSave) {
         await settleUnresolvedSave(set, get, boardId);
@@ -624,7 +646,13 @@ async function flushSaveImpl(
       if (res.status === 413) {
         // Over the board size limit: resending the same graph cannot succeed, so the
         // next edit saves again; the pending draft keeps the unsaved edits.
-        set({ saveStatus: "error", saveError: "tooLarge" });
+        // A plan limit (objects per board, text per object) names itself in the response.
+        const refusal = await res.json().catch(() => null);
+        set({
+          saveStatus: "error",
+          saveError: "tooLarge",
+          saveLimitMessage: typeof refusal?.limit === "string" && typeof refusal.error === "string" ? refusal.error : null,
+        });
         return;
       }
       if (res.status === 409) {
@@ -672,11 +700,11 @@ async function flushSaveImpl(
       if (get().boardId === boardId) {
         // What the server now holds, normalized the same way it normalizes saves; an image still held
         // keeps its base copy. The objects this save added or changed carry the server's stamps.
-        if (gestureBaseline) gestureBaseline = historyWithStamps(gestureBaseline, j.stamps);
+        if (gestureBaseline) gestureBaseline = historyWithStamps(gestureBaseline, j.stamps, j.notesStamp);
         set({
           serverVersion: j.version,
-          serverState: withServerStamps(validateCanvasState(cropHold ? sentPresent : sent), j.stamps),
-          history: historyWithStamps(get().history, j.stamps),
+          serverState: withNotesStamp(withServerStamps(validateCanvasState(cropHold ? sentPresent : sent), j.stamps), j.notesStamp),
+          history: historyWithStamps(get().history, j.stamps, j.notesStamp),
         });
       }
       if (settled) {
@@ -797,8 +825,10 @@ async function loadBoardImpl(set, get, id) {
     editingTextId: null,
     croppingImageId: null,
     cropDraft: null,
+    orphanedTables: [],
     saveStatus: restored ? "dirty" : "idle",
     saveError: null,
+    saveLimitMessage: null,
     loaded: true,
   });
   if (restored) scheduleFlush(get, 0);
@@ -881,6 +911,8 @@ function writeNodeText(set, get, id, text, marks, contentHeight, from) {
 // Clipboard (spec: "copy/paste within a board and across boards"). Kept as
 // a module variable, NOT store state, so it survives loadBoard()/reset().
 let clipboard = [];
+// The corner the clipboard's offsets are measured from, so pasting into frames keeps each object's place in them.
+let clipboardOrigin = { x: 0, y: 0 };
 
 export const useCanvasStore = create((set, get) => ({
   boardId: null,
@@ -904,8 +936,11 @@ export const useCanvasStore = create((set, get) => ({
   saveStatus: "idle",
   // Why the last save failed for good: "tooLarge" when the board is over the size limit.
   saveError: null,
+  saveLimitMessage: null,
   croppingImageId: null,
   cropDraft: null,
+  // Tables whose last widget the user just deleted; WorkTools offers to delete them too.
+  orphanedTables: [],
 
   ...lockLayerActions(set, get, { mutateGraph }),
   ...arrangeActions(set, get, { mutateGraph, buildClones, readOnly: selectReadOnly }),
@@ -945,10 +980,14 @@ export const useCanvasStore = create((set, get) => ({
       editingTextId: null,
       saveStatus: "idle",
       saveError: null,
+      saveLimitMessage: null,
       croppingImageId: null,
       cropDraft: null,
+      orphanedTables: [],
     });
   },
+
+  dismissOrphanedTables: () => set({ orphanedTables: [] }),
 
   flushSave: (opts) => flushSaveImpl(set, get, opts),
 
@@ -1008,11 +1047,8 @@ export const useCanvasStore = create((set, get) => ({
     const connector = node ? null : present.connectors.find((item) => item.id === id);
     let bounds;
     if (node) bounds = nodeBounds(node);
-    else if (connector) {
-      const nodesById = Object.fromEntries(present.nodes.map((item) => [item.id, item]));
-      const [a, b] = [resolveEndpoint(connector.from, nodesById), resolveEndpoint(connector.to, nodesById)];
-      bounds = { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) };
-    } else return false;
+    else if (connector) bounds = connectorBounds(connector, Object.fromEntries(present.nodes.map((item) => [item.id, item])));
+    else return false;
     const PAD = 160;
     const zoom = clampZoom(Math.min(present.viewport.zoom, viewportPx.w / (bounds.w + PAD), viewportPx.h / (bounds.h + PAD)));
     const cx = bounds.x + bounds.w / 2;
@@ -1026,6 +1062,45 @@ export const useCanvasStore = create((set, get) => ({
     get().setSelection(selection);
     set({ selectedConnectorIds });
     return true;
+  },
+
+  /**
+   * Shows `vp` without recording it as the board's saved view, for a
+   * presentation stepping through frames. A save made meanwhile can still
+   * carry it, so the presentation puts the earlier view back with setViewport.
+   */
+  showViewport: (vp) => {
+    const { history } = get();
+    set({ history: { ...history, present: { ...history.present, viewport: vp } } });
+  },
+
+  /**
+   * Replaces nodes and connectors by id with the edited copies in `edits` (a
+   * Map of id to object) as one undo step: find and replace, frame order,
+   * presenter notes.
+   */
+  replaceNodes: (edits) => {
+    if (!edits?.size) return;
+    mutateGraph(set, get, (present) => ({
+      ...present,
+      nodes: present.nodes.map((n) => isLocked(present, n) ? n : (edits.get(n.id) ?? n)),
+      connectors: present.connectors.map((c) => edits.get(c.id) ?? c),
+    }));
+  },
+
+  /** Connects each `[fromId, toId]` node pair with a connector of `kind`, as one undo step. */
+  connectNodes: (pairs, kind = "arrow") => {
+    const connectors = pairs.map(([from, to]) => ({
+      id: crypto.randomUUID(),
+      from: { nodeId: from, anchor: "auto" },
+      to: { nodeId: to, anchor: "auto" },
+      kind,
+      stroke: "rgba(255,255,255,0.7)",
+      strokeWidth: 2,
+    }));
+    if (!connectors.length) return;
+    mutateGraph(set, get, (present) => ({ ...present, connectors: [...present.connectors, ...connectors] }));
+    if (!selectReadOnly(get())) set({ selection: [], selectedConnectorIds: connectors.map((c) => c.id) });
   },
 
   setViewportSize: (w, h) => {
@@ -1109,11 +1184,13 @@ export const useCanvasStore = create((set, get) => ({
 
   /** The visible canvas's measured size in pixels. */
   viewportSize: () => ({ ...viewportPx }),
+  /** The board as the user sees it: the current graph less what the board hides (hidden layers, outside Focus mode). */
+  visibleBoard: () => visibleGraph(get().history.present, get().focusedDiagramId, get().hiddenLayerIds),
 
   /** Insert generated nodes (a "Create with AI" result) as one undo step and select them. `replaceIds` are the
    * nodes of the result this one refines: they leave in the same step (with connectors that referenced them), so
    * one undo restores the previous result. */
-  placeGeneratedNodes: (nodes, replaceIds = []) => {
+  placeGeneratedNodes: (nodes, replaceIds = [], newConnectors = []) => {
     if (!nodes.length) return;
     const replaced = new Set(replaceIds);
     mutateGraph(set, get, (present) => {
@@ -1122,9 +1199,24 @@ export const useCanvasStore = create((set, get) => ({
         .map((n) => (n.parentId && replaced.has(n.parentId) ? { ...n, parentId: null } : n));
       const connectors = present.connectors.filter((c) =>
         !("nodeId" in c.from && replaced.has(c.from.nodeId)) && !("nodeId" in c.to && replaced.has(c.to.nodeId)));
-      return { ...present, nodes: [...kept, ...placeOnLayer(present, nodes, get().activeLayerId)], connectors };
+      return { ...present, nodes: [...kept, ...placeOnLayer(present, nodes, get().activeLayerId)], connectors: [...connectors, ...newConnectors] };
     });
     set({ selection: nodes.map((node) => node.id), selectedConnectorIds: [] });
+  },
+
+  /**
+   * Apply an AI edit to the selection in place as one undo step: `compute(present)` returns the next graph and the ids
+   * it changed or added, which become the selection. A viewer or commenter changes nothing.
+   */
+  applyBoardAiEdit: (compute) => {
+    let touched = [];
+    mutateGraph(set, get, (present) => {
+      const result = compute(present);
+      touched = result.touched;
+      return result.present;
+    });
+    if (touched.length) set({ selection: touched, selectedConnectorIds: [] });
+    return touched;
   },
 
   addImageFromAsset: (a, worldPoint) => {
@@ -1137,7 +1229,8 @@ export const useCanvasStore = create((set, get) => ({
     const h = ratio >= 1 ? LONG_EDGE / ratio : LONG_EDGE;
     const node = {
       id: crypto.randomUUID(),
-      type: "image",
+      type: a.kind === "video" ? "video" : "image",
+      ...(a.kind === "video" ? { title: a.title || "Video" } : {}),
       x: target.x - w / 2,
       y: target.y - h / 2,
       w,
@@ -1202,9 +1295,13 @@ export const useCanvasStore = create((set, get) => ({
           nodes: next.nodes.map((n) => {
             if (isContainerNode(n) || !selectedIds.has(n.id) || !movable.has(n.id)) return n;
             const newParentId = computeFrameMembership(n, containers);
-            return newParentId !== (n.parentId ?? null) ? { ...n, parentId: newParentId } : n;
+            const parent = n.type === "card" && containers.find((c) => c.id === newParentId && c.kind === "columns");
+            const placed = parent ? inColumnsCell(n, parent) : n;
+            return newParentId !== (n.parentId ?? null) ? reparented(placed, newParentId) : placed;
           }),
         };
+        // A dragged frame joins the smallest container it now sits wholly inside (frames nest to any depth).
+        next = renestFrames(next, [...movable]);
         if (selectedConnectorIds.length) {
           next = {
             ...next,
@@ -1246,10 +1343,11 @@ export const useCanvasStore = create((set, get) => ({
     );
   },
 
-  deleteSelected: () => {
+  deleteSelected: (opts) => {
     const { selection, selectedConnectorIds } = get();
     if (!selection.length && !selectedConnectorIds.length) return;
-    const deleteIds = new Set(unlockedIds(get().history.present, selection));
+    const before = get().history.present;
+    const deleteIds = new Set(unlockedIds(before, selection));
     const connDeleteIds = new Set(selectedConnectorIds);
     mutateGraph(set, get, (present) => {
       const nodes = present.nodes
@@ -1266,6 +1364,9 @@ export const useCanvasStore = create((set, get) => ({
     });
     // Locked objects were kept, and stay selected.
     set({ selection: selection.filter((id) => !deleteIds.has(id)), selectedConnectorIds: [] });
+    const kept = new Set(get().history.present.nodes.map((n) => n.datasetId));
+    const orphaned = new Set(before.nodes.filter((n) => deleteIds.has(n.id) && n.datasetId && !kept.has(n.datasetId)).map((n) => n.datasetId));
+    if (orphaned.size && !opts?.cut) set({ orphanedTables: [...orphaned] });
   },
 
   duplicateSelected: () => {
@@ -1276,7 +1377,8 @@ export const useCanvasStore = create((set, get) => ({
     mutateGraph(set, get, (present) => {
       const built = buildClones(present.nodes, selection, 20, 20, true, present, get().activeLayerId);
       idMap = built.idMap;
-      return { ...present, nodes: [...present.nodes, ...built.clones] };
+      // A duplicated frame takes the next date in its title.
+      return { ...present, nodes: [...present.nodes, ...renameDuplicatedFrames(built.clones, built.idMap, present.nodes)] };
     });
     set({ selection: Array.from(idMap.values()), selectedConnectorIds: [] });
   },
@@ -1668,7 +1770,7 @@ export const useCanvasStore = create((set, get) => ({
         diagramNode,
         ...present.nodes.map((n) =>
           selSet.has(n.id) && n.type !== "diagram"
-            ? { ...n, parentId: diagramNode.id, diagramLayerId: n.diagramLayerId || "layer-main" }
+            ? { ...reparented(n, diagramNode.id), diagramLayerId: n.diagramLayerId || "layer-main" }
             : n
         ),
       ],
@@ -1683,6 +1785,7 @@ export const useCanvasStore = create((set, get) => ({
     if (!selection.length) return false;
     const selSet = new Set(selection);
     clipboard = history.present.nodes.filter((n) => selSet.has(n.id)).map((n) => ({ ...n }));
+    clipboardOrigin = copyOrigin(clipboard, history.present.nodes);
     return true;
   },
 
@@ -1693,7 +1796,8 @@ export const useCanvasStore = create((set, get) => ({
     const selected = new Set(selection);
     if (selectReadOnly(get())) return false;
     clipboard = history.present.nodes.filter((node) => selected.has(node.id)).map((node) => ({ ...node }));
-    get().deleteSelected();
+    clipboardOrigin = copyOrigin(clipboard, history.present.nodes);
+    get().deleteSelected({ cut: true });
     return true;
   },
 
@@ -1727,7 +1831,21 @@ export const useCanvasStore = create((set, get) => ({
     if (selectReadOnly(get())) return;
     if (!clipboard.length) return;
     let idMap = new Map();
+    const { selection } = get();
     mutateGraph(set, get, (present) => {
+      // With frames selected, one copy goes into each of them at the same offsets from the frame's corner.
+      const targets = present.nodes.filter((n) => selection.includes(n.id));
+      // A frame that was itself copied, or holds what was, takes an ordinary offset paste instead.
+      if (targets.length && targets.every((n) => n.type === "frame" && !holdsCopied(n, clipboard, present.nodes))) {
+        const ids = clipboard.map((n) => n.id);
+        const all = [];
+        for (const where of pasteDestinations(targets, clipboardOrigin)) {
+          const built = buildClones(clipboard, ids, where.dx, where.dy, false, present, get().activeLayerId);
+          for (const clone of built.clones) all.push(clone.parentId ? clone : { ...clone, parentId: where.parentId });
+          for (const id of built.idMap.values()) idMap.set(id, id);
+        }
+        return { ...present, nodes: [...present.nodes, ...all] };
+      }
       // Cloned from the clipboard SNAPSHOT (taken at copy()-time), not from
       // the live present — edits made after copying, or the original being
       // deleted, don't affect what gets pasted, matching pre-refactor
@@ -1834,6 +1952,14 @@ export function frameNodesOf(state) {
  *  by `CanvasContextMenu`'s `Paste` row / `selectionActions`' `canPaste`. */
 export function hasClipboard() {
   return clipboard.length > 0;
+}
+
+/** visibleBoard() for components, recomputed when the graph or Focus mode changes. */
+export function useVisibleBoard() {
+  const present = useCanvasStore((s) => s.history.present);
+  const focusedDiagramId = useCanvasStore((s) => s.focusedDiagramId);
+  const hiddenLayerIds = useCanvasStore((s) => s.hiddenLayerIds);
+  return useMemo(() => visibleGraph(present, focusedDiagramId, hiddenLayerIds), [present, focusedDiagramId, hiddenLayerIds]);
 }
 
 /** The objects last copied or cut on the board. */

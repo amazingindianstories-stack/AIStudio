@@ -26,8 +26,8 @@ import { cn } from "@/lib/utils";
 import { useCanvasStore, } from "@/lib/canvas-store";
 import { nodeBounds, resolveEndpoint, worldToScreen } from "@/lib/canvas/geometry";
 import { Dropdown, MenuItem } from "@/components/Dropdown";
+import { isShapeNode, textColorOf } from "@/lib/canvas/shapes";
 import { ArrangeControls } from "./ArrangeMenu";
-import { isShapeNode } from "@/lib/canvas/shapes";
 import { ColorPicker } from "./ColorPicker";
 import { FontPicker } from "./FontPicker";
 import { AutoFitButton, ReactionPicker, StickyShapeControl, TagPicker } from "./StickyControls";
@@ -52,8 +52,10 @@ import {
 const RICH_TEXT_TYPES = new Set(["text", "sticky"]);
 /** World height of a frame's title strip, which FrameNode draws above the box (`-top-6`). */
 const FRAME_TITLE_HEIGHT = 24;
+/** World height GridNode keeps above a selected grid for its own controls (`-top-9`). */
+const GRID_TOOLBAR_HEIGHT = 36;
 
-export function StyleInspector({ hidden, insetLeft = 0 }) {
+export function StyleInspector({ hidden, insetLeft = 0, insetTop = 8 }) {
   const selection = useCanvasStore((s) => s.selection);
   const selectedConnectorIds = useCanvasStore((s) => s.selectedConnectorIds);
   const present = useCanvasStore((s) => s.history.present);
@@ -105,8 +107,8 @@ export function StyleInspector({ hidden, insetLeft = 0 }) {
   for (const n of selectedNodes) {
     const b = nodeBounds(n);
     bx0 = Math.min(bx0, b.x);
-    // The panel sits above a frame's title, not over it.
-    by0 = Math.min(by0, n.type === "frame" ? b.y - FRAME_TITLE_HEIGHT : b.y);
+    // The panel sits above a frame's title and a grid's controls, not over them.
+    by0 = Math.min(by0, n.type === "frame" ? b.y - FRAME_TITLE_HEIGHT : n.type === "grid" ? b.y - GRID_TOOLBAR_HEIGHT : b.y);
     bx1 = Math.max(bx1, b.x + b.w);
     by1 = Math.max(by1, b.y + b.h);
   }
@@ -131,7 +133,8 @@ export function StyleInspector({ hidden, insetLeft = 0 }) {
   const gap = 8 + (rotationTargets(present, selection).length ? ROTATE_HANDLE_REACH * viewport.zoom : 0);
   const panelHeight = 44;
   const flipBelow = topLeftScreen.y - panelHeight - gap < 8;
-  const top = flipBelow ? bottomRightScreen.y + gap : topLeftScreen.y - panelHeight - gap;
+  // `insetTop` keeps the panel under a tall top bar (a phone's wrapped controls) rather than over it.
+  const top = flipBelow ? bottomRightScreen.y + gap : Math.max(topLeftScreen.y - panelHeight - gap, insetTop);
 
   const types = new Set(selectedNodes.map((n) => n.type));
   const homogeneous = types.size <= 1;
@@ -289,7 +292,7 @@ export function StyleInspector({ hidden, insetLeft = 0 }) {
         {showTextColor && (
           <ColorSwatchButton
             label="Text color"
-            value={(selectedNodes[0] ).color ?? "#ffffff"}
+            value={textColorOf(selectedNodes[0])}
             onChange={(v) => patch({ color: v })}
           />
         )}

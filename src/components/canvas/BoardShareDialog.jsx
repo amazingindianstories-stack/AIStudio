@@ -183,6 +183,22 @@ export function BoardShareDialog({ boardId, boardName, projectName, onClose, onA
                     ))}
                   </select>
                 </div>
+                <div className="mt-2 flex items-center justify-between gap-3 rounded-xl border border-line bg-ink-700/60 px-3 py-2.5">
+                  <div className="min-w-0">
+                    <p className="text-sm text-white/85">Who can start collaboration tools</p>
+                    <p className="text-xs text-white/45">Timer, voting and other shared tools on this board</p>
+                  </div>
+                  <select
+                    aria-label="Who can start collaboration tools"
+                    className={selectClass}
+                    value={access.collabTools ?? "edit"}
+                    disabled={!access.canShare || busy}
+                    onChange={(event) => boardChange({ op: "setCollabTools", who: event.target.value })}
+                  >
+                    <option value="edit">Everyone who can edit</option>
+                    <option value="owner">Owners and co-owners</option>
+                  </select>
+                </div>
               </section>
 
               <section aria-label="Board members">

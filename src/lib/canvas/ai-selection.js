@@ -1,0 +1,67 @@
+// The board selection as AI context, read from the data model (never the DOM, so viewport culling does not matter),
+// and the one-click AI actions that run on it. Mirrors backend/apps/agents/board.py (`context_text`).
+
+export const MAX_CONTEXT_ITEMS = 60;
+export const MAX_CONTEXT_TEXT = 2000;
+const TEXT_TYPES = new Set(["sticky", "text", "shape", "rect", "ellipse", "triangle", "diamond"]);
+
+/** The text an object shows: its text, or a frame's name; "" when it has none. */
+export function nodeText(node) {
+  if (node.type === "frame") return typeof node.name === "string" ? node.name : "";
+  return TEXT_TYPES.has(node.type) && typeof node.text === "string" ? node.text : "";
+}
+
+/** The selected objects, in board order, as the AI sees them: text-bearing objects and the images among them. */
+export function selectionContext(nodes, selectionIds) {
+  const wanted = new Set(selectionIds ?? []);
+  const selected = (nodes ?? []).filter((node) => wanted.has(node.id));
+  const items = [];
+  const images = [];
+  for (const node of selected) {
+    if (node.type === "image" && typeof node.src === "string" && node.src.startsWith("/api/media/")) {
+      images.push({ id: node.id, src: node.src, alt: typeof node.alt === "string" ? node.alt : "" });
+      continue;
+    }
+    const text = nodeText(node).trim();
+    if (text && items.length < MAX_CONTEXT_ITEMS) items.push({ id: node.id, type: node.type, text: text.slice(0, MAX_CONTEXT_TEXT) });
+  }
+  return { items, images, count: selected.length };
+}
+
+export const LANGUAGES = [
+  "English", "Spanish", "French", "German", "Italian", "Portuguese", "Dutch", "Polish", "Russian", "Turkish", "Arabic",
+  "Hindi", "Bengali", "Japanese", "Korean", "Chinese (Simplified)", "Chinese (Traditional)", "Indonesian",
+];
+export const TONES = ["Friendly", "Professional", "Business", "Fun"];
+
+/**
+ * One-click actions on a selection. Each names the backend format and the prompt it starts with; the person still
+ * presses Generate, so nothing paid starts on its own.
+ */
+export const SELECTION_ACTIONS = [
+  { id: "fix", label: "Fix grammar and spelling", format: "rewrite", prompt: "Fix grammar and spelling. Keep the wording otherwise.", needs: "text" },
+  { id: "shorten", label: "Shorten", format: "rewrite", prompt: "Shorten each text to its essentials.", needs: "text" },
+  { id: "clarify", label: "Rewrite for clarity", format: "rewrite", prompt: "Rewrite each text for clarity.", needs: "text" },
+  { id: "keywords", label: "Cluster by keywords", format: "cluster", prompt: "Group the notes by the keywords they share.", needs: "stickies" },
+  { id: "sentiment", label: "Cluster by sentiment", format: "cluster", prompt: "Group the notes by sentiment.", needs: "stickies" },
+  { id: "summary", label: "Summarize into a note", format: "summary", prompt: "Summarize the selected content.", needs: "text" },
+  { id: "notes", label: "Turn into meeting notes", format: "summary", prompt: "Turn the selected content into meeting notes with decisions and next steps.", needs: "text" },
+];
+export const toneAction = (tone) => ({ id: `tone-${tone}`, format: "rewrite", prompt: `Change the tone of each text to ${tone.toLowerCase()}.`, needs: "text" });
+export const translateAction = (language) => ({ id: `translate-${language}`, format: "rewrite", prompt: `Translate each text into ${language}.`, needs: "text" });
+
+/** Whether `action` has something to work on in `context` (a `selectionContext` result). */
+export function actionApplies(action, context, nodes) {
+  if (!context.items.length) return false;
+  if (action.needs !== "stickies") return true;
+  const ids = new Set(context.items.map((item) => item.id));
+  return (nodes ?? []).some((node) => ids.has(node.id) && node.type === "sticky");
+}
+
+/** The request body fields a selection adds to a board AI request (text context, or reference images for an image). */
+export function contextFields(format, context) {
+  if (format === "image") return context.images.length ? { referenceImages: context.images.slice(0, 4).map((image) => image.src) } : {};
+  return context.items.length ? { context: context.items } : {};
+}
+
+export const SELECTION_FORMATS = ["rewrite", "cluster", "summary"];

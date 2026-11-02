@@ -92,6 +92,25 @@ test("applyDeltas carries a frame's unselected children and re-parents moved obj
   assert.equal(applyDeltas(state, new Map()), state);
 });
 
+test("applyDeltas carries nested contents at any depth, stopping at locked containers and own moves", () => {
+  const state = {
+    nodes: [
+      n("o", 0, 0, 600, 600, { type: "frame" }),
+      n("f", 10, 10, 300, 300, { type: "frame", parentId: "o" }),
+      n("s", 20, 20, 20, 20, { parentId: "f" }),
+      n("l", 320, 10, 200, 200, { type: "frame", parentId: "o", locked: true }),
+      n("inL", 330, 20, 20, 20, { parentId: "l" }),
+      n("g", 10, 400, 100, 100, { type: "frame", parentId: "o" }),
+      n("inG", 20, 410, 20, 20, { parentId: "g" }),
+    ],
+  };
+  const moved = after(state, new Map([["o", { dx: 100, dy: 0 }], ["g", { dx: 5, dy: 0 }]]));
+  assert.deepEqual(moved.s, [120, 20], "a nested frame's contents follow the outer frame");
+  assert.deepEqual(moved.f, [110, 10]);
+  assert.deepEqual([moved.l, moved.inL], [[320, 10], [330, 20]], "a locked frame keeps its contents with it");
+  assert.deepEqual([moved.g, moved.inG], [[15, 400], [25, 410]], "a separately moved frame carries its own contents by its own move");
+});
+
 test("aligning objects inside a swimlane keeps them in it, and a moved swimlane never joins a frame", () => {
   const state = {
     nodes: [

@@ -17,7 +17,7 @@ export const MIN_NODE_SIZE = 4;
 const CONTAINER_NODE_TYPES = new Set(["frame", "swimlane", "diagram"]);
 
 export function isContainerNode(node) {
-  return CONTAINER_NODE_TYPES.has(node?.type);
+  return CONTAINER_NODE_TYPES.has(node?.type) || (node?.type === "work" && node.kind === "columns");
 }
 
 // ---- viewport bounds ----
@@ -168,8 +168,8 @@ export function boundsContain(outer, innerCenter) {
 // ---- move ----
 
 /**
- * Moves the given node ids by (dx,dy). If a selected id is a frame, its
- * children (nodes with parentId === frame.id) move by the same delta too,
+ * Moves the given node ids by (dx,dy). If a selected id is a container, its
+ * contents at any depth move by the same delta too (see descendantIds),
  * so a multi-select drag that includes a frame carries its contents — a
  * child that's ALSO directly selected only ever moves once (Set dedupe).
  */
@@ -179,23 +179,49 @@ export function moveNodesBy(
   dx,
   dy
 ) {
-  // Locked objects stay put, including the locked children of a moved frame.
+  // Unlocked containers carry their contents at any depth; locked objects stay put with theirs.
   const locked = lockedIdSet(state);
   const idSet = new Set(ids.filter((id) => !locked.has(id)));
-  for (const node of state.nodes) {
-    if (isContainerNode(node) && idSet.has(node.id)) {
-      for (const child of state.nodes) {
-        if (child.parentId === node.id && !locked.has(child.id)) idSet.add(child.id);
-      }
-    }
-  }
+  for (const id of descendantIds(state.nodes, [...idSet], locked)) idSet.add(id);
   const nodes = state.nodes.map((n) =>
     idSet.has(n.id) ? { ...n, x: n.x + dx, y: n.y + dy } : n
   );
   return { ...state, nodes };
 }
 
-/** Shifts a frame AND every direct descendant (parentId === frameId) by the
+/**
+ * Ids of everything inside the containers among `ids`, at any depth (`ids` themselves excluded unless
+ * nested). The walk neither includes nor enters anything in `stop`: a move passes its locked objects, which
+ * stay put together with their own contents.
+ */
+export function descendantIds(nodes, ids, stop = null) {
+  return new Set(descendantRoots(nodes, ids, stop).keys());
+}
+
+/** The same walk as descendantIds in one pass over the board, mapping each id found to the id in `ids` it sits under. */
+export function descendantRoots(nodes, ids, stop = null) {
+  const wanted = new Set(ids);
+  const queue = [];
+  const childrenOf = new Map();
+  for (const n of nodes) {
+    if (wanted.has(n.id) && isContainerNode(n)) queue.push([n.id, n.id]);
+    if (!n.parentId) continue;
+    if (!childrenOf.has(n.parentId)) childrenOf.set(n.parentId, []);
+    childrenOf.get(n.parentId).push(n);
+  }
+  const out = new Map();
+  while (queue.length) {
+    const [parent, root] = queue.pop();
+    for (const child of childrenOf.get(parent) ?? []) {
+      if (out.has(child.id) || stop?.has(child.id)) continue;
+      out.set(child.id, root);
+      if (isContainerNode(child)) queue.push([child.id, root]);
+    }
+  }
+  return out;
+}
+
+/** Shifts a frame AND everything inside it (nested frames included) by the
  * same delta — the pure fn moving a frame's contents together (AC #6). */
 export function applyFrameMove(
   state,
@@ -203,8 +229,10 @@ export function applyFrameMove(
   dx,
   dy
 ) {
+  const moving = descendantIds(state.nodes, [frameId]);
+  moving.add(frameId);
   const nodes = state.nodes.map((n) =>
-    n.id === frameId || n.parentId === frameId
+    moving.has(n.id)
       ? { ...n, x: n.x + dx, y: n.y + dy }
       : n
   );
@@ -291,20 +319,42 @@ export function resizeNode(
 
 // ---- frame membership ----
 
+/** `n` moved under `parentId`; its Mermaid key names a shape only in the diagram that keyed it. */
+export function reparented(n, parentId) {
+  const next = { ...n, parentId };
+  if (parentId !== (n.parentId ?? null)) delete next.mermaidKey;
+  return next;
+}
+
 /**
- * The front-most (highest z-index) frame whose bounds contain `node`'s
- * center, or null. `frames` must be passed in z-order (as they appear in
- * CanvasState.nodes) — later entries win ties, matching "front-most wins".
+ * The innermost frame whose bounds contain `node`'s center, or null: a
+ * containing frame nested (by parentId) inside another containing frame wins.
+ * `frames` must be passed in z-order (as they appear in CanvasState.nodes) —
+ * among equally nested frames later entries win, matching "front-most wins".
  */
 export function computeFrameMembership(
   node,
   frames
 ) {
   const center = { x: node.x + node.w / 2, y: node.y + node.h / 2 };
+  const hits = frames.filter((frame) => frame.id !== node.id && boundsContain(nodeBounds(frame), center));
+  const byId = new Map(frames.map((frame) => [frame.id, frame]));
+  const depth = (frame) => {
+    let d = 0;
+    let steps = 0;
+    for (let p = byId.get(frame.parentId); p && steps < frames.length; p = byId.get(p.parentId), steps++) {
+      if (hits.includes(p)) d++;
+    }
+    return d;
+  };
   let winner = null;
-  for (const frame of frames) {
-    if (frame.id === node.id) continue;
-    if (boundsContain(nodeBounds(frame), center)) winner = frame.id;
+  let best = -1;
+  for (const frame of hits) {
+    const d = depth(frame);
+    if (d >= best) {
+      winner = frame.id;
+      best = d;
+    }
   }
   return winner;
 }
@@ -440,6 +490,13 @@ export function resolveEndpoint(
   if (!nodeOutline(node)) return fromNodeLocal(node, anchorPoint(bounds, ep.anchor, boundsCenter(bounds)));
   // A path shape's "auto" has no opposite point here, so it is the center.
   return ep.anchor === "auto" ? boundsCenter(bounds) : nodeAnchorPoint(node, ep.anchor);
+}
+
+/** The box spanned by connector `c`'s two ends. */
+export function connectorBounds(c, nodesById) {
+  const a = resolveEndpoint(c.from, nodesById);
+  const b = resolveEndpoint(c.to, nodesById);
+  return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) };
 }
 
 function resolveTowards(

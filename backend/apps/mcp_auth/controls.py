@@ -63,15 +63,15 @@ def dollars(cents):
     return f'${cents / 100:,.2f}'
 
 
-def hit(bucket, limit, window_seconds, *, now=None):
-    """Count one event in a fixed window and report whether it is within ``limit``."""
+def hit(bucket, limit, window_seconds, *, now=None, weight=1):
+    """Count one event (``weight`` credits) in a fixed window and report whether it is within ``limit``."""
     now = now_ms() if now is None else now
     width = window_seconds * 1000
     start = now - now % width
     with connection.cursor() as cursor:
-        cursor.execute('''INSERT INTO mcp_rate_windows (bucket, window_start, count, expires_at) VALUES (%s, %s, 1, %s)
-            ON CONFLICT (bucket, window_start) DO UPDATE SET count = mcp_rate_windows.count + 1
-            RETURNING count''', [bucket, start, start + width])
+        cursor.execute('''INSERT INTO mcp_rate_windows (bucket, window_start, count, expires_at) VALUES (%s, %s, %s, %s)
+            ON CONFLICT (bucket, window_start) DO UPDATE SET count = mcp_rate_windows.count + EXCLUDED.count
+            RETURNING count''', [bucket, start, weight, start + width])
         count = cursor.fetchone()[0]
     return RateResult(count <= limit, count, limit, max(1, math.ceil((start + width - now) / 1000)))
 
@@ -82,6 +82,19 @@ def check_rate(principal, name, *, now=None):
     result = hit(f'{name}:{principal.token_id}', limit, window, now=now)
     if not result.allowed:
         raise RateLimited(f'Too many {"paid calls" if name.startswith("paid") else "calls"}. Retry in {result.retry_after_seconds} s.',
+                          retry_after_seconds=result.retry_after_seconds)
+    return result
+
+
+def check_credits(principal, kind, *, now=None):
+    """Spend the credits of one board API call (``policy.BOARD_COSTS[kind]``) from the grant's window.
+
+    Returns the ``RateResult`` (the response headers report it); an exhausted window raises ``RateLimited``,
+    and the refused call still counts, so a client that ignores Retry-After does not get a free retry."""
+    limit, window = policy.BOARD_CREDITS
+    result = hit(f'board:{principal.token_id}', limit, window, now=now, weight=policy.BOARD_COSTS[kind])
+    if not result.allowed:
+        raise RateLimited(f'Board API credits used up. Retry in {result.retry_after_seconds} s.',
                           retry_after_seconds=result.retry_after_seconds)
     return result
 

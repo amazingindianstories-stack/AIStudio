@@ -3,9 +3,12 @@ import json
 import math
 import re
 
+from . import extras
+from . import media_nodes
 from .svg_sanitize import sanitize_svg
+from .formats import drop_dangling_refs, format_node, with_diagram_source, with_mermaid_key, with_screen_link
 
-NODE_TYPES = {'rect', 'ellipse', 'triangle', 'diamond', 'shape', 'text', 'sticky', 'stack', 'frame', 'image', 'erd', 'swimlane', 'diagram'}
+NODE_TYPES = {'card', 'work', 'rect', 'ellipse', 'triangle', 'diamond', 'shape', 'text', 'sticky', 'stack', 'frame', 'image', 'erd', 'swimlane', 'diagram', 'ink', 'grid', 'synced', 'format'} | media_nodes.TYPES
 SHAPE_TYPES = ('rect', 'ellipse', 'triangle', 'diamond', 'shape')
 # Mirrors src/lib/canvas/shapes.js and src/lib/canvas/rich-text.js.
 SHAPE_KIND = re.compile(r'[a-z][a-z0-9-]{0,39}')
@@ -14,6 +17,7 @@ MAX_HREF_LENGTH = 2048
 SIMPLE_MARKS = ('b', 'i', 'u', 's')
 # ASCII-only scheme letters without re.IGNORECASE, which folds some non-ASCII
 # letters onto ASCII ones where JavaScript does not.
+MENTION_ID = re.compile(r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')
 SAFE_HREF = re.compile(r'(?:[hH][tT][tT][pP][sS]?://|[mM][aA][iI][lL][tT][oO]:)[^\x00-\x20\x7f]+')
 HIGHLIGHT = re.compile(r'#[0-9a-fA-F]{6}')
 # Mirrors src/lib/canvas/stickies.js, tags.js and fonts.js.
@@ -61,8 +65,10 @@ def with_structured_theme(result, r):
 # server stamps (content_length).
 MAX_BOARD_JSON_UNITS = 2 * 1024 * 1024
 # Per-object author and time fields the server owns (apps.canvas.activity).
-# `textBy` is who last replaced the text (sticky author labels).
-STAMP_KEYS = ('createdBy', 'createdAt', 'updatedBy', 'updatedAt', 'textBy')
+# `textBy` is who last replaced the text (sticky author labels). `privateBy` and `anonBy` mark a sticky note
+# written in private mode (apps.canvas.private_mode) and `hiddenText` a note whose text is withheld from the
+# reader, so a client can never set or clear them.
+STAMP_KEYS = ('createdBy', 'createdAt', 'updatedBy', 'updatedAt', 'textBy', 'privateBy', 'anonBy', 'hiddenText')
 JS_WHITESPACE = '\u0009\u000a\u000b\u000c\u000d\u0020\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff'
 
 
@@ -126,6 +132,8 @@ def marks(raw, text):
             result.append([start, end, 'h', value])
         elif kind == 'a' and isinstance(value, str) and len(value) <= MAX_HREF_LENGTH and SAFE_HREF.fullmatch(value):
             result.append([start, end, 'a', value])
+        elif kind == 'm' and isinstance(value, str) and MENTION_ID.fullmatch(value):
+            result.append([start, end, 'm', value])
     return result or None
 
 
@@ -137,6 +145,31 @@ def with_stamps(result, raw):
     for key in ('createdAt', 'updatedAt'):
         if finite(raw.get(key)):
             result[key] = raw[key]
+    for key in ('anonBy', 'hiddenText'):
+        if raw.get(key) is True:
+            result[key] = True
+    if isinstance(raw.get('privateBy'), str):
+        result['privateBy'] = raw['privateBy']
+    with_ai(result, raw)
+    return result
+
+
+FLOW_BLOCKS = ('format', 'instruction')
+MAX_FLOW_TASK = 4000
+
+
+def with_ai(result, raw):
+    """AI attribution (`aiCreated`, `aiEditedAt`) and a Flow step's settings (`flow`), each only when set."""
+    if raw.get('aiCreated') is True:
+        result['aiCreated'] = True
+    if finite(raw.get('aiEditedAt')):
+        result['aiEditedAt'] = raw['aiEditedAt']
+    flow = raw.get('flow')
+    if isinstance(flow, dict) and flow.get('block') in FLOW_BLOCKS:
+        step = {'block': flow['block'], 'task': string(flow.get('task'), '')[:MAX_FLOW_TASK]}
+        if isinstance(flow.get('inputHash'), str) and len(flow['inputHash']) <= 64:
+            step['inputHash'] = flow['inputHash']
+        result['flow'] = step
     return result
 
 
@@ -237,7 +270,14 @@ def node(raw):
     if isinstance(r.get('layerId'), str) and r['layerId']:
         result['layerId'] = r['layerId']
     result['type'] = kind
-    if kind in SHAPE_TYPES:
+    if kind == 'format':
+        result = format_node(r, result)
+        if result is None:
+            return None
+    elif kind in ('card', 'work'):
+        from .work_schema import clean_work_node
+        result.update(clean_work_node(r))
+    elif kind in SHAPE_TYPES:
         # Path shapes name a catalogue outline; unknown well-formed kinds are kept.
         if kind == 'shape':
             if not isinstance(r.get('shape'), str) or not SHAPE_KIND.fullmatch(r['shape']):
@@ -289,6 +329,18 @@ def node(raw):
         result['fill'] = string(r.get('fill'), '#fff59d')
     elif kind == 'frame':
         result.update(name=string(r.get('name'), 'Frame'), fill=string(r.get('fill'), 'transparent'), stroke=string(r.get('stroke'), '#000000'))
+        # The frames panel's board-wide order and the presenter notes; both optional.
+        if finite(r.get('frameOrder')):
+            result['frameOrder'] = r['frameOrder']
+        if isinstance(r.get('notes'), str) and r['notes']:
+            result['notes'] = r['notes']
+        # Set by an owner; the server hides what is inside from everyone else (apps.canvas.hidden).
+        if r.get('hidden') is True:
+            result['hidden'] = True
+    elif kind in ('ink', 'grid', 'synced'):
+        result = {'ink': extras.ink, 'grid': extras.grid, 'synced': extras.synced}[kind](r, result)
+        if result is None:
+            return None
     elif kind == 'image':
         src = string(r.get('src'), '')
         if not src.startswith('/api/media/'):
@@ -302,6 +354,9 @@ def node(raw):
         if isinstance(r.get('crop'), (dict, list)):
             crop = object_value(r['crop'])
             result['crop'] = {'x': clamp(num(crop.get('x'), .5)), 'y': clamp(num(crop.get('y'), .5)), 'zoom': clamp(num(crop.get('zoom'), 1), 1, 8)}
+    elif kind in media_nodes.TYPES:
+        if media_nodes.coerce(kind, r, result) is None:
+            return None
     elif kind == 'erd':
         cols = int(r['columns']) if r.get('columns') in (1, 2, 3) else 3
         raw_rows = r.get('rows') if isinstance(r.get('rows'), list) else []
@@ -347,6 +402,7 @@ def node(raw):
                       fill=string(r.get('fill'), 'rgba(15,23,42,0.45)'), stroke=string(r.get('stroke'), '#6f9bd1'),
                       strokeWidth=num(r.get('strokeWidth'), 2))
         with_structured_theme(result, r)
+        with_diagram_source(result, r)
         if isinstance(r.get('containers'), list):
             containers = []
             for c in r['containers'][:50]:
@@ -365,7 +421,11 @@ def node(raw):
                 })
             if containers:
                 result['containers'] = containers
-    return with_stamps(result, r)
+    # Any object may carry one link (a website, a board or an object).
+    valid_link = media_nodes.link(r.get('link'))
+    if valid_link:
+        result['link'] = valid_link
+    return with_stamps(with_mermaid_key(with_screen_link(result, r), r), r)
 
 
 def endpoint(raw, identifiers):
@@ -472,12 +532,16 @@ def validate_state(raw):
             del item['tail']
         if 'layerId' in item and item['layerId'] not in layer_ids:
             del item['layerId']
+    drop_dangling_refs(nodes, identifiers)
     connectors = [valid for item in obj.get('connectors', []) if (valid := connector(item, identifiers)) is not None] if isinstance(obj.get('connectors'), list) else []
     result = {'version': 1, 'viewport': {'x': num(viewport.get('x'), 0), 'y': num(viewport.get('y'), 0), 'zoom': zoom if finite(zoom) and zoom > 0 else 1},
               'nodes': nodes, 'connectors': connectors}
     # Present only once the board has a tag, so boards without tags keep their shape.
     if table:
         result['tags'] = table
+    board_notes = extras.notes(obj.get('notes'), marks)
+    if board_notes:
+        result['notes'] = board_notes
     if settings:
         result['settings'] = settings
     return result

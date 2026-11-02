@@ -4,7 +4,7 @@ from django.conf import settings
 from django.http import HttpResponse
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from apps.authentication.session import lookup
-from . import access, services
+from . import access, hidden, limits, services
 from . import patch as board_patch
 from .models import CanvasBoard
 from .serialization import JS_WHITESPACE, MAX_BOARD_JSON_UNITS, content_length, js_json, validate_state
@@ -128,7 +128,17 @@ def board_metadata_reads(request):
             access.require_board_creator(user, project)
             if not name:
                 return reply(request, {'error': 'Name required.'}, 400)
-            board = services.create_board(project, name, user)
+            template_ref = property_of(data, 'templateId')
+            if truthy(template_ref):
+                from . import templates
+                try:
+                    graph, _ = templates.graph_for_new_board(user, str(template_ref), blank=property_of(data, 'blank') is True)
+                except templates.TemplateError as error:
+                    return reply(request, {'error': str(error)}, error.status)
+                board = services.create_board(project, name, user, graph)
+                templates.record_usage(user, str(template_ref), board['id'])
+            else:
+                board = services.create_board(project, name, user)
             return reply(request, {**board_list(project, user), 'board': board})
         if operation in ('renameBoard', 'deleteBoard'):
             identifier = property_of(data, 'id')
@@ -167,7 +177,9 @@ def board_detail(request, identifier):
             save_id = save_id_of(request.GET.dict())
             if save_id is False:
                 return reply(request, {'error': 'Invalid save id.'}, 400)
-            board = services.get_board(identifier, save_id)
+            board = services.get_board(identifier, save_id, viewer=user.id)
+            if board:
+                board = {**board, 'data': hidden.visible_data(board['data'], level)}
             return reply(request, {**board, 'role': access.LEVEL_NAMES[level]}) if board else reply(request, {'error': 'Board not found.'}, 404)
         # A missing board keeps the frozen validate-then-404 order; an existing one checks the role first,
         # so a read-only user is refused before any version check and never receives a 409 with the graph.
@@ -191,11 +203,16 @@ def board_detail(request, identifier):
         except board_patch.PatchError:
             return reply(request, {'error': 'INVALID_PATCH'}, 400)
         except services.VersionConflict as conflict:
-            return reply(request, {'error': 'VERSION_CONFLICT', 'board': conflict.board}, 409)
+            seen = {**conflict.board, 'data': hidden.visible_data(conflict.board['data'], level)} if level is not None else conflict.board
+            return reply(request, {'error': 'VERSION_CONFLICT', 'board': seen}, 409)
         except services.BoardTooLarge:
             return reply(request, {'error': 'Board is too large to save.'}, 413)
+        except limits.BoardLimitExceeded as exceeded:
+            return reply(request, {'error': exceeded.message, 'limit': exceeded.code}, 413)
         if saved is None:
             return reply(request, {'error': 'Board not found.'}, 404)
+        if level is not None and 'board' in saved:
+            saved = {**saved, 'board': hidden.visible_data(saved['board'], level)}
         return reply(request, {'ok': True, **saved})
     except access.AccessError as error:
         return reply(request, {'error': str(error)}, error.status)
@@ -252,11 +269,11 @@ def board_changes(request, identifier):
         current = services.board_version(identifier)
         if current is None:
             return reply(request, {'error': 'Board not found.'}, 404)
-        access.require(user, current, access.READ)
+        level = access.require(user, current, access.READ)
         since = request.GET.get('since', '')
         if not re.fullmatch(r'[0-9]{1,16}', since):
             return reply(request, {'error': 'Invalid version.'}, 400)
-        changes = services.board_changes(identifier, int(since))
+        changes = services.board_changes(identifier, int(since), level, viewer=user.id)
         return reply(request, changes) if changes else reply(request, {'error': 'Board not found.'}, 404)
     except access.AccessError as error:
         return reply(request, {'error': str(error)}, error.status)
@@ -277,12 +294,12 @@ def board_activity(request, identifier):
         existing = access.board_row(identifier) if UUID_PATTERN.fullmatch(identifier) else None
         if existing is None:
             return reply(request, {'error': 'Board not found.'}, 404)
-        access.require(user, existing, access.WRITE)
+        level = access.require(user, existing, access.WRITE)
         before = request.GET.get('before')
         cursor = ACTIVITY_CURSOR.fullmatch(before) if before is not None else None
         if before is not None and cursor is None:
             return reply(request, {'error': 'Invalid cursor.'}, 400)
-        return reply(request, services.board_activity(identifier, (int(cursor[1]), int(cursor[2])) if cursor else None))
+        return reply(request, services.board_activity(identifier, (int(cursor[1]), int(cursor[2])) if cursor else None, level))
     except access.AccessError as error:
         return reply(request, {'error': str(error)}, error.status)
     except Exception:
@@ -302,25 +319,11 @@ def board_upload(request, identifier):
         payload = body(request)
         reference_id = property_of(payload, 'referenceId')
         if reference_id:
-            from apps.media.uploads import resolve_ready_upload, UploadError
-            from apps.media.storage import get_storage, MIME
-            import tempfile
-            from uuid import uuid4
+            from apps.media.uploads import UploadError
+            from .media_files import import_manifest, describe
             try:
-                upload = resolve_ready_upload(str(actor.id), reference_id, purposes={'canvas'})
-                storage = get_storage()
-                ext = next((ext for ext, mime in MIME.items() if mime == upload.content_type), 'png')
-                key = f'canvas/{identifier}/{uuid4()}.{ext}'
-                media = storage.open(upload.key)
-                try:
-                    with tempfile.TemporaryFile() as staged:
-                        for chunk in media.stream:
-                            staged.write(chunk)
-                        staged.seek(0)
-                        storage.upload_stream(staged, key, upload.content_type, 'private, max-age=0')
-                finally:
-                    media.stream.close()
-                return reply(request, {'url': '/api/media/' + key})
+                row = import_manifest(actor, identifier, reference_id)
+                return reply(request, describe(row), 200 if row.state == 'ready' else 202)
             except UploadError as error:
                 return reply(request, {'error': str(error)}, error.status)
         data_url = property_of(payload, 'dataUrl')
@@ -342,6 +345,7 @@ BOARD_ACCESS_OPERATIONS = {
     'setMember': lambda user, board, data: access.set_board_member(user, board, property_of(data, 'userId'), property_of(data, 'role')),
     'removeMember': lambda user, board, data: access.remove_board_member(user, board, property_of(data, 'userId')),
     'setTeamRole': lambda user, board, data: access.set_team_role(user, board, property_of(data, 'role')),
+    'setCollabTools': lambda user, board, data: access.set_collab_tools(user, board, property_of(data, 'who')),
     'transferOwner': lambda user, board, data: access.transfer_owner(user, board, property_of(data, 'userId')),
 }
 

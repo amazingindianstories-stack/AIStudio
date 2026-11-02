@@ -1,0 +1,155 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  MAX_INK_POINTS, eraseAt, eraseInkPart, inkIdsAt, inkNodeFromPoints, inkPathD, inkWorldPoints, pressureWidth, simplifyPoints, simplifyStroke,
+} from "./ink.js";
+
+const line = (n, y = 0) => Array.from({ length: n }, (_, i) => ({ x: i, y }));
+const style = { stroke: "#ffffff", strokeWidth: 4 };
+
+test("simplifying drops collinear points and keeps corners", () => {
+  const corner = [...line(50), ...Array.from({ length: 50 }, (_, i) => ({ x: 49, y: i + 1 }))];
+  const result = simplifyPoints(corner, 0.5);
+  assert.deepEqual(result, [corner[0], corner[49], corner[99]]);
+});
+
+test("a long noisy stroke stays within the per-stroke point cap", () => {
+  const noisy = Array.from({ length: 20000 }, (_, i) => ({ x: i * 0.2, y: Math.sin(i / 3) * 40 + (i % 7) }));
+  assert.ok(simplifyStroke(noisy, 1).length <= MAX_INK_POINTS);
+});
+
+test("an ink node stores rounded flat points relative to its box and rebuilds world points", () => {
+  const node = inkNodeFromPoints([{ x: 100.04, y: 50 }, { x: 150, y: 80.26 }], style, "i1");
+  assert.equal(node.type, "ink");
+  assert.deepEqual([node.x, node.y, node.w, node.h], [100, 50, 50, 30.3]);
+  assert.deepEqual(node.pts, [0, 0, 50, 30.3]);
+  const world = inkWorldPoints(node);
+  assert.deepEqual(world.map((p) => [p.x, p.y]), [[100, 50], [150, 80.3]]);
+  assert.match(inkPathD(node), /^M 0 0 L 50 30.3$/);
+});
+
+test("resizing the box scales the stroke", () => {
+  const node = { ...inkNodeFromPoints([{ x: 0, y: 0 }, { x: 10, y: 10 }], style, "i1"), w: 20, h: 40 };
+  assert.deepEqual(inkWorldPoints(node).map((p) => [p.x, p.y]), [[0, 0], [20, 40]]);
+});
+
+test("a highlighter stroke is translucent", () => {
+  const node = inkNodeFromPoints(line(3), { ...style, highlighter: true }, "h");
+  assert.equal(node.highlighter, true);
+  assert.equal(node.opacity, 0.4);
+});
+
+test("a degenerate dot gets a minimum box", () => {
+  const node = inkNodeFromPoints([{ x: 5, y: 5 }], style, "dot");
+  assert.ok(node.w >= 2 && node.h >= 2);
+});
+
+test("the whole-stroke eraser removes only strokes the circle touches", () => {
+  const near = inkNodeFromPoints(line(100), style, "near");
+  const far = inkNodeFromPoints(line(100, 300), style, "far");
+  assert.deepEqual(inkIdsAt([near, far], { x: 50, y: 6 }, 6), ["near"]);
+  const state = { nodes: [near, far, { id: "r", type: "rect", x: 0, y: 0, w: 99, h: 99 }], connectors: [] };
+  const after = eraseAt(state, { x: 50, y: 3 }, 6, false);
+  assert.deepEqual(after.nodes.map((n) => n.id), ["far", "r"]);
+  assert.equal(eraseAt(state, { x: 900, y: 900 }, 6, false), state, "a miss changes nothing");
+});
+
+test("the precision eraser splits a stroke around the erased part", () => {
+  const node = inkNodeFromPoints(line(101), style, "s");
+  const pieces = eraseInkPart(node, { x: 50, y: 0 }, 8);
+  assert.equal(pieces.length, 2);
+  assert.equal(pieces[0].id, "s");
+  assert.notEqual(pieces[1].id, "s");
+  assert.ok(pieces[0].x + pieces[0].w < 50 && pieces[1].x > 50);
+  assert.equal(eraseInkPart(node, { x: 50, y: 200 }, 8), null);
+});
+
+test("the precision eraser keeps the stroke's layer, tags and other fields on every piece", () => {
+  const drawn = inkNodeFromPoints(line(101), { ...style, highlighter: true }, "s");
+  const node = {
+    ...drawn, w: drawn.w * 2, layerId: "sketch", diagramLayerId: "notes", tags: ["t1"], parentId: "d", groupId: "g", opacity: 0.3,
+    createdBy: 7, createdAt: "2026-10-01T00:00:00Z",
+  };
+  const pieces = eraseInkPart(node, { x: 100, y: 0 }, 8);
+  assert.equal(pieces.length, 2);
+  for (const piece of pieces) {
+    assert.equal(piece.layerId, "sketch");
+    assert.equal(piece.diagramLayerId, "notes");
+    assert.deepEqual(piece.tags, ["t1"]);
+    assert.equal(piece.parentId, "d");
+    assert.equal(piece.groupId, "g");
+    assert.equal(piece.opacity, 0.3);
+    assert.equal(piece.highlighter, true);
+    assert.equal(piece.vw, piece.w);
+  }
+  assert.equal(pieces[0].createdBy, 7, "the piece that keeps the id keeps its stamps");
+  assert.equal("createdBy" in pieces[1], false, "a new piece starts unstamped");
+  assert.ok(pieces[0].x + pieces[0].w < 100 && pieces[1].x > 100, "pieces follow the resized box");
+  const state = eraseAt({ nodes: [node], connectors: [] }, { x: 100, y: 0 }, 8, true);
+  assert.deepEqual(state.nodes.map((n) => n.layerId), ["sketch", "sketch"]);
+});
+
+test("the eraser hits a rotated stroke where it is drawn and its pieces stay in place", () => {
+  const drawn = inkNodeFromPoints(Array.from({ length: 201 }, (_, i) => ({ x: i, y: 0 })), style, "s");
+  const node = { ...drawn, y: -drawn.h / 2, rotation: 90 };
+  const state = { nodes: [node], connectors: [] };
+  const lineX = inkWorldPoints(node)[0].x;
+  assert.ok(Math.abs(lineX - 100) <= 1);
+  assert.deepEqual(inkIdsAt([node], { x: 100, y: -80 }, 6), ["s"], "the visible vertical line is hit");
+  assert.deepEqual(inkIdsAt([node], { x: 20, y: 0 }, 6), [], "where the upright stroke would be is empty");
+  assert.equal(eraseAt(state, { x: 20, y: 0 }, 6, true), state);
+  const pieces = eraseAt(state, { x: 100, y: 0 }, 6, true).nodes;
+  assert.equal(pieces.length, 2);
+  for (const piece of pieces) {
+    assert.equal("rotation" in piece, false);
+    for (const p of inkWorldPoints(piece)) {
+      assert.ok(Math.abs(p.x - lineX) < 0.5, "every piece stays on the vertical line");
+      assert.ok(Math.abs(p.y) > 6 && Math.abs(p.y) <= 100.5);
+    }
+  }
+});
+
+test("erasing a stroke drops the connectors attached to it, and a split stroke keeps them", () => {
+  const short = inkNodeFromPoints(line(5), style, "short");
+  const long = inkNodeFromPoints(line(101, 300), style, "long");
+  const sticky = { id: "n", type: "sticky", x: 500, y: 500, w: 100, h: 100 };
+  const connectors = [
+    { id: "to-short", from: { nodeId: "n" }, to: { nodeId: "short" } },
+    { id: "from-long", from: { nodeId: "long" }, to: { nodeId: "n" } },
+    { id: "free", from: { x: 0, y: 0 }, to: { nodeId: "n" } },
+  ];
+  const state = { nodes: [short, long, sticky], connectors };
+  const whole = eraseAt(state, { x: 2, y: 0 }, 10, false);
+  assert.deepEqual(whole.nodes.map((n) => n.id), ["long", "n"]);
+  assert.deepEqual(whole.connectors.map((c) => c.id), ["from-long", "free"]);
+  const covered = eraseAt(state, { x: 2, y: 0 }, 20, true);
+  assert.deepEqual(covered.connectors.map((c) => c.id), ["from-long", "free"]);
+  const split = eraseAt(state, { x: 50, y: 300 }, 8, true);
+  assert.equal(split.nodes.filter((n) => n.type === "ink").length, 3);
+  assert.equal(split.connectors, connectors, "the piece that keeps the id keeps its connectors");
+});
+
+test("the precision eraser leaves nothing when it covers a short stroke", () => {
+  const node = inkNodeFromPoints(line(5), style, "s");
+  assert.deepEqual(eraseInkPart(node, { x: 2, y: 0 }, 20), []);
+  const state = eraseAt({ nodes: [node], connectors: [] }, { x: 2, y: 0 }, 20, true);
+  assert.equal(state.nodes.length, 0);
+});
+
+test("a stylus varies width with pressure and a mouse keeps the preset", () => {
+  assert.equal(pressureWidth(4, "mouse", [0.5]), 4);
+  assert.equal(pressureWidth(4, "pen", [1]), 6);
+  assert.equal(pressureWidth(4, "pen", [0]), 2);
+  assert.equal(pressureWidth(4, "pen", []), 4);
+});
+
+test("the eraser leaves strokes it must not remove, whole or in part", () => {
+  const stroke = (id) => inkNodeFromPoints(Array.from({ length: 20 }, (_, i) => ({ x: i * 10, y: 6 })), { stroke: "#fff", strokeWidth: 4, highlighter: false }, id);
+  const state = { nodes: [stroke("kept"), stroke("gone")], connectors: [] };
+  const fixed = new Set(["kept"]);
+  assert.deepEqual(eraseAt(state, { x: 50, y: 6 }, 6, false, fixed).nodes.map((n) => n.id), ["kept"]);
+  const precise = eraseAt(state, { x: 50, y: 6 }, 6, true, fixed).nodes;
+  assert.equal(precise.filter((n) => n.id === "kept").length, 1);
+  assert.deepEqual(precise.find((n) => n.id === "kept"), state.nodes[0]);
+  assert.equal(precise.length, 3, "only the other stroke is cut in two");
+});

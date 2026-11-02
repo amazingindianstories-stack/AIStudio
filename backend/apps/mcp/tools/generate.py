@@ -39,8 +39,8 @@ LOCATION = {
 }
 
 
-def models_of(kind):
-    return [model for model in catalog.offered() if model['kind'] == kind]
+def models_of(kind, blocks=True):
+    return [model for model in catalog.offered(blocks) if model['kind'] == kind]
 
 
 def union(models, key):
@@ -64,7 +64,7 @@ def references(maximum, what):
 
 
 def image_schema():
-    models = models_of('image')
+    models = models_of('image', blocks=False)
     return obj({
         'model': model_enum('image', models),
         'prompt': {'type': 'string', 'minLength': 1, 'description': 'What to make.'},
@@ -76,7 +76,7 @@ def image_schema():
 
 
 def video_schema():
-    models = models_of('video')
+    models = models_of('video', blocks=False)
     def most(key):
         return max((m.get('capabilities', {}).get(key, 0) for m in models), default=0)
     return obj({

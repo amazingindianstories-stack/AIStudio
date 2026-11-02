@@ -167,7 +167,7 @@ class BoardActivityTests(TransactionTestCase):
 
     def test_stamps_do_not_count_toward_the_size_limit(self):
         def board(text):
-            return graph(*(rect(f'n{index:04}') for index in range(2000)), rect('pad', text=text))
+            return graph(*(rect(f'n{index:04}') for index in range(2000)), rect('pad', type='frame', name=text))
         room = MAX_BOARD_JSON_UNITS - content_length(validate_state(board('')))
         # One unit over the limit is refused without writing anything.
         refused = self.save(self.ana, board('x' * (room + 1)), expect=413)

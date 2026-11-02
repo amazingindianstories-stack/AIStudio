@@ -15,7 +15,13 @@
 | [features/board-history.md](features/board-history.md) | Board History (the server-side save diff, `board_activity`, its read route and panel) and object info stamps |
 | [features/board-shapes-rich-text.md](features/board-shapes-rich-text.md) | Board path shapes and the shapes panel, rich-text marks, their format v1 fields and sanitizing |
 | [features/board-stickies-text.md](features/board-stickies-text.md) | Sticky options, tags, emoji votes, authors, stacks, clustering, lists, fonts, colors and styles |
+| [features/board-navigation-presenting.md](features/board-navigation-presenting.md) | Board find and replace, frames panel and presenting (`frameOrder`, `notes`), command palette, shortcut registry, accessibility tools, copy as text or image, object links and recent boards |
+| [features/board-comments.md](features/board-comments.md) | Board comment threads, mentions, the notification feed and bell, presence and Web Push |
 | [features/board-diagramming.md](features/board-diagramming.md) | Shape packs, custom SVG packs, ERD, swimlane and diagram objects, connector routing, caps, labels and line jumps |
+| [features/board-drawing-frames.md](features/board-drawing-frames.md) | Pen, highlighter, eraser and smart drawing, grids, synced copies, visual notes, frame presets, nesting and hiding |
+| [features/board-formats.md](features/board-formats.md) | Docs, Slides, HTML and Draw.io formats, focus mode, Mermaid code diagrams, click-through prototypes, their format v1 fields and caps |
+| [features/board-media.md](features/board-media.md) | Board files, PDF pages, URL imports, link cards, embeds, saved files and the slice's declined and deferred lines |
+| [features/board-templates.md](features/board-templates.md) | Template library, picker, blueprints, save as template, access levels, likes and usage insights |
 | [operations/status.md](operations/status.md) | Current production state, incidents, owner approval gates and open items |
 | [operations/release-runbook.md](operations/release-runbook.md) | Release gates, staging and rolling a backend commit to Railway, rollback |
 | [operations/managed-portraits.md](operations/managed-portraits.md) | Rollout and rollback of the automatic BytePlus portrait pool |

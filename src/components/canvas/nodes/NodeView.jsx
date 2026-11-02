@@ -8,6 +8,7 @@ import { isCalloutKind } from "@/lib/canvas/shapes";
 import { rotatedResizeCursor } from "@/lib/canvas/transform";
 import { RotateHandle } from "../RotateHandle";
 
+import { WorkNode } from "./WorkNode";
 import { ShapeNode } from "./ShapeNode";
 import { TextNode } from "./TextNode";
 import { StickyNode } from "./StickyNode";
@@ -17,8 +18,13 @@ import { ImageNode } from "./ImageNode";
 import { ErdNode } from "./ErdNode";
 import { SwimlaneNode } from "./SwimlaneNode";
 import { DiagramNode } from "./DiagramNode";
-
-;
+import { InkNode } from "./InkNode";
+import { GridNode } from "./GridNode";
+import { SyncedNode } from "./SyncedNode";
+import { FormatNode } from "../formats/FormatNode";
+import { MEDIA_RENDERERS, LinkBadge } from "./MediaNodes";
+import { objectLinkHref, openObjectLink } from "@/lib/canvas/media-actions";
+import { VoteBadge } from "../facilitation/VoteBadge";
 
 // `angle` is the handle's direction from the center on an upright node (n = 0), so a
 // rotated node shows the resize cursor that matches where the handle now points.
@@ -49,6 +55,7 @@ export function NodeView({
   selected = false,
   readOnly,
   viewOnly = false,
+  syncedCopy = false,
   editingTextId,
   dropHighlight,
   dragging,
@@ -89,9 +96,11 @@ export function NodeView({
     tool === "select" &&
     (hovered || (showHandles && quickDiagramEligible)) &&
     !dragging &&
-    !editing;
-  const pathShape = node.type === "shape";
-  const isCallout = pathShape && isCalloutKind(node.shape);
+    !editing &&
+    node.type !== "ink" &&
+    node.type !== "synced";
+  const pathShape = node.type === "shape" || node.type === "ink";
+  const isCallout = node.type === "shape" && isCalloutKind(node.shape);
   const tailPoint =
     isCallout && node.tail
       ? resolveEndpoint(node.tail, nodesById || {}, { x: node.x + node.w / 2, y: node.y + node.h / 2 })
@@ -136,6 +145,11 @@ export function NodeView({
         // checks) is what TypeScript narrows reliably across every branch,
         // including the final one.
         switch (node.type) {
+          case "card":
+          case "work":
+            return <WorkNode node={node} />;
+          case "format":
+            return <FormatNode node={node} />;
           case "rect":
           case "ellipse":
           case "triangle":
@@ -199,11 +213,24 @@ export function NodeView({
           case "swimlane":
             return <SwimlaneNode node={node} selected={showRing} readOnly={readOnly} />;
           case "diagram":
-            return <DiagramNode node={node} selected={showRing} readOnly={readOnly} />;
+            return <DiagramNode node={node} selected={showRing} readOnly={readOnly} syncedCopy={syncedCopy} />;
+          case "ink":
+            return <InkNode node={node} />;
+          case "grid":
+            return <GridNode node={node} selected={showRing} readOnly={readOnly || viewOnly || locked} />;
+          case "synced":
+            return <SyncedNode node={node} />;
           case "image":
             return <ImageNode node={node} cropMode={cropMode} cropDraft={cropDraft} onCropChange={onCropChange} onApplyCrop={onApplyCrop} onCancelCrop={onCancelCrop} onResetCrop={onResetCrop} />;
+          default: {
+            const Media = MEDIA_RENDERERS[node.type];
+            return Media ? <Media node={node} selected={showRing} readOnly={readOnly} /> : null;
+          }
         }
       })()}
+
+      {node.link && <LinkBadge node={node} href={objectLinkHref(node.link)} onOpen={openObjectLink} />}
+      <VoteBadge node={node} />
 
       {showRing && (
         <div

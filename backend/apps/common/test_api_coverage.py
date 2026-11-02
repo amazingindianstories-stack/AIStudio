@@ -38,6 +38,9 @@ EXPECTED = {'/api/admin/activity': ['GET'],
  '/api/auth/password': ['PATCH'],
  '/api/canvas-boards/[id]': ['GET', 'PUT', 'PATCH'],
  '/api/canvas-boards/[id]/upload': ['POST'],
+ '/api/canvas-boards/[id]/media': ['GET'],
+ '/api/canvas-boards/[id]/media/[mediaId]': ['GET'],
+ '/api/canvas-boards/[id]/import-url': ['POST'],
  '/api/canvas-boards': ['GET', 'POST'],
  '/api/cron/depth-reconciliation': ['GET'],
  '/api/cron/login-attempts': ['GET'],
@@ -139,6 +142,76 @@ EXPECTED.update(BOARD_SCALE)
 # Reviewed diagramming addition: custom SVG shape packs, per user or shared with the team.
 SHAPE_PACKS = {'/api/canvas-shape-packs': ['GET', 'POST'], '/api/canvas-shape-packs/[id]': ['PATCH', 'DELETE']}
 EXPECTED.update(SHAPE_PACKS)
+# Reviewed synced-copy addition: a board's frames and diagrams, one source's live content, and the boards holding copies of it.
+SYNCED_COPIES = {
+ '/api/canvas-boards/[id]/frames': ['GET'],
+ '/api/canvas-boards/[id]/frames/[nodeId]': ['GET'],
+ '/api/canvas-boards/[id]/frames/[nodeId]/copies': ['GET'],
+}
+EXPECTED.update(SYNCED_COPIES)
+# Reviewed work-tracking addition: data-backed board tables, their history, and the board notification inbox.
+BOARD_WORK = {
+ '/api/canvas-boards/[id]/work': ['GET', 'POST'],
+ '/api/canvas-boards/[id]/work/[tableId]': ['GET', 'POST'],
+ '/api/canvas-boards/[id]/work/[tableId]/history': ['GET'],
+ '/api/board-notifications': ['GET', 'POST'],
+}
+EXPECTED.update(BOARD_WORK)
+# Board integration slices: canvas formats, media, templates, comments, facilitation, AI create, sidekicks, integrations,
+# plans, import/export and admin routes, plus the versioned agent board API.
+BOARD_SLICES = {
+ '/api/admin/ai-log': ['GET'],
+ '/api/admin/content-log': ['GET'],
+ '/api/admin/template-usage': ['GET'],
+ '/api/admin/workspace': ['GET', 'POST'],
+ '/api/canvas-ai/[action]': ['DELETE', 'GET', 'PATCH', 'POST'],
+ '/api/canvas-blueprints': ['GET', 'POST'],
+ '/api/canvas-blueprints/[ref]': ['DELETE', 'PATCH'],
+ '/api/canvas-blueprints/[ref]/use': ['POST'],
+ '/api/canvas-boards/[identifier]/assistant/[action]': ['DELETE', 'GET', 'PATCH', 'POST'],
+ '/api/canvas-boards/[identifier]/comments': ['GET', 'POST'],
+ '/api/canvas-boards/[identifier]/comments/[comment_id]': ['DELETE', 'PATCH'],
+ '/api/canvas-boards/[identifier]/comments/[comment_id]/react': ['POST'],
+ '/api/canvas-boards/[identifier]/comments/[comment_id]/resolve': ['POST'],
+ '/api/canvas-boards/[identifier]/comments/follow': ['POST'],
+ '/api/canvas-boards/[identifier]/comments/mentions': ['GET'],
+ '/api/canvas-boards/[identifier]/comments/read': ['POST'],
+ '/api/canvas-boards/[identifier]/facilitation': ['GET'],
+ '/api/canvas-boards/[identifier]/private-mode': ['POST'],
+ '/api/canvas-boards/[identifier]/pulse': ['POST'],
+ '/api/canvas-boards/[identifier]/talktracks': ['GET', 'POST'],
+ '/api/canvas-boards/[identifier]/talktracks/[talktrack_id]': ['DELETE', 'GET', 'PATCH'],
+ '/api/canvas-boards/[identifier]/talktracks/[talktrack_id]/moments': ['GET', 'POST'],
+ '/api/canvas-boards/[identifier]/talktracks/[talktrack_id]/moments/[moment_id]': ['DELETE'],
+ '/api/canvas-boards/[identifier]/talktracks/[talktrack_id]/transcript': ['POST'],
+ '/api/canvas-boards/[identifier]/talktracks/[talktrack_id]/view': ['POST'],
+ '/api/canvas-boards/[identifier]/talktracks/[talktrack_id]/viewers': ['GET'],
+ '/api/canvas-boards/[identifier]/timer': ['POST'],
+ '/api/canvas-boards/[identifier]/voting': ['GET', 'POST'],
+ '/api/canvas-boards/[identifier]/voting/[session_id]': ['POST'],
+ '/api/canvas-boards/[identifier]/voting/[session_id]/done': ['POST'],
+ '/api/canvas-boards/[identifier]/voting/[session_id]/vote': ['POST'],
+ '/api/canvas-templates': ['GET', 'POST'],
+ '/api/canvas-templates/[ref]': ['DELETE', 'GET', 'PATCH'],
+ '/api/canvas-templates/[ref]/comments': ['GET', 'POST'],
+ '/api/canvas-templates/[ref]/edit-board': ['POST'],
+ '/api/canvas-templates/[ref]/like': ['POST'],
+ '/api/canvas-templates/[ref]/use': ['POST'],
+ '/api/canvas-templates/by-board/[board_id]': ['GET'],
+ '/api/my-talktracks': ['GET'],
+ '/api/notifications': ['GET'],
+ '/api/notifications/read': ['POST'],
+ '/api/push-subscription': ['DELETE', 'GET', 'POST'],
+ '/api/v1/boards': ['GET'],
+ '/api/v1/boards/[identifier]': ['GET'],
+ '/api/v1/boards/[identifier]/changes': ['GET'],
+ '/api/v1/boards/[identifier]/connectors': ['GET', 'POST'],
+ '/api/v1/boards/[identifier]/connectors/[item_id]': ['DELETE', 'GET', 'PATCH'],
+ '/api/v1/boards/[identifier]/items': ['GET', 'POST'],
+ '/api/v1/boards/[identifier]/items/[item_id]': ['DELETE', 'GET', 'PATCH'],
+ '/api/workspace': ['GET'],
+}
+EXPECTED.update(BOARD_SLICES)
 # Agent OAuth endpoints read no cookies and answer browser-based clients cross-origin (apps.common.origin).
 COOKIELESS_OAUTH = {'/api/oauth/register', '/api/oauth/token', '/api/oauth/revoke'}
 
@@ -169,11 +242,11 @@ def leaves(patterns,prefix=''):
 
 @override_settings(ROOT_URLCONF='config.urls')
 class CompleteApiCoverageTests(SimpleTestCase):
-    def test_all_129_explicit_methods_resolve_to_the_declared_python_handlers(self):
+    def test_all_139_explicit_methods_resolve_to_the_declared_python_handlers(self):
         # 90 migrated methods, the media resolver, the managed-portrait routes, the admin provider error log, agent access,
-        # board roles, board sync, board AI jobs and board history.
-        self.assertEqual(len(EXPECTED),100)
-        self.assertEqual(sum(map(len,EXPECTED.values())),129)
+        # board roles, board sync, board AI jobs, board history, synced copies, board work tables, board media and the board integration slices.
+        self.assertEqual(len(EXPECTED),160)
+        self.assertEqual(sum(map(len,EXPECTED.values())),220)
         resolved_routes=set()
         for path,methods in EXPECTED.items():
             with self.subTest(path=path):
@@ -226,6 +299,9 @@ NEGATIVE_STATUS = {
  '/api/auth/password': {'PATCH':401},
  '/api/canvas-boards/[id]': {'GET':401,'PUT':401,'PATCH':401},
  '/api/canvas-boards/[id]/upload': {'POST':401},
+ '/api/canvas-boards/[id]/media': {'GET':401},
+ '/api/canvas-boards/[id]/media/[mediaId]': {'GET':401},
+ '/api/canvas-boards/[id]/import-url': {'POST':401},
  '/api/canvas-boards': {'GET':401,'POST':401},
  '/api/cron/depth-reconciliation': {'GET':401},
  '/api/cron/login-attempts': {'GET':401},
@@ -281,6 +357,9 @@ NEGATIVE_STATUS.update({path:{method:401 for method in methods} for path,methods
 NEGATIVE_STATUS.update({path:{method:401 for method in methods} for path,methods in BOARD_ACTIVITY.items()})
 NEGATIVE_STATUS.update({path:{method:401 for method in methods} for path,methods in BOARD_SCALE.items()})
 NEGATIVE_STATUS.update({path:{method:401 for method in methods} for path,methods in SHAPE_PACKS.items()})
+NEGATIVE_STATUS.update({path:{method:401 for method in methods} for path,methods in SYNCED_COPIES.items()})
+NEGATIVE_STATUS.update({path:{method:401 for method in methods} for path,methods in BOARD_WORK.items()})
+NEGATIVE_STATUS.update({path:{method:401 for method in methods} for path,methods in BOARD_SLICES.items()})
 # Public discovery documents, and machine endpoints refusing an empty body or an unknown client.
 NEGATIVE_STATUS.update({'/api/oauth/authorization-server':{'GET':200},'/api/oauth/protected-resource':{'GET':200},
     '/api/oauth/register':{'POST':400},'/api/oauth/token':{'POST':401},'/api/oauth/revoke':{'POST':400}})
@@ -302,7 +381,7 @@ class CompleteApiNegativeBoundaryTests(TransactionTestCase):
         payload,signature=self.valid.split('.')
         self.forged=payload+'.'+('A' if signature[0]!='A' else 'B')+signature[1:]
         self.tables=sorted({model._meta.db_table for model in apps.get_models() if model._meta.managed})
-        self.assertEqual(len(self.tables),39)
+        self.assertEqual(len(self.tables),70)
         self.assertEqual({path:set(methods) for path,methods in EXPECTED.items()},
             {path:set(methods) for path,methods in NEGATIVE_STATUS.items()})
 
@@ -349,7 +428,7 @@ class CompleteApiNegativeBoundaryTests(TransactionTestCase):
         self.assertEqual(self.write_attempts,[])
         for effect in self.effects: effect.assert_not_called()
 
-    def test_all_129_methods_match_negative_request_contract_without_effects(self):
+    def test_all_139_methods_match_negative_request_contract_without_effects(self):
         # Empty/malformed payload failures on public routes are not proof of
         # account-only authorization. Paid video now requires login; valid-payload
         # zero-effects and owner checks are covered by enqueue contract tests.
@@ -369,7 +448,7 @@ class CompleteApiNegativeBoundaryTests(TransactionTestCase):
                             if path=='/api/auth/me' and method=='GET': self.assertEqual(response.json(),{'user':None})
                             if path=='/api/auth/logout': self.assertEqual(response.json(),{'ok':True})
                             seen.add((mode,path,method))
-            self.assertEqual(len(seen),3*129)
+            self.assertEqual(len(seen),3*220)
             self.assert_no_effects(before)
 
     def test_every_unsafe_method_rejects_hostile_origin_even_with_valid_credentials(self):

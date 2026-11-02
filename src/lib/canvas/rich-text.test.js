@@ -52,6 +52,16 @@ test("validateMarks clamps ranges to the UTF-16 text and drops anything unknown"
   ]);
 });
 
+test("a mention mark keeps a lowercase user id and round trips through the editor DOM", () => {
+  const id = "0f8fad5b-d9cb-469f-a165-70867728950e";
+  assert.deepEqual(validateMarks([[0, 5, "m", id], [0, 5, "m", "not-an-id"], [0, 5, "m", id.toUpperCase()], [0, 5, "m"]], "@Asha x"), [[0, 5, "m", id]]);
+  const { window } = new JSDOM("<div id='root'></div>");
+  const root = window.document.getElementById("root");
+  writeRichDom(root, "@Asha x", [[0, 5, "m", id]]);
+  assert.equal(root.querySelector("[data-mention]").textContent, "@Asha");
+  assert.deepEqual(readRichDom(root), { text: "@Asha x", marks: [[0, 5, "m", id]] });
+});
+
 test("richSegments splits at every boundary and stacks formats", () => {
   assert.deepEqual(richSegments("", [[0, 1, "b"]]), []);
   assert.deepEqual(richSegments("plain", null), [{ text: "plain", start: 0 }]);

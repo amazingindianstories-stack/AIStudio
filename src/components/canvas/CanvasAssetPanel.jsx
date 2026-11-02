@@ -316,7 +316,7 @@ function AssetThumb({
         e.dataTransfer.effectAllowed = "copy";
       }}
       onClick={() => {
-        if (src && placeable) onPlaceAtCenter({ url: src, aspectRatio: item.aspectRatio, kind: item.kind });
+        if (src && placeable) onPlaceAtCenter({ url: item.url, aspectRatio: item.aspectRatio, kind: item.kind, title: item.name || "Video" });
       }}
       title={placeable ? "Drag onto the board · or click to place" : "You can view this board but not add to it"}
       className={cn(

@@ -2,7 +2,7 @@
 
 A graph save is compared with the graph it replaces, per node and connector id, in the save's own
 transaction. The server stamps every changed object with its author and time, so a client cannot
-forge them, and appends one `board_activity` row per change. Moves and emoji votes are not changes
+forge them, and appends one `board_activity` row per change. Moves, emoji votes and click-to-agree marks are not changes
 (as in Miro): a node whose only difference is its position, frame, group or reactions, or a connector
 whose only difference is where a free end sits, keeps its stamps and records nothing. `textBy` names
 whoever last replaced an existing sticky's text (absent until then, so the creator wrote it), for
@@ -12,7 +12,7 @@ from .models import BoardActivity
 from .serialization import STAMP_KEYS
 
 # Arrangement and votes, not content: changing only these is not an edit.
-ARRANGEMENT_KEYS = ('x', 'y', 'parentId', 'groupId', 'reactions')
+ARRANGEMENT_KEYS = ('x', 'y', 'parentId', 'groupId', 'reactions', 'agreedBy')
 SNIPPET_LENGTH = 120
 # History rows are kept this long (Miro keeps 90 days); run_scheduler prunes older ones.
 ACTIVITY_RETENTION_MS = 90 * 24 * 60 * 60 * 1000
@@ -35,11 +35,16 @@ def _content(item, connector):
     return {key: value for key, value in content.items() if key not in ARRANGEMENT_KEYS}
 
 
+# The field that names an object in the History panel; every other type is labelled by its text.
+LABEL_FIELDS = {'frame': 'name', 'erd': 'name', 'swimlane': 'name', 'diagram': 'name', 'format': 'name', 'image': 'alt', 'pdf': 'name',
+                'audio': 'title', 'video': 'title', 'embed': 'title', 'linkcard': 'title', 'code': 'code', 'emoji': 'emoji'}
+
+
 def snippet(item):
-    """A short plain-text label for the History panel: the object's text, frame name or image alt text."""
+    """A short plain-text label for the History panel: the object's `LABEL_FIELDS` field or its text."""
     if not isinstance(item, dict):
         return None
-    text = item.get('name') if item.get('type') in ('frame', 'erd', 'swimlane', 'diagram') else item.get('alt') if item.get('type') == 'image' else item.get('text')
+    text = item.get(LABEL_FIELDS.get(item.get('type'), 'text'))
     if not isinstance(text, str):
         return None
     text = ' '.join(text.split())
@@ -87,9 +92,12 @@ def stamps_of(graph, changes):
             for item in graph['nodes'] + graph['connectors'] if item['id'] in changed}
 
 
-def record(board_id, actor, now, changes):
+def record(board_id, actor, now, changes, hide=(), anonymous=()):
+    """One History row per change. `hide` names the notes made private by this save: their text stays out of History.
+    `anonymous` names the notes written anonymously: their rows name no one."""
     BoardActivity.objects.bulk_create([
-        BoardActivity(board_id=board_id, actor_id=actor, action=action, node_id=item['id'],
+        BoardActivity(board_id=board_id, actor_id=None if item['id'] in anonymous else actor, action=action, node_id=item['id'],
                       node_type=item.get('type') if kind == 'node' and isinstance(item.get('type'), str) else kind,
-                      snippet=snippet(item) if kind == 'node' else None, created_at=now, ordinal=position)
+                      snippet=snippet(item) if kind == 'node' and item['id'] not in hide else None,
+                      created_at=now, ordinal=position)
         for position, (action, item, kind) in enumerate(changes)], batch_size=1000)

@@ -23,6 +23,8 @@ export function FrameNode({
 
 ) {
   const labelRef = useRef(null);
+  // A frame inside another frame shows its title only while pointed at, so nested layouts stay quiet.
+  const nested = Boolean(node.parentId);
   const startName = useTextFrozenWhileEditing(node.name, editingLabel);
 
   useEffect(() => {
@@ -34,7 +36,8 @@ export function FrameNode({
       <div
         className={cn(
           "absolute -top-6 left-0 max-w-full",
-          "text-sm font-medium text-white/70"
+          "text-sm font-medium text-white/70",
+          nested && !editingLabel && "opacity-0 transition-opacity [div[data-node-id]:hover>div>&]:opacity-100"
         )}
       >
         {editingLabel ? (
@@ -63,6 +66,7 @@ export function FrameNode({
             title={node.name}
           >
             {node.name || "Untitled frame"}
+            {node.hidden && <span className="ml-2 rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-normal text-white/70">Hidden</span>}
           </span>
         )}
       </div>
