@@ -60,12 +60,15 @@ export const translateAction = (language) => ({ id: `translate-${language}`, for
 /** Recolours the selected notes (and shapes) to one of the board's named colours; the prompt stays editable for any other. */
 export const recolorAction = (name) => ({ id: `recolor-${name}`, format: "recolor", prompt: `Change the colour of each selected object to ${name}.`, needs: "colorable" });
 
-const SELECTED = String.raw`(?:them|these|those|it|this|all|each|every|(?:the\s+)?(?:selected\s+)?(?:notes?|stick(?:y|ies)|shapes?|objects?|ones?))`;
+const NOUN_REF = String.raw`(?:(?:the|this|that|these|those|each|every|all|all\s+(?:of\s+)?(?:the|these|those))\s+)?(?:selected\s+)?(?:sticky\s+)?(?:notes?|stickies|shapes?|objects?)`;
+const PRONOUN_REF = String.raw`(?:them|(?:these|those)(?=\s+(?:to|by)\b|\s*[.!]?\s*$))`;
 const COLOR_NAME = String.raw`(?:yellow|orange|pink|purple|blue|green|red|teal|black|white|gr[ae]y|brown|#[0-9a-f]{6})`;
+const SHADE = String.raw`(?:to|in|dark|light|bright|pale|deep|soft)`;
+const START = String.raw`^\s*(?:please\s+)?`;
 const RECOLOR_REQUESTS = [
-  /\bre-?colou?r\b/i,
-  /\b(?:change|switch|set)\b[^.]*\bcolou?rs?\b/i,
-  new RegExp(String.raw`^\s*(?:please\s+)?(?:make|turn|paint|colou?r|change|set)\s+${SELECTED}\b(?![^.]*\binto\b)[^.]*?\s${COLOR_NAME}\s*[.!]?\s*$`, "i"),
+  new RegExp(String.raw`${START}(?:make|turn|paint|(?:re-?)?colou?r|change|set)\s+(?:them|these|those|${NOUN_REF})(?:\s+${SHADE})*\s+${COLOR_NAME}\s*[.!]?\s*$`, "i"),
+  new RegExp(String.raw`${START}(?:change|switch|set|update)\s+(?:(?:the\s+)?colou?rs?\s+of\s+(?:${PRONOUN_REF}|${NOUN_REF}\b)|their\s+colou?rs?\b)`, "i"),
+  new RegExp(String.raw`${START}(?:re-?)?colou?r\s+(?:${PRONOUN_REF}|${NOUN_REF}\b)`, "i"),
 ];
 
 /** Whether a typed prompt asks to recolour the selection ("make these notes black", "change their colour to #ff00aa"). */

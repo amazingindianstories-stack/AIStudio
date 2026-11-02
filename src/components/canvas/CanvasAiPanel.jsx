@@ -78,6 +78,7 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
   const [quote, setQuote] = useState({ state: "idle" });
   const [useSelection, setUseSelection] = useState(true);
   const [action, setAction] = useState(null);
+  const [routeRecolor, setRouteRecolor] = useState(true);
   const [listening, setListening] = useState(false);
   const stopListening = useRef(null);
   const nodes = useCanvasStore((s) => s.history.present.nodes);
@@ -101,7 +102,7 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
   // Refining continues the result this panel last placed, in its format.
   const refining = Boolean(placed);
   // A typed request to recolour the selected notes or shapes recolours them, whatever format is picked.
-  const typedRecolor = !refining && context.colorable.length > 0 && isRecolorRequest(prompt);
+  const typedRecolor = routeRecolor && !refining && context.colorable.length > 0 && isRecolorRequest(prompt);
   const activeFormat = refining ? placed.format : typedRecolor ? "recolor" : action ? action.format : format;
   const selectionFormat = SELECTION_FORMATS.includes(activeFormat);
   const extra = useSelection || selectionFormat ? contextFields(activeFormat, context) : null;
@@ -202,6 +203,7 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
     if (created) {
       setPrompt("");
       setAction(null);
+      setRouteRecolor(true);
     }
   };
 
@@ -277,6 +279,7 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
               onClick={() => {
                 setFormat(id);
                 setAction(null);
+                if (typedRecolor) setRouteRecolor(false);
               }}
               className={cn(
                 "flex items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
@@ -340,6 +343,7 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
           nodes={nodes}
           action={action}
           recoloring={typedRecolor && action?.format !== "recolor"}
+          onKeepFormat={() => setRouteRecolor(false)}
           useSelection={useSelection}
           onUseSelection={setUseSelection}
           onPick={pickAction}
@@ -520,7 +524,7 @@ function ActionMenu({ label, items, onPick }) {
 }
 
 /** What the selection offers: use it as context, or run a one-click action on it (nothing runs until Generate). */
-function SelectionStrip({ context, nodes, action, recoloring, useSelection, onUseSelection, onPick, onClear, showContextToggle }) {
+function SelectionStrip({ context, nodes, action, recoloring, onKeepFormat, useSelection, onUseSelection, onPick, onClear, showContextToggle }) {
   const applies = (item) => actionApplies(item, context, nodes);
   const presets = SELECTION_ACTIONS.filter(applies);
   const tones = TONES.map((tone) => ({ ...toneAction(tone), label: tone }));
@@ -541,7 +545,12 @@ function SelectionStrip({ context, nodes, action, recoloring, useSelection, onUs
           {action.label ?? action.prompt} <X className="inline h-3 w-3" aria-hidden />
         </button>
       )}
-      {recoloring && <span className="rounded-full bg-ink-600 px-2.5 py-1 font-medium text-white ring-1 ring-line">Change colour</span>}
+      {recoloring && (
+        <button type="button" onClick={onKeepFormat} aria-label="Change colour: keep the picked format instead" title="Keep the picked format instead"
+          className="rounded-full bg-ink-600 px-2.5 py-1 font-medium text-white ring-1 ring-line">
+          Change colour <X className="inline h-3 w-3" aria-hidden />
+        </button>
+      )}
       {presets.filter((item) => item.id !== action?.id).map((item) => (
         <button key={item.id} type="button" onClick={() => onPick(item)} className="rounded-full border border-line px-2.5 py-1 text-white/60 transition-colors hover:border-lineStrong hover:text-white/85">
           {item.label}

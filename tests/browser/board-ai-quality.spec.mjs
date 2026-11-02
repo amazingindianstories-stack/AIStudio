@@ -187,6 +187,13 @@ test('Create with AI recolours the notes already selected on the board: black fr
     await expect.poll(async () => (await stickies()).map(node => node.fill), { timeout: 60000 }).toEqual(['#1a1a1a', '#1a1a1a', '#1a1a1a']);
     expect((await stickies()).map(node => node.color)).toEqual(['#f5f5f5', '#f5f5f5', '#f5f5f5']);
     expect((await stickies()).map(node => node.text)).toEqual(originalText);
+
+    // The routing can be dismissed: the picked format is used again for the same words.
+    await prompt.fill('make these notes black');
+    await expect(stickiesFormat).toHaveAttribute('aria-checked', 'false');
+    await panel.getByRole('button', { name: 'Change colour: keep the picked format instead' }).click();
+    await expect(stickiesFormat).toHaveAttribute('aria-checked', 'true');
+    await expect(prompt).toHaveValue('make these notes black');
   } finally {
     if (boardId) {
       const db = fixtureDatabase(process.env.E2E_DATABASE_URL);
