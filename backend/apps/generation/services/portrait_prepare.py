@@ -88,7 +88,8 @@ def prepare(item, *, storage=None, client=None, now=None):
     if clips is None:       # the frame extractor is busy: look at the clips again shortly
         return managed_pool.wait('portrait_registering', 2000)
     for key, sha in clips.items():
-        outcome = managed_pool.ensure(b'', key, item.id, item.user_id, storage=storage, client=client, now=now, sha=sha, media_kind='video')
+        outcome = managed_pool.ensure(b'', key, item.id, item.user_id, storage=storage, client=client, now=now, sha=sha, media_kind='video',
+                                      gallery=key in videos)
         if outcome.kind == 'failed':
             return outcome
         worst = _reported(worst, outcome)

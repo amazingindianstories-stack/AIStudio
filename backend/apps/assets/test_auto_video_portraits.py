@@ -310,3 +310,23 @@ class AutoVideoPortraitTests(AutoVideoBase):
         self.assertEqual(row.status, 'succeeded', row.error)
         self.assertFalse(self.sent_videos()[0].startswith('asset://'))
         self.assertEqual(ReferenceFaceScan.objects.get().forced, managed_pool.REFUSED)
+
+    def test_a_clip_whose_failed_gallery_card_was_removed_still_goes_as_a_url_when_its_asset_fails_again(self):
+        data = make_clip(self.directory, 'face.mp4')
+        original = self.fake.asset_api
+
+        def fail(action, body):
+            if action == 'GetAsset' and body.get('Id') in self.fake.assets:
+                self.fake.assets[body['Id']]['Status'] = 'Failed'
+            return original(action, body)
+        with patch.object(self.fake, 'asset_api', fail):
+            hand = self.reference_clip(data, purpose='portrait')
+            self.client.post('/api/portraits', {'uploads': [{**hand, 'name': 'Mine'}]}, content_type='application/json')
+            self.settle_uploads()
+            card = self.listing()['portraits'][0]
+            self.client.post('/api/portraits/delete', {'ids': [card['id']]}, content_type='application/json')
+            self.assertEqual(ManagedPortraitAsset.objects.get(origin='upload').status, 'DELETED')
+            row = self.run_worker(self.enqueue_video(self.reference_clip(data)))
+        self.assertEqual(row.status, 'succeeded', row.error)
+        self.assertFalse(self.sent_videos()[0].startswith('asset://'))
+        self.assertEqual(ReferenceFaceScan.objects.get().forced, managed_pool.REFUSED)
