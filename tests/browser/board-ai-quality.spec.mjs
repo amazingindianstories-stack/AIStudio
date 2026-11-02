@@ -194,6 +194,10 @@ test('Create with AI recolours the notes already selected on the board: black fr
     await panel.getByRole('button', { name: 'Change colour: keep the picked format instead' }).click();
     await expect(stickiesFormat).toHaveAttribute('aria-checked', 'true');
     await expect(prompt).toHaveValue('make these notes black');
+    // The dismissal holds only for the words it was given for: a new recolour request is routed again.
+    await prompt.fill('change the colour of these notes to red');
+    await expect(stickiesFormat).toHaveAttribute('aria-checked', 'false');
+    await expect(panel.getByRole('button', { name: 'Change colour: keep the picked format instead' })).toBeVisible();
   } finally {
     if (boardId) {
       const db = fixtureDatabase(process.env.E2E_DATABASE_URL);

@@ -65,7 +65,9 @@ test("a typed request to recolour the selection is recognised, and other request
   for (const prompt of ["make these notes black", "Make these notes #ff00aa", "change the colour of these notes to black", "turn them black.",
     "colour the selected notes grey", "Recolor them by sentiment", "please make all the notes dark blue", "set their color to teal",
     "change the colour of the notes to teal", "change these notes to black", "make these black", "recolour these by sentiment",
-    "change the colour of these to #00ff88", "Make the selected sticky notes light grey"]) {
+    "change the colour of these to #00ff88", "Make the selected sticky notes light grey", "change the notes colour to black",
+    "change the note colors to black", "change the colour to black", "make it black", "make this black", "change it to black",
+    "Can you make these notes black?", "make these notes black please", "make them black please", "make these notes navy", "make these notes #fff"]) {
     assert.equal(isRecolorRequest(prompt), true, prompt);
   }
   for (const prompt of ["Three black sticky notes with shot ideas", "make the background black", "turn these notes into a flowchart in black",

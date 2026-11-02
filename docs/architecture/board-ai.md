@@ -123,8 +123,9 @@ in the strip, with a named colour or a prompt such as "make these #ff00aa") retu
 applies it with `colorPatch` (`src/lib/canvas/ai-graph.js`), the same colour rules a Sidekick `update` action uses; the
 parser uses `color_fields` from `apps/agents/sidekick.py`. It reaches every selected note and shape, blank ones too, and
 sets the text colour that reads on the new fill. A typed request to recolour the selection ("make these notes black",
-`isRecolorRequest` in `ai-selection.js`: it must start with the request and name the selection) runs `recolor` whatever
-format is picked, until the person dismisses its "Change colour" chip or picks a format. It is one undo step, and locked
+`isRecolorRequest` in `ai-selection.js`: it must start with the request and name the selection or what it is) runs
+`recolor` whatever format is picked, unless the person dismisses its "Change colour" chip or picks a format for that
+prompt and selection; a new prompt or selection is routed again. It is one undo step, and locked
 objects are left alone.
 
 - **Context.** The browser reads the selection from the board data (`src/lib/canvas/ai-selection.js`, never the

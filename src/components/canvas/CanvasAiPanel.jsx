@@ -78,7 +78,7 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
   const [quote, setQuote] = useState({ state: "idle" });
   const [useSelection, setUseSelection] = useState(true);
   const [action, setAction] = useState(null);
-  const [routeRecolor, setRouteRecolor] = useState(true);
+  const [keptFormatFor, setKeptFormatFor] = useState(null);
   const [listening, setListening] = useState(false);
   const stopListening = useRef(null);
   const nodes = useCanvasStore((s) => s.history.present.nodes);
@@ -102,7 +102,8 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
   // Refining continues the result this panel last placed, in its format.
   const refining = Boolean(placed);
   // A typed request to recolour the selected notes or shapes recolours them, whatever format is picked.
-  const typedRecolor = routeRecolor && !refining && context.colorable.length > 0 && isRecolorRequest(prompt);
+  const recolorKey = `${prompt}\n${(selection ?? []).join(",")}`;
+  const typedRecolor = keptFormatFor !== recolorKey && !refining && context.colorable.length > 0 && isRecolorRequest(prompt);
   const activeFormat = refining ? placed.format : typedRecolor ? "recolor" : action ? action.format : format;
   const selectionFormat = SELECTION_FORMATS.includes(activeFormat);
   const extra = useSelection || selectionFormat ? contextFields(activeFormat, context) : null;
@@ -203,7 +204,7 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
     if (created) {
       setPrompt("");
       setAction(null);
-      setRouteRecolor(true);
+      setKeptFormatFor(null);
     }
   };
 
@@ -279,7 +280,7 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
               onClick={() => {
                 setFormat(id);
                 setAction(null);
-                if (typedRecolor) setRouteRecolor(false);
+                if (typedRecolor) setKeptFormatFor(recolorKey);
               }}
               className={cn(
                 "flex items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
@@ -343,7 +344,7 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
           nodes={nodes}
           action={action}
           recoloring={typedRecolor && action?.format !== "recolor"}
-          onKeepFormat={() => setRouteRecolor(false)}
+          onKeepFormat={() => setKeptFormatFor(recolorKey)}
           useSelection={useSelection}
           onUseSelection={setUseSelection}
           onPick={pickAction}
