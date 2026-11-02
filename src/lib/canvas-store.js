@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { create, } from "zustand";
 import { DRAFT_SYNC_MAX_AGE_MS, clearPendingDraft, readPendingDraft, savePendingDraft, shouldUseKeepalive } from "./canvas-pending-draft";
 
@@ -25,13 +26,13 @@ import {
   screenToWorld,
   nodeBounds,
   computeFrameMembership,
-  resolveEndpoint,
+  connectorBounds,
   isContainerNode,
   connectorPointAt,
   resizeAnchored,
 } from "./canvas/geometry";
 import { getDiagramTheme, loadDiagramThemeId, saveDiagramThemeId } from "./canvas/diagram-themes";
-import { hiddenBoardIds } from "./canvas/culling";
+import { hiddenBoardIds, visibleGraph } from "./canvas/culling";
 import {
   bringToFront as zBringToFront,
   sendToBack as zSendToBack,
@@ -1008,11 +1009,8 @@ export const useCanvasStore = create((set, get) => ({
     const connector = node ? null : present.connectors.find((item) => item.id === id);
     let bounds;
     if (node) bounds = nodeBounds(node);
-    else if (connector) {
-      const nodesById = Object.fromEntries(present.nodes.map((item) => [item.id, item]));
-      const [a, b] = [resolveEndpoint(connector.from, nodesById), resolveEndpoint(connector.to, nodesById)];
-      bounds = { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) };
-    } else return false;
+    else if (connector) bounds = connectorBounds(connector, Object.fromEntries(present.nodes.map((item) => [item.id, item])));
+    else return false;
     const PAD = 160;
     const zoom = clampZoom(Math.min(present.viewport.zoom, viewportPx.w / (bounds.w + PAD), viewportPx.h / (bounds.h + PAD)));
     const cx = bounds.x + bounds.w / 2;
@@ -1026,6 +1024,45 @@ export const useCanvasStore = create((set, get) => ({
     get().setSelection(selection);
     set({ selectedConnectorIds });
     return true;
+  },
+
+  /**
+   * Shows `vp` without recording it as the board's saved view, for a
+   * presentation stepping through frames. A save made meanwhile can still
+   * carry it, so the presentation puts the earlier view back with setViewport.
+   */
+  showViewport: (vp) => {
+    const { history } = get();
+    set({ history: { ...history, present: { ...history.present, viewport: vp } } });
+  },
+
+  /**
+   * Replaces nodes and connectors by id with the edited copies in `edits` (a
+   * Map of id to object) as one undo step: find and replace, frame order,
+   * presenter notes.
+   */
+  replaceNodes: (edits) => {
+    if (!edits?.size) return;
+    mutateGraph(set, get, (present) => ({
+      ...present,
+      nodes: present.nodes.map((n) => isLocked(present, n) ? n : (edits.get(n.id) ?? n)),
+      connectors: present.connectors.map((c) => edits.get(c.id) ?? c),
+    }));
+  },
+
+  /** Connects each `[fromId, toId]` node pair with a connector of `kind`, as one undo step. */
+  connectNodes: (pairs, kind = "arrow") => {
+    const connectors = pairs.map(([from, to]) => ({
+      id: crypto.randomUUID(),
+      from: { nodeId: from, anchor: "auto" },
+      to: { nodeId: to, anchor: "auto" },
+      kind,
+      stroke: "rgba(255,255,255,0.7)",
+      strokeWidth: 2,
+    }));
+    if (!connectors.length) return;
+    mutateGraph(set, get, (present) => ({ ...present, connectors: [...present.connectors, ...connectors] }));
+    if (!selectReadOnly(get())) set({ selection: [], selectedConnectorIds: connectors.map((c) => c.id) });
   },
 
   setViewportSize: (w, h) => {
@@ -1109,6 +1146,8 @@ export const useCanvasStore = create((set, get) => ({
 
   /** The visible canvas's measured size in pixels. */
   viewportSize: () => ({ ...viewportPx }),
+  /** The board as the user sees it: the current graph less what the board hides (hidden layers, outside Focus mode). */
+  visibleBoard: () => visibleGraph(get().history.present, get().focusedDiagramId, get().hiddenLayerIds),
 
   /** Insert generated nodes (a "Create with AI" result) as one undo step and select them. `replaceIds` are the
    * nodes of the result this one refines: they leave in the same step (with connectors that referenced them), so
@@ -1834,6 +1873,14 @@ export function frameNodesOf(state) {
  *  by `CanvasContextMenu`'s `Paste` row / `selectionActions`' `canPaste`. */
 export function hasClipboard() {
   return clipboard.length > 0;
+}
+
+/** visibleBoard() for components, recomputed when the graph or Focus mode changes. */
+export function useVisibleBoard() {
+  const present = useCanvasStore((s) => s.history.present);
+  const focusedDiagramId = useCanvasStore((s) => s.focusedDiagramId);
+  const hiddenLayerIds = useCanvasStore((s) => s.hiddenLayerIds);
+  return useMemo(() => visibleGraph(present, focusedDiagramId, hiddenLayerIds), [present, focusedDiagramId, hiddenLayerIds]);
 }
 
 /** The objects last copied or cut on the board. */

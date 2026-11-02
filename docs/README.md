@@ -15,6 +15,7 @@
 | [features/board-history.md](features/board-history.md) | Board History (the server-side save diff, `board_activity`, its read route and panel) and object info stamps |
 | [features/board-shapes-rich-text.md](features/board-shapes-rich-text.md) | Board path shapes and the shapes panel, rich-text marks, their format v1 fields and sanitizing |
 | [features/board-stickies-text.md](features/board-stickies-text.md) | Sticky options, tags, emoji votes, authors, stacks, clustering, lists, fonts, colors and styles |
+| [features/board-navigation-presenting.md](features/board-navigation-presenting.md) | Board find and replace, frames panel and presenting (`frameOrder`, `notes`), command palette, shortcut registry, accessibility tools, copy as text or image, object links and recent boards |
 | [features/board-diagramming.md](features/board-diagramming.md) | Shape packs, custom SVG packs, ERD, swimlane and diagram objects, connector routing, caps, labels and line jumps |
 | [operations/status.md](operations/status.md) | Current production state, incidents, owner approval gates and open items |
 | [operations/release-runbook.md](operations/release-runbook.md) | Release gates, staging and rolling a backend commit to Railway, rollback |

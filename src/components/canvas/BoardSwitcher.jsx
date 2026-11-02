@@ -57,6 +57,10 @@ export function BoardSwitcher({
   // class of race `loadGeneration` guards against in canvas-store.ts, just
   // for the board *list* rather than a single board's content.
   const requestIdRef = useRef(0);
+  // The board chosen while the list was loading (a followed link, a recent
+  // board) is kept when the list arrives; the effect's own `boardId` is stale.
+  const boardIdRef = useRef(boardId);
+  boardIdRef.current = boardId;
 
   useEffect(() => {
     if (!projectId) return;
@@ -88,7 +92,7 @@ export function BoardSwitcher({
         setCanCreate(creatable);
         if (list.length === 0) {
           onBoardIdChange(null);
-        } else if (!boardId || !list.some((b) => b.id === boardId)) {
+        } else if (!list.some((b) => b.id === boardIdRef.current)) {
           onBoardIdChange(list[0].id);
         }
       } catch {

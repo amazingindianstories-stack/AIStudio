@@ -442,6 +442,13 @@ export function resolveEndpoint(
   return ep.anchor === "auto" ? boundsCenter(bounds) : nodeAnchorPoint(node, ep.anchor);
 }
 
+/** The box spanned by connector `c`'s two ends. */
+export function connectorBounds(c, nodesById) {
+  const a = resolveEndpoint(c.from, nodesById);
+  const b = resolveEndpoint(c.to, nodesById);
+  return { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(a.x - b.x), h: Math.abs(a.y - b.y) };
+}
+
 function resolveTowards(
   ep,
   towards,

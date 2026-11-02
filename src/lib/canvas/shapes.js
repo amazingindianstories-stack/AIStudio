@@ -11,6 +11,9 @@
 
 const CURVE_STEPS = 24;
 
+/** The color of a shape's text when it has none of its own: light, for the dark board. */
+export const textColorOf = (node) => node.color ?? "#ffffff";
+
 /** Kind ids the format accepts for a `shape` node; known or not. */
 export const SHAPE_KIND_PATTERN = /^[a-z][a-z0-9-]{0,39}$/;
 
@@ -281,6 +284,21 @@ export function isShapeTool(tool) {
 
 export function shapeKindOfTool(tool) {
   return tool.slice("shape:".length);
+}
+
+function xmlAttr(value) {
+  return String(value ?? "").replace(/[&<>"]/g, (ch) => `&#${ch.charCodeAt(0)};`);
+}
+
+/**
+ * A custom shape's markup as an SVG image: an image document never runs
+ * scripts or loads subresources, whatever the markup holds.
+ */
+export function customSvgImage(svg, viewBox, stroke, strokeWidth) {
+  const doc =
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${xmlAttr(viewBox || "0 0 100 100")}" ` +
+    `fill="none" stroke="${xmlAttr(stroke)}" stroke-width="${xmlAttr(strokeWidth)}">${svg}</svg>`;
+  return `data:image/svg+xml,${encodeURIComponent(doc)}`;
 }
 
 /** Polygon outline for a `shape` node of `kind`, in box-local pixels. */

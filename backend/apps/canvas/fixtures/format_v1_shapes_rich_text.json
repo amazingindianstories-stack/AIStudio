@@ -1,5 +1,5 @@
 {
- "_comment": "Format v1 cases both board serializers must agree on (src/lib/canvas/serialization.js and backend/apps/canvas/serialization.py). The legacy case expectation is the output of the serializer before path shapes and rich text existed.",
+ "_comment": "Format v1 cases both board serializers must agree on (src/lib/canvas/serialization.js and backend/apps/canvas/serialization.py). Frames keep an optional numeric frameOrder and non-empty presenter notes. The legacy case expectation is the output of the serializer before path shapes and rich text existed.",
  "cases": {
   "legacy": {
    "input": {
@@ -1782,6 +1782,112 @@
       "fontSize": 16,
       "align": "left",
       "color": "#000000"
+     }
+    ],
+    "connectors": []
+   }
+  },
+  "frames": {
+   "input": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [
+     {
+      "x": 0,
+      "y": 0,
+      "w": 400,
+      "h": 300,
+      "parentId": null,
+      "groupId": null,
+      "id": "f1",
+      "type": "frame",
+      "name": "Intro",
+      "fill": "#111111",
+      "stroke": "#000000",
+      "frameOrder": 1,
+      "notes": "Say hello first"
+     },
+     {
+      "x": 0,
+      "y": 0,
+      "w": 400,
+      "h": 300,
+      "parentId": null,
+      "groupId": null,
+      "id": "f2",
+      "type": "frame",
+      "name": "Plan",
+      "frameOrder": "2",
+      "notes": ""
+     },
+     {
+      "x": 0,
+      "y": 0,
+      "w": 400,
+      "h": 300,
+      "parentId": null,
+      "groupId": null,
+      "id": "f3",
+      "type": "frame",
+      "frameOrder": 0,
+      "notes": 42
+     }
+    ],
+    "connectors": []
+   },
+   "expected": {
+    "version": 1,
+    "viewport": {
+     "x": 0,
+     "y": 0,
+     "zoom": 1
+    },
+    "nodes": [
+     {
+      "id": "f1",
+      "x": 0,
+      "y": 0,
+      "w": 400,
+      "h": 300,
+      "parentId": null,
+      "groupId": null,
+      "type": "frame",
+      "name": "Intro",
+      "fill": "#111111",
+      "stroke": "#000000",
+      "frameOrder": 1,
+      "notes": "Say hello first"
+     },
+     {
+      "id": "f2",
+      "x": 0,
+      "y": 0,
+      "w": 400,
+      "h": 300,
+      "parentId": null,
+      "groupId": null,
+      "type": "frame",
+      "name": "Plan",
+      "fill": "transparent",
+      "stroke": "#000000"
+     },
+     {
+      "id": "f3",
+      "x": 0,
+      "y": 0,
+      "w": 400,
+      "h": 300,
+      "parentId": null,
+      "groupId": null,
+      "type": "frame",
+      "name": "Frame",
+      "fill": "transparent",
+      "stroke": "#000000",
+      "frameOrder": 0
      }
     ],
     "connectors": []

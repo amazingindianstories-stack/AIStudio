@@ -28,6 +28,7 @@ import {
   resizeNode,
   resolveEndpoint,
   screenToWorld,
+  worldToScreen,
 } from "@/lib/canvas/geometry";
 import { snapPointToAngle } from "@/lib/canvas/connector-routing";
 import { ensureShapePacksLoaded, getCustomShapeByTool, isCreateTool, isKnownShapeKind, shapeKindOfTool } from "@/lib/canvas/shapes";
@@ -374,6 +375,22 @@ export const CanvasSurface = forwardRef
       x: viewport.x + size.w / 2 / viewport.zoom,
       y: viewport.y + size.h / 2 / viewport.zoom,
     }),
+    focusBoard: () => containerRef.current?.focus(),
+    // Cmd/Ctrl+Enter: the right-click menu, opened at the selection's center.
+    openContextMenuAtSelection: () => {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect || readOnly || touchViewOnly || !selectedNodes.length) return false;
+      const x = Math.min(...selectedNodes.map((n) => n.x));
+      const y = Math.min(...selectedNodes.map((n) => n.y));
+      const x1 = Math.max(...selectedNodes.map((n) => n.x + n.w));
+      const y1 = Math.max(...selectedNodes.map((n) => n.y + n.h));
+      const center = worldToScreen({ x: (x + x1) / 2, y: (y + y1) / 2 }, viewport);
+      setContextMenu({
+        x: rect.left + Math.min(Math.max(center.x, 0), rect.width),
+        y: rect.top + Math.min(Math.max(center.y, 0), rect.height),
+      });
+      return true;
+    },
   }));
 
   useEffect(() => {
@@ -1426,6 +1443,7 @@ export const CanvasSurface = forwardRef
       ref={containerRef}
       role="application"
       aria-label="Board canvas"
+      data-board-surface=""
       tabIndex={0}
       onPointerDownCapture={onPointerDownCapture}
       onPointerDown={onPointerDownBackground}

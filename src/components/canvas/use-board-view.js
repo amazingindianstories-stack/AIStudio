@@ -4,9 +4,25 @@ import { useEffect } from "react";
 import { MotionGlobalConfig } from "framer-motion";
 import { useCanvasStore } from "@/lib/canvas-store";
 import { nextGridStyle } from "@/lib/canvas/board-view";
+import { registerShortcuts } from "@/lib/canvas/shortcuts";
 import { prefersReducedMotion, useViewPrefs } from "@/lib/canvas/view-prefs";
 import { ZOOM_STEP, keyboardZoomDirection, zoomAboutCenter } from "@/lib/canvas/viewport-nav";
 import { exitFullscreen } from "./use-board-fullscreen";
+
+// Holding M or G down toggles once, not on every key repeat. Zoom keys are
+// handled below (they also stop the browser zooming the page) and listed here.
+registerShortcuts([
+  { id: "view.zoomIn", group: "View", label: "Zoom in", keys: ["Mod+="] },
+  { id: "view.zoomOut", group: "View", label: "Zoom out", keys: ["Mod+-"] },
+  { id: "view.minimap", group: "View", label: "Toggle minimap", keys: ["M"], touch: true,
+    run: (ctx, e) => (e.repeat ? false : useViewPrefs.getState().togglePref("minimap")) },
+  { id: "view.grid", group: "View", label: "Cycle grid", keys: ["G"], touch: true,
+    run: (ctx, e) => {
+      if (e.repeat) return false;
+      const prefs = useViewPrefs.getState();
+      prefs.setPref("grid", nextGridStyle(prefs.grid));
+    } },
+]);
 
 function typingInto(target) {
   return Boolean(
@@ -40,17 +56,6 @@ export function useBoardView() {
         if (!state.loaded || !state.boardId) return;
         const factor = direction > 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
         state.setViewport(zoomAboutCenter(state.history.present.viewport, factor, state.viewportSize()));
-        return;
-      }
-      if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey || e.repeat) return;
-      const key = e.key.toLowerCase();
-      const prefs = useViewPrefs.getState();
-      if (key === "m") {
-        e.preventDefault();
-        prefs.togglePref("minimap");
-      } else if (key === "g") {
-        e.preventDefault();
-        prefs.setPref("grid", nextGridStyle(prefs.grid));
       }
     };
     document.addEventListener("keydown", onKeyDown);

@@ -26,8 +26,8 @@ import { cn } from "@/lib/utils";
 import { useCanvasStore, } from "@/lib/canvas-store";
 import { nodeBounds, resolveEndpoint, worldToScreen } from "@/lib/canvas/geometry";
 import { Dropdown, MenuItem } from "@/components/Dropdown";
+import { isShapeNode, textColorOf } from "@/lib/canvas/shapes";
 import { ArrangeControls } from "./ArrangeMenu";
-import { isShapeNode } from "@/lib/canvas/shapes";
 import { ColorPicker } from "./ColorPicker";
 import { FontPicker } from "./FontPicker";
 import { AutoFitButton, ReactionPicker, StickyShapeControl, TagPicker } from "./StickyControls";
@@ -289,7 +289,7 @@ export function StyleInspector({ hidden, insetLeft = 0 }) {
         {showTextColor && (
           <ColorSwatchButton
             label="Text color"
-            value={(selectedNodes[0] ).color ?? "#ffffff"}
+            value={textColorOf(selectedNodes[0])}
             onChange={(v) => patch({ color: v })}
           />
         )}
