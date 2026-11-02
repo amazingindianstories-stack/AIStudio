@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test';
 import { createHmac, randomUUID } from 'node:crypto';
 import { fixtureDatabase } from './fixture-db.mjs';
 
-const OWNER = { id: 'b0a2d000-0000-4000-8000-000000000031', name: 'Formats owner', email: 'formats-owner@example.test' };
+const OWNER = { id: 'b0a2d000-0000-4000-8000-0000000000a1', name: 'Formats owner', email: 'formats-owner@example.test' };
 
 function sessionCookie(userId) {
   const payload = Buffer.from(JSON.stringify({ uid: userId, ver: 0, exp: Date.now() + 3600000 })).toString('base64url');
@@ -125,7 +125,6 @@ test('Board formats: docs, status, focus link, Mermaid code diagrams, HTML embed
   await dialog.getByLabel('Board default').check();
   board = await saved(page, () => dialog.getByLabel('Lock default').check(), (b) => b.data.nodes.some((n) => n.id === doc.id && n.defaultView && n.viewLocked));
   await page.goto(`/?board=${boardPath.split('/').pop()}&focus=${doc.id}`);
-  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Board', exact: true }).click();
   await expect(dialog).toBeVisible();
   await expect(dialog.getByLabel('Format title')).toHaveValue('Launch plan');
   // The lock only holds viewers in the default format; the owner can leave it with Escape.
