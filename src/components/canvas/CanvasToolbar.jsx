@@ -22,6 +22,9 @@ import {
   SlidersHorizontal,
   ArrowUp,
   ArrowDown,
+  Pen,
+  Highlighter,
+  Eraser,
   Maximize,
   Minimize,
 } from "lucide-react";
@@ -36,6 +39,8 @@ import { isShapeTool } from "@/lib/canvas/shapes";
 import { ShapeGlyph } from "./ShapeGlyph";
 import { ShapesPanel } from "./ShapesPanel";
 import { StickyMenu } from "./StickyMenu";
+import { GridMenu } from "./GridMenu";
+import { SyncedMenu } from "./SyncedMenu";
 import { ACTIVE_STATUSES, useBoardAi } from "@/lib/board-ai";
 import { useBoardPrefs } from "@/lib/canvas/board-prefs";
 import { CREATION_TOOLS, NAVIGATION_TOOLS, moveTool, orderedTools, pinnedTools, placeToolBefore, togglePinned, toolLabel } from "@/lib/canvas/toolbar-tools";
@@ -51,6 +56,8 @@ const NAVIGATION_SHORTCUTS = { select: "V", hand: "H" };
  * dedicated component for the zoom control.
  */
 export function CanvasToolbar({
+  projectId,
+  boardId,
   readOnly = false,
   /** Touch view-only mode: the board pans and zooms but shows no creation tools. */
   viewOnly = false,
@@ -179,6 +186,16 @@ export function CanvasToolbar({
             onClick={(e) => arm("connector", e)}
           />
         );
+      case "pen":
+        return <ToolButton id="pen" active={tool === "pen"} icon={Pen} label="Pen" shortcut="P" onClick={(e) => arm("pen", e)} />;
+      case "highlighter":
+        return <ToolButton id="highlighter" active={tool === "highlighter"} icon={Highlighter} label="Highlighter" shortcut="Shift+P" onClick={(e) => arm("highlighter", e)} />;
+      case "eraser":
+        return <ToolButton id="eraser" active={tool === "eraser"} icon={Eraser} label="Eraser" shortcut="E" onClick={(e) => arm("eraser", e)} />;
+      case "grid":
+        return <GridMenu />;
+      case "synced":
+        return projectId && boardId ? <SyncedMenu projectId={projectId} boardId={boardId} /> : null;
       case "image":
         return (
           <button

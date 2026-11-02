@@ -3,9 +3,10 @@ import json
 import math
 import re
 
+from . import extras
 from .svg_sanitize import sanitize_svg
 
-NODE_TYPES = {'rect', 'ellipse', 'triangle', 'diamond', 'shape', 'text', 'sticky', 'stack', 'frame', 'image', 'erd', 'swimlane', 'diagram'}
+NODE_TYPES = {'rect', 'ellipse', 'triangle', 'diamond', 'shape', 'text', 'sticky', 'stack', 'frame', 'image', 'erd', 'swimlane', 'diagram', 'ink', 'grid', 'synced'}
 SHAPE_TYPES = ('rect', 'ellipse', 'triangle', 'diamond', 'shape')
 # Mirrors src/lib/canvas/shapes.js and src/lib/canvas/rich-text.js.
 SHAPE_KIND = re.compile(r'[a-z][a-z0-9-]{0,39}')
@@ -294,6 +295,13 @@ def node(raw):
             result['frameOrder'] = r['frameOrder']
         if isinstance(r.get('notes'), str) and r['notes']:
             result['notes'] = r['notes']
+        # Set by an owner; the server hides what is inside from everyone else (apps.canvas.hidden).
+        if r.get('hidden') is True:
+            result['hidden'] = True
+    elif kind in ('ink', 'grid', 'synced'):
+        result = {'ink': extras.ink, 'grid': extras.grid, 'synced': extras.synced}[kind](r, result)
+        if result is None:
+            return None
     elif kind == 'image':
         src = string(r.get('src'), '')
         if not src.startswith('/api/media/'):
@@ -483,6 +491,9 @@ def validate_state(raw):
     # Present only once the board has a tag, so boards without tags keep their shape.
     if table:
         result['tags'] = table
+    board_notes = extras.notes(obj.get('notes'), marks)
+    if board_notes:
+        result['notes'] = board_notes
     if settings:
         result['settings'] = settings
     return result

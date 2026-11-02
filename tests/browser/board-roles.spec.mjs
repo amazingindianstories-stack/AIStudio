@@ -103,6 +103,9 @@ test('Board roles: an owner shares a board and a teammate gets comment, edit and
   await expect(mate.page.getByRole('button', { name: 'Add image', exact: true })).toHaveCount(0);
   await expect(mate.page.getByRole('button', { name: 'Create with AI', exact: true })).toHaveCount(0);
   await expect(mate.page.getByRole('button', { name: 'Zoom in', exact: true })).toBeVisible();
+  await mate.page.getByRole('button', { name: 'Board notes', exact: true }).click();
+  await expect(mate.page.getByRole('complementary', { name: 'Board notes' })).toBeVisible();
+  await mate.page.getByRole('button', { name: 'Close notes', exact: true }).click();
   const before = await (await mate.context.request.get(boardPath)).json();
   expect(before.role).toBe('comment');
   const sticky = mate.page.locator(`[data-node-id="${before.data.nodes[0].id}"]`);
@@ -147,6 +150,7 @@ test('Board roles: an owner shares a board and a teammate gets comment, edit and
   await mate.page.reload();
   await openBoard(mate.page);
   await expect(mate.page.getByRole('status').filter({ hasText: 'View only' })).toBeVisible();
+  await expect(mate.page.getByRole('button', { name: 'Board notes', exact: true })).toBeVisible();
   await info.attach('teammate-view-only', { body: await mate.page.screenshot(), contentType: 'image/png' });
 
   // Transfer ownership: the teammate becomes the owner and the previous owner keeps edit access.

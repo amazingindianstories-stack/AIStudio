@@ -17,6 +17,7 @@ import { SHAPE_KIND_PATTERN } from "./shapes";
 import { FONT_FAMILY_PATTERN } from "./fonts";
 import { uniqueStrings, validateReactions } from "./reactions";
 import { MAX_NODE_TAGS, MAX_TAG_ID, validateTags } from "./tags";
+import { validateGrid, validateInk, validateNotes, validateSynced } from "./extras";
 
 export function emptyCanvasState() {
   return {
@@ -41,6 +42,9 @@ const NODE_TYPES = new Set([
   "erd",
   "swimlane",
   "diagram",
+  "ink",
+  "grid",
+  "synced",
 ]);
 const TEXT_ALIGNS = ["left", "center", "right"];
 
@@ -320,8 +324,16 @@ function validateNodeContent(raw) {
       // The frames panel's board-wide order and the presenter notes; both optional.
       if (isFiniteNumber(r.frameOrder)) node.frameOrder = r.frameOrder;
       if (typeof r.notes === "string" && r.notes) node.notes = r.notes;
+      // Set by an owner; the server hides what is inside from everyone else (apps/canvas/hidden.py).
+      if (r.hidden === true) node.hidden = true;
       return node;
     }
+    case "ink":
+      return validateInk(r, base);
+    case "grid":
+      return validateGrid(r, base);
+    case "synced":
+      return validateSynced(r, base);
     case "image": {
       const src = str(r.src, "");
       // Only ever our own media proxy: never embedded base64 (design.md
@@ -549,6 +561,8 @@ export function validateCanvasState(raw) {
   const state = { version: CANVAS_STATE_VERSION, viewport, nodes, connectors };
   // Present only once the board has a tag, so boards without tags keep their shape.
   if (tags.length) state.tags = tags;
+  const notes = validateNotes(obj.notes);
+  if (notes) state.notes = notes;
   if (settings) state.settings = settings;
   return state;
 }

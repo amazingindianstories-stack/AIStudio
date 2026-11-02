@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
 import { uploadFileDirect } from "@/lib/client-reference-upload";
 import { useStore } from "@/lib/store";
-import { useCanvasStore, hasClipboard, selectReadOnly } from "@/lib/canvas-store";
+import { useCanvasStore, asEdited, hasClipboard, selectReadOnly } from "@/lib/canvas-store";
 import { getAssetDragData } from "@/lib/asset-drag-contract";
 
 import {
@@ -33,6 +33,10 @@ import {
 import { snapPointToAngle } from "@/lib/canvas/connector-routing";
 import { ensureShapePacksLoaded, getCustomShapeByTool, isCreateTool, isKnownShapeKind, shapeKindOfTool } from "@/lib/canvas/shapes";
 import { getDiagramTheme } from "@/lib/canvas/diagram-themes";
+import { INK_TOOLS } from "@/lib/ink-prefs";
+import { InkOverlay } from "./InkOverlay";
+import { FrameControls } from "./FrameControls";
+import { frameSelection } from "@/lib/frame-actions";
 import {
   LONG_PRESS_MS,
   doubleTapAction,
@@ -925,6 +929,9 @@ export const CanvasSurface = forwardRef
       case "sendToBack":
         s.sendToBack();
         break;
+      case "frame":
+        frameSelection();
+        break;
       case "group":
         s.group();
         break;
@@ -1053,13 +1060,15 @@ export const CanvasSurface = forwardRef
         lockX: e.shiftKey && constrainedDx === 0,
         lockY: e.shiftKey && constrainedDy === 0,
       });
-      const next = moveNodesBy(present, selection, snapped.dx, snapped.dy);
+      const editing = useCanvasStore.getState();
+      const next = asEdited(editing, moveNodesBy(present, selection, snapped.dx, snapped.dy));
       // container drop-highlight preview
       const movedNode = next.nodes.find((n) => n.id === (selection.find((id) => !lockedIds.has(id)) ?? selection[0]));
       if (movedNode && !isContainerNode(movedNode)) {
         const containers = next.nodes.filter((n) => isContainerNode(n));
         const targetFrame = computeFrameMembership(movedNode, containers);
-        setDropHighlightFrameId(targetFrame);
+        const dropped = asEdited(editing, { ...next, nodes: next.nodes.map((n) => (n.id === movedNode.id ? { ...n, parentId: targetFrame } : n)) });
+        setDropHighlightFrameId(dropped.nodes.find((n) => n.id === movedNode.id)?.parentId ?? null);
       }
       setPreview(next);
       return;
@@ -1079,7 +1088,7 @@ export const CanvasSurface = forwardRef
       const snapped = arrange.snapResizeDelta(drag.resizeStartNode, drag.resizeHandle, worldDx, worldDy, keepAspect);
       const resized = resizeNode(drag.resizeStartNode, drag.resizeHandle, snapped.dx, snapped.dy, keepAspect);
       const nextNodes = present.nodes.map((n) => (n.id === drag.resizeNodeId ? resized : n));
-      setPreview({ ...present, nodes: nextNodes });
+      setPreview(asEdited(useCanvasStore.getState(), { ...present, nodes: nextNodes }));
       return;
     }
 
@@ -1566,6 +1575,9 @@ export const CanvasSurface = forwardRef
         </div>
       )}
 
+      {!touchViewOnly && <FrameControls />}
+
+      {INK_TOOLS.includes(tool) && !readOnly && !touchViewOnly && <InkOverlay tool={tool} viewport={viewport} />}
       <ArrangeOverlay
         containerRef={containerRef}
         view={present}

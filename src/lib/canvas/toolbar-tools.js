@@ -13,7 +13,12 @@ export const CREATION_TOOLS = [
   { id: "shapes", label: "Shapes" },
   { id: "frame", label: "Frame" },
   { id: "connector", label: "Connector" },
+  { id: "pen", label: "Pen" },
+  { id: "highlighter", label: "Highlighter" },
+  { id: "eraser", label: "Eraser" },
   { id: "image", label: "Add image" },
+  { id: "grid", label: "Grid" },
+  { id: "synced", label: "Synced copy" },
   { id: "ai", label: "Create with AI" },
 ];
 

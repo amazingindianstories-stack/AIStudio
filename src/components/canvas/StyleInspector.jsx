@@ -52,6 +52,8 @@ import {
 const RICH_TEXT_TYPES = new Set(["text", "sticky"]);
 /** World height of a frame's title strip, which FrameNode draws above the box (`-top-6`). */
 const FRAME_TITLE_HEIGHT = 24;
+/** World height GridNode keeps above a selected grid for its own controls (`-top-9`). */
+const GRID_TOOLBAR_HEIGHT = 36;
 
 export function StyleInspector({ hidden, insetLeft = 0 }) {
   const selection = useCanvasStore((s) => s.selection);
@@ -105,8 +107,8 @@ export function StyleInspector({ hidden, insetLeft = 0 }) {
   for (const n of selectedNodes) {
     const b = nodeBounds(n);
     bx0 = Math.min(bx0, b.x);
-    // The panel sits above a frame's title, not over it.
-    by0 = Math.min(by0, n.type === "frame" ? b.y - FRAME_TITLE_HEIGHT : b.y);
+    // The panel sits above a frame's title and a grid's controls, not over them.
+    by0 = Math.min(by0, n.type === "frame" ? b.y - FRAME_TITLE_HEIGHT : n.type === "grid" ? b.y - GRID_TOOLBAR_HEIGHT : b.y);
     bx1 = Math.max(bx1, b.x + b.w);
     by1 = Math.max(by1, b.y + b.h);
   }

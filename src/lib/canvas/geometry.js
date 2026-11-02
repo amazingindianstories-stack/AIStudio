@@ -168,8 +168,8 @@ export function boundsContain(outer, innerCenter) {
 // ---- move ----
 
 /**
- * Moves the given node ids by (dx,dy). If a selected id is a frame, its
- * children (nodes with parentId === frame.id) move by the same delta too,
+ * Moves the given node ids by (dx,dy). If a selected id is a container, its
+ * contents at any depth move by the same delta too (see descendantIds),
  * so a multi-select drag that includes a frame carries its contents — a
  * child that's ALSO directly selected only ever moves once (Set dedupe).
  */
@@ -179,23 +179,49 @@ export function moveNodesBy(
   dx,
   dy
 ) {
-  // Locked objects stay put, including the locked children of a moved frame.
+  // Unlocked containers carry their contents at any depth; locked objects stay put with theirs.
   const locked = lockedIdSet(state);
   const idSet = new Set(ids.filter((id) => !locked.has(id)));
-  for (const node of state.nodes) {
-    if (isContainerNode(node) && idSet.has(node.id)) {
-      for (const child of state.nodes) {
-        if (child.parentId === node.id && !locked.has(child.id)) idSet.add(child.id);
-      }
-    }
-  }
+  for (const id of descendantIds(state.nodes, [...idSet], locked)) idSet.add(id);
   const nodes = state.nodes.map((n) =>
     idSet.has(n.id) ? { ...n, x: n.x + dx, y: n.y + dy } : n
   );
   return { ...state, nodes };
 }
 
-/** Shifts a frame AND every direct descendant (parentId === frameId) by the
+/**
+ * Ids of everything inside the containers among `ids`, at any depth (`ids` themselves excluded unless
+ * nested). The walk neither includes nor enters anything in `stop`: a move passes its locked objects, which
+ * stay put together with their own contents.
+ */
+export function descendantIds(nodes, ids, stop = null) {
+  return new Set(descendantRoots(nodes, ids, stop).keys());
+}
+
+/** The same walk as descendantIds in one pass over the board, mapping each id found to the id in `ids` it sits under. */
+export function descendantRoots(nodes, ids, stop = null) {
+  const wanted = new Set(ids);
+  const queue = [];
+  const childrenOf = new Map();
+  for (const n of nodes) {
+    if (wanted.has(n.id) && isContainerNode(n)) queue.push([n.id, n.id]);
+    if (!n.parentId) continue;
+    if (!childrenOf.has(n.parentId)) childrenOf.set(n.parentId, []);
+    childrenOf.get(n.parentId).push(n);
+  }
+  const out = new Map();
+  while (queue.length) {
+    const [parent, root] = queue.pop();
+    for (const child of childrenOf.get(parent) ?? []) {
+      if (out.has(child.id) || stop?.has(child.id)) continue;
+      out.set(child.id, root);
+      if (isContainerNode(child)) queue.push([child.id, root]);
+    }
+  }
+  return out;
+}
+
+/** Shifts a frame AND everything inside it (nested frames included) by the
  * same delta — the pure fn moving a frame's contents together (AC #6). */
 export function applyFrameMove(
   state,
@@ -203,8 +229,10 @@ export function applyFrameMove(
   dx,
   dy
 ) {
+  const moving = descendantIds(state.nodes, [frameId]);
+  moving.add(frameId);
   const nodes = state.nodes.map((n) =>
-    n.id === frameId || n.parentId === frameId
+    moving.has(n.id)
       ? { ...n, x: n.x + dx, y: n.y + dy }
       : n
   );

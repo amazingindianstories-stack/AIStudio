@@ -176,15 +176,18 @@ export function mergeCanvasStates(base, local, remote) {
   const connectors = mergeItems(base.connectors, local.connectors, remote.connectors)
     .filter((connector) => attachedTo(connector.from, nodeIds) && attachedTo(connector.to, nodeIds));
   const tags = mergeItems(base.tags ?? [], local.tags ?? [], remote.tags ?? []);
+  const notes = sameValue(base.notes ?? null, local.notes ?? null) ? remote.notes : local.notes;
   const settings = mergeSettings(base.settings, local.settings, remote.settings);
   const unchanged = (next, prev) => next.length === prev.length && next.every((item, index) => item === prev[index]);
   if (unchanged(nodes, local.nodes) && unchanged(connectors, local.connectors) && unchanged(tags, local.tags ?? []) &&
-    settings === local.settings) return local;
+    settings === local.settings && sameValue(notes ?? null, local.notes ?? null)) return local;
   const state = { ...local, nodes, connectors };
   if (tags.length) state.tags = tags;
   else delete state.tags;
   if (settings) state.settings = settings;
   else delete state.settings;
+  if (notes) state.notes = notes;
+  else delete state.notes;
   return state;
 }
 

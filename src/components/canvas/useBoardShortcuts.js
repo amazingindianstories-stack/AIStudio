@@ -12,6 +12,7 @@ import { dockTools } from "@/lib/canvas/toolbar-tools";
 import { describeObject } from "@/lib/canvas/a11y-check";
 import { selectionText, writeClipboardImage, writeClipboardText } from "@/lib/canvas/clipboard-export";
 import { orderedFrames } from "@/lib/canvas/frames";
+import { frameSelection } from "@/lib/frame-actions";
 import { noteKeyboardCopy, pageTextSelected } from "@/lib/canvas/use-board-clipboard";
 import { copySelectionStyle, pasteSelectionStyle } from "@/lib/canvas/sticky-actions";
 import { buildDefaultNode } from "./CanvasSurface";
@@ -112,6 +113,8 @@ export function useBoardShortcuts({ surfaceRef, toolLocked, touchViewOnly, openS
     if (id === "shapes") view.openShapes();
     else if (id === "image") view.openImagePicker();
     else if (id === "ai") view.toggleAi();
+    // Menus in the dock, not tools: nothing to arm.
+    else if (id === "grid" || id === "synced") return false;
     else useCanvasStore.getState().setTool(id);
   }, []);
 
@@ -149,6 +152,7 @@ export function useBoardShortcuts({ surfaceRef, toolLocked, touchViewOnly, openS
         copyStyle: copySelectionStyle,
         pasteStyle: pasteSelectionStyle,
         present: startPresentation,
+        frameSelection,
         toggleLock: () => store.toggleLockSelection(currentActorId()),
         placeArmedTool: () => {
           if (!isCreateTool(store.tool)) return false;

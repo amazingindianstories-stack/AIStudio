@@ -28,6 +28,8 @@ import { useBoardShortcuts } from "./useBoardShortcuts";
 import { useBoardLinks } from "./useBoardLinks";
 import { BoardExtras, BoardMenu, BoardSkipLink } from "./BoardExtras";
 import { useBoardUi } from "@/lib/canvas/board-ui";
+import { useOpenBoardRequests } from "@/lib/open-board";
+import { NotesButton, NotesPanel } from "./NotesPanel";
 import { BoardViewOverlays } from "./BoardViewOverlays";
 import { useBoardView } from "./use-board-view";
 
@@ -152,6 +154,29 @@ export function CanvasView() {
     },
     [activeProjectId, flushSave, reset, setActiveProject]
   );
+
+  // A synced copy's "open the original" jump. In another project the board switcher picks that project's
+  // board on arrival, so the wanted board is remembered and wins over its pick.
+  const wantedBoard = useRef(null);
+  useOpenBoardRequests(
+    useCallback(
+      (target, projectId) => {
+        if (projectId && projectId !== activeProjectId) {
+          wantedBoard.current = target;
+          handleBoardProjectChange(projectId);
+        } else {
+          flushSave({ keepalive: true });
+          setBoardId(target);
+        }
+      },
+      [activeProjectId, flushSave, handleBoardProjectChange]
+    )
+  );
+  const onBoardIdChange = useCallback((id) => {
+    const wanted = wantedBoard.current;
+    wantedBoard.current = null;
+    setBoardId(wanted ?? id);
+  }, []);
 
   const placeAsset = useCallback(
     (asset) => {
@@ -286,7 +311,7 @@ export function CanvasView() {
           <BoardSwitcher
             projectId={activeProjectId}
             boardId={boardId}
-            onBoardIdChange={setBoardId}
+            onBoardIdChange={onBoardIdChange}
             onLoadingChange={setBoardsLoading}
             onEmptyChange={setNoBoards}
             reloadToken={boardsReload}
@@ -337,6 +362,7 @@ export function CanvasView() {
               History
             </button>
           )}
+          {boardId && loaded && <NotesButton />}
           {boardId && loaded && <BoardMenu />}
           {showEditToggle && (
             <button
@@ -368,6 +394,8 @@ export function CanvasView() {
         </div>
         {!noBoards && (
           <CanvasToolbar
+            projectId={activeProjectId}
+            boardId={boardId}
             readOnly={readOnly}
             viewOnly={touchViewOnly}
             insetLeft={narrow ? 0 : assetPanelWidth}
@@ -381,6 +409,7 @@ export function CanvasView() {
             viewCenter={viewCenter}
           />
         )}
+        {boardId && !noBoards && <NotesPanel />}
         {aiOpen && boardId && !readOnly && !touchViewOnly && <CanvasAiPanel boardId={boardId} leftInset={assetPanelWidth} onClose={() => setAiOpen(false)} />}
       </div>
 

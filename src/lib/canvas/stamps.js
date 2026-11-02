@@ -38,3 +38,13 @@ export function withServerStamps(state, stamps) {
   if (nodes === state.nodes && connectors === state.connectors) return state;
   return { ...state, nodes, connectors };
 }
+
+/**
+ * `state` with the author and time a save gave the visual notes (`{updatedBy, updatedAt}`), or `state`
+ * itself when the save did not change the notes or the state has none.
+ */
+export function withNotesStamp(state, stamp) {
+  if (!state?.notes || !stamp) return state;
+  if (state.notes.updatedBy === stamp.updatedBy && state.notes.updatedAt === stamp.updatedAt) return state;
+  return { ...state, notes: { ...state.notes, updatedBy: stamp.updatedBy, updatedAt: stamp.updatedAt } };
+}

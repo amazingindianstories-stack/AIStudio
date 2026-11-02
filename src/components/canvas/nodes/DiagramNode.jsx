@@ -3,7 +3,8 @@
 import { Eye, EyeOff, Focus, Layers, Plus, BoxSelect } from "lucide-react";
 import { useCanvasStore } from "@/lib/canvas-store";
 
-export function DiagramNode({ node, selected, readOnly }) {
+/** In a synced copy (`syncedCopy`) the diagram has no header: its controls cannot be used there and the copy's badge names it. */
+export function DiagramNode({ node, selected, readOnly, syncedCopy = false }) {
   const updateNodeFields = useCanvasStore((s) => s.updateNodeFields);
   const focusedDiagramId = useCanvasStore((s) => s.focusedDiagramId);
   const setFocusedDiagramId = useCanvasStore((s) => s.setFocusedDiagramId);
@@ -63,7 +64,7 @@ export function DiagramNode({ node, selected, readOnly }) {
       }}
     >
       {/* Diagram Header & Topic Layers Bar */}
-      <div
+      {!syncedCopy && <div
         className="flex flex-wrap items-center justify-between gap-2 border-b px-3 py-1.5 text-xs"
         style={{
           backgroundColor: node.headerFill || "rgba(15, 23, 42, 0.75)",
@@ -147,7 +148,7 @@ export function DiagramNode({ node, selected, readOnly }) {
             <span>{isFocused ? "Exit Focus" : "Focus mode"}</span>
           </button>
         </div>
-      </div>
+      </div>}
 
       {/* Sub-containers inside the diagram */}
       <div className="relative flex-1">
@@ -158,7 +159,7 @@ export function DiagramNode({ node, selected, readOnly }) {
             className="absolute rounded border border-dashed p-2 text-[11px] text-indigo-200"
             style={{
               left: sub.x,
-              top: sub.y - 36,
+              top: syncedCopy ? sub.y : sub.y - 36,
               width: sub.w,
               height: sub.h,
               backgroundColor: "rgba(99, 102, 241, 0.08)",

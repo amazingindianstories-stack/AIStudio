@@ -4,7 +4,7 @@ from django.conf import settings
 from django.http import HttpResponse
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from apps.authentication.session import lookup
-from . import access, services
+from . import access, hidden, services
 from . import patch as board_patch
 from .models import CanvasBoard
 from .serialization import JS_WHITESPACE, MAX_BOARD_JSON_UNITS, content_length, js_json, validate_state
@@ -168,6 +168,8 @@ def board_detail(request, identifier):
             if save_id is False:
                 return reply(request, {'error': 'Invalid save id.'}, 400)
             board = services.get_board(identifier, save_id)
+            if board:
+                board = {**board, 'data': hidden.visible_data(board['data'], level)}
             return reply(request, {**board, 'role': access.LEVEL_NAMES[level]}) if board else reply(request, {'error': 'Board not found.'}, 404)
         # A missing board keeps the frozen validate-then-404 order; an existing one checks the role first,
         # so a read-only user is refused before any version check and never receives a 409 with the graph.
@@ -191,11 +193,14 @@ def board_detail(request, identifier):
         except board_patch.PatchError:
             return reply(request, {'error': 'INVALID_PATCH'}, 400)
         except services.VersionConflict as conflict:
-            return reply(request, {'error': 'VERSION_CONFLICT', 'board': conflict.board}, 409)
+            seen = {**conflict.board, 'data': hidden.visible_data(conflict.board['data'], level)} if level is not None else conflict.board
+            return reply(request, {'error': 'VERSION_CONFLICT', 'board': seen}, 409)
         except services.BoardTooLarge:
             return reply(request, {'error': 'Board is too large to save.'}, 413)
         if saved is None:
             return reply(request, {'error': 'Board not found.'}, 404)
+        if level is not None and 'board' in saved:
+            saved = {**saved, 'board': hidden.visible_data(saved['board'], level)}
         return reply(request, {'ok': True, **saved})
     except access.AccessError as error:
         return reply(request, {'error': str(error)}, error.status)
@@ -252,11 +257,11 @@ def board_changes(request, identifier):
         current = services.board_version(identifier)
         if current is None:
             return reply(request, {'error': 'Board not found.'}, 404)
-        access.require(user, current, access.READ)
+        level = access.require(user, current, access.READ)
         since = request.GET.get('since', '')
         if not re.fullmatch(r'[0-9]{1,16}', since):
             return reply(request, {'error': 'Invalid version.'}, 400)
-        changes = services.board_changes(identifier, int(since))
+        changes = services.board_changes(identifier, int(since), level)
         return reply(request, changes) if changes else reply(request, {'error': 'Board not found.'}, 404)
     except access.AccessError as error:
         return reply(request, {'error': str(error)}, error.status)
@@ -277,12 +282,12 @@ def board_activity(request, identifier):
         existing = access.board_row(identifier) if UUID_PATTERN.fullmatch(identifier) else None
         if existing is None:
             return reply(request, {'error': 'Board not found.'}, 404)
-        access.require(user, existing, access.WRITE)
+        level = access.require(user, existing, access.WRITE)
         before = request.GET.get('before')
         cursor = ACTIVITY_CURSOR.fullmatch(before) if before is not None else None
         if before is not None and cursor is None:
             return reply(request, {'error': 'Invalid cursor.'}, 400)
-        return reply(request, services.board_activity(identifier, (int(cursor[1]), int(cursor[2])) if cursor else None))
+        return reply(request, services.board_activity(identifier, (int(cursor[1]), int(cursor[2])) if cursor else None, level))
     except access.AccessError as error:
         return reply(request, {'error': str(error)}, error.status)
     except Exception:

@@ -526,3 +526,18 @@ test("hitTest: overlapping nodes — the front-most (highest array index) node w
   const state = emptyState({ nodes: [back, front] });
   assert.equal(hitTest(state, { x: 50, y: 50 }), "front");
 });
+
+
+test("moving nested frames carries unlocked descendants and preserves locked objects", () => {
+  const state = emptyState({ nodes: [
+    rect({ id: "leaf", parentId: "inner", x: 10, y: 20 }),
+    frame({ id: "inner", parentId: "outer" }),
+    rect({ id: "held", parentId: "inner", locked: true }),
+    frame({ id: "outer" }),
+  ] });
+  const next = moveNodesBy(state, ["outer"], 30, 40);
+  assert.deepEqual(next.nodes.map(({ id, x, y }) => ({ id, x, y })), [
+    { id: "leaf", x: 40, y: 60 }, { id: "inner", x: 30, y: 40 },
+    { id: "held", x: 0, y: 0 }, { id: "outer", x: 30, y: 40 },
+  ]);
+});

@@ -147,6 +147,9 @@ const SHORTCUTS = [
   tool("ellipse", "Circle", ["O"], { edits: true }),
   tool("connector", "Connector line", ["L", "C"], { edits: true }),
   tool("frame", "Frame", ["F"], { edits: true }),
+  tool("pen", "Pen", ["P"], { edits: true }),
+  tool("highlighter", "Highlighter", ["Shift+P"], { edits: true }),
+  tool("eraser", "Eraser", ["E"], { edits: true }),
   { id: "tool.image", group: "Tools", label: "Add image", keys: ["Shift+I"], edits: true, run: (ctx) => ctx.openImagePicker() },
   {
     id: "tool.number",
@@ -175,6 +178,7 @@ const SHORTCUTS = [
   { id: "edit.paste", group: "Edit", label: "Paste", keys: ["Mod+V"] },
   { id: "edit.duplicate", group: "Edit", label: "Duplicate", keys: ["Mod+D"], edits: true, run: (ctx) => ctx.store.duplicateSelected() },
   { id: "edit.delete", board: true, group: "Edit", label: "Delete", keys: ["Delete", "Backspace"], edits: true, run: (ctx) => ctx.store.deleteSelected() },
+  { id: "edit.frameSelection", group: "Edit", label: "Frame selection", keys: ["Mod+Alt+F"], edits: true, run: (ctx) => ctx.frameSelection() },
   { id: "edit.group", group: "Edit", label: "Group", keys: ["Mod+G"], edits: true, run: (ctx) => ctx.store.group() },
   { id: "edit.ungroup", group: "Edit", label: "Ungroup", keys: ["Mod+Shift+G"], edits: true, run: (ctx) => ctx.store.ungroup() },
   { id: "edit.forward", group: "Edit", label: "Bring forward", keys: ["Mod+]"], edits: true, run: (ctx) => ctx.store.bringForward() },
