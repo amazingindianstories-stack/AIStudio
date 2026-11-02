@@ -92,11 +92,11 @@ class Handler(BaseHTTPRequestHandler):
                     FAKE.groups.clear(); FAKE.assets.clear(); FAKE.calls.clear(); FAKE.seedance_payloads.clear(); FAKE.board_payloads.clear()
                     FAKE.kling_payloads.clear(); FAKE.kling_tasks.clear(); FAKE.omnihuman_payloads.clear(); FAKE.omnihuman_polls.clear()
                     FAKE.reject_image_sha256.clear(); FAKE.rejected_tasks.clear(); FAKE.reject_mode = 'create'; FAKE.faults.clear()
-                    FAKE.seedance_task_error = FAKE.omni_task_error = FAKE.kling_task_error = FAKE.magnific_task_error = None
+                    FAKE.seedance_task_error = FAKE.omni_task_error = FAKE.kling_task_error = FAKE.magnific_task_error = FAKE.person_reference = None
                 if 'faults' in change:
                     FAKE.faults = [dict(fault) for fault in change['faults'] or []]
                 for key in ('asset_capacity', 'seedance_status', 'asset_activation_polls', 'reject_mode', 'seedance_task_error',
-                            'omni_task_error', 'kling_task_error', 'magnific_task_error'):
+                            'omni_task_error', 'kling_task_error', 'magnific_task_error', 'person_reference'):
                     if key in change:
                         setattr(FAKE, key, change[key])
                 if 'reject_image_sha256' in change:

@@ -182,3 +182,78 @@ test('Create with AI recolours the notes already selected on the board: black fr
     }
   }
 });
+
+test('a bare "a cat" from the panel makes a cat: a selected or refined picture without a person is context for the request, not a face to reproduce', async ({ page, context, baseURL }) => {
+  test.skip(!FAKE, 'needs --fake-providers');
+  test.setTimeout(300000);
+  await authenticate(context, baseURL);
+  const projectId = await freshProject(context, page);
+  let boardId;
+  try {
+    // Every reference is reported as showing no person (a landscape, say); the library keeps its own behaviour for the same picture.
+    await fetch(`${FAKE}/control`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ person_reference: false }) });
+    await page.goto('/');
+    await expect(page.getByRole('button', { name: /Desktop fixture/ })).toBeVisible();
+    await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Board', exact: true }).click();
+    await expect(page.getByRole('application', { name: 'Board canvas' })).toBeVisible();
+    await expect.poll(async () => {
+      boardId = (await (await context.request.get(`/api/canvas-boards?projectId=${projectId}`)).json()).boards[0]?.id;
+      return Boolean(boardId);
+    }).toBeTruthy();
+    const nodes = async () => (await (await context.request.get(`/api/canvas-boards/${boardId}`)).json()).data.nodes;
+    const cats = async () => (await fakeState()).image_requests.filter(request => request.texts.some(text => text.includes('a cat')));
+    const person = request => request.texts.some(text => /exact same individual|FINAL CHECK/.test(text));
+    await page.getByRole('button', { name: 'Create with AI', exact: true }).click();
+    const panel = page.getByRole('region', { name: 'Create with AI' });
+    const generate = panel.getByRole('button', { name: 'Generate', exact: true });
+
+    // Nothing selected: the prompt alone.
+    await panel.getByRole('radio', { name: 'Image' }).click();
+    await panel.getByRole('textbox', { name: 'Prompt' }).fill('a cat');
+    await expect(panel.getByText(/Estimated cost/)).toBeVisible();
+    await generate.click();
+    await expect.poll(async () => (await cats()).length, { timeout: 90000 }).toBe(1);
+    expect((await cats())[0].images).toBe(0);
+    await expect.poll(async () => (await nodes()).filter(node => node.type === 'image').length, { timeout: 90000 }).toBe(1);
+
+    // The panel now refines the picture it placed: the picture is the reference, and "a cat" is what to add.
+    await panel.getByRole('textbox', { name: 'Refinement' }).fill('a cat');
+    await panel.getByRole('button', { name: 'Refine', exact: true }).click();
+    await expect.poll(async () => (await cats()).length, { timeout: 90000 }).toBe(2);
+    const refined = (await cats())[1];
+    expect(refined.images).toBe(1);
+    expect(person(refined)).toBe(false);
+    expect(refined.texts[0]).toMatch(/^REFERENCE IMAGE \(1 image from the board\)/);
+    expect(refined.texts).toContain('SCENE: a cat');
+
+    // A new prompt with that picture still selected: it is attached as a reference by default, and still not a face to copy.
+    await panel.getByRole('button', { name: 'New prompt', exact: true }).click();
+    await panel.getByRole('radio', { name: 'Image' }).click();
+    await panel.getByRole('textbox', { name: 'Prompt' }).fill('a cat');
+    await expect(panel.getByLabel('Selection', { exact: true })).toContainText('Use selection as context');
+    await expect(panel.getByText(/Estimated cost/)).toBeVisible();
+    await generate.click();
+    await expect.poll(async () => (await cats()).length, { timeout: 90000 }).toBe(3);
+    const selected = (await cats())[2];
+    expect(selected.images).toBe(1);
+    expect(person(selected)).toBe(false);
+    expect(selected.texts).toContain('SCENE: a cat');
+
+    // The same words with the same picture through the library keep the library's identity framing.
+    const reference = (await nodes()).find(node => node.type === 'image').src;
+    const generated = await context.request.post('/api/generate/image', {
+      data: { prompt: 'a cat', model: 'Nano Banana Pro', aspectRatio: '1:1', resolution: '2K', projectId, referenceImages: [reference] },
+      headers: { Origin: process.env.E2E_BASE_URL, 'Idempotency-Key': randomUUID() } });
+    expect(generated.ok()).toBeTruthy();
+    await expect.poll(async () => (await cats()).length, { timeout: 90000 }).toBe(4);
+    expect(person((await cats())[3])).toBe(true);
+  } finally {
+    await fetch(`${FAKE}/control`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ person_reference: null }) });
+    if (boardId) {
+      const db = fixtureDatabase(process.env.E2E_DATABASE_URL);
+      const generations = await db`SELECT generation_id FROM canvas_board_ai_jobs WHERE board_id = ${boardId}`;
+      await db`DELETE FROM canvas_board_ai_jobs WHERE board_id = ${boardId}`;
+      for (const row of generations) await db`DELETE FROM generations WHERE id = ${row.generation_id}`;
+    }
+  }
+});

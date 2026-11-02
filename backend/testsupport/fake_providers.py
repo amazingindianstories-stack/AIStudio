@@ -25,6 +25,9 @@ import uuid
 from urllib.parse import parse_qs, urlsplit
 from unittest.mock import patch
 
+from apps.generation.prompting.vision_templates import T as VISION_TEMPLATES
+
+IDENTITY_DETECTION = VISION_TEMPLATES['identityDetection']
 FAKE_MEDIA = 'https://fake-media.invalid/'
 MAGNIFIC_CDN = 'https://cdn-magnific.freepik.com/'
 MAGNIFIC_IMAGE_CDN = 'https://ai-statics.magnific.com/'
@@ -213,6 +216,7 @@ class FakeProviders:
         self.calls, self.lock, self.task_counter = [], threading.RLock(), 0
         self.seedance_status = seedance_status
         self.seedance_payloads = []
+        self.person_reference = None    # what the face-detection vision call reports for any image; None answers nothing usable
         self.gemini_payloads = []       # (model code, body) for each generateContent call
         self.board_payloads = []        # bodies of board sticky-notes text jobs
         self.omni_payloads, self.omni_polls = [], {}    # Interactions create bodies; interaction id -> GETs so far
@@ -292,6 +296,9 @@ class FakeProviders:
                              'usageMetadata': {'promptTokenCount': 40, 'candidatesTokenCount': 12}}
             contents = data.get('contents') if isinstance(data.get('contents'), list) else []
             parts = [part for item in contents if isinstance(item, dict) for part in item.get('parts') or [] if isinstance(part, dict)]
+            if self.person_reference is not None and any(part.get('text') == IDENTITY_DETECTION for part in parts):
+                return 200, {'candidates': [{'content': {'role': 'model', 'parts': [{'text': json.dumps({'person_reference': self.person_reference})}]},
+                                             'finishReason': 'STOP'}], 'usageMetadata': {'promptTokenCount': 120, 'candidatesTokenCount': 6}}
             if any(str((part.get('inlineData') or {}).get('mimeType', '')).startswith('audio/') for part in parts):
                 return 200, {'candidates': [{'content': {'role': 'model', 'parts': [{'text': TRANSCRIPT}]}, 'finishReason': 'STOP'}],
                              'usageMetadata': {'promptTokenCount': 120, 'candidatesTokenCount': 20}}

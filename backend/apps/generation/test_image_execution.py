@@ -258,3 +258,10 @@ class ImageExecutionTests(SimpleTestCase):
         assembled = self.deps.gemini_generate.call_args.args[0]['assembled']
         self.assertIn('Original prompt', assembled['instruction'])
         self.assertEqual(assembled['groups'], [])
+
+    def test_only_board_generations_ask_the_assembler_to_treat_references_as_context(self):
+        self.execute()
+        self.assertNotIn('referenceUse', self.deps.assemble.call_args.args[3])
+        self.item.created_via = 'board'
+        self.execute()
+        self.assertEqual(self.deps.assemble.call_args.args[3], {'aspectRatio': '1:1', 'referenceUse': 'board'})

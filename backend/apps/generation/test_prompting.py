@@ -78,6 +78,35 @@ class PromptingTests(SimpleTestCase):
         self.assertEqual([i['data'] for i in result['groups'][0]['images']],['face'])
         self.assertIn('style or grade drift',result['shotInstruction'])
 
+    def board_assembly(self,uploads,analysis,opts=None):
+        return assemble_prompt('a cat',[],uploads,opts or {'aspectRatio':'1:1','referenceUse':'board'},
+            read_image=lambda ref:{'mimeType':'image/png','data':ref},prep_reference=lambda m,d:{'mimeType':m,'data':d},
+            analyze_identity=lambda m,d,*a:analysis[d],detect_role=lambda *a:None,env={})
+
+    def test_board_reference_without_a_person_is_context_not_an_identity_to_reproduce(self):
+        from apps.generation.providers.gemini import build_parts
+        analysis={'landscape':{'personReference':False,'crops':[]}}
+        result=self.board_assembly(['landscape'],analysis)
+        self.assertEqual([(g['tag'],g['identity']) for g in result['groups']],[('REFERENCE',False)])
+        texts=[part['text'] for part in build_parts(result) if 'text' in part]
+        self.assertEqual(len(texts),3)
+        self.assertTrue(texts[0].startswith('REFERENCE IMAGE (1 image from the board)'))
+        self.assertEqual(texts[1],'SCENE: a cat')
+        self.assertNotIn('person',' '.join(texts[:2]).lower().replace('no person',''))
+        self.assertFalse(any('FINAL CHECK' in text or 'exact same individual' in text for text in texts))
+
+    def test_board_reference_showing_or_possibly_showing_a_person_keeps_the_identity_lock(self):
+        for analysis in ({'personReference':True,'crops':[]},{'personReference':None,'crops':[]}):
+            with self.subTest(analysis=analysis):
+                result=self.board_assembly(['face'],{'face':analysis})
+                self.assertEqual([(g['tag'],g['identity']) for g in result['groups']],[('SUBJECT',True)])
+        mixed=self.board_assembly(['landscape','face'],{'landscape':{'personReference':False,'crops':[]},'face':{'personReference':True,'crops':[]}})
+        self.assertEqual([(g['tag'],g['identity']) for g in mixed['groups']],[('SUBJECT',True)])
+
+    def test_the_library_keeps_the_identity_lock_for_the_same_reference(self):
+        result=self.board_assembly(['landscape'],{'landscape':{'personReference':False,'crops':[]}},{'aspectRatio':'1:1'})
+        self.assertEqual([(g['tag'],g['identity']) for g in result['groups']],[('SUBJECT',True)])
+
     def test_preprocessing_caps_reference_but_preserves_small_original(self):
         from PIL import Image
         for size in [(100,200),(4096,2048)]:
