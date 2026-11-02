@@ -84,8 +84,11 @@ def prepare(item, *, storage=None, client=None, now=None):
         if outcome.kind == 'failed':
             return outcome
         worst = _reported(worst, outcome)
-    for key, row in videos.items():
-        outcome = managed_pool.ensure(b'', key, item.id, item.user_id, storage=storage, client=client, now=now, sha=row.content_sha256, media_kind='video')
+    clips = video_clips(item, storage, videos)
+    if clips is None:       # the frame extractor is busy: look at the clips again shortly
+        return managed_pool.wait('portrait_registering', 2000)
+    for key, sha in clips.items():
+        outcome = managed_pool.ensure(b'', key, item.id, item.user_id, storage=storage, client=client, now=now, sha=sha, media_kind='video')
         if outcome.kind == 'failed':
             return outcome
         worst = _reported(worst, outcome)
@@ -106,6 +109,38 @@ def video_portraits(item):
     keys = {storage_key(ref) for ref in resolve_references(item.prompt, item.reference_videos or [], 'vid')}
     rows = ManagedPortraitAsset.objects.filter(media_kind='video', origin='upload', source_key__in=[key for key in keys if key]).order_by('created_at', 'id')
     return {row.source_key: row for row in rows}
+
+
+def reference_video_keys(item):
+    from apps.generation.references import resolve_references
+    keys = {}
+    for ref in resolve_references(item.prompt, item.reference_videos or [], 'vid'):
+        key = storage_key(ref)
+        if key:
+            keys[key] = None
+    return list(keys)
+
+
+def video_clips(item, storage, gallery=None):
+    """{storage key: content sha} of the reference videos that go as BytePlus assets: the Gallery video portraits, then every
+    other reference video with a face that fits the BytePlus video limits (the video twin of the face images registered
+    automatically). A clip with no face, outside the limits or unreadable is left out and goes as a URL.
+    None while the frame extractor is busy."""
+    from apps.assets import video_faces
+    gallery = video_portraits(item) if gallery is None else gallery
+    clips = {key: row.content_sha256 for key, row in gallery.items()}
+    for key in reference_video_keys(item):
+        if key in clips:
+            continue
+        sha = video_faces.reference_sha(storage, key)
+        if not sha:
+            continue
+        found = video_faces.is_portrait(storage, key, sha)
+        if found is None:
+            return None
+        if found:
+            clips[key] = sha
+    return clips
 
 
 INPUT_IMAGE_PRIVACY_CODE = 'InputImageSensitiveContentDetected.PrivacyInformation'
@@ -153,12 +188,22 @@ def assets_for(generation_id):
     return dict(rows)
 
 
-def video_assets_for(item):
-    """{storage key: byteplus_asset_id} of this job's Gallery video portraits, matched by content to the ACTIVE video
-    assets it pinned (a pinned asset may have been registered from another upload of the same clip)."""
+def video_assets_for(item, storage=None):
+    """{storage key: byteplus_asset_id} of this job's reference videos that go as BytePlus assets: matched by content to the
+    ACTIVE video assets it pinned (a pinned asset may have been registered from another upload of the same clip)."""
     pinned = dict(ManagedPortraitAsset.objects.filter(status='ACTIVE', media_kind='video', id__in=ManagedPortraitPin.objects.filter(generation_id=item.id)
                                                       .values('asset_id')).values_list('content_sha256', 'byteplus_asset_id'))
-    return {key: pinned[row.content_sha256] for key, row in video_portraits(item).items() if row.content_sha256 in pinned}
+    if not pinned:
+        return {}
+    from apps.assets import video_faces
+    from apps.media.storage import get_storage
+    storage = storage or get_storage()
+    found = {}
+    for key in reference_video_keys(item):
+        sha = video_faces.reference_sha(storage, key)
+        if sha in pinned:
+            found[key] = pinned[sha]
+    return found
 
 
 def wait_started(generation_id, reason, now):
