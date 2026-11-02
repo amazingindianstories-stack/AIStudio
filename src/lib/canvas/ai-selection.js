@@ -50,6 +50,9 @@ export const SELECTION_ACTIONS = [
 export const toneAction = (tone) => ({ id: `tone-${tone}`, format: "rewrite", prompt: `Change the tone of each text to ${tone.toLowerCase()}.`, needs: "text" });
 export const translateAction = (language) => ({ id: `translate-${language}`, format: "rewrite", prompt: `Translate each text into ${language}.`, needs: "text" });
 
+/** Recolours the selected notes (and shapes) to one of the board's named colours; the prompt stays editable for any other. */
+export const recolorAction = (name) => ({ id: `recolor-${name}`, format: "recolor", prompt: `Change the colour of each selected object to ${name}.`, needs: "stickies" });
+
 /** Whether `action` has something to work on in `context` (a `selectionContext` result). */
 export function actionApplies(action, context, nodes) {
   if (!context.items.length) return false;
@@ -64,4 +67,4 @@ export function contextFields(format, context) {
   return context.items.length ? { context: context.items } : {};
 }
 
-export const SELECTION_FORMATS = ["rewrite", "cluster", "summary"];
+export const SELECTION_FORMATS = ["rewrite", "recolor", "cluster", "summary"];

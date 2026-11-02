@@ -26,10 +26,10 @@ from apps.library.services import idempotency
 from . import ai_allowance, switches
 from .models import BoardAiJob
 
-ENGINES = {'stickies': 'text', 'rewrite': 'text', 'cluster': 'text', 'summary': 'text', 'layout': 'text', 'diagram': 'text',
+ENGINES = {'stickies': 'text', 'rewrite': 'text', 'recolor': 'text', 'cluster': 'text', 'summary': 'text', 'layout': 'text', 'diagram': 'text',
            'image': 'image'}
 # Formats that act on the user's selection and need it as context.
-SELECTION_FORMATS = ('rewrite', 'cluster', 'summary')
+SELECTION_FORMATS = ('rewrite', 'recolor', 'cluster', 'summary')
 MAX_REFERENCE_IMAGES = 4
 PROCESSING = ('basic', 'advanced')
 ADVANCED_RESOLUTION = '2K'

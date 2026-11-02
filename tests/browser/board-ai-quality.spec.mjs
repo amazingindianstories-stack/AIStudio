@@ -119,3 +119,66 @@ test('Create with AI honours the colour asked for: black, a named colour and a h
     }
   }
 });
+
+test('Create with AI recolours the notes already selected on the board: black from the menu, a hex from the prompt, one undo step each', async ({ page, context, baseURL }) => {
+  test.skip(!FAKE, 'needs --fake-providers');
+  test.setTimeout(240000);
+  await authenticate(context, baseURL);
+  const projectId = await freshProject(context, page);
+  let boardId;
+  try {
+    await page.goto('/');
+    await expect(page.getByRole('button', { name: /Desktop fixture/ })).toBeVisible();
+    await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Board', exact: true }).click();
+    await expect(page.getByRole('application', { name: 'Board canvas' })).toBeVisible();
+    await expect.poll(async () => {
+      boardId = (await (await context.request.get(`/api/canvas-boards?projectId=${projectId}`)).json()).boards[0]?.id;
+      return Boolean(boardId);
+    }).toBeTruthy();
+    const stickies = async () => (await (await context.request.get(`/api/canvas-boards/${boardId}`)).json()).data.nodes.filter(node => node.type === 'sticky');
+
+    await page.getByRole('button', { name: 'Create with AI', exact: true }).click();
+    const panel = page.getByRole('region', { name: 'Create with AI' });
+    await panel.getByRole('button', { name: 'Questions to ask before a location scout' }).click();
+    await expect(panel.getByText(/Estimated cost/)).toBeVisible();
+    await panel.getByRole('button', { name: 'Generate', exact: true }).click();
+    await expect.poll(async () => (await stickies()).length, { timeout: 60000 }).toBe(3);
+    const originalText = (await stickies()).map(node => node.text);
+
+    // Select the notes and pick Change colour > Black: the prompt says so; the person presses Generate.
+    await panel.getByRole('button', { name: 'New prompt', exact: true }).click();
+    await page.evaluate(() => document.activeElement?.blur());
+    await page.keyboard.press('ControlOrMeta+a');
+    await expect(panel.getByLabel('Selection', { exact: true })).toContainText('3 selected');
+    await panel.getByRole('button', { name: 'Change colour', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Black', exact: true }).click();
+    await expect(panel.getByRole('textbox', { name: 'Prompt' })).toHaveValue(/colour .* to black/);
+    await expect(panel.getByText(/Estimated cost/)).toBeVisible();
+    await panel.getByRole('button', { name: 'Generate', exact: true }).click();
+    await expect.poll(async () => (await stickies()).map(node => node.fill), { timeout: 60000 }).toEqual(['#1a1a1a', '#1a1a1a', '#1a1a1a']);
+    expect((await stickies()).map(node => node.color)).toEqual(['#f5f5f5', '#f5f5f5', '#f5f5f5']);
+    expect((await stickies()).map(node => node.text)).toEqual(originalText);
+
+    // One undo step puts the colours back.
+    await page.evaluate(() => document.activeElement?.blur());
+    await page.keyboard.press('ControlOrMeta+z');
+    await expect.poll(async () => (await stickies()).every(node => node.fill !== '#1a1a1a'), { timeout: 30000 }).toBeTruthy();
+
+    // A colour typed in the prompt, a hex the palette has no name for.
+    await page.keyboard.press('ControlOrMeta+a');
+    await panel.getByRole('button', { name: 'Change colour', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Teal', exact: true }).click();
+    const prompt = panel.getByRole('textbox', { name: 'Prompt' });
+    await prompt.fill('Make these notes #ff00aa');
+    await expect(panel.getByText(/Estimated cost/)).toBeVisible();
+    await panel.getByRole('button', { name: 'Generate', exact: true }).click();
+    await expect.poll(async () => (await stickies()).map(node => node.fill), { timeout: 60000 }).toEqual(['#ff00aa', '#ff00aa', '#ff00aa']);
+  } finally {
+    if (boardId) {
+      const db = fixtureDatabase(process.env.E2E_DATABASE_URL);
+      const generations = await db`SELECT generation_id FROM canvas_board_ai_jobs WHERE board_id = ${boardId}`;
+      await db`DELETE FROM canvas_board_ai_jobs WHERE board_id = ${boardId}`;
+      for (const row of generations) await db`DELETE FROM generations WHERE id = ${row.generation_id}`;
+    }
+  }
+});

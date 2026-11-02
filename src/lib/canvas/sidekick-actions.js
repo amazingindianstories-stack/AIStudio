@@ -1,7 +1,7 @@
 // What a Sidekick's answer does to the board: its "actions" (add, update, delete, connect; see
 // backend/apps/agents/sidekick.py) become one pure graph edit, so the panel applies a whole answer as a single
 // undo step. Locked objects are never changed and ids the board does not hold are ignored.
-import { inFreeSpace, stickyFill, stickyInk } from "./ai-formats.js";
+import { colorPatch, inFreeSpace, stickyFill, stickyInk } from "./ai-formats.js";
 import { isLocked } from "./locks.js";
 
 export const MAX_ACTIONS = 40;
@@ -86,10 +86,7 @@ export function applyActions(present, actions, { center = { x: 0, y: 0 }, now = 
       const node = byId.get(action.id);
       const patch = {};
       if (typeof action.text === "string") patch[node.type === "frame" ? "name" : "text"] = action.text;
-      if ((action.color || action.fill) && "fill" in node && node.type !== "frame") {
-        patch.fill = stickyFill(action);
-        if (node.type === "sticky") patch.color = stickyInk(patch.fill);
-      }
+      Object.assign(patch, colorPatch(node, action));
       for (const key of ["x", "y", "w", "h"]) if (Number.isFinite(action[key])) patch[key] = action[key];
       const next = { ...node, ...patch, aiEditedAt: now };
       if ("text" in patch) delete next.marks;

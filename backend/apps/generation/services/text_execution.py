@@ -30,6 +30,7 @@ def mock_output(value):
     half = (len(selected) + 1) // 2
     samples = {
         'rewrite': lambda: {'items': [{'id': item['id'], 'text': 'Mock ' + item['text']} for item in selected]},
+        'recolor': lambda: {'items': [{'id': item['id'], 'color': 'teal', 'fill': ''} for item in selected]},
         'cluster': lambda: {'groups': [{'title': 'Mock group', 'ids': [item['id'] for item in selected[:half]]},
                                        {'title': 'Another mock group', 'ids': [item['id'] for item in selected[half:]]}]},
         'summary': lambda: {'title': 'Mock summary', 'body': 'A mock summary of the selected notes.'},

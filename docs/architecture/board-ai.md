@@ -117,8 +117,11 @@ not on the board. **Place again** recovers it:
 ## Formats on a selection
 
 Beyond `stickies` and `image`, the panel offers `diagram` (flowchart or mind map) and `layout` (title, frames, stickies in
-frames). The selection formats `rewrite` (edit text), `cluster` and `summary` act on selected objects and are reached
-from the panel's selection strip or the context menu's AI rows, not the format tabs.
+frames). The selection formats `rewrite` (edit text), `recolor`, `cluster` and `summary` act on selected objects and are
+reached from the panel's selection strip or the context menu's AI rows, not the format tabs. `recolor` ("Change colour"
+in the strip, with a named colour or a prompt such as "make these #ff00aa") returns `{id, color, fill}` per object and
+applies it with `colorPatch` (`src/lib/canvas/ai-graph.js`), the same colour rules a Sidekick `update` action uses; the
+parser uses `color_fields` from `apps/agents/sidekick.py`. It is one undo step, and locked objects are left alone.
 
 - **Context.** The browser reads the selection from the board data (`src/lib/canvas/ai-selection.js`, never the
   DOM, so viewport culling does not matter) and sends `context: [{id, type, text}]`. The server bounds it

@@ -134,6 +134,8 @@ def board_reply(name, body):
         selected = json.loads(body['contents'][0]['parts'][0]['text'].split('Selected board content (JSON):\n', 1)[1])
     if name == 'rewrite':
         return {'items': [{'id': item['id'], 'text': 'EDITED ' + item['text']} for item in selected]}
+    if name == 'recolor':
+        return {'items': [{'id': item['id'], **recolor_choice(body, last)} for item in selected]}
     if name == 'cluster':
         half = (len(selected) + 1) // 2
         return {'groups': [{'title': 'First half', 'ids': [item['id'] for item in selected[:half]]},
@@ -157,6 +159,18 @@ COLOR_HEX = {'black': '#1a1a1a', 'white': '#fafafa', 'grey': '#9ca3af', 'gray': 
              'yellow': '#e3c56a', 'orange': '#d99a5b', 'pink': '#d189a7', 'purple': '#9b86c9', 'blue': '#6f9bd1', 'green': '#7fae86',
              'brown': '#8b5a2b', 'cyan': '#00bcd4'}
 REQUEST_HEX = re.compile(r'#[0-9a-fA-F]{6}')
+
+
+def recolor_choice(body, last):
+    """The colour a recolour request names, as the schema lets a model say it (a name from the enum, else a hex fill)."""
+    properties = body['generationConfig']['responseSchema']['properties']['items']['items']['properties']
+    named = next((name for name in COLOR_HEX if re.search(rf'\b{name}\b', last, re.I)), None)
+    hexed = REQUEST_HEX.search(last)
+    if hexed:
+        return {'color': 'yellow', 'fill': hexed[0].lower()}
+    if named in (properties['color'].get('enum') or []):
+        return {'color': named, 'fill': ''}
+    return {'color': 'purple', 'fill': ''}
 
 
 def sticky_reply(body, last):

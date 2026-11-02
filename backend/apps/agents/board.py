@@ -102,6 +102,20 @@ REWRITE_SCHEMA = {
         'type': 'OBJECT', 'properties': {'id': {'type': 'STRING'}, 'text': {'type': 'STRING'}}, 'required': ['id', 'text']}}},
     'required': ['items']}
 
+RECOLOR_PROMPT = (
+    'You change the colors of objects on a Veevee board. The user message holds an instruction (for example make them '
+    'black, or color them by sentiment) and a JSON list of items, each with an id, a type and its text.\n\n'
+    f'Return every item once with the same id and its new color. {COLOR_RULES} Never add or drop items.')
+
+RECOLOR_SCHEMA = {
+    'type': 'OBJECT',
+    'properties': {'items': {'type': 'ARRAY', 'items': {
+        'type': 'OBJECT',
+        'properties': {'id': {'type': 'STRING'}, 'color': {'type': 'STRING', 'enum': list(STICKY_COLORS)},
+                       'fill': {'type': 'STRING'}},
+        'required': ['id', 'color', 'fill']}}},
+    'required': ['items']}
+
 CLUSTER_PROMPT = (
     'You group sticky notes from a Veevee board. The user message holds a request and a JSON list of notes, each with an '
     'id and its text. Group the notes by the keywords or themes they share, or by sentiment when the request asks for '
@@ -192,6 +206,25 @@ def parse_rewrite(value):
         result.append({'id': identifier, 'text': text.strip()[:MAX_ITEM_CHARS]})
     if not result:
         raise UnusableResult('The AI answer held no edited text.')
+    return {'items': result}
+
+
+def parse_recolor(value):
+    items = value.get('items') if isinstance(value, dict) else None
+    if not isinstance(items, list):
+        raise UnusableResult('The AI answer held no colors.')
+    result, seen = [], set()
+    for item in items[:MAX_REWRITE_ITEMS]:
+        identifier = item.get('id') if isinstance(item, dict) else None
+        if not isinstance(identifier, str) or identifier in seen:
+            continue
+        # The colour rules are the Sidekick update action's: a known name and/or a valid hex, else the item is skipped.
+        colors = sidekick.color_fields(item)
+        if colors:
+            seen.add(identifier)
+            result.append({'id': identifier, 'color': colors.get('color', ''), 'fill': colors.get('fill', '')})
+    if not result:
+        raise UnusableResult('The AI answer held no colors.')
     return {'items': result}
 
 
@@ -298,6 +331,7 @@ TEXT_FORMATS = {
     'stickies': {'prompt': STICKIES_PROMPT, 'schema': STICKIES_SCHEMA, 'max_output_tokens': 8192, 'temperature': 0.7,
                  'parse': parse_stickies},
     'rewrite': {'prompt': REWRITE_PROMPT, 'schema': REWRITE_SCHEMA, 'max_output_tokens': 16384, 'temperature': 0.3, 'parse': parse_rewrite},
+    'recolor': {'prompt': RECOLOR_PROMPT, 'schema': RECOLOR_SCHEMA, 'max_output_tokens': 8192, 'temperature': 0.2, 'parse': parse_recolor},
     'cluster': {'prompt': CLUSTER_PROMPT, 'schema': CLUSTER_SCHEMA, 'max_output_tokens': 4096, 'temperature': 0.2, 'parse': parse_cluster},
     'summary': {'prompt': SUMMARY_PROMPT, 'schema': SUMMARY_SCHEMA, 'max_output_tokens': 4096, 'temperature': 0.4, 'parse': parse_summary},
     'layout': {'prompt': LAYOUT_PROMPT, 'schema': LAYOUT_SCHEMA, 'max_output_tokens': 8192, 'temperature': 0.7, 'parse': parse_layout},

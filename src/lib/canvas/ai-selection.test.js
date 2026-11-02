@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { LANGUAGES, SELECTION_ACTIONS, actionApplies, contextFields, nodeText, selectionContext, toneAction, translateAction } from "./ai-selection.js";
+import { LANGUAGES, SELECTION_ACTIONS, actionApplies, contextFields, nodeText, recolorAction, selectionContext, toneAction, translateAction } from "./ai-selection.js";
 
 const nodes = [
   { id: "a", type: "sticky", text: " hello " },
@@ -43,5 +43,9 @@ test("actions apply only when the selection has what they need", () => {
   assert.equal(actionApplies(cluster, selectionContext(nodes, ["a"]), nodes), true);
   assert.match(translateAction("French").prompt, /French/);
   assert.match(toneAction("Fun").prompt, /fun/);
+  const recolor = recolorAction("black");
+  assert.deepEqual([recolor.format, recolor.needs, /black/.test(recolor.prompt)], ["recolor", "stickies", true]);
+  assert.equal(actionApplies(recolor, selectionContext(nodes, ["b"]), nodes), false, "frames are not stickies");
+  assert.equal(actionApplies(recolor, selectionContext(nodes, ["a"]), nodes), true);
   assert.ok(LANGUAGES.length >= 10);
 });

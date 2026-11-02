@@ -59,7 +59,7 @@ test("every offered format has panel copy, suggestions and a node builder", () =
     assert.ok(format.suggestions.length >= 3);
     assert.equal(typeof (format.nodes ?? format.graph), "function");
   }
-  for (const id of ["rewrite", "cluster", "summary"]) {
+  for (const id of ["rewrite", "recolor", "cluster", "summary"]) {
     assert.equal(AI_FORMATS[id].id, id);
     assert.equal(typeof (AI_FORMATS[id].edit ?? AI_FORMATS[id].graph), "function");
   }

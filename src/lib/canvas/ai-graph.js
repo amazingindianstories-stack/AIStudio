@@ -26,6 +26,16 @@ export function stickyFill(item) {
   return typeof item?.fill === "string" && HEX.test(item.fill) ? item.fill.toLowerCase() : (STICKY_FILLS[item?.color] ?? STICKY_FILLS.yellow);
 }
 
+/**
+ * The fields that recolour `node` to the colour `item` (an AI note, a Sidekick action or a recolour entry) asks for: its
+ * fill, and for a sticky the text colour that reads on it. Empty when `item` names no colour or the node has no fill.
+ */
+export function colorPatch(node, item) {
+  if (!(item?.color || item?.fill) || !("fill" in node) || node.type === "frame") return {};
+  const fill = stickyFill(item);
+  return node.type === "sticky" ? { fill, color: stickyInk(fill) } : { fill };
+}
+
 /** Text colour that reads on `fill`: light on dark fills (black notes), the usual dark ink otherwise. */
 export function stickyInk(fill) {
   const value = parseInt(String(fill).slice(1), 16);
@@ -203,6 +213,20 @@ export function applyRewrite(present, result) {
     if (node.type === "frame") return { ...node, name: text };
     const { marks: _marks, ...rest } = node;
     return { ...rest, text };
+  });
+  return { present: { ...present, nodes }, touched };
+}
+
+/** `present` with the colours the AI chose applied to the selected objects it named (locked ones are left alone). */
+export function applyRecolor(present, result, now = Date.now()) {
+  const wanted = new Map((result?.items ?? []).map((item) => [item.id, item]));
+  const locked = lockedIdSet(present);
+  const touched = [];
+  const nodes = present.nodes.map((node) => {
+    const patch = wanted.has(node.id) && !locked.has(node.id) ? colorPatch(node, wanted.get(node.id)) : {};
+    if (!("fill" in patch) || patch.fill === node.fill) return node;
+    touched.push(node.id);
+    return { ...node, ...patch, aiEditedAt: now };
   });
   return { present: { ...present, nodes }, touched };
 }

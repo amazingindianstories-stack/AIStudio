@@ -126,6 +126,17 @@ def _number(value):
     return value if isinstance(value, (int, float)) and not isinstance(value, bool) and abs(value) <= MAX_COORDINATE else None
 
 
+def color_fields(raw):
+    """The colour an object or action asks for: a known color name and/or a six digit hex fill, nothing else."""
+    result = {}
+    if raw.get('color') in STICKY_COLORS:
+        result['color'] = raw['color']
+    fill = raw.get('fill')
+    if isinstance(fill, str) and HEX_COLOR.fullmatch(fill):
+        result['fill'] = fill.lower()
+    return result
+
+
 def _action(raw):
     if not isinstance(raw, dict) or raw.get('op') not in ACTION_OPS:
         return None
@@ -150,11 +161,7 @@ def _action(raw):
     text = _text(raw.get('text'), MAX_TEXT_CHARS)
     if text or (op == 'update' and isinstance(raw.get('text'), str)):
         action['text'] = text
-    if raw.get('color') in STICKY_COLORS:
-        action['color'] = raw['color']
-    fill = raw.get('fill')
-    if isinstance(fill, str) and HEX_COLOR.fullmatch(fill):
-        action['fill'] = fill.lower()
+    action.update(color_fields(raw))
     for key in ('x', 'y', 'w', 'h'):
         value = _number(raw.get(key))
         if value is not None and (key in ('x', 'y') or value > 0):

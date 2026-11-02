@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyCluster, applyRewrite, diagramGraph, layoutGraph, rankNodes, summaryGraph } from "./ai-graph.js";
+import { STICKY_FILLS, applyCluster, applyRecolor, applyRewrite, colorPatch, diagramGraph, layoutGraph, rankNodes, summaryGraph } from "./ai-graph.js";
 import { validateCanvasState } from "./serialization.js";
 
 const C = { x: 0, y: 0 };
@@ -34,6 +34,20 @@ test("layout notes take the requested colour, with readable text on black", () =
   const { nodes } = layoutGraph({ title: "Plan", frames: [{ title: "Prep", notes: [{ text: "a", color: "black" }, { text: "b", color: "yellow", fill: "#00ff88" }] }] }, C);
   const stickies = nodes.filter((node) => node.type === "sticky");
   assert.deepEqual(stickies.map((node) => [node.fill, node.color]), [["#1a1a1a", "#f5f5f5"], ["#00ff88", "#1c1a12"]]);
+});
+
+test("a recolour result recolours the selected notes through the same colour rules as a Sidekick update, skipping locked ones", () => {
+  const note = (id, extra = {}) => ({ id, type: "sticky", x: 0, y: 0, w: 200, h: 200, text: id, fill: STICKY_FILLS.yellow, fontSize: 16, color: "#1c1a12", opacity: 1, parentId: null, groupId: null, ...extra });
+  const present = { nodes: [note("a"), note("b"), note("c", { locked: true }), { id: "t", type: "text", x: 0, y: 0, w: 10, h: 10, text: "t" }], connectors: [] };
+  const { present: next, touched } = applyRecolor(present, { items: [{ id: "a", color: "black", fill: "" }, { id: "b", color: "yellow", fill: "#00FF88" }, { id: "c", color: "red", fill: "" },
+    { id: "t", color: "red", fill: "" }, { id: "gone", color: "red", fill: "" }] }, 7);
+  assert.deepEqual(touched, ["a", "b"]);
+  assert.deepEqual(next.nodes.map((node) => [node.fill, node.color, node.aiEditedAt]),
+    [["#1a1a1a", "#f5f5f5", 7], ["#00ff88", "#1c1a12", 7], [STICKY_FILLS.yellow, "#1c1a12", undefined], [undefined, undefined, undefined]]);
+  assert.deepEqual(colorPatch({ type: "sticky", fill: "#fff" }, { color: "teal" }), { fill: STICKY_FILLS.teal, color: "#1c1a12" });
+  assert.deepEqual(colorPatch({ type: "rect", fill: "#fff" }, { fill: "#112233" }), { fill: "#112233" });
+  assert.deepEqual(colorPatch({ type: "frame", fill: "transparent" }, { color: "red" }), {});
+  assert.deepEqual(colorPatch({ type: "sticky", fill: "#fff" }, {}), {});
 });
 
 test("a layout is a title, frames side by side, and stickies parented to their frame", () => {

@@ -8,13 +8,13 @@ import { fallbackModel, pickerModels } from "@/lib/config";
 import { capability } from "@/lib/model-registry";
 import { formatCost } from "@/lib/format-cost";
 import { ACTIVE_STATUSES, quoteBoardAi, requestFingerprint, trackPanelLayout, useBoardAi } from "@/lib/board-ai";
-import { AI_FORMATS, AI_FORMAT_ORDER } from "@/lib/canvas/ai-formats";
+import { AI_FORMATS, AI_FORMAT_ORDER, STICKY_FILLS } from "@/lib/canvas/ai-formats";
 import { Dropdown, MenuItem } from "@/components/Dropdown";
 import { useCanvasStore } from "@/lib/canvas-store";
 import { setAiInputs, useAiPanelIntent } from "@/lib/board-ai-panel";
 import { dictationSupported, startDictation } from "@/lib/canvas/dictation";
 import {
-  LANGUAGES, SELECTION_ACTIONS, SELECTION_FORMATS, TONES, actionApplies, contextFields, selectionContext, toneAction, translateAction,
+  LANGUAGES, SELECTION_ACTIONS, SELECTION_FORMATS, TONES, actionApplies, contextFields, recolorAction, selectionContext, toneAction, translateAction,
 } from "@/lib/canvas/ai-selection";
 
 const FORMAT_ICONS = { stickies: StickyNote, image: ImageIcon, diagram: Workflow, layout: LayoutDashboard };
@@ -521,6 +521,7 @@ function SelectionStrip({ context, nodes, action, useSelection, onUseSelection, 
   const presets = SELECTION_ACTIONS.filter(applies);
   const tones = TONES.map((tone) => ({ ...toneAction(tone), label: tone }));
   const languages = LANGUAGES.map((language) => ({ ...translateAction(language), label: language }));
+  const colors = Object.keys(STICKY_FILLS).map((name) => ({ ...recolorAction(name), label: name[0].toUpperCase() + name.slice(1) }));
   const text = context.items.length > 0;
   return (
     <div aria-label="Selection" className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
@@ -541,6 +542,7 @@ function SelectionStrip({ context, nodes, action, useSelection, onUseSelection, 
           {item.label}
         </button>
       ))}
+      {applies(colors[0]) && <ActionMenu label="Change colour" items={colors} onPick={onPick} />}
       {text && <ActionMenu label="Change tone" items={tones} onPick={onPick} />}
       {text && <ActionMenu label="Translate" items={languages} onPick={onPick} />}
     </div>

@@ -436,6 +436,7 @@ class BoardAiSelectionTests(BoardFixture):
     def test_each_format_runs_through_the_worker_and_returns_its_parsed_result(self):
         cases = (
             ('rewrite', {'context': self.ITEMS}, {'items': [{'id': 'n1', 'text': 'EDITED teh cat'}, {'id': 'n2', 'text': 'EDITED a dog'}]}),
+            ('recolor', {'context': self.ITEMS}, {'items': [{'id': 'n1', 'color': 'purple', 'fill': ''}, {'id': 'n2', 'color': 'purple', 'fill': ''}]}),
             ('cluster', {'context': self.ITEMS}, {'groups': [{'title': 'First half', 'ids': ['n1']}, {'title': 'Second half', 'ids': ['n2']}]}),
             ('summary', {'context': self.ITEMS}, {'title': 'Summary', 'body': 'Summary of teh cat; a dog'}),
             ('layout', {}, None),
@@ -455,6 +456,20 @@ class BoardAiSelectionTests(BoardFixture):
                 self.assertEqual('Selected board content' in first, bool(extra))
                 # The row keeps the person's own words as its prompt; the selection rides in the first turn only.
                 self.assertEqual(Generation.objects.get(pk=read['generationId']).prompt, f'do {name}')
+
+    def test_recolor_names_the_colour_asked_for_and_only_known_colours_survive(self):
+        for prompt, expected in (('Change the colour of each selected object to black.', {'color': 'black', 'fill': ''}),
+                                 ('make them #FF00AA', {'color': 'yellow', 'fill': '#ff00aa'})):
+            with self.subTest(prompt=prompt):
+                read, _ = self.run_job({'format': 'recolor', 'prompt': prompt, 'context': self.ITEMS}, f'board-key-recolor-{len(prompt)}')
+                self.assertEqual(read['result'], {'items': [{'id': 'n1', **expected}, {'id': 'n2', **expected}]})
+        parsed = board_formats.parse_output('recolor', json.dumps({'items': [
+            {'id': 'a', 'color': 'black', 'fill': ''}, {'id': 'b', 'color': 'mauve', 'fill': '#123ABC'}, {'id': 'c', 'color': 'mauve', 'fill': 'x'},
+            {'id': 'a', 'color': 'red'}, 'junk', {'id': 7, 'color': 'red'}]}))
+        self.assertEqual(parsed, {'items': [{'id': 'a', 'color': 'black', 'fill': ''}, {'id': 'b', 'color': '', 'fill': '#123abc'}]})
+        with self.assertRaises(board_formats.UnusableResult):
+            board_formats.parse_output('recolor', json.dumps({'items': [{'id': 'a', 'color': 'mauve'}]}))
+        self.assertEqual(self.submit({'format': 'recolor', 'prompt': 'make them black'}).json()['code'], 'SELECTION_REQUIRED')
 
     def test_selection_formats_need_a_selection_and_the_context_is_validated(self):
         self.assertEqual(self.submit({'format': 'rewrite', 'prompt': 'fix'}).json()['code'], 'SELECTION_REQUIRED')
