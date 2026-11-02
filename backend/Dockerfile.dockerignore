@@ -8,6 +8,7 @@ backend/**
 !backend/apps/assets/data/*.onnx
 !backend/testsupport/data/*.jpg
 !backend/testsupport/data/*.json
+!backend/apps/canvas/fixtures/*.json
 !backend/requirements.txt
 !backend/constraints-qualified.txt
 !backend/Dockerfile
