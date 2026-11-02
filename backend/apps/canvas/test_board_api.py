@@ -9,7 +9,7 @@ from apps.mcp_auth import controls, policy, tokens
 from apps.mcp_auth.models import McpRateWindow
 from apps.mcp_auth.principal import authenticate_bearer
 from apps.projects.models import Project
-from .models import BoardMember, CanvasBoard
+from .models import BoardMember, BoardPrivateMode, CanvasBoard
 from .serialization import empty_state
 
 SITE = 'https://veevee.test'
@@ -187,6 +187,33 @@ class BoardApiTests(TransactionTestCase):
         later = self.call('get', f'/api/v1/boards/{BOARD}/changes?since={before + 1}', raw).json()
         self.assertEqual(later['changes']['nodes']['delete'], [item['id']])
         self.assertEqual(self.call('get', f'/api/v1/boards/{BOARD}/changes?since=x', raw).status_code, 400)
+
+    def seed(self, *nodes, version=3):
+        CanvasBoard.objects.filter(pk=BOARD).update(data={**empty_state(), 'nodes': list(nodes)}, version=version)
+
+    def test_a_viewer_never_reads_hidden_frame_content_through_the_api(self):
+        frame = {'id': 'f', 'type': 'frame', 'x': 0, 'y': 0, 'w': 400, 'h': 400, 'title': 'Secret', 'hidden': True}
+        self.seed(frame, {**STICKY, 'id': 'inside', 'parentId': 'f', 'text': 'classified'}, {**STICKY, 'id': 'open', 'text': 'public'})
+        viewer, owner = self.token(self.viewer), self.token()
+        for raw, expected in ((viewer, {'f', 'open'}), (owner, {'f', 'inside', 'open'})):
+            listed = self.call('get', f'/api/v1/boards/{BOARD}/items', raw).json()
+            self.assertEqual({item['id'] for item in listed['items']}, expected)
+        self.assertEqual(self.call('get', f'/api/v1/boards/{BOARD}/items/inside', viewer).status_code, 404)
+        self.assertEqual(self.call('get', f'/api/v1/boards/{BOARD}/items/inside', owner).status_code, 200)
+        feed = self.call('get', f'/api/v1/boards/{BOARD}/changes?since=0', viewer)
+        self.assertNotIn('classified', feed.content.decode())
+
+    def test_private_mode_notes_are_blank_for_other_people_through_the_api(self):
+        self.seed({**STICKY, 'id': 'mine', 'text': 'owner secret', 'privateBy': str(self.owner.id)})
+        BoardPrivateMode.objects.create(board_id=BOARD, active=True, updated_at=1)
+        viewer, owner = self.token(self.viewer), self.token()
+        seen = self.call('get', f'/api/v1/boards/{BOARD}/items/mine', viewer)
+        self.assertEqual(seen.status_code, 200)
+        self.assertEqual((seen.json()['item']['text'], seen.json()['item'].get('hiddenText')), ('', True))
+        self.assertEqual(self.call('get', f'/api/v1/boards/{BOARD}/items/mine', owner).json()['item']['text'], 'owner secret')
+        feed = self.call('get', f'/api/v1/boards/{BOARD}/changes?since=0', viewer)
+        self.assertNotIn('owner secret', feed.content.decode())
+        self.assertNotIn('owner secret', self.call('get', f'/api/v1/boards/{BOARD}/items', viewer).content.decode())
 
     def test_a_locked_item_stays_put_for_an_editor_who_did_not_lock_it(self):
         raw = self.token()

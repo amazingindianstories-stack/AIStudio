@@ -157,6 +157,61 @@ BOARD_WORK = {
  '/api/board-notifications': ['GET', 'POST'],
 }
 EXPECTED.update(BOARD_WORK)
+# Board integration slices: canvas formats, media, templates, comments, facilitation, AI create, sidekicks, integrations,
+# plans, import/export and admin routes, plus the versioned agent board API.
+BOARD_SLICES = {
+ '/api/admin/ai-log': ['GET'],
+ '/api/admin/content-log': ['GET'],
+ '/api/admin/template-usage': ['GET'],
+ '/api/admin/workspace': ['GET', 'POST'],
+ '/api/canvas-ai/[action]': ['DELETE', 'GET', 'PATCH', 'POST'],
+ '/api/canvas-blueprints': ['GET', 'POST'],
+ '/api/canvas-blueprints/[ref]': ['DELETE', 'PATCH'],
+ '/api/canvas-blueprints/[ref]/use': ['POST'],
+ '/api/canvas-boards/[identifier]/assistant/[action]': ['DELETE', 'GET', 'PATCH', 'POST'],
+ '/api/canvas-boards/[identifier]/comments': ['GET', 'POST'],
+ '/api/canvas-boards/[identifier]/comments/[comment_id]': ['DELETE', 'PATCH'],
+ '/api/canvas-boards/[identifier]/comments/[comment_id]/react': ['POST'],
+ '/api/canvas-boards/[identifier]/comments/[comment_id]/resolve': ['POST'],
+ '/api/canvas-boards/[identifier]/comments/follow': ['POST'],
+ '/api/canvas-boards/[identifier]/comments/mentions': ['GET'],
+ '/api/canvas-boards/[identifier]/comments/read': ['POST'],
+ '/api/canvas-boards/[identifier]/facilitation': ['GET'],
+ '/api/canvas-boards/[identifier]/private-mode': ['POST'],
+ '/api/canvas-boards/[identifier]/pulse': ['POST'],
+ '/api/canvas-boards/[identifier]/talktracks': ['GET', 'POST'],
+ '/api/canvas-boards/[identifier]/talktracks/[talktrack_id]': ['DELETE', 'GET', 'PATCH'],
+ '/api/canvas-boards/[identifier]/talktracks/[talktrack_id]/moments': ['GET', 'POST'],
+ '/api/canvas-boards/[identifier]/talktracks/[talktrack_id]/moments/[moment_id]': ['DELETE'],
+ '/api/canvas-boards/[identifier]/talktracks/[talktrack_id]/transcript': ['POST'],
+ '/api/canvas-boards/[identifier]/talktracks/[talktrack_id]/view': ['POST'],
+ '/api/canvas-boards/[identifier]/talktracks/[talktrack_id]/viewers': ['GET'],
+ '/api/canvas-boards/[identifier]/timer': ['POST'],
+ '/api/canvas-boards/[identifier]/voting': ['GET', 'POST'],
+ '/api/canvas-boards/[identifier]/voting/[session_id]': ['POST'],
+ '/api/canvas-boards/[identifier]/voting/[session_id]/done': ['POST'],
+ '/api/canvas-boards/[identifier]/voting/[session_id]/vote': ['POST'],
+ '/api/canvas-templates': ['GET', 'POST'],
+ '/api/canvas-templates/[ref]': ['DELETE', 'GET', 'PATCH'],
+ '/api/canvas-templates/[ref]/comments': ['GET', 'POST'],
+ '/api/canvas-templates/[ref]/edit-board': ['POST'],
+ '/api/canvas-templates/[ref]/like': ['POST'],
+ '/api/canvas-templates/[ref]/use': ['POST'],
+ '/api/canvas-templates/by-board/[board_id]': ['GET'],
+ '/api/my-talktracks': ['GET'],
+ '/api/notifications': ['GET'],
+ '/api/notifications/read': ['POST'],
+ '/api/push-subscription': ['DELETE', 'GET', 'POST'],
+ '/api/v1/boards': ['GET'],
+ '/api/v1/boards/[identifier]': ['GET'],
+ '/api/v1/boards/[identifier]/changes': ['GET'],
+ '/api/v1/boards/[identifier]/connectors': ['GET', 'POST'],
+ '/api/v1/boards/[identifier]/connectors/[item_id]': ['DELETE', 'GET', 'PATCH'],
+ '/api/v1/boards/[identifier]/items': ['GET', 'POST'],
+ '/api/v1/boards/[identifier]/items/[item_id]': ['DELETE', 'GET', 'PATCH'],
+ '/api/workspace': ['GET'],
+}
+EXPECTED.update(BOARD_SLICES)
 # Agent OAuth endpoints read no cookies and answer browser-based clients cross-origin (apps.common.origin).
 COOKIELESS_OAUTH = {'/api/oauth/register', '/api/oauth/token', '/api/oauth/revoke'}
 
@@ -189,9 +244,9 @@ def leaves(patterns,prefix=''):
 class CompleteApiCoverageTests(SimpleTestCase):
     def test_all_139_explicit_methods_resolve_to_the_declared_python_handlers(self):
         # 90 migrated methods, the media resolver, the managed-portrait routes, the admin provider error log, agent access,
-        # board roles, board sync, board AI jobs, board history, synced copies board work tables and board media.
-        self.assertEqual(len(EXPECTED),110)
-        self.assertEqual(sum(map(len,EXPECTED.values())),142)
+        # board roles, board sync, board AI jobs, board history, synced copies, board work tables, board media and the board integration slices.
+        self.assertEqual(len(EXPECTED),160)
+        self.assertEqual(sum(map(len,EXPECTED.values())),220)
         resolved_routes=set()
         for path,methods in EXPECTED.items():
             with self.subTest(path=path):
@@ -304,6 +359,7 @@ NEGATIVE_STATUS.update({path:{method:401 for method in methods} for path,methods
 NEGATIVE_STATUS.update({path:{method:401 for method in methods} for path,methods in SHAPE_PACKS.items()})
 NEGATIVE_STATUS.update({path:{method:401 for method in methods} for path,methods in SYNCED_COPIES.items()})
 NEGATIVE_STATUS.update({path:{method:401 for method in methods} for path,methods in BOARD_WORK.items()})
+NEGATIVE_STATUS.update({path:{method:401 for method in methods} for path,methods in BOARD_SLICES.items()})
 # Public discovery documents, and machine endpoints refusing an empty body or an unknown client.
 NEGATIVE_STATUS.update({'/api/oauth/authorization-server':{'GET':200},'/api/oauth/protected-resource':{'GET':200},
     '/api/oauth/register':{'POST':400},'/api/oauth/token':{'POST':401},'/api/oauth/revoke':{'POST':400}})
@@ -325,7 +381,7 @@ class CompleteApiNegativeBoundaryTests(TransactionTestCase):
         payload,signature=self.valid.split('.')
         self.forged=payload+'.'+('A' if signature[0]!='A' else 'B')+signature[1:]
         self.tables=sorted({model._meta.db_table for model in apps.get_models() if model._meta.managed})
-        self.assertEqual(len(self.tables),46)
+        self.assertEqual(len(self.tables),70)
         self.assertEqual({path:set(methods) for path,methods in EXPECTED.items()},
             {path:set(methods) for path,methods in NEGATIVE_STATUS.items()})
 
@@ -392,7 +448,7 @@ class CompleteApiNegativeBoundaryTests(TransactionTestCase):
                             if path=='/api/auth/me' and method=='GET': self.assertEqual(response.json(),{'user':None})
                             if path=='/api/auth/logout': self.assertEqual(response.json(),{'ok':True})
                             seen.add((mode,path,method))
-            self.assertEqual(len(seen),3*142)
+            self.assertEqual(len(seen),3*220)
             self.assert_no_effects(before)
 
     def test_every_unsafe_method_rejects_hostile_origin_even_with_valid_credentials(self):
