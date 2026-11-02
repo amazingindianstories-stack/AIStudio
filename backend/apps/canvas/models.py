@@ -353,4 +353,161 @@ class BoardTemplateComment(models.Model):
         indexes = [models.Index(fields=['template_ref', 'created_at'], name='canvas_template_comments_idx')]
 
 
+TIMER_STATES = ('running', 'paused', 'stopped')
+
+
+class BoardTimer(models.Model):
+    """The board's one countdown (area D facilitation). A running timer carries the server time it ends at, a
+    paused one the time left, so every client counts down locally and the clocks agree; `run` changes on every
+    start so a client rings its chime once per run."""
+    board_id = models.UUIDField(primary_key=True)
+    state = models.TextField(db_default='stopped')
+    duration_ms = models.BigIntegerField(db_default=0)
+    ends_at = models.BigIntegerField(null=True)
+    remaining_ms = models.BigIntegerField(null=True)
+    music = models.TextField(null=True)
+    started_by = models.UUIDField(null=True)
+    run = models.BigIntegerField(db_default=0)
+    updated_at = models.BigIntegerField()
+
+    class Meta:
+        managed = True
+        db_table = 'board_timers'
+        constraints = [models.CheckConstraint(condition=models.Q(state__in=TIMER_STATES), name='board_timers_state_check')]
+
+
+VOTING_STATUSES = ('saved', 'active', 'ended')
+
+
+class VotingSession(models.Model):
+    """A voting session on a board. `saved` sessions are set up to start later; an `active` one past `ends_at`
+    counts as ended (the server's clock decides, never a client's)."""
+    id = models.UUIDField(primary_key=True, db_default=RandomUUID())
+    board_id = models.UUIDField()
+    name = models.TextField()
+    status = models.TextField()
+    votes_per_person = models.IntegerField()
+    one_vote_per_object = models.BooleanField(db_default=False)
+    # Node types that can be voted on (null: every object), and the area (a frame id or a rectangle) they sit in.
+    object_types = models.JSONField(null=True)
+    area = models.JSONField(null=True)
+    duration_ms = models.BigIntegerField(null=True)
+    started_at = models.BigIntegerField(null=True)
+    ends_at = models.BigIntegerField(null=True)
+    ended_at = models.BigIntegerField(null=True)
+    show_on_board = models.BooleanField(db_default=False)
+    created_by = models.UUIDField(null=True)
+    created_at = models.BigIntegerField()
+    updated_at = models.BigIntegerField()
+
+    class Meta:
+        managed = True
+        db_table = 'board_voting_sessions'
+        indexes = [models.Index(fields=['board_id', '-created_at'], name='board_voting_board_idx')]
+        constraints = [models.CheckConstraint(condition=models.Q(status__in=VOTING_STATUSES), name='board_voting_status_check')]
+
+
+class VotingVote(models.Model):
+    """One person's votes on one object in a session."""
+    pk = models.CompositePrimaryKey('session_id', 'user_id', 'node_id')
+    session = models.ForeignKey(VotingSession, on_delete=models.CASCADE, db_index=False)
+    user_id = models.UUIDField()
+    node_id = models.TextField()
+    votes = models.IntegerField()
+    updated_at = models.BigIntegerField()
+
+    class Meta:
+        managed = True
+        db_table = 'board_voting_votes'
+        indexes = [models.Index(fields=['session', 'node_id'], name='board_voting_votes_node_idx')]
+        constraints = [models.CheckConstraint(condition=models.Q(votes__gt=0), name='board_voting_votes_positive')]
+
+
+class VotingDone(models.Model):
+    """A participant who marked "I'm done" in a session."""
+    pk = models.CompositePrimaryKey('session_id', 'user_id')
+    session = models.ForeignKey(VotingSession, on_delete=models.CASCADE, db_index=False)
+    user_id = models.UUIDField()
+    created_at = models.BigIntegerField()
+
+    class Meta:
+        managed = True
+        db_table = 'board_voting_done'
+
+
+class BoardPrivateMode(models.Model):
+    """Private mode on a board: sticky note text others cannot read until it is revealed. While `reveal_at` is
+    null the mode hides text; once set, text stays hidden until that time and then shows for everyone."""
+    board_id = models.UUIDField(primary_key=True)
+    active = models.BooleanField(db_default=False)
+    anonymous = models.BooleanField(db_default=False)
+    allow_others_end = models.BooleanField(db_default=True)
+    started_by = models.UUIDField(null=True)
+    started_at = models.BigIntegerField(null=True)
+    reveal_at = models.BigIntegerField(null=True)
+    updated_at = models.BigIntegerField()
+
+    class Meta:
+        managed = True
+        db_table = 'board_private_mode'
+
+
+class Talktrack(models.Model):
+    """A recorded walk-through of a board (area D Talktrack). The recording lives in media storage under
+    `talktrack/<board>/`; trim is stored as playback offsets, a cut of the middle is made by a worker job that
+    writes a new file (`cut_*` hold the pending request, `status` the job state)."""
+    id = models.UUIDField(primary_key=True)
+    board_id = models.UUIDField(db_index=True)
+    owner_id = models.UUIDField(db_index=True)
+    title = models.TextField()
+    key = models.TextField()
+    mime = models.TextField()
+    size = models.BigIntegerField()
+    duration_ms = models.BigIntegerField()
+    trim_start_ms = models.BigIntegerField(db_default=0)
+    trim_end_ms = models.BigIntegerField(null=True)
+    status = models.TextField(db_default='ready')
+    cut_start_ms = models.BigIntegerField(null=True)
+    cut_end_ms = models.BigIntegerField(null=True)
+    audio_key = models.TextField(null=True)
+    transcript = models.JSONField(null=True)
+    chapters = models.JSONField(null=True)
+    created_at = models.BigIntegerField()
+    updated_at = models.BigIntegerField()
+
+    class Meta:
+        db_table = 'board_talktracks'
+        managed = True
+
+
+class TalktrackView(models.Model):
+    """Who watched a Talktrack: one row per person, updated as they watch."""
+    talktrack = models.ForeignKey(Talktrack, on_delete=models.CASCADE, related_name='views')
+    user_id = models.UUIDField()
+    first_at = models.BigIntegerField()
+    last_at = models.BigIntegerField()
+    watched_ms = models.BigIntegerField(db_default=0)
+    completed = models.BooleanField(db_default=False)
+
+    class Meta:
+        db_table = 'board_talktrack_views'
+        managed = True
+        constraints = [models.UniqueConstraint(fields=['talktrack', 'user_id'], name='talktrack_view_one_per_user')]
+
+
+class TalktrackMoment(models.Model):
+    """An emoji reaction or a comment pinned to a moment of a Talktrack's timeline."""
+    id = models.UUIDField(primary_key=True)
+    talktrack = models.ForeignKey(Talktrack, on_delete=models.CASCADE, related_name='moments')
+    user_id = models.UUIDField()
+    at_ms = models.BigIntegerField()
+    emoji = models.TextField(db_default='')
+    text = models.TextField(db_default='')
+    created_at = models.BigIntegerField()
+
+    class Meta:
+        db_table = 'board_talktrack_moments'
+        managed = True
+
+
 from .collab_models import (BoardComment, BoardPresence, CommentFollow, CommentRead, CommentReaction, Notification, PushSubscription)  # noqa: E402,F401

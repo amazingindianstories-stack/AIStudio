@@ -5,12 +5,14 @@ promise. Recovery and archive deletion are idempotent; generation polling has
 its own claim fencing. A crashed slot is retried by the next scheduled slot.
 """
 import logging
+import threading
 import uuid
 from apps.common import leases
 from apps.common.resilience import recover
 from . import maintenance
 
 logger = logging.getLogger('veevee.maintenance')
+_talktrack_job = threading.Lock()
 
 
 def cleanup_exports():
@@ -61,13 +63,43 @@ def prune_notifications():
     return {'ok': True, 'deleted': prune()}
 
 
+def _run_talktrack_jobs():
+    from django.db import connection
+    from apps.canvas.talktrack import process_jobs
+    try:
+        process_jobs()
+    except Exception:
+        logger.exception('Maintenance task failed: talktracks')
+    finally:
+        connection.close()
+        _talktrack_job.release()
+
+
+def process_talktracks():
+    """Start the next Talktrack ffmpeg job in a background thread, one at a time, so a long encode never holds
+    up the other handlers. No thread starts while no job is waiting."""
+    from apps.canvas.talktrack import has_jobs
+    if not _talktrack_job.acquire(blocking=False):
+        return {'ok': True, 'started': False}
+    try:
+        if not has_jobs():
+            _talktrack_job.release()
+            return {'ok': True, 'started': False}
+        threading.Thread(target=_run_talktrack_jobs, name='talktrack-jobs').start()
+    except Exception:
+        _talktrack_job.release()
+        raise
+    return {'ok': True, 'started': True}
+
+
 def default_handlers():
     from django.conf import settings
     handlers = {'depth': maintenance.reconcile_depth, 'video': maintenance.reconcile_videos,
                 'login': maintenance.cleanup_login_attempts, 'exports': cleanup_exports,
                 'board_table_reminders': board_table_reminders, 'board_saves': prune_board_saves, 'board_activity': prune_board_activity,
                 'board_notifications': prune_board_notifications,
-                'push': push_notifications, 'notifications': prune_notifications}
+                'push': push_notifications, 'notifications': prune_notifications,
+                'talktracks': process_talktracks}
     if getattr(settings, 'VEEVEE_MANAGED_PORTRAITS', False):
         handlers['portraits'] = maintain_portraits
         handlers['portrait_uploads'] = process_portrait_uploads
@@ -84,7 +116,7 @@ def tick(*, now=None, handlers=None):
                'board_activity': (86400000, (3*60+17)*60000), 'board_notifications': (86400000, (3*60+17)*60000),
                'notifications': (86400000, (3*60+17)*60000),
                'push': (5000, 0),
-               'portraits': (60000, 0), 'portrait_uploads': (3000, 0)}
+               'portraits': (60000, 0), 'portrait_uploads': (3000, 0), 'talktracks': (5000, 0)}
     results = {}
     for name, (period, offset) in periods.items():
         if name not in handlers:

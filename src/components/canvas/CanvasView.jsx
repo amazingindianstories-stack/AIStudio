@@ -39,6 +39,9 @@ import { MediaSelectionBar } from "./MediaSelectionBar";
 import { BOARD_FILE_ACCEPT, isBoardFile, isBrowserImage, uploadBoardFile } from "@/lib/canvas/media-upload";
 import { addFromLink, placeBoardFile } from "@/lib/canvas/media-actions";
 import { CollabLayer } from "./collab/CollabLayer";
+import { FacilitationButton, FacilitationDock } from "./facilitation/FacilitationDock";
+import { RecorderBar, TalktrackButton } from "./talktrack/TalktrackPanel";
+import { TalktrackPlayer } from "./talktrack/TalktrackPlayer";
 
 export function CanvasView() {
   const activeProjectId = useStore((s) => s.activeProjectId);
@@ -429,6 +432,8 @@ export function CanvasView() {
           )}
           {boardId && loaded && <NotesButton />}
           {boardId && loaded && <BoardMenu />}
+          {boardId && loaded && <FacilitationButton boardId={boardId} />}
+          {boardId && loaded && <TalktrackButton boardId={boardId} activeProjectId={activeProjectId} onOpenBoard={openBoardById} />}
           {showEditToggle && (
             <button
               type="button"
@@ -517,6 +522,9 @@ export function CanvasView() {
       <StyleInspector hidden={transientActive || readOnly || touchViewOnly || noBoards} insetLeft={narrow ? 0 : assetPanelWidth} />
       {!noBoards && !transientActive && <MediaSelectionBar hidden={touchViewOnly} boardId={boardId} notify={notify} />}
       {!noBoards && !transientActive && <ObjectInfo style={{ left: assetPanelWidth + 16 }} />}
+      {boardId && loaded && <FacilitationDock />}
+      {boardId && loaded && <div className="pointer-events-none absolute left-1/2 top-16 z-40 -translate-x-1/2 [&>*]:pointer-events-auto"><RecorderBar /></div>}
+      {boardId && loaded && <TalktrackPlayer />}
       {historyOpen && boardId && loaded && !readOnly && (
         <BoardHistoryPanel key={boardId} boardId={boardId} onClose={closeHistory} />
       )}

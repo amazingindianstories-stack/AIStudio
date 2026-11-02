@@ -4,7 +4,8 @@ import logging
 import time
 import uuid
 from django.db import connection, models, transaction
-from .models import BoardActivity, BoardNotification, CanvasBoard, CanvasBoardSave, CustomShapePack
+from .models import (BoardActivity, BoardNotification, BoardPrivateMode, BoardTimer, CanvasBoard, CanvasBoardSave,
+                     CustomShapePack, VotingSession)
 from .serialization import JS_WHITESPACE, MAX_BOARD_JSON_UNITS, content_length, empty_state, validate_state
 from .svg_sanitize import MAX_SHAPES_PER_PACK, SAFE_VIEWBOX_RE, sanitize_svg
 
@@ -34,12 +35,17 @@ def list_boards(project, user):
             for row in rows if levels[str(row['id'])] >= access.READ]
 
 
-def get_board(identifier, save_id=None):
-    """With a `save_id`, also the version that save landed at (None when it never landed or has expired)."""
+def get_board(identifier, save_id=None, viewer=None):
+    """With a `save_id`, also the version that save landed at (None when it never landed or has expired).
+    With a `viewer`, the graph as that person may read it (private mode withholds other people's note text)."""
+    from . import private_mode
+    now = now_ms()
+    mode = private_mode.settle(identifier, now)
     row = CanvasBoard.objects.filter(pk=identifier).values(*META_FIELDS, 'version', 'data').first()
     if row is None:
         return None
-    board = {**metadata(row), 'version': row['version'], 'data': row['data']}
+    data = row['data'] if viewer is None else private_mode.redact_graph(row['data'], viewer, now, mode)
+    board = {**metadata(row), 'version': row['version'], 'data': data}
     if save_id is not None:
         board['saveVersion'] = CanvasBoardSave.objects.filter(board_id=identifier, save_id=save_id).values_list(
             'version', flat=True).first()
@@ -65,6 +71,8 @@ def rename_board(identifier, name):
 
 
 def delete_board(identifier):
+    """The board with everything kept for it; its Talktrack files go once the deletion has committed."""
+    from . import talktrack
     with transaction.atomic():
         CanvasBoard.objects.filter(pk=identifier).delete()
         CanvasBoardSave.objects.filter(board_id=identifier).delete()
@@ -74,6 +82,11 @@ def delete_board(identifier):
         BoardPresence.objects.filter(board_id=identifier).delete()
         CommentFollow.objects.filter(board_id=identifier).delete()
         Notification.objects.filter(board_id=identifier).delete()
+        BoardTimer.objects.filter(board_id=identifier).delete()
+        BoardPrivateMode.objects.filter(board_id=identifier).delete()
+        VotingSession.objects.filter(board_id=identifier).delete()
+        keys = talktrack.delete_board_talktracks(identifier)
+        transaction.on_commit(lambda: talktrack.discard(keys))
 
 
 class VersionConflict(Exception):
@@ -106,10 +119,12 @@ def save_board(identifier, data, base_version, save_id, actor, patch=None, level
     The save id row also records which objects the save changed, for `board_changes`.
     `level` is the saver's board access level: below co-owner, content inside hidden frames, which they never
     read, is kept as stored and the hidden flags cannot change (apps.canvas.hidden). None means everything.
-    Changes forbidden by object locks are restored and returned in the saved board."""
-    from . import activity, extras, hidden, locks, patch as board_patch
+    Changes the actor at access `level` may not make (apps.canvas.locks) are put back; the save then makes a
+    new version and returns the graph it saved as `board`, which the editor merges like someone else's save."""
+    from . import activity, extras, hidden, locks, patch as board_patch, private_mode
     now = now_ms()
     actor = str(actor)
+    mode = private_mode.settle(identifier, now)
     if base_version is not None and save_id is not None:
         with transaction.atomic():
             row = CanvasBoard.objects.select_for_update().filter(pk=identifier).values('version', 'data').first()
@@ -119,9 +134,13 @@ def save_board(identifier, data, base_version, save_id, actor, patch=None, level
                     data = validate_state(board_patch.apply_patch(stored, patch))
                 if level is not None:
                     data = hidden.preserve(stored, data, level)
+                # Other people's private note text is put back before the diff, so it is neither lost nor
+                # recorded as this person's edit; notes written now are claimed after it.
+                data = private_mode.restore_hidden(stored, data, actor)
                 data, corrected = locks.enforce(stored, data, actor, level)
                 stamped, changes = activity.stamp(stored, data, actor, now)
                 stamped = extras.stamp_notes(stored, stamped, actor, now)
+                stamped, claimed = private_mode.claim(stored, stamped, actor, mode)
                 if content_length(stamped) > MAX_BOARD_JSON_UNITS:
                     raise BoardTooLarge()
                 version = base_version + 1 if corrected or _graph(stamped) != _graph(row['data']) else base_version
@@ -133,23 +152,29 @@ def save_board(identifier, data, base_version, save_id, actor, patch=None, level
                                        'VALUES (%s, %s, %s, %s, %s) ON CONFLICT (board_id, save_id) DO NOTHING',
                                        [identifier, save_id, version, now,
                                         None if changed is None else json.dumps(changed)])
-                    activity.record(identifier, actor, now, changes)
-                result = {'updatedAt': now, 'version': version, 'stamps': activity.stamps_of(stamped, changes)}
+                    private = {node['id'] for node in stamped['nodes'] if isinstance(node, dict) and node.get('privateBy') is not None}
+                    anonymous = {node['id'] for node in stored['nodes'] + stamped['nodes'] if isinstance(node, dict) and node.get('anonBy') is True}
+                    activity.record(identifier, actor, now, changes, hide=claimed | private, anonymous=anonymous)
+                visible = private_mode.redact_graph(stamped, actor, now, mode)
+                result = {'updatedAt': now, 'version': version, 'stamps': activity.stamps_of(visible, changes)}
                 if stamped.get('notes') and stamped['notes'] != stored.get('notes'):
                     # The author and time this save gave the visual notes, for the saving editor's panel.
                     result['notesStamp'] = {key: stamped['notes'][key] for key in ('updatedBy', 'updatedAt')}
-                return {**result, 'board': stamped} if corrected else result
-    current = get_board(identifier)
+                return {**result, 'board': visible} if corrected else result
+    current = get_board(identifier, viewer=actor)
     if current is None:
         return None
     raise VersionConflict(current)
 
 
-def board_changes(identifier, since, level=None):
+def board_changes(identifier, since, level=None, viewer=None):
     """What an editor holding version `since` needs to reach the current version: the objects changed since
     then (apps.canvas.patch.changes_since), or the whole graph when a version in between recorded no ids,
-    has been pruned, or is too far back. None when the board does not exist."""
-    from . import hidden, patch as board_patch
+    has been pruned, or is too far back. None when the board does not exist. `level` withholds hidden frames
+    (apps.canvas.hidden) and `viewer` other people's private notes (apps.canvas.private_mode)."""
+    from . import hidden, patch as board_patch, private_mode
+    now = now_ms()
+    mode = private_mode.settle(identifier, now)
     row = CanvasBoard.objects.filter(pk=identifier).values('version', 'updated_at', 'data').first()
     if row is None:
         return None
@@ -159,7 +184,7 @@ def board_changes(identifier, since, level=None):
         graph = data = hidden.view_of(graph, level)
         if hidden.has_hidden(graph):
             # What changed inside a hidden frame is not theirs to read; they get the whole board as they may see it.
-            return {**reply, 'data': graph}
+            return {**reply, 'data': graph if viewer is None else private_mode.redact_graph(graph, viewer, now, mode)}
     behind = row['version'] - since
     changes = None
     if 0 <= behind <= board_patch.MAX_CHANGE_VERSIONS:
@@ -167,7 +192,11 @@ def board_changes(identifier, since, level=None):
                                                       version__lte=row['version']).values_list('version', 'changes'))
         if len(records) == behind:
             changes = board_patch.changes_since(graph, list(records.values()))
-    return {**reply, 'changes': changes} if changes is not None else {**reply, 'data': data}
+    if viewer is None:
+        return {**reply, 'changes': changes} if changes is not None else {**reply, 'data': data}
+    if changes is not None:
+        return {**reply, 'changes': private_mode.redact_changes(changes, viewer, now, mode)}
+    return {**reply, 'data': private_mode.redact_graph(data, viewer, now, mode)}
 
 
 def prune_board_saves(now=None):

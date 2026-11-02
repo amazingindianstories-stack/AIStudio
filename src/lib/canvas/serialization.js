@@ -194,13 +194,16 @@ function validateSettings(raw) {
  * on every save (backend/apps/canvas/activity.py) and ignores what a client
  * sends, so they only ride along here; boards saved before them have none.
  */
-export const STAMP_KEYS = ["createdBy", "createdAt", "updatedBy", "updatedAt", "textBy"];
+export const STAMP_KEYS = ["createdBy", "createdAt", "updatedBy", "updatedAt", "textBy", "privateBy", "anonBy", "hiddenText"];
 
 function withStamps(item, r) {
   if (!item) return null;
   // `textBy` is who last replaced the text, for sticky author labels.
   for (const key of ["createdBy", "updatedBy", "textBy"]) if (typeof r[key] === "string") item[key] = r[key];
   for (const key of ["createdAt", "updatedAt"]) if (isFiniteNumber(r[key])) item[key] = r[key];
+  // Private mode (backend/apps/canvas/private_mode.py): who wrote a hidden note, and that its text is withheld.
+  if (typeof r.privateBy === "string") item.privateBy = r.privateBy;
+  for (const key of ["anonBy", "hiddenText"]) if (r[key] === true) item[key] = true;
   return item;
 }
 

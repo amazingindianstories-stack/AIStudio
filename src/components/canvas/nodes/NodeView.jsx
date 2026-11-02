@@ -24,8 +24,7 @@ import { SyncedNode } from "./SyncedNode";
 import { FormatNode } from "../formats/FormatNode";
 import { MEDIA_RENDERERS, LinkBadge } from "./MediaNodes";
 import { objectLinkHref, openObjectLink } from "@/lib/canvas/media-actions";
-
-;
+import { VoteBadge } from "../facilitation/VoteBadge";
 
 // `angle` is the handle's direction from the center on an upright node (n = 0), so a
 // rotated node shows the resize cursor that matches where the handle now points.
@@ -231,6 +230,7 @@ export function NodeView({
       })()}
 
       {node.link && <LinkBadge node={node} href={objectLinkHref(node.link)} onOpen={openObjectLink} />}
+      <VoteBadge node={node} />
 
       {showRing && (
         <div

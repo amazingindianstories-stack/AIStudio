@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef } from "react";
+import { EyeOff } from "lucide-react";
 import { useCanvasStore } from "@/lib/canvas-store";
 import { displayName } from "@/lib/board-access";
 import { fontFamilyCss } from "@/lib/canvas/fonts";
@@ -17,7 +18,10 @@ import { autoFitMax, useAutoFit } from "./use-auto-fit";
 const TEXT_CLASS = "h-full w-full overflow-hidden whitespace-pre-wrap break-words outline-none";
 
 /** FigJam-signature colored note block with editable text, its tags, votes and (when shown) author. */
-export function StickyNode({ node, editing, readOnly, onCommit, onCancel }) {
+export function StickyNode({ node, editing: wantsEditing, readOnly, onCommit, onCancel }) {
+  // Private mode: someone else's note stays unreadable and uneditable until it is revealed.
+  const hidden = node.hiddenText === true;
+  const editing = wantsEditing && !hidden;
   const fitRef = useRef(null);
   const autoFit = Boolean(node.autoFit);
   const refit = useAutoFit(fitRef, autoFit, autoFitMax(node.w, node.h),
@@ -41,6 +45,10 @@ export function StickyNode({ node, editing, readOnly, onCommit, onCancel }) {
             className={TEXT_CLASS}
             style={{ cursor: "text" }}
           />
+        ) : hidden ? (
+          <div data-sticky-hidden="" className={`${TEXT_CLASS} flex items-center justify-center text-center text-xs opacity-60`}>
+            <EyeOff className="mr-1.5 h-3.5 w-3.5 shrink-0" />Hidden until revealed
+          </div>
         ) : (
           <div className={TEXT_CLASS}>
             {node.text ? (
