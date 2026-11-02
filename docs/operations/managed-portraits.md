@@ -1,7 +1,7 @@
 # Automatic portraits (managed BytePlus pool) - rollout and rollback
 
-Status 2026-10-16: v1 (2026-10-14) plus **Portrait Gallery v2** are implemented and verified **locally only**.
-Nothing is deployed. Every production step below needs explicit owner approval.
+What runs in production is recorded in `status.md`; automatic video portraits (below) are verified locally only.
+Every production step below needs explicit owner approval.
 
 ## What changes for artists
 - A reference image with a face (local YuNet detector, fails closed) is registered as a BytePlus asset

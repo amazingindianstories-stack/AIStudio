@@ -33,7 +33,7 @@ ASSET_HOST = 'ark.ap-southeast-1.byteplusapi.com'
 NAME_PREFIX = 'veevee-'
 POOL_GROUP_NAME = 'veevee-portraits'      # the one hidden BytePlus group; adopted by name so it survives a flag off and on
 SETTINGS = {'portraitAssetTtlHours': (4, 1, 72), 'portraitPoolCapacity': (90, 1, 10000), 'portraitQueueWaitMinutes': (15, 1, 240)}
-REFUSED = 'provider_refused_asset'      # ReferenceFaceScan.forced: the detector saw a face but BytePlus refused the asset, so the image goes inline
+REFUSED = 'provider_refused_asset'      # ReferenceFaceScan.forced: the detector saw a face but BytePlus refused the asset, so the image goes inline (a clip as a URL)
 PROCESSING_LIMIT_MS = 3 * 60 * 1000
 VIDEO_PROCESSING_LIMIT_MS = 15 * 60 * 1000      # video assets process more slowly than images (BytePlus docs)
 REGISTERING_STALE_MS = 2 * 60 * 1000
@@ -690,8 +690,8 @@ def _verify(asset, client):
 
 
 def ensure(data, source_key, generation_id, user_id, *, storage, client=None, now=None, sha=None, media_kind='image', gallery=False, _retry=True):
-    """Make the face reference with these bytes, or the Gallery video portrait with this ``sha`` (registered again when it
-    expired), usable as a BytePlus asset for this generation."""
+    """Make the face reference with these bytes, or the video portrait with this ``sha`` (a Gallery clip, registered again
+    when it expired, when ``gallery``; otherwise a reference clip with a face), usable as a BytePlus asset for this generation."""
     client = client or default_client()
     sha = sha or content_sha256(data)
     outcome, asset, action = _claim(sha, source_key, generation_id, user_id, now or now_ms(), media_kind, gallery)
