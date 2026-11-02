@@ -4,6 +4,8 @@ import { useEffect } from "react";
 import { clipboardNodes, selectReadOnly, useCanvasStore } from "@/lib/canvas-store";
 import { boardClipboardData, clipboardCells, isBoardCopy } from "./board-clipboard";
 import { pasteCellsAsStickies } from "./sticky-actions";
+import { isBoardFile } from "./media-upload";
+import { looksLikeLink } from "./media-actions";
 
 let keyboardCopyAt = -Infinity;
 
@@ -49,7 +51,7 @@ function menuCopiesBoard(type) {
  * image files, the board's own copied objects when they were copied last,
  * or one sticky per spreadsheet cell, centered on the view.
  */
-export function useBoardClipboard({ importImageFiles, touchViewOnly, viewCenter, notify }) {
+export function useBoardClipboard({ importImageFiles, importLink, touchViewOnly, viewCenter, notify }) {
   useEffect(() => {
     // Safari only sends copy and cut without a text selection when these are cancelled.
     const onBeforeCopy = (event) => {
@@ -75,11 +77,17 @@ export function useBoardClipboard({ importImageFiles, touchViewOnly, viewCenter,
       const state = useCanvasStore.getState();
       if (touchViewOnly || selectReadOnly(state)) return;
       const data = event.clipboardData;
-      const files = Array.from(data?.files ?? []).filter((file) => file.type.startsWith("image/"));
+      const files = Array.from(data?.files ?? []).filter(isBoardFile);
       event.preventDefault();
       if (files.length) return void importImageFiles(files);
       const html = data?.getData("text/html") ?? "";
-      const cells = isBoardCopy(html) ? null : clipboardCells(html, data?.getData("text/plain") ?? "");
+      if (isBoardCopy(html)) return void state.paste();
+      const text = (data?.getData("text/plain") ?? "").trim();
+      if (importLink && looksLikeLink(text)) {
+        importLink(text).catch((error) => notify(error.message || "Could not add the link."));
+        return;
+      }
+      const cells = clipboardCells(html, data?.getData("text/plain") ?? "");
       if (!cells) return void state.paste();
       const { added, truncated } = pasteCellsAsStickies(cells, viewCenter());
       if (truncated) notify(`Added ${added} stickies. Only the first 50 rows and 100 columns are pasted.`);
@@ -96,5 +104,5 @@ export function useBoardClipboard({ importImageFiles, touchViewOnly, viewCenter,
       document.removeEventListener("cut", onCopy);
       document.removeEventListener("paste", onPaste);
     };
-  }, [importImageFiles, touchViewOnly, viewCenter, notify]);
+  }, [importImageFiles, importLink, touchViewOnly, viewCenter, notify]);
 }

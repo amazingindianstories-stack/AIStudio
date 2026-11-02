@@ -22,6 +22,8 @@ import { InkNode } from "./InkNode";
 import { GridNode } from "./GridNode";
 import { SyncedNode } from "./SyncedNode";
 import { FormatNode } from "../formats/FormatNode";
+import { MEDIA_RENDERERS, LinkBadge } from "./MediaNodes";
+import { objectLinkHref, openObjectLink } from "@/lib/canvas/media-actions";
 
 ;
 
@@ -221,8 +223,14 @@ export function NodeView({
             return <SyncedNode node={node} />;
           case "image":
             return <ImageNode node={node} cropMode={cropMode} cropDraft={cropDraft} onCropChange={onCropChange} onApplyCrop={onApplyCrop} onCancelCrop={onCancelCrop} onResetCrop={onResetCrop} />;
+          default: {
+            const Media = MEDIA_RENDERERS[node.type];
+            return Media ? <Media node={node} selected={showRing} readOnly={readOnly} /> : null;
+          }
         }
       })()}
+
+      {node.link && <LinkBadge node={node} href={objectLinkHref(node.link)} onOpen={openObjectLink} />}
 
       {showRing && (
         <div

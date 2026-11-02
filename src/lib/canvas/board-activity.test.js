@@ -22,6 +22,8 @@ test("changes read as an action and an object type", () => {
   assert.equal(describeChange({ action: "add", nodeType: "sticky" }), "Added sticky note");
   assert.equal(describeChange({ action: "edit", nodeType: "ellipse" }), "Edited circle");
   assert.equal(describeChange({ action: "delete", nodeType: "connector" }), "Deleted connector");
+  assert.equal(describeChange({ action: "add", nodeType: "audio" }), "Added audio");
+  assert.equal(describeChange({ action: "edit", nodeType: "pdf" }), "Edited PDF");
   assert.equal(describeChange({ action: "delete", nodeType: "widget" }), "Deleted object");
 });
 

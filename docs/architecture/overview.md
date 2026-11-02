@@ -35,7 +35,7 @@ flowchart LR
 | Ingress gateway | `backend/deploy/gateway.py` | Runs in front of gunicorn in the API service. Refuses requests without the ingress header and blocks non-allowlisted routes (see F-07 in `operations/status.md`). |
 | API | `backend/config`, `backend/apps/*` | Django + DRF. Started by `python -m deploy.entrypoint api`. |
 | MCP service | `apps/mcp` | The agent endpoint `/mcp`: one uvicorn process with Django in-process, behind the gateway in mcp mode, started by `python -m deploy.entrypoint mcp`. API database role, no provider credentials (`mcp-server.md`). |
-| Generation worker | `apps/generation` (`generation_worker`) | Admission, provider submission, task receipts, polling and terminal state. |
+| Generation worker | `apps/generation` (`generation_worker`) | Admission, provider submission, task receipts, polling and terminal state. Also renders board SVG, PSD and PDF files, one at a time per process (`../features/board-media.md`). |
 | Export worker | `apps/exports` (`media_export_worker`) | Builds private ZIP archives from frozen manifests. |
 | Scheduler | `apps/workers` (`run_scheduler`) | Depth/video reconciliation, export, login-attempt, canvas save-record, board-history and 90-day board-notification cleanup, hourly work-table due reminders, portrait janitor. |
 | Depth worker | `depth-worker/` | Runs on a GPU machine and talks to the fenced depth HTTP protocol. |
@@ -52,7 +52,7 @@ recorded in `operations/status.md`. Releases follow `operations/release-runbook.
 | `projects` | Projects, briefs and project roles |
 | `library` | Folder tree, naming counters, filenames, idempotency receipts |
 | `assets` | Material catalog, legacy and managed BytePlus portraits, face detection |
-| `canvas` | Canvas boards, board roles and the effective-role check (`../features/board-roles.md`), their conflict-safe autosave (`canvas-board-sync.md`), board history (`../features/board-history.md`), board "Create with AI" jobs (`board-ai.md`), and work tables behind cards and data widgets with their history and in-app board notifications (`work_tables.py`, `work_views.py`, `work_notifications.py`) |
+| `canvas` | Canvas boards, board roles and the effective-role check (`../features/board-roles.md`), their conflict-safe autosave (`canvas-board-sync.md`), board history (`../features/board-history.md`), board media, files and embeds (`../features/board-media.md`), board "Create with AI" jobs (`board-ai.md`), and work tables behind cards and data widgets with their history and in-app board notifications (`work_tables.py`, `work_views.py`, `work_notifications.py`) |
 | `agents` | Gemini tool-loop chat; board AI text formats and the agent payload allowlists |
 | `generation` | Enqueue, history and live updates, providers, prompting, worker execution |
 | `exports` | ZIP manifests and the export worker |

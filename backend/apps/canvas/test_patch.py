@@ -121,6 +121,16 @@ class PatchSaveTests(TransactionTestCase):
                                                 for item in data['nodes']]}
         self.assertEqual(strip(self.stored()), strip(stored))
 
+    def test_pdf_page_counts_survive_full_and_patch_saves(self):
+        deck = {'id': 'p', 'type': 'pdf', 'x': 0, 'y': 0, 'w': 100, 'h': 80, 'src': '/api/media/canvas/b/d.pdf',
+                'name': 'Deck', 'pages': 12, 'page': 1}
+        self.put(self.ana, graph(deck))
+        self.assertEqual([(item['id'], item['pages'], item['page']) for item in self.stored()['nodes']], [('p', 12, 1)])
+        self.patch(self.ben, {'nodes': {'upsert': [{**deck, 'page': 5}]}})
+        stored = self.stored()['nodes']
+        self.assertEqual([(item['id'], item['pages'], item['page']) for item in stored], [('p', 12, 5)])
+        self.assertIs(type(stored[0]['page']), int)
+
     def test_stamps_and_history_cover_exactly_the_patched_objects(self):
         ana, ben = str(self.ana.id), str(self.ben.id)
         self.put(self.ana, graph(rect('a', text='A'), rect('b', text='B'), rect('c', text='C')))
@@ -290,7 +300,7 @@ class ChangesMigrationTests(TransactionTestCase):
             executor = MigrationExecutor(connection)
             self.assertEqual([(m.app_label, m.name) for m, backward in executor.migration_plan(final)],
                              [('canvas', '0007_canvasboardsave_changes'), ('canvas', '0008_customshapepack'),
-                              ('canvas', '0009_work_records'), ('canvas', '0010_work_permissions'), ('canvas', '0011_work_relation_kinds')])
+                              ('canvas', '0009_work_records'), ('canvas', '0010_work_permissions'), ('canvas', '0011_work_relation_kinds'), ('canvas', '0012_boardmedia')])
             executor.migrate(final)
             self.assertEqual(list(CanvasBoardSave.objects.filter(board_id=board).values_list('version', 'changes')), [(2, None)])
             # A board saved before the upgrade is fetched whole by editors that missed that save.

@@ -3,6 +3,7 @@
 Sources are the board's team access (what every signed-in teammate gets), the user's board
 membership, the user's project membership, board ownership (`created_by`) and the admin role.
 Every board route asks `role_for`/`roles_for` and compares levels; nothing else decides access.
+`readable_boards` is the SQL twin of `_level(...) >= READ` for listing queries; change the two together.
 """
 from django.db.models import Q
 
@@ -53,6 +54,18 @@ def readable(user):
     return (Q(created_by=user.id) | Q(team_role__in=BOARD_LEVELS)
             | Q(id__in=BoardMember.objects.filter(user_id=user.id, role__in=BOARD_LEVELS).values('board_id'))
             | Q(project_id__in=ProjectMember.objects.filter(user_id=user.id, role__in=PROJECT_LEVELS).values('project_id')))
+
+
+def readable_boards(user):
+    """Ids of the boards the user may at least view, as a subquery: `roles_for(...) >= READ` in SQL."""
+    boards = CanvasBoard.objects.all()
+    if user.role != 'admin':
+        board_roles = [role for role, level in BOARD_LEVELS.items() if level >= READ]
+        project_roles = [role for role, level in PROJECT_LEVELS.items() if level >= READ]
+        boards = boards.filter(Q(created_by=user.id) | Q(team_role__in=board_roles)
+            | Q(pk__in=BoardMember.objects.filter(user_id=user.id, role__in=board_roles).values('board_id'))
+            | Q(project_id__in=ProjectMember.objects.filter(user_id=user.id, role__in=project_roles).values('project_id')))
+    return boards.values('id')
 
 
 def role_for(user, board):

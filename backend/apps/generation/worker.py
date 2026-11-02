@@ -58,6 +58,9 @@ def run_once(*, concurrency=4, limit=25, process=None, stop=None):
     with ThreadPoolExecutor(max_workers=max(1, min(8, int(concurrency)))) as pool:
         results = list(pool.map(lambda identifier: handle_cancel(identifier, stop), cancels))
         results += list(pool.map(lambda item: handle_generation(item, process, stop), due))
+    from apps.canvas.media_files import queued_media
+    if not stop.is_set() and (media := queued_media()):
+        results.append(handle_media(media.id, stop))
     return {'processed': len(results), 'outcomes': {value: results.count(value) for value in set(results)}}
 
 
@@ -86,6 +89,16 @@ def handle_generation(item, process, stop):
         # Do not print provider URLs, prompts, credentials or DB parameters.
         logger.error('generation worker operation failed; receipt and lease retained for recovery')
         return 'worker_error'
+    finally:
+        connections.close_all()
+        release_freed_memory()
+
+
+def handle_media(identifier, stop):
+    """Render one board file (SVG, PSD or PDF pages); see apps.canvas.media_files."""
+    from apps.canvas.media_files import process_media
+    try:
+        return process_media(identifier, stop)
     finally:
         connections.close_all()
         release_freed_memory()
@@ -132,11 +145,19 @@ def run_worker(*, interval=2, concurrency=4, stop=None):
                         continue
                     next_scan = now + interval
                     reap_stale_running_images()
-                    excluded = set(active.values()) | set(cooldown)
+                    excluded = {key for key in set(active.values()) | set(cooldown) if not isinstance(key, str) or not key.startswith('board-media:')}
                     for identifier in pending_cancellations(limit=slots - len(active), exclude_ids=excluded):
                         active[pool.submit(handle_cancel, identifier, stop)] = identifier
                         excluded.add(identifier)
                     free = slots - len(active)
+                    # Render at most one board file per process, inside the existing
+                    # generation pool. No extra thread, service or browser executor.
+                    if free and not any(isinstance(key, str) and key.startswith('board-media:') for key in active.values()):
+                        from apps.canvas.media_files import queued_media
+                        media = queued_media()
+                        if media:
+                            active[pool.submit(handle_media, media.id, stop)] = 'board-media:' + str(media.id)
+                            free -= 1
                     due = select_due_generations(limit=MAX_COORDINATOR_BATCH, exclude_ids=excluded)
                     for item in due[:free]:
                         if stop.is_set():
@@ -145,7 +166,7 @@ def run_worker(*, interval=2, concurrency=4, stop=None):
                         active[future] = item.id
                     if len(active) == slots and not stop.is_set():
                         waiting = [item for item in due[free:] if item.id not in labelled]
-                        seen = set(active.values()) | set(cooldown) | set(labelled) | {item.id for item in due}
+                        seen = excluded | set(labelled) | {item.id for item in due}
                         for item in waiting + select_unlabelled_short_slot(exclude_ids=seen):
                             show_worker_slot_wait(item)
                             labelled[item.id] = now + 5 * interval

@@ -34,6 +34,9 @@ import { NotesButton, NotesPanel } from "./NotesPanel";
 import { BoardViewOverlays } from "./BoardViewOverlays";
 import { useBoardView } from "./use-board-view";
 import { FormatsPanel } from "./formats/FormatsPanel";
+import { MediaSelectionBar } from "./MediaSelectionBar";
+import { BOARD_FILE_ACCEPT, isBoardFile, isBrowserImage, uploadBoardFile } from "@/lib/canvas/media-upload";
+import { addFromLink, placeBoardFile } from "@/lib/canvas/media-actions";
 
 export function CanvasView() {
   const activeProjectId = useStore((s) => s.activeProjectId);
@@ -201,20 +204,44 @@ export function CanvasView() {
   const importImageFiles = useCallback(
     async (files, worldPoint) => {
       if (!boardId || selectReadOnly(useCanvasStore.getState())) return;
-      const accepted = Array.from(files).filter((file) => file.type.startsWith("image/"));
-      if (!accepted.length) return;
-      setImportNotice(`Uploading ${accepted.length} image${accepted.length === 1 ? "" : "s"}…`);
-      const { images, failed } = await uploadImageFiles(accepted, boardId);
-      if (images.length) {
-        const target = worldPoint ?? surfaceRef.current?.getViewportCenterWorld() ?? { x: 0, y: 0 };
-        addImageBatch(images, target);
+      const all = Array.from(files).filter(isBoardFile);
+      const accepted = all.filter(isBrowserImage);
+      const others = all.filter((file) => !accepted.includes(file));
+      if (!all.length) return;
+      setImportNotice(`Uploading ${all.length} file${all.length === 1 ? "" : "s"}…`);
+      const target = worldPoint ?? surfaceRef.current?.getViewportCenterWorld() ?? { x: 0, y: 0 };
+      let added = 0;
+      let failed = 0;
+      let lastError = "";
+      if (accepted.length) {
+        const result = await uploadImageFiles(accepted, boardId);
+        if (result.images.length) addImageBatch(result.images, target);
+        added += result.images.length;
+        failed += result.failed;
+      }
+      for (const [index, file] of others.entries()) {
+        try {
+          placeBoardFile(await uploadBoardFile(file, boardId), { x: target.x + index * 40, y: target.y + index * 40 });
+          added += 1;
+        } catch (error) {
+          failed += 1;
+          lastError = error.message;
+        }
       }
       setImportNotice(failed
-        ? `${images.length} image${images.length === 1 ? "" : "s"} added; ${failed} failed.`
-        : `${images.length} image${images.length === 1 ? "" : "s"} added.`);
+        ? `${added} file${added === 1 ? "" : "s"} added; ${failed} failed.${lastError ? ` ${lastError}` : ""}`
+        : `${added} file${added === 1 ? "" : "s"} added.`);
       window.setTimeout(() => setImportNotice(""), 3500);
     },
     [boardId, addImageBatch]
+  );
+
+  const importLink = useCallback(
+    async (text) => {
+      if (!boardId || selectReadOnly(useCanvasStore.getState())) return;
+      await addFromLink(text, boardId, surfaceRef.current?.getViewportCenterWorld() ?? { x: 0, y: 0 });
+    },
+    [boardId]
   );
 
   const viewCenter = useCallback(() => surfaceRef.current?.getViewportCenterWorld() ?? { x: 0, y: 0 }, []);
@@ -222,7 +249,7 @@ export function CanvasView() {
     setImportNotice(message);
     window.setTimeout(() => setImportNotice(""), 3500);
   }, []);
-  useBoardClipboard({ importImageFiles, touchViewOnly, viewCenter, notify });
+  useBoardClipboard({ importImageFiles, importLink, touchViewOnly, viewCenter, notify });
 
   // Single source of truth for "add image" (⇧I shortcut B / toolbar button)
   // — one hidden file input, one code path, so the toolbar's "(⇧I)" tooltip
@@ -420,6 +447,7 @@ export function CanvasView() {
             onShapesOpenChange={setShapesOpen}
             onToggleLock={() => setToolLocked((v) => !v)}
             onAddImageClick={openImagePicker}
+            onUrl={importLink}
             aiOpen={aiOpen && Boolean(boardId)}
             onAiClick={() => setAiOpen((v) => !v)}
             viewCenter={viewCenter}
@@ -432,7 +460,7 @@ export function CanvasView() {
       <input
         ref={imageFileInputRef}
         type="file"
-        accept="image/*"
+        accept={BOARD_FILE_ACCEPT}
         multiple
         className="hidden"
         tabIndex={-1}
@@ -459,6 +487,7 @@ export function CanvasView() {
       {importNotice && <div role="status" className="absolute bottom-20 left-1/2 z-40 -translate-x-1/2 rounded-lg border border-line bg-ink-750/95 px-3 py-2 text-xs text-white/80 shadow-pop">{importNotice}</div>}
 
       <StyleInspector hidden={transientActive || readOnly || touchViewOnly || noBoards} insetLeft={narrow ? 0 : assetPanelWidth} />
+      {!noBoards && !transientActive && <MediaSelectionBar hidden={touchViewOnly} boardId={boardId} notify={notify} />}
       {!noBoards && !transientActive && <ObjectInfo style={{ left: assetPanelWidth + 16 }} />}
       {historyOpen && boardId && loaded && !readOnly && (
         <BoardHistoryPanel key={boardId} boardId={boardId} onClose={closeHistory} />

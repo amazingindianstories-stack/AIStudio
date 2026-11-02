@@ -215,7 +215,7 @@ export function applyStylePatchToNode(n, patch) {
       if (patch.color !== undefined) next.color = patch.color;
       return applyDiagramLayerPatch(next, patch);
     }
-    case "image":
+    default:
       return applyDiagramLayerPatch({ ...n, opacity }, patch);
     case "format":
       return { ...n, opacity };
@@ -1205,7 +1205,8 @@ export const useCanvasStore = create((set, get) => ({
     const h = ratio >= 1 ? LONG_EDGE / ratio : LONG_EDGE;
     const node = {
       id: crypto.randomUUID(),
-      type: "image",
+      type: a.kind === "video" ? "video" : "image",
+      ...(a.kind === "video" ? { title: a.title || "Video" } : {}),
       x: target.x - w / 2,
       y: target.y - h / 2,
       w,

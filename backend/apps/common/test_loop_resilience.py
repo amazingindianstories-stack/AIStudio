@@ -16,6 +16,9 @@ class LoopResilienceTests(SimpleTestCase):
         patcher = patch.object(resilience, 'BACKOFF_BASE_S', 0)
         patcher.start()
         self.addCleanup(patcher.stop)
+        media = patch('apps.canvas.media_files.queued_media', return_value=None)  # no database in a SimpleTestCase
+        media.start()
+        self.addCleanup(media.stop)
 
     def survives(self, module, name, run, error=OperationalError('server closed the connection unexpectedly'), **kwargs):
         """`name` raises `error` on the first iteration and stops the loop on the second."""

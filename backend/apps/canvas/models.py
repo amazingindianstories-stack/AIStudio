@@ -217,3 +217,32 @@ class BoardNotificationPreference(models.Model):
 
     class Meta:
         db_table = 'board_notification_preferences'
+
+
+class BoardMedia(models.Model):
+    """Durable reusable board files; heavyweight rasterization runs in the generation worker."""
+    id = models.UUIDField(primary_key=True, db_default=RandomUUID())
+    board = models.ForeignKey(CanvasBoard, on_delete=models.CASCADE, db_index=False)
+    actor_id = models.UUIDField()
+    reference_id = models.UUIDField(null=True)
+    name = models.TextField()
+    content_type = models.TextField()
+    source_key = models.TextField()
+    key = models.TextField(default='')
+    state = models.TextField(default='queued')
+    pages = models.IntegerField(default=1)
+    width = models.IntegerField(default=0)
+    height = models.IntegerField(default=0)
+    error = models.TextField(default='')
+    lease_until = models.BigIntegerField(default=0)
+    lease_token = models.UUIDField(null=True)
+    attempts = models.IntegerField(default=0)
+    created_at = models.BigIntegerField()
+
+    class Meta:
+        db_table = 'canvas_board_media'
+        indexes = [models.Index(fields=['state', 'created_at'], name='canvas_media_queue_idx'),
+                   models.Index(fields=['board', '-created_at'], name='canvas_media_board_idx')]
+        constraints = [models.UniqueConstraint(fields=['board', 'reference_id'], name='canvas_media_upload_uniq'),
+                       models.CheckConstraint(condition=models.Q(state__in=('queued', 'running', 'ready', 'failed')),
+                                              name='canvas_media_state_check')]

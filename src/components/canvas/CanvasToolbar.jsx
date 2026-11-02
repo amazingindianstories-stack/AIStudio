@@ -42,6 +42,7 @@ import { StickyMenu } from "./StickyMenu";
 import { GridMenu } from "./GridMenu";
 import { SyncedMenu } from "./SyncedMenu";
 import { ACTIVE_STATUSES, useBoardAi } from "@/lib/board-ai";
+import { MediaMenu } from "./MediaMenu";
 import { useBoardPrefs } from "@/lib/canvas/board-prefs";
 import { CREATION_TOOLS, NAVIGATION_TOOLS, moveTool, orderedTools, pinnedTools, placeToolBefore, togglePinned, toolLabel } from "@/lib/canvas/toolbar-tools";
 
@@ -68,6 +69,7 @@ export function CanvasToolbar({
   onShapesOpenChange,
   onToggleLock,
   onAddImageClick,
+  onUrl,
   aiOpen,
   onAiClick,
   /** World point at the middle of the view, where bulk stickies and stacks go. */
@@ -198,15 +200,18 @@ export function CanvasToolbar({
         return projectId && boardId ? <SyncedMenu projectId={projectId} boardId={boardId} /> : null;
       case "image":
         return (
-          <button
-            type="button"
-            className="grid h-9 w-9 cursor-pointer place-items-center rounded-lg text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white max-sm:h-8 max-sm:w-8"
-            title="Add image (⇧I)"
-            aria-label="Add image"
-            onClick={onAddImageClick}
-          >
-            <ImagePlus className="h-4 w-4" />
-          </button>
+          <>
+            <button
+              type="button"
+              className="grid h-9 w-9 cursor-pointer place-items-center rounded-lg text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white max-sm:h-8 max-sm:w-8"
+              title="Add image or file (⇧I)"
+              aria-label="Add image"
+              onClick={onAddImageClick}
+            >
+              <ImagePlus className="h-4 w-4" />
+            </button>
+            {!readOnly && !viewOnly && <MediaMenu onUploadClick={onAddImageClick} onUrl={onUrl} viewCenter={viewCenter} />}
+          </>
         );
       case "ai":
         return (

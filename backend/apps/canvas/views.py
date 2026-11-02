@@ -307,25 +307,11 @@ def board_upload(request, identifier):
         payload = body(request)
         reference_id = property_of(payload, 'referenceId')
         if reference_id:
-            from apps.media.uploads import resolve_ready_upload, UploadError
-            from apps.media.storage import get_storage, MIME
-            import tempfile
-            from uuid import uuid4
+            from apps.media.uploads import UploadError
+            from .media_files import import_manifest, describe
             try:
-                upload = resolve_ready_upload(str(actor.id), reference_id, purposes={'canvas'})
-                storage = get_storage()
-                ext = next((ext for ext, mime in MIME.items() if mime == upload.content_type), 'png')
-                key = f'canvas/{identifier}/{uuid4()}.{ext}'
-                media = storage.open(upload.key)
-                try:
-                    with tempfile.TemporaryFile() as staged:
-                        for chunk in media.stream:
-                            staged.write(chunk)
-                        staged.seek(0)
-                        storage.upload_stream(staged, key, upload.content_type, 'private, max-age=0')
-                finally:
-                    media.stream.close()
-                return reply(request, {'url': '/api/media/' + key})
+                row = import_manifest(actor, identifier, reference_id)
+                return reply(request, describe(row), 200 if row.state == 'ready' else 202)
             except UploadError as error:
                 return reply(request, {'error': str(error)}, error.status)
         data_url = property_of(payload, 'dataUrl')
