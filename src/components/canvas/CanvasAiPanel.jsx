@@ -56,8 +56,8 @@ function statusLine(job) {
 
 /**
  * "Create with AI" (Miro's Create with AI panel): pick a format, write a prompt or pick a suggestion, choose basic or
- * advanced processing (sticky notes and the other text formats) or the library generator's model, aspect ratio and
- * resolution (images), see the estimated cost, run it, and keep refining. It floats above the board toolbar; the
+ * advanced processing (sticky notes and the other text formats) or the library generator's model, aspect ratio,
+ * resolution and batch (images), see the estimated cost, run it, and keep refining. It floats above the board toolbar; the
  * result lands on the board near the viewport centre, clear of the panel and in view (a refinement replaces the result
  * it refines, in place, as one undo step). Recent results lists the last day's finished results so any of them can be
  * placed again.
@@ -80,6 +80,7 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
   const [showRecent, setShowRecent] = useState(false);
   const [chosenModel, setChosenModel] = useState(null);
   const [imageChoice, setImageChoice] = useState({ aspectRatio: DEFAULTS.image.aspectRatio, resolution: DEFAULTS.image.resolution });
+  const [batchCount, setBatchCount] = useState(1);
   const [quote, setQuote] = useState({ state: "idle" });
   const [useSelection, setUseSelection] = useState(true);
   const [action, setAction] = useState(null);
@@ -116,6 +117,8 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
   const resolutions = model ? resolutionsForModel(model, "image", hasReference) : [];
   const ratio = imageSettings?.aspectRatio;
   const resolution = imageSettings?.resolution;
+  // A new image can be a batch, like the library's; a refinement is always one job.
+  const count = imageActive && !refining ? batchCount : 1;
   const chooseModel = (name) => {
     setChosenModel(name);
     setImageChoice(reconcileGenerationSettings(name, "image", { model, aspectRatio: ratio, resolution }, hasReference));
@@ -229,8 +232,8 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
   const run = async () => {
     if (!canRun) return;
     stopListening.current?.();
-    const created = await submit(request);
-    if (created) {
+    const created = await submit(request, count);
+    if (created.length) {
       setPrompt("");
       setAction(null);
     }
@@ -421,6 +424,12 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
                   <span className="font-medium">{ratio}</span>
                   <span className="text-white/35">·</span>
                   <span>{resolution}</span>
+                  {count > 1 && (
+                    <>
+                      <span className="text-white/35">·</span>
+                      <span className="text-brand">{count}×</span>
+                    </>
+                  )}
                   <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")} />
                 </Chip>
               )}
@@ -439,6 +448,14 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
                     value={resolution}
                     onChange={(value) => setImageChoice((current) => ({ ...current, resolution: value }))}
                   />
+                  {!refining && (
+                    <Segment
+                      label="Batch (per generate)"
+                      options={["1×", "2×"]}
+                      value={`${batchCount}×`}
+                      onChange={(value) => setBatchCount(parseInt(value))}
+                    />
+                  )}
                 </div>
               )}
             </Dropdown>
@@ -485,17 +502,17 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
 
       <footer className="mt-3 flex min-w-0 items-center gap-3">
         <div className="min-w-0 flex-1 text-xs" aria-live="polite">
-          {running ? (
+          {jobError ? (
+            <span role="alert" className="block truncate text-red-300/90" title={jobError}>{jobError}</span>
+          ) : running ? (
             <span className="flex min-w-0 items-center gap-1.5 text-white/70">
               <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
               <span className="truncate">{status}</span>
             </span>
-          ) : jobError ? (
-            <span role="alert" className="block truncate text-red-300/90" title={jobError}>{jobError}</span>
           ) : !request ? (
             <span className="text-white/40">Enter to run · Shift+Enter for a new line</span>
           ) : quote.state === "ready" && quoted ? (
-            <span className="text-white/60">Estimated cost <span className="font-medium text-white/85">≈{formatCost(quote.costCents)}</span>{quote.model ? <span className="text-white/40" title="Model"> · {quote.model}</span> : null}</span>
+            <span className="text-white/60">Estimated cost <span className="font-medium text-white/85">≈{formatCost(quote.costCents * count)}</span>{count > 1 ? <span className="text-white/40"> · {count} images</span> : null}{quote.model ? <span className="text-white/40" title="Model"> · {quote.model}</span> : null}</span>
           ) : quote.state === "error" && quote.fingerprint === fingerprint ? (
             <span className="block truncate text-amber-200/85" title={quote.message}>{quote.message}</span>
           ) : (

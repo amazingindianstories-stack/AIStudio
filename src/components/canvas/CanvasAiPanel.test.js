@@ -44,7 +44,7 @@ function serve(calls, { job, recent = [] } = {}) {
       const costCents = (call.body.format === "image" ? 24 : 3) * (call.body.processing === "advanced" ? 4 : 1);
       return json(200, { quote: { format: call.body.format, processing: call.body.processing, model: "m", costCents } });
     }
-    if (call.method === "POST") return json(201, { job: job ?? { id: "j1", boardId: BOARD, format: call.body.format, prompt: call.body.prompt, status: "queued", costCents: 3 } });
+    if (call.method === "POST") return json(201, { job: job ?? { id: call.headers["Idempotency-Key"], boardId: BOARD, format: call.body.format, prompt: call.body.prompt, status: "queued", costCents: 3 } });
     return json(200, { jobs: url.endsWith("?recent=1") ? recent : [] });
   };
 }
@@ -112,7 +112,7 @@ test("the panel shows suggestions, quotes the cost before running and submits on
     await act(async () => generate().click());
     const posts = calls.filter((call) => call.method === "POST" && call.url.endsWith("/ai-jobs"));
     assert.equal(posts.length, 1);
-    assert.match(posts[0].headers["Idempotency-Key"], /^[0-9a-f-]{36}$/);
+    assert.match(posts[0].headers["Idempotency-Key"], /^[0-9a-f-]{36}-0$/);
     assert.deepEqual(posts[0].body, { format: "stickies", prompt: AI_FORMATS.stickies.suggestions[0], processing: "advanced" });
     assert.equal(textarea.value, "");
     assert.match(document.querySelector("[aria-live]").textContent, /Queued/);
@@ -129,7 +129,7 @@ test("the panel shows suggestions, quotes the cost before running and submits on
       aspectRatio: DEFAULTS.image.aspectRatio, resolution: DEFAULTS.image.resolution });
     await act(async () => document.querySelector("button[aria-label='Generation settings']").click());
     assert.deepEqual([...document.querySelectorAll("button[aria-pressed]")].map((element) => element.textContent),
-      [...aspectRatiosForModel(DEFAULTS.image.model, "image"), ...resolutionsForModel(DEFAULTS.image.model, "image")]);
+      [...aspectRatiosForModel(DEFAULTS.image.model, "image"), ...resolutionsForModel(DEFAULTS.image.model, "image"), "1×", "2×"]);
     await act(async () => buttonByText("16:9").click());
     await act(async () => buttonByText("4K").click());
     await act(async () => sleep(450));
@@ -192,6 +192,9 @@ test("refining an image pre-fills the controls from the image and sends them, wh
     assert.equal(document.querySelector("[aria-label='Processing']"), null);
     assert.equal(document.querySelector("button[aria-label='Model: Nano Banana 2.1']")?.textContent, "Nano Banana 2.1");
     assert.equal(document.querySelector("button[aria-label='Generation settings']").textContent, "4:5·4K");
+    await act(async () => document.querySelector("button[aria-label='Generation settings']").click());
+    assert.equal(buttonByText("2×"), undefined, "a refinement is always one job");
+    await act(async () => document.querySelector("button[aria-label='Generation settings']").click());
     await act(async () => typeInto(document.querySelector("textarea"), "make it night"));
     await act(async () => sleep(450));
     assert.deepEqual(calls.filter((call) => call.url.endsWith("/quote")).at(-1).body,
@@ -208,6 +211,46 @@ test("refining an image pre-fills the controls from the image and sends them, wh
   } finally {
     await act(async () => root.unmount());
     useBoardAi.getState().detach();
+  }
+});
+
+test("a 2× image batch shows in the settings, quotes the total and submits the same request twice, one key slot each", async (t) => {
+  setupDom(t);
+  const calls = [];
+  globalThis.fetch = serve(calls);
+  useStore.setState({ availableModelIds: null, batchCount: 1 });
+  useCanvasStore.setState({ boardId: BOARD, loaded: true, history: { past: [], present: emptyCanvasState(), future: [] } });
+  await useBoardAi.getState().attach(BOARD);
+  const root = await createRoot(document.querySelector("#root"));
+  try {
+    await act(async () => root.render(React.createElement(CanvasAiPanel, { boardId: BOARD, onClose() {} })));
+    await act(async () => buttonByText(AI_FORMATS.image.label).click());
+    await act(async () => typeInto(document.querySelector("textarea"), "a lighthouse at dusk"));
+    await act(async () => sleep(450));
+    assert.match(document.querySelector("[aria-live]").textContent, /Estimated cost ≈\$0\.24/);
+    const settings = () => document.querySelector("button[aria-label='Generation settings']");
+    await act(async () => settings().click());
+    assert.equal(buttonByText("1×").getAttribute("aria-pressed"), "true", "one job per generate by default");
+    await act(async () => buttonByText("2×").click());
+    assert.equal(settings().textContent, `${DEFAULTS.image.aspectRatio}·${DEFAULTS.image.resolution}·2×`);
+    assert.equal(useStore.getState().batchCount, 1, "the library's batch setting is not touched");
+    await act(async () => sleep(450));
+    assert.match(document.querySelector("[aria-live]").textContent, /Estimated cost ≈\$0\.48 · 2 images/);
+    const quotes = calls.filter((call) => call.url.endsWith("/quote"));
+    assert.deepEqual(quotes.at(-1).body, { format: "image", prompt: "a lighthouse at dusk", model: DEFAULTS.image.model,
+      aspectRatio: DEFAULTS.image.aspectRatio, resolution: DEFAULTS.image.resolution }, "the quote is for one job");
+
+    await act(async () => buttonByText("Generate").click());
+    const posts = calls.filter((call) => call.method === "POST" && call.url.endsWith("/ai-jobs"));
+    assert.equal(posts.length, 2);
+    assert.deepEqual(posts[1].body, posts[0].body);
+    const [base] = posts[0].headers["Idempotency-Key"].match(/^[0-9a-f-]{36}/);
+    assert.deepEqual(posts.map((call) => call.headers["Idempotency-Key"]), [`${base}-0`, `${base}-1`]);
+    assert.equal(document.querySelector("textarea").value, "");
+  } finally {
+    await act(async () => root.unmount());
+    useBoardAi.getState().detach();
+    useCanvasStore.getState().reset();
   }
 });
 

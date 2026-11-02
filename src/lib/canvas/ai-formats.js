@@ -199,6 +199,25 @@ function overlaps(a, b, margin) {
 }
 
 /**
+ * `groups` of nodes, each built around the same centre, laid out in one row from left to right with a margin between
+ * them, the row centred where they were built. An empty group stays empty.
+ */
+export function sideBySide(groups) {
+  const filled = groups.filter((nodes) => nodes.length);
+  if (filled.length < 2) return groups;
+  const boxes = filled.map(boundsOf);
+  const width = boxes.reduce((sum, box) => sum + box.w, 0) + FREE_MARGIN * (boxes.length - 1);
+  let left = boxes[0].x + boxes[0].w / 2 - width / 2;
+  return groups.map((nodes) => {
+    if (!nodes.length) return nodes;
+    const box = boundsOf(nodes);
+    const dx = left - box.x;
+    left += box.w + FREE_MARGIN;
+    return nodes.map((node) => ({ ...node, x: node.x + dx }));
+  });
+}
+
+/**
  * `nodes` moved to the free spot nearest where they were built (the viewport centre): the centre itself when it is
  * clear, else the closest slot one result-width or -height away, ring by ring. A new result never lands on top of
  * the board's existing content; if every nearby slot is taken it stays at the centre.

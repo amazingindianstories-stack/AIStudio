@@ -187,6 +187,37 @@ test('Create with AI quotes, runs once, places sticky notes and an image on the 
     const notes = (await nodes()).filter(node => node.type === 'sticky');
     expect(notes.some(node => node.x < image.x + image.w && image.x < node.x + node.w && node.y < image.y + image.h && image.y < node.y + node.h)).toBe(false);
 
+    // A 2x batch queues two independent jobs for one click and places both images side by side.
+    await panel.getByRole('button', { name: 'New prompt', exact: true }).click();
+    await panel.getByRole('textbox', { name: 'Prompt' }).fill('A harbour at dawn');
+    await settings.click();
+    await page.getByRole('button', { name: '2×', exact: true }).click();
+    await page.keyboard.press('Escape');
+    await expect(settings).toContainText('2×');
+    await expect(panel.getByText(/Estimated cost ≈\$\d+\.\d\d · 2 images/)).toBeVisible();
+    const imagesBeforeBatch = (await nodes()).filter(node => node.type === 'image');
+    const batchImagesBefore = FAKE ? (await fakeState()).gemini_images.length : 0;
+    const batchPosts = [];
+    const collect = response => {
+      if (response.url().endsWith(`/api/canvas-boards/${boardId}/ai-jobs`) && response.request().method() === 'POST') batchPosts.push(response);
+    };
+    page.on('response', collect);
+    await panel.getByRole('button', { name: 'Generate', exact: true }).click();
+    await expect.poll(() => batchPosts.length).toBe(2);
+    page.off('response', collect);
+    const batchJobs = await Promise.all(batchPosts.map(async response => (await response.json()).job));
+    const keys = batchPosts.map(response => response.request().headers()['idempotency-key']);
+    expect(keys[0].replace(/-0$/, '-1')).toBe(keys[1]);
+    expect(new Set(batchJobs.map(item => item.generationId)).size).toBe(2);
+    const batchRows = await db`SELECT prompt, created_via FROM generations WHERE id IN ${db(batchJobs.map(item => item.generationId))}`;
+    expect(batchRows.map(row => [row.prompt, row.created_via])).toEqual([['A harbour at dawn', 'board'], ['A harbour at dawn', 'board']]);
+    await expect.poll(async () => (await nodes()).filter(node => node.type === 'image').length, { timeout: 90000 }).toBe(imagesBeforeBatch.length + 2);
+    const [left, right] = (await nodes()).filter(node => node.type === 'image' && !imagesBeforeBatch.some(old => old.id === node.id))
+      .sort((a, b) => a.x - b.x);
+    expect(left.y).toBe(right.y);
+    expect(left.x + left.w).toBeLessThan(right.x);
+    if (FAKE) expect((await fakeState()).gemini_images.length - batchImagesBefore).toBe(2);
+
     // A reload resumes nothing: every result was placed exactly once.
     const count = (await nodes()).length;
     await page.reload();

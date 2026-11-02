@@ -2,8 +2,8 @@
 
 The board's **Create with AI** panel sits above the board toolbar (the sparkles button). An artist picks a
 format, writes a prompt or picks a suggestion, chooses how it is made (basic or advanced processing for text
-formats; the library generator's model, aspect ratio and resolution for images), sees the estimated cost, runs
-it, and can keep refining the result. The result lands on the board near the viewport centre, in free space. A
+formats; the library generator's model, aspect ratio, resolution and batch for images), sees the estimated cost,
+runs it, and can keep refining the result. The result lands on the board near the viewport centre, in free space. A
 refinement replaces the result it refines, in place. Both are one undo step. **Recent results** lists the user's
 finished results on the board from the last 24 hours, so any of them can be placed again.
 The panel and its routes need edit access to the board (`../features/board-roles.md`); a view or comment
@@ -55,13 +55,21 @@ per-model availability, clamped by `reconcileGenerationSettings` in `src/lib/con
 switch uses too. The request carries `model`, `aspectRatio` and `resolution`. The server takes them into
 `submission.quote_generation` and `submission.submit_generation` unchanged, so validation, resolution pricing, the
 paid guard, admission and idempotency are the library's (the idempotency fingerprint includes the resolution, so the
-same request at another resolution is a new job). The quote and the job read back `model`, `aspectRatio` and
-`resolution`.
+same request at another resolution is a new job). The quote returns `format`, `processing`, `model` and `costCents`;
+the job read-back carries `model`, `aspectRatio` and `resolution`.
 
 - **Refinement** pre-fills the controls from the image it edits (its model, saved aspect ratio and resolution) and
   the person can change any of them. A request that omits the model or ratio still inherits them.
-- **Not offered**: the library's 1x/2x batch. It is repeated client-side submissions, and the panel follows one job and
-  places one result.
+- **Batch**: the library's `Batch (per generate)` 1x or 2x, held by the panel (default 1x; it never reads or changes
+  the library's batch setting) and shown on the settings chip when it is 2x. A 2x run submits the same request twice,
+  as the library does: two independent jobs, each under one submission key with a per-slot suffix (`<key>-0`,
+  `<key>-1`), so a re-sent POST returns its slot's job and never queues a second billed one. The server sees two
+  ordinary image jobs. The estimated cost is the per-job quote times the count. If the second submission fails, the
+  first job is kept and the panel reports the rest as failed. The panel follows both jobs and, once both have ended,
+  claims each one and places the finished results side by side in free space as one undo step; a failed one is
+  dismissed and its error shown. The first result is the one **Refine** continues. A refinement is always one job, so
+  the batch control is hidden while refining. After a reload, a batch's unplaced results are placed one by one like
+  any other job, each still exactly once.
 - **Existing API callers** that send only `processing` for an image behave as before: basic uses the model's default
   resolution, advanced asks for 2K where the model offers it (for a refinement, at a resolution it accepts with a
   reference). An explicit `resolution` wins over `processing`.
@@ -103,7 +111,7 @@ The board owns its graph and autosave, so the browser places the result (`src/li
 1. It builds the nodes (`src/lib/canvas/ai-formats.js`). A new result goes to the free slot nearest the viewport
    centre. The board area under the open panel and the asset panel counts as occupied, like existing nodes.
 2. It claims the job with `PATCH placedNodeIds`. Only the first claim succeeds; a second gets 409 `ALREADY_PLACED`.
-3. It inserts the nodes with `placeGeneratedNodes` as one undo step. If they are not fully visible outside those
+3. It inserts the nodes with `placeGeneratedNodes` as one undo step (a batch's results together, side by side). If they are not fully visible outside those
    panels, the board pans instantly so they are. It zooms out only when the result is too large to show at the
    current zoom. The pan is not an undo step.
 
@@ -167,10 +175,11 @@ from the panel's selection strip or the context menu's AI rows, not the format t
   - refinement, placement, and the migration
   - an image's `model`, `aspectRatio` and `resolution`: priced by resolution, stored, validated, replay-keyed, and the
     legacy `processing` path.
-- `src/lib/board-ai.test.js`, `src/lib/config.test.js` (`reconcileGenerationSettings`), `src/lib/canvas/ai-formats.test.js`, `ai-graph.test.js`, `ai-selection.test.js` and `src/components/canvas/CanvasAiPanel.test.js`
+- `src/lib/board-ai.test.js` (including a batch's per-slot keys, a partial submission failure and its one-step
+  side-by-side placement), `src/lib/config.test.js` (`reconcileGenerationSettings`), `src/lib/canvas/ai-formats.test.js`, `ai-graph.test.js`, `ai-selection.test.js` and `src/components/canvas/CanvasAiPanel.test.js`
   cover the browser side.
 - `tests/browser/board-ai.spec.mjs` and `board-ai-selection.spec.mjs` are the end-to-end flows. The first picks a non-default model, ratio and resolution for an image, checks the quote, the
-  stored row and the request the fake provider received, and refines with the pre-filled controls. Run it against the fake provider server with:
+  stored row and the request the fake provider received, and refines with the pre-filled controls, then runs a 2x batch and checks both images land side by side as two jobs. Run it against the fake provider server with:
 
   ```
   scripts/dev/test-db.sh PYTHON scripts/dev/browser-harness.py --fake-providers --grep "Create with AI"
