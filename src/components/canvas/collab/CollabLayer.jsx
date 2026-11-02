@@ -58,12 +58,12 @@ export function CollabLayer({ boardId, commentLink, onCommentLinkDone, insetRigh
     return () => observer.disconnect();
   }, [hasBoard]);
 
-  // M starts a comment (C is the connector tool); Escape leaves placing.
+  // Shift+M starts a comment (plain M is the minimap, C the connector tool); Escape leaves placing.
   useEffect(() => {
     const onKey = (event) => {
       if (editable(event.target) || event.metaKey || event.ctrlKey || event.altKey) return;
       const { placing: on, setPlacing, hidden: off } = useCommentsStore.getState();
-      if (event.key.toLowerCase() === "m" && canComment && ready && !off) {
+      if (event.shiftKey && event.key.toLowerCase() === "m" && canComment && ready && !off) {
         event.preventDefault();
         setPlacing(!on);
       } else if (event.key === "Escape" && on) setPlacing(false);
@@ -105,7 +105,7 @@ export function CollabLayer({ boardId, commentLink, onCommentLinkDone, insetRigh
       <div className="pointer-events-auto absolute top-16 z-30 flex items-center gap-1 rounded-xl border border-line bg-ink-800/95 p-1 shadow-panel" style={{ right: insetRight }}>
         <PeopleBar people={people} currentUserId={currentUser?.id} />
         {canComment && (
-          <button type="button" onClick={() => useCommentsStore.getState().setPlacing(!placing)} disabled={hidden} aria-label="Add comment" aria-pressed={placing} title="Add comment (M)" data-testid="add-comment" className={cn(button, placing && "bg-white/15 text-white", hidden && "opacity-40")}>
+          <button type="button" onClick={() => useCommentsStore.getState().setPlacing(!placing)} disabled={hidden} aria-label="Add comment" aria-pressed={placing} title="Add comment (Shift+M)" data-testid="add-comment" className={cn(button, placing && "bg-white/15 text-white", hidden && "opacity-40")}>
             <MessageSquarePlus className="h-[18px] w-[18px]" />
           </button>
         )}
