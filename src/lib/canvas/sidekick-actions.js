@@ -27,8 +27,10 @@ export function nodeFor(action, now) {
       return { ...base, text, fontSize: 18, align: "left", color: "#e8e6df" };
     case "rect":
     case "ellipse":
-    case "diamond":
-      return { ...base, fill: action.color || action.fill ? stickyFill(action) : "#ffffff", stroke: "#000000", strokeWidth: 1, ...(action.type === "rect" ? { cornerRadius: 0 } : {}), ...(text ? { text } : {}) };
+    case "diamond": {
+      const fill = action.color || action.fill ? stickyFill(action) : "#ffffff";
+      return { ...base, fill, color: stickyInk(fill), stroke: "#000000", strokeWidth: 1, ...(action.type === "rect" ? { cornerRadius: 0 } : {}), ...(text ? { text } : {}) };
+    }
     case "frame":
       return { ...base, name: text || "Frame", fill: "transparent", stroke: "#000000" };
     default:

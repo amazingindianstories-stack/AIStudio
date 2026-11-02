@@ -45,7 +45,9 @@ test("a recolour result recolours the selected notes through the same colour rul
   assert.deepEqual(next.nodes.map((node) => [node.fill, node.color, node.aiEditedAt]),
     [["#1a1a1a", "#f5f5f5", 7], ["#00ff88", "#1c1a12", 7], [STICKY_FILLS.yellow, "#1c1a12", undefined], [undefined, undefined, undefined]]);
   assert.deepEqual(colorPatch({ type: "sticky", fill: "#fff" }, { color: "teal" }), { fill: STICKY_FILLS.teal, color: "#1c1a12" });
-  assert.deepEqual(colorPatch({ type: "rect", fill: "#fff" }, { fill: "#112233" }), { fill: "#112233" });
+  assert.deepEqual(colorPatch({ type: "rect", fill: "#fff" }, { fill: "#112233" }), { fill: "#112233", color: "#f5f5f5" });
+  assert.deepEqual(colorPatch({ type: "shape", shape: "star", fill: "rgba(255,255,255,0.06)" }, { color: "white" }), { fill: STICKY_FILLS.white, color: "#1c1a12" },
+    "a shape with no text colour of its own (white) gets dark text on a light fill");
   assert.deepEqual(colorPatch({ type: "frame", fill: "transparent" }, { color: "red" }), {});
   assert.deepEqual(colorPatch({ type: "sticky", fill: "#fff" }, {}), {});
 });

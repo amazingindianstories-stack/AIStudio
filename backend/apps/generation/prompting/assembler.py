@@ -69,9 +69,9 @@ def assemble_prompt(prompt,assets,uploads,opts=None,*,read_image=None,prep_refer
     def board_references(images):
         # Reproduce a person's identity exactly only when a reference shows one (or that is not known); references that
         # are all known to show no person are context for the request.
-        analyses = [analyze_identity(image['mimeType'],image['data']) for image in images[:2]]
+        analyses = [analyze_identity(image['mimeType'],image['data']) for image in images]
         if any(result['personReference'] is not False or result['crops'] for result in analyses):
-            subject(images,[tile for result in analyses for tile in result['crops']][:3] or None)
+            subject(images,[tile for result in analyses for tile in result['crops']][:3])
             return
         label = 'image' if len(images) == 1 else 'images'
         groups.append({'tag':'REFERENCE','header':BOARD_REFERENCE_HEADER.format(count=f'{len(images)} {label}'),'images':images,'identity':False})

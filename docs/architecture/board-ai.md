@@ -121,7 +121,10 @@ frames). The selection formats `rewrite` (edit text), `recolor`, `cluster` and `
 reached from the panel's selection strip or the context menu's AI rows, not the format tabs. `recolor` ("Change colour"
 in the strip, with a named colour or a prompt such as "make these #ff00aa") returns `{id, color, fill}` per object and
 applies it with `colorPatch` (`src/lib/canvas/ai-graph.js`), the same colour rules a Sidekick `update` action uses; the
-parser uses `color_fields` from `apps/agents/sidekick.py`. It is one undo step, and locked objects are left alone.
+parser uses `color_fields` from `apps/agents/sidekick.py`. It reaches every selected note and shape, blank ones too, and
+sets the text colour that reads on the new fill. A typed request to recolour the selection ("make these notes black",
+`isRecolorRequest` in `ai-selection.js`) runs `recolor` whatever format is picked. It is one undo step, and locked
+objects are left alone.
 
 - **Context.** The browser reads the selection from the board data (`src/lib/canvas/ai-selection.js`, never the
   DOM, so viewport culling does not matter) and sends `context: [{id, type, text}]`. The server bounds it

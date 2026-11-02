@@ -103,6 +103,30 @@ class PromptingTests(SimpleTestCase):
         mixed=self.board_assembly(['landscape','face'],{'landscape':{'personReference':False,'crops':[]},'face':{'personReference':True,'crops':[]}})
         self.assertEqual([(g['tag'],g['identity']) for g in mixed['groups']],[('SUBJECT',True)])
 
+    def test_board_references_are_each_analysed_once_and_a_person_in_any_position_keeps_the_identity_lock(self):
+        calls=[]
+        analysis={'street':{'personReference':False,'crops':[]},'alley':{'personReference':False,'crops':[]},
+                  'actor':{'personReference':True,'crops':[{'mimeType':'image/jpeg','data':'face-tile'}]},'rooftop':{'personReference':None,'crops':[]}}
+        def analyze(mime,data,*args):
+            calls.append(data)
+            return analysis[data]
+        result=assemble_prompt('the actor standing in this street',[],['street','alley','actor'],{'aspectRatio':'1:1','referenceUse':'board'},
+            read_image=lambda ref:{'mimeType':'image/png','data':ref},prep_reference=lambda m,d:{'mimeType':m,'data':d},
+            analyze_identity=analyze,detect_role=lambda *a:None,env={})
+        self.assertEqual([(g['tag'],g['identity']) for g in result['groups']],[('SUBJECT',True)])
+        self.assertEqual([t['data'] for t in result['groups'][0]['tiles']],['face-tile'])
+        self.assertEqual(calls,['street','alley','actor'])
+        for uploads in (['face'],['street','alley','street','rooftop']):
+            with self.subTest(uploads=uploads):
+                calls.clear()
+                failed={'face':{'personReference':None,'crops':[]},**analysis}
+                result=assemble_prompt('a cat',[],uploads,{'aspectRatio':'1:1','referenceUse':'board'},
+                    read_image=lambda ref:{'mimeType':'image/png','data':ref},prep_reference=lambda m,d:{'mimeType':m,'data':d},
+                    analyze_identity=lambda m,d,*a:calls.append(d) or failed[d],detect_role=lambda *a:None,env={})
+                self.assertEqual([(g['tag'],g['identity']) for g in result['groups']],[('SUBJECT',True)])
+                self.assertNotIn('tiles',result['groups'][0])
+                self.assertEqual(calls,uploads)
+
     def test_the_library_keeps_the_identity_lock_for_the_same_reference(self):
         result=self.board_assembly(['landscape'],{'landscape':{'personReference':False,'crops':[]}},{'aspectRatio':'1:1'})
         self.assertEqual([(g['tag'],g['identity']) for g in result['groups']],[('SUBJECT',True)])

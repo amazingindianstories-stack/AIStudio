@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { LANGUAGES, SELECTION_ACTIONS, actionApplies, contextFields, nodeText, recolorAction, selectionContext, toneAction, translateAction } from "./ai-selection.js";
+import {
+  LANGUAGES, SELECTION_ACTIONS, actionApplies, contextFields, isRecolorRequest, nodeText, recolorAction, selectionContext, toneAction, translateAction,
+} from "./ai-selection.js";
 
 const nodes = [
   { id: "a", type: "sticky", text: " hello " },
@@ -44,8 +46,28 @@ test("actions apply only when the selection has what they need", () => {
   assert.match(translateAction("French").prompt, /French/);
   assert.match(toneAction("Fun").prompt, /fun/);
   const recolor = recolorAction("black");
-  assert.deepEqual([recolor.format, recolor.needs, /black/.test(recolor.prompt)], ["recolor", "stickies", true]);
-  assert.equal(actionApplies(recolor, selectionContext(nodes, ["b"]), nodes), false, "frames are not stickies");
+  assert.deepEqual([recolor.format, /black/.test(recolor.prompt)], ["recolor", true]);
+  assert.equal(actionApplies(recolor, selectionContext(nodes, ["b"]), nodes), false, "frames are not recoloured");
   assert.equal(actionApplies(recolor, selectionContext(nodes, ["a"]), nodes), true);
+  assert.equal(actionApplies(recolor, selectionContext(nodes, ["e"]), nodes), true, "a blank note can be recoloured");
   assert.ok(LANGUAGES.length >= 10);
+});
+
+test("a recolour reaches every selected note and shape, blank ones too, and never frames or images", () => {
+  const board = [...nodes, { id: "r", type: "rect", fill: "#fff" }, { id: "t", type: "text", text: "title" }];
+  const context = selectionContext(board, ["a", "b", "c", "e", "r", "t"]);
+  assert.deepEqual(context.colorable, [{ id: "a", type: "sticky", text: "hello" }, { id: "e", type: "sticky", text: "" }, { id: "r", type: "rect", text: "" }]);
+  assert.deepEqual(contextFields("recolor", context), { context: context.colorable });
+  assert.deepEqual(contextFields("recolor", selectionContext(board, ["b", "t"])), {});
+});
+
+test("a typed request to recolour the selection is recognised, and other requests are not", () => {
+  for (const prompt of ["make these notes black", "Make these notes #ff00aa", "change the colour of these notes to black", "turn them black.",
+    "colour the selected notes grey", "Recolor them by sentiment", "please make all the notes dark blue", "set their color to teal"]) {
+    assert.equal(isRecolorRequest(prompt), true, prompt);
+  }
+  for (const prompt of ["Three black sticky notes with shot ideas", "make the background black", "turn these notes into a flowchart in black",
+    "a cat", "Make a diagram of colour grading steps", "Questions to ask before a location scout"]) {
+    assert.equal(isRecolorRequest(prompt), false, prompt);
+  }
 });

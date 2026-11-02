@@ -120,7 +120,7 @@ test('Create with AI honours the colour asked for: black, a named colour and a h
   }
 });
 
-test('Create with AI recolours the notes already selected on the board: black from the menu, a hex from the prompt, one undo step each', async ({ page, context, baseURL }) => {
+test('Create with AI recolours the notes already selected on the board: black from the menu, a hex from the prompt, a typed request in any format, one undo step each', async ({ page, context, baseURL }) => {
   test.skip(!FAKE, 'needs --fake-providers');
   test.setTimeout(240000);
   await authenticate(context, baseURL);
@@ -173,6 +173,20 @@ test('Create with AI recolours the notes already selected on the board: black fr
     await expect(panel.getByText(/Estimated cost/)).toBeVisible();
     await panel.getByRole('button', { name: 'Generate', exact: true }).click();
     await expect.poll(async () => (await stickies()).map(node => node.fill), { timeout: 60000 }).toEqual(['#ff00aa', '#ff00aa', '#ff00aa']);
+
+    // Typed with the default Sticky notes format and no menu: the selected notes are recoloured, and no new notes are made.
+    await page.evaluate(() => document.activeElement?.blur());
+    await page.keyboard.press('ControlOrMeta+a');
+    await expect(panel.getByLabel('Selection', { exact: true })).toContainText('3 selected');
+    const stickiesFormat = panel.getByRole('radio', { name: 'Sticky notes' });
+    await expect(stickiesFormat).toHaveAttribute('aria-checked', 'true');
+    await prompt.fill('make these notes black');
+    await expect(stickiesFormat).toHaveAttribute('aria-checked', 'false');
+    await expect(panel.getByText(/Estimated cost/)).toBeVisible();
+    await panel.getByRole('button', { name: 'Generate', exact: true }).click();
+    await expect.poll(async () => (await stickies()).map(node => node.fill), { timeout: 60000 }).toEqual(['#1a1a1a', '#1a1a1a', '#1a1a1a']);
+    expect((await stickies()).map(node => node.color)).toEqual(['#f5f5f5', '#f5f5f5', '#f5f5f5']);
+    expect((await stickies()).map(node => node.text)).toEqual(originalText);
   } finally {
     if (boardId) {
       const db = fixtureDatabase(process.env.E2E_DATABASE_URL);

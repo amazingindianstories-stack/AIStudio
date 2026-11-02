@@ -1,7 +1,7 @@
 // Board nodes built from the structured results of the diagram and board layout AI formats (backend/apps/agents/board.py).
 // Pure: positions come from the result and a centre, never from the DOM.
 
-import { MAX_CONTEXT_TEXT, nodeText } from "./ai-selection.js";
+import { COLORABLE_TYPES, MAX_CONTEXT_TEXT, nodeText } from "./ai-selection.js";
 import { lockedIdSet } from "./locks.js";
 
 export const STICKY_FILLS = {
@@ -28,12 +28,12 @@ export function stickyFill(item) {
 
 /**
  * The fields that recolour `node` to the colour `item` (an AI note, a Sidekick action or a recolour entry) asks for: its
- * fill, and for a sticky the text colour that reads on it. Empty when `item` names no colour or the node has no fill.
+ * fill, and for a note or shape the text colour that reads on it. Empty when `item` names no colour or the node has no fill.
  */
 export function colorPatch(node, item) {
   if (!(item?.color || item?.fill) || !("fill" in node) || node.type === "frame") return {};
   const fill = stickyFill(item);
-  return node.type === "sticky" ? { fill, color: stickyInk(fill) } : { fill };
+  return COLORABLE_TYPES.has(node.type) ? { fill, color: stickyInk(fill) } : { fill };
 }
 
 /** Text colour that reads on `fill`: light on dark fills (black notes), the usual dark ink otherwise. */
@@ -119,7 +119,7 @@ export function diagramGraph(result, center) {
         strokeWidth: 2,
         text: node.label,
         fontSize: 16,
-        color: node.color ? "#1c1a12" : "#f1f5f9",
+        color: node.color ? stickyInk(node.color) : "#f1f5f9",
         align: "center",
         opacity: 1,
         parentId: null,

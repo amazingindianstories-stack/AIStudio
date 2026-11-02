@@ -4,6 +4,8 @@
 export const MAX_CONTEXT_ITEMS = 60;
 export const MAX_CONTEXT_TEXT = 2000;
 const TEXT_TYPES = new Set(["sticky", "text", "shape", "rect", "ellipse", "triangle", "diamond"]);
+/** Objects whose fill holds their text, so a recolour also sets the text colour that reads on it. */
+export const COLORABLE_TYPES = new Set(["sticky", "shape", "rect", "ellipse", "triangle", "diamond"]);
 
 /** The text an object shows: its text, or a frame's name; "" when it has none. */
 export function nodeText(node) {
@@ -11,21 +13,26 @@ export function nodeText(node) {
   return TEXT_TYPES.has(node.type) && typeof node.text === "string" ? node.text : "";
 }
 
-/** The selected objects, in board order, as the AI sees them: text-bearing objects and the images among them. */
+/**
+ * The selected objects, in board order, as the AI sees them: text-bearing objects, the images among them, and the
+ * notes and shapes a recolour reaches (blank ones too).
+ */
 export function selectionContext(nodes, selectionIds) {
   const wanted = new Set(selectionIds ?? []);
   const selected = (nodes ?? []).filter((node) => wanted.has(node.id));
   const items = [];
   const images = [];
+  const colorable = [];
   for (const node of selected) {
     if (node.type === "image" && typeof node.src === "string" && node.src.startsWith("/api/media/")) {
       images.push({ id: node.id, src: node.src, alt: typeof node.alt === "string" ? node.alt : "" });
       continue;
     }
-    const text = nodeText(node).trim();
-    if (text && items.length < MAX_CONTEXT_ITEMS) items.push({ id: node.id, type: node.type, text: text.slice(0, MAX_CONTEXT_TEXT) });
+    const text = nodeText(node).trim().slice(0, MAX_CONTEXT_TEXT);
+    if (text && items.length < MAX_CONTEXT_ITEMS) items.push({ id: node.id, type: node.type, text });
+    if (COLORABLE_TYPES.has(node.type) && colorable.length < MAX_CONTEXT_ITEMS) colorable.push({ id: node.id, type: node.type, text });
   }
-  return { items, images, count: selected.length };
+  return { items, images, colorable, count: selected.length };
 }
 
 export const LANGUAGES = [
@@ -51,10 +58,22 @@ export const toneAction = (tone) => ({ id: `tone-${tone}`, format: "rewrite", pr
 export const translateAction = (language) => ({ id: `translate-${language}`, format: "rewrite", prompt: `Translate each text into ${language}.`, needs: "text" });
 
 /** Recolours the selected notes (and shapes) to one of the board's named colours; the prompt stays editable for any other. */
-export const recolorAction = (name) => ({ id: `recolor-${name}`, format: "recolor", prompt: `Change the colour of each selected object to ${name}.`, needs: "stickies" });
+export const recolorAction = (name) => ({ id: `recolor-${name}`, format: "recolor", prompt: `Change the colour of each selected object to ${name}.`, needs: "colorable" });
+
+const SELECTED = String.raw`(?:them|these|those|it|this|all|each|every|(?:the\s+)?(?:selected\s+)?(?:notes?|stick(?:y|ies)|shapes?|objects?|ones?))`;
+const COLOR_NAME = String.raw`(?:yellow|orange|pink|purple|blue|green|red|teal|black|white|gr[ae]y|brown|#[0-9a-f]{6})`;
+const RECOLOR_REQUESTS = [
+  /\bre-?colou?r\b/i,
+  /\b(?:change|switch|set)\b[^.]*\bcolou?rs?\b/i,
+  new RegExp(String.raw`^\s*(?:please\s+)?(?:make|turn|paint|colou?r|change|set)\s+${SELECTED}\b(?![^.]*\binto\b)[^.]*?\s${COLOR_NAME}\s*[.!]?\s*$`, "i"),
+];
+
+/** Whether a typed prompt asks to recolour the selection ("make these notes black", "change their colour to #ff00aa"). */
+export const isRecolorRequest = (prompt) => RECOLOR_REQUESTS.some((pattern) => pattern.test(prompt ?? ""));
 
 /** Whether `action` has something to work on in `context` (a `selectionContext` result). */
 export function actionApplies(action, context, nodes) {
+  if (action.needs === "colorable") return context.colorable.length > 0;
   if (!context.items.length) return false;
   if (action.needs !== "stickies") return true;
   const ids = new Set(context.items.map((item) => item.id));
@@ -64,6 +83,7 @@ export function actionApplies(action, context, nodes) {
 /** The request body fields a selection adds to a board AI request (text context, or reference images for an image). */
 export function contextFields(format, context) {
   if (format === "image") return context.images.length ? { referenceImages: context.images.slice(0, 4).map((image) => image.src) } : {};
+  if (format === "recolor") return context.colorable.length ? { context: context.colorable } : {};
   return context.items.length ? { context: context.items } : {};
 }
 

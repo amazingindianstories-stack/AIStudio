@@ -14,7 +14,8 @@ import { useCanvasStore } from "@/lib/canvas-store";
 import { setAiInputs, useAiPanelIntent } from "@/lib/board-ai-panel";
 import { dictationSupported, startDictation } from "@/lib/canvas/dictation";
 import {
-  LANGUAGES, SELECTION_ACTIONS, SELECTION_FORMATS, TONES, actionApplies, contextFields, recolorAction, selectionContext, toneAction, translateAction,
+  LANGUAGES, SELECTION_ACTIONS, SELECTION_FORMATS, TONES, actionApplies, contextFields, isRecolorRequest, recolorAction, selectionContext, toneAction,
+  translateAction,
 } from "@/lib/canvas/ai-selection";
 
 const FORMAT_ICONS = { stickies: StickyNote, image: ImageIcon, diagram: Workflow, layout: LayoutDashboard };
@@ -99,7 +100,9 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
 
   // Refining continues the result this panel last placed, in its format.
   const refining = Boolean(placed);
-  const activeFormat = refining ? placed.format : action ? action.format : format;
+  // A typed request to recolour the selected notes or shapes recolours them, whatever format is picked.
+  const typedRecolor = !refining && context.colorable.length > 0 && isRecolorRequest(prompt);
+  const activeFormat = refining ? placed.format : typedRecolor ? "recolor" : action ? action.format : format;
   const selectionFormat = SELECTION_FORMATS.includes(activeFormat);
   const extra = useSelection || selectionFormat ? contextFields(activeFormat, context) : null;
   const spec = AI_FORMATS[activeFormat];
@@ -264,7 +267,7 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
       <div role="radiogroup" aria-label="Format" className="mt-2 flex w-fit items-center gap-1 rounded-lg bg-ink-900/60 p-0.5">
         {AI_FORMAT_ORDER.map((id) => {
           const Icon = FORMAT_ICONS[id];
-          const selected = !action && id === format;
+          const selected = !action && !typedRecolor && id === format;
           return (
             <button
               key={id}
@@ -336,6 +339,7 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
           context={context}
           nodes={nodes}
           action={action}
+          recoloring={typedRecolor && action?.format !== "recolor"}
           useSelection={useSelection}
           onUseSelection={setUseSelection}
           onPick={pickAction}
@@ -516,7 +520,7 @@ function ActionMenu({ label, items, onPick }) {
 }
 
 /** What the selection offers: use it as context, or run a one-click action on it (nothing runs until Generate). */
-function SelectionStrip({ context, nodes, action, useSelection, onUseSelection, onPick, onClear, showContextToggle }) {
+function SelectionStrip({ context, nodes, action, recoloring, useSelection, onUseSelection, onPick, onClear, showContextToggle }) {
   const applies = (item) => actionApplies(item, context, nodes);
   const presets = SELECTION_ACTIONS.filter(applies);
   const tones = TONES.map((tone) => ({ ...toneAction(tone), label: tone }));
@@ -532,11 +536,12 @@ function SelectionStrip({ context, nodes, action, useSelection, onUseSelection, 
           Use selection as context
         </label>
       )}
-      {action && (
+      {action && !recoloring && (
         <button type="button" onClick={onClear} className="rounded-full bg-ink-600 px-2.5 py-1 font-medium text-white ring-1 ring-line" title="Clear this action">
           {action.label ?? action.prompt} <X className="inline h-3 w-3" aria-hidden />
         </button>
       )}
+      {recoloring && <span className="rounded-full bg-ink-600 px-2.5 py-1 font-medium text-white ring-1 ring-line">Change colour</span>}
       {presets.filter((item) => item.id !== action?.id).map((item) => (
         <button key={item.id} type="button" onClick={() => onPick(item)} className="rounded-full border border-line px-2.5 py-1 text-white/60 transition-colors hover:border-lineStrong hover:text-white/85">
           {item.label}
