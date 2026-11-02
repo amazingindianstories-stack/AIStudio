@@ -101,6 +101,7 @@ def main():
     parser.add_argument('--install-browser', action='store_true')
     parser.add_argument('--grep')
     parser.add_argument('--list', action='store_true')
+    parser.add_argument('--shard', help='run one Playwright shard of the suite, as CURRENT/TOTAL (for example 2/4)')
     parser.add_argument('--trace', choices=['on', 'retain-on-failure'], default='retain-on-failure')
     parser.add_argument('--fake-providers', action='store_true',
                         help='run provider jobs through the fake provider server instead of MOCK_GENERATION placeholders')
@@ -192,6 +193,8 @@ VEEVEE_KLING = False
         env['PLAYWRIGHT_HTML_OUTPUT_DIR'] = str(artifact / 'playwright-report')
         if args.grep:
             command.extend(['--grep', args.grep])
+        if args.shard:
+            command.extend(['--shard', args.shard])
         if args.list:
             command.append('--list')
         browser_process = subprocess.Popen(command, cwd=ROOT, env=env, start_new_session=True)
