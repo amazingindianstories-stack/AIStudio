@@ -11,8 +11,9 @@ each case in `backend/apps/canvas/fixtures/format_v1_formats.json` into its expe
 
 A format is an ordinary board node of `type: "format"` with a `format` kind: `doc`, `deck`, `html`
 or `drawio`. It saves through the per-node save path, so it obeys roles, locks, culling and the
-board size limit ([canvas-board-sync.md](../architecture/canvas-board-sync.md)); payloads stay in the
-board JSON. A node with an unknown kind is dropped. Every kind has:
+board size limit ([canvas-board-sync.md](../architecture/canvas-board-sync.md)); its large fields are
+stored outside the board JSON ([Payload storage](#payload-storage)). A node with an unknown kind is
+dropped. Every kind has:
 
 - `name`: up to 120 UTF-16 units; a missing or longer name becomes the kind's default
   ("Untitled doc", "Untitled slides", "HTML embed", "Draw.io diagram").
@@ -28,10 +29,10 @@ Kind-specific fields and caps:
 
 | Kind | Fields |
 |---|---|
-| `doc` | `blocks`: up to 400, each with a unique `id` and a `type` of `p`, `h1`-`h3`, `ul`, `ol`, `todo`, `quote`, `code`, `table` or `diagram`. Text blocks hold `text` (5,000 units) with rich-text `marks`, and `todo` adds `checked`. A `table` holds `rows`, up to 20 by 8 cells of 500 units, padded to a rectangle. A `diagram` block holds `ref`, the id of another diagram or format on the board, shown inline. An empty list becomes one empty paragraph. `suggestions` (optional, up to 200): `replace` (new `text` and `marks`) or `delete` proposals on an existing `blockId`, with `by` and `at`. |
+| `doc` | `blocks`: up to 2,000, each with a unique `id` and a `type` of `p`, `h1`-`h3`, `ul`, `ol`, `todo`, `quote`, `code`, `table` or `diagram`. Text blocks hold `text` (20,000 units) with rich-text `marks`, and `todo` adds `checked`. A `table` holds `rows`, up to 20 by 8 cells of 500 units, padded to a rectangle. A `diagram` block holds `ref`, the id of another diagram or format on the board, shown inline. An empty list becomes one empty paragraph. `suggestions` (optional, up to 200): `replace` (new `text` and `marks`) or `delete` proposals on an existing `blockId`, with `by` and `at`. |
 | `deck` | `slides`: up to 100, each `{id, title (120), frameId, notes (5,000), lane}`. A slide shows a board frame through `frameId`. `lanes`: up to 6 `{id, name (60)}`; a `main` lane always exists, and a slide in an unknown lane moves to it. |
-| `html` | `html`: up to 50,000 units. |
-| `drawio` | `xml`: up to 100,000 units. `preview` (optional): an SVG data URL (`data:image/svg+xml;base64,`) of up to 100,000 units. |
+| `html` | `html`: up to 500,000 units. |
+| `drawio` | `xml`: up to 500,000 units. `preview` (optional): an SVG data URL (`data:image/svg+xml;base64,`) of up to 500,000 units. |
 
 Text over its cap is replaced by the fallback, not truncated, so editors clip input to the caps
 (`clipText` in `src/lib/canvas/rich-text.js`). Every string is saved well formed: an unpaired
@@ -107,9 +108,9 @@ return each changed node's new reference (`src/lib/canvas/formats/payloads.js` h
 outlives its node, so an undo or merge that brings the node back finds its content; the rows go with the board.
 
 The 2 Mi board limit, and the template snapshot's, count the graph without payloads. One payload may hold up
-to 1,048,576 UTF-16 units of JSON (413 `payload` beyond that); fields hold up to 500,000 characters (HTML,
-XML, preview) and docs up to 2,000 blocks of 20,000 characters. Copying a board or template reads inline and
-re-splits; a template saved from a selection takes unloaded payloads from the source board.
+to 1,048,576 UTF-16 units of JSON (413 `payload` beyond that), on top of the per-field caps above.
+Copying a board or template reads inline and re-splits; a template saved from a selection takes unloaded
+payloads from the source board.
 
 Migration `canvas.0018_format_payloads` moves inline payloads into rows. Unapplying it puts every row back inline
 into its node and drops the reference before the table goes, so a rollback first unapplies canvas 0018 with the new
