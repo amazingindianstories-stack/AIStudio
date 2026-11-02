@@ -56,11 +56,12 @@ def is_admin(user):
 # ---- graph helpers --------------------------------------------------------------------------------------------
 
 def snapshot(raw):
-    """The stored form of a graph: validated, without viewport or server stamps. Raises when it is over the board limit."""
+    """The stored form of a graph: validated, without viewport, server stamps or object locks (a copy is the copier's to
+    change; layer locks stay with the layers). Raises when it is over the board limit."""
     state = validate_state(raw)
     state.pop('viewport', None)
     for item in [*state['nodes'], *state['connectors']]:
-        for key in STAMP_KEYS:
+        for key in (*STAMP_KEYS, 'locked', 'lockedBy', 'lockProtected'):
             item.pop(key, None)
     if content_length(state) > MAX_BOARD_JSON_UNITS:
         raise TemplateError('Template is too large to save.', 413)
@@ -330,11 +331,21 @@ def _board_graph(user, board_id, level):
     return CanvasBoard.objects.filter(pk=board_id).values_list('data', flat=True).first()
 
 
+def clean_featured(user, data, kind):
+    """The `featured` flag a request sets (False when it sets none); only an admin may send it."""
+    if 'featured' not in data:
+        return False
+    if not is_admin(user):
+        raise TemplateError(f'Only an admin can feature {kind}.', 403)
+    return bool(data['featured'])
+
+
 def create_template(user, data):
     """From a whole board (`boardId`), from a selection of it (`graph` with its `boardId`), or from scratch (`fromScratch` with a `projectId`:
     an empty template and the ordinary board it is edited in)."""
     name = clean_name(data.get('name'))
     scope, project_id = clean_scope(data.get('scope', 'personal'), data.get('projectId'), user)
+    featured = clean_featured(user, data, 'templates')
     now = now_ms()
     identifier = uuid.uuid4()
     if data.get('fromScratch') is True:
@@ -355,7 +366,7 @@ def create_template(user, data):
         row = BoardTemplate.objects.create(
             id=identifier, name=name, description=clean_description(data.get('description')),
             category=clean_category(data.get('category')), tags=clean_tags(data.get('tags')), scope=scope,
-            project_id=project_id, created_by=user.id, graph=graph, preview=preview_of(graph),
+            project_id=project_id, created_by=user.id, featured=featured, graph=graph, preview=preview_of(graph),
             node_count=len(graph['nodes']), default_view=_default_view(data.get('defaultView')),
             created_at=now, updated_at=now)
         if data.get('fromScratch') is True:
@@ -411,9 +422,7 @@ def update_template(user, ref, data):
         raise TemplateError('Template not found.', 404)
     require_manage(user, row)
     if 'featured' in data:
-        if not is_admin(user):
-            raise TemplateError('Only an admin can feature templates.', 403)
-        row.featured = bool(data['featured'])
+        row.featured = clean_featured(user, data, 'templates')
     if 'name' in data:
         row.name = clean_name(data['name'])
     if 'description' in data:
@@ -607,6 +616,7 @@ def create_blueprint(user, data):
     chosen boards' data is read."""
     name = clean_name(data.get('name'))
     scope, project_id = clean_scope(data.get('scope', 'personal'), data.get('projectId'), user)
+    featured = clean_featured(user, data, 'blueprints')
     source = data.get('sourceProjectId')
     if not isinstance(source, str) or not UUID_RE.fullmatch(source):
         raise TemplateError('A project is required.')
@@ -625,7 +635,7 @@ def create_blueprint(user, data):
               for row in chosen]
     now = now_ms()
     saved = Blueprint.objects.create(id=identifier, name=name, description=clean_description(data.get('description')),
-                                     scope=scope, project_id=project_id, created_by=user.id, boards=boards,
+                                     scope=scope, project_id=project_id, created_by=user.id, featured=featured, boards=boards,
                                      created_at=now, updated_at=now)
     return {'blueprint': _custom_blueprint(user, _blueprint_row(user, str(saved.id))), 'leftOut': len(readable) - len(chosen)}
 
@@ -636,9 +646,7 @@ def update_blueprint(user, identifier, data):
         raise TemplateError('Blueprint not found.', 404)
     require_manage(user, row)
     if 'featured' in data:
-        if not is_admin(user):
-            raise TemplateError('Only an admin can feature blueprints.', 403)
-        row.featured = bool(data['featured'])
+        row.featured = clean_featured(user, data, 'blueprints')
     if 'name' in data:
         row.name = clean_name(data['name'])
     if 'description' in data:

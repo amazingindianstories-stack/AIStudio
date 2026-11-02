@@ -21,11 +21,11 @@ or a selection of it as a template needs edit rights on that board, and a bluepr
 Only an admin shares a template or blueprint with everyone, and only a member of a project shares one
 with that project; the save dialog offers only the levels the person may use, and editing details
 leaves the level and project alone unless the person changes them. Only an admin may mark a template
-featured. Delete is soft, and the picker shows an undo toast. Likes, feedback
+or blueprint featured, when saving it or later. Delete is soft, and the picker shows an undo toast. Likes, feedback
 comments and usage counts are keyed by the template ref; the picker's "Liked" collection lists the
 templates the viewer liked. Team and company access levels are out of scope: the organisation
 features they depend on were dropped. Usage insights (counts per template) are
-admin only at `api/admin/template-usage`.
+admin only at `api/admin/template-usage`, a read the production gateway (`backend/deploy/gateway.py`) lets through.
 
 ## Using a template
 
@@ -40,7 +40,8 @@ protected lock or a locked layer) stay as they are.
 
 A board started from a whole-board template or a blueprint takes the template's background and
 layers, with each object's layer and the layer locks; the start view stays with the board it was
-saved from.
+saved from. Object locks are not saved with a template or blueprint: like any pasted copy, its objects
+belong to whoever adds them.
 
 "Show this picker on every new board" is a personal preference in `localStorage`
 (`veevee.canvas.showTemplatePicker`), not board data.

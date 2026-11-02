@@ -449,6 +449,36 @@ class TemplateApiTests(TransactionTestCase):
         self.assertEqual(self.send('post', '/api/canvas-blueprints/blueprint:builtin:product-launch/use', {}).status_code, 400)
         self.assertEqual((Project.objects.count(), CanvasBoard.objects.count()), (projects, boards))
 
+    def test_object_locks_never_travel_with_a_template_or_blueprint_but_layer_locks_do(self):
+        lock = {'locked': True, 'lockedBy': str(self.owner.id), 'lockProtected': True}
+        CanvasBoard.objects.filter(pk=self.board.id).update(data={
+            'version': 1, 'connectors': [], 'settings': LAYERED_SETTINGS,
+            'nodes': [sticky('s1', 'Guarded', **lock), sticky('s2', 'Plain', locked=True, layerId='base')]})
+        entry = self.make()
+        self.as_user(self.owner)
+        blueprint = self.send('post', '/api/canvas-blueprints', {'name': 'Locked', 'sourceProjectId': PROJECT}).json()['blueprint']
+        inserted = self.send('get', f'/api/canvas-templates/{entry["id"]}').json()['template']['graph']
+        from_template = self.send('post', '/api/canvas-boards', {'op': 'createBoard', 'projectId': PROJECT, 'name': 'T', 'templateId': entry['id']})
+        from_blueprint = self.send('post', f'/api/canvas-blueprints/{blueprint["id"]}/use', {'name': 'B'})
+        boards = [CanvasBoard.objects.get(pk=board_id).data for board_id in
+                  (from_template.json()['board']['id'], from_blueprint.json()['boards'][0]['id'])]
+        for graph in (inserted, *boards):
+            self.assertEqual([sorted(lock.keys() & item.keys()) for item in graph['nodes']], [[], []])
+            self.assertEqual(graph['settings']['layers'], LAYERED_SETTINGS['layers'])
+
+    def test_only_an_admin_features_a_template_or_blueprint_as_it_is_saved(self):
+        self.as_user(self.owner)
+        for path, body in (('/api/canvas-templates', {'name': 'T', 'boardId': str(self.board.id)}),
+                           ('/api/canvas-blueprints', {'name': 'B', 'sourceProjectId': PROJECT})):
+            self.assertEqual(self.send('post', path, {**body, 'featured': True}).status_code, 403)
+        self.assertFalse(BoardTemplate.objects.exists() or Blueprint.objects.exists())
+        self.as_user(self.admin)
+        template = self.send('post', '/api/canvas-templates', {'name': 'T', 'boardId': str(self.board.id), 'featured': True})
+        blueprint = self.send('post', '/api/canvas-blueprints', {'name': 'B', 'sourceProjectId': PROJECT, 'featured': True})
+        self.assertTrue(template.json()['template']['featured'])
+        self.assertTrue(blueprint.json()['blueprint']['featured'])
+        self.assertTrue(BoardTemplate.objects.get().featured and Blueprint.objects.get().featured)
+
     def test_custom_blueprint_snapshots_a_project_and_later_edits_do_not_change_made_projects(self):
         self.as_user(self.owner)
         reply = self.send('post', '/api/canvas-blueprints', {'name': 'Mine', 'sourceProjectId': PROJECT, 'scope': 'project', 'projectId': PROJECT})

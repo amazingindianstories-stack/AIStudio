@@ -35,6 +35,9 @@ class ProductionRouteTableTests(SimpleTestCase):
             ('POST', '/api/admin/errors', False), ('DELETE', '/api/admin/errors', False), ('GET', '/api/admin/errors/x', False),
             # Unchanged admin reads and portrait settings.
             ('GET', '/api/admin/data', True), ('GET', '/api/admin/logs', True), ('GET', '/api/admin/activity', True),
+            # Read-only template usage insights (Django requires an admin session).
+            ('GET', '/api/admin/template-usage', True), ('HEAD', '/api/admin/template-usage', True),
+            ('POST', '/api/admin/template-usage', False), ('DELETE', '/api/admin/template-usage', False),
             ('GET', '/api/admin/portrait-settings', True), ('POST', '/api/admin/portrait-settings', True),
             # Unchanged agent conversation routes (listing, detail, attach).
             ('GET', '/api/agent-conversations', True), ('POST', '/api/agent-conversations', True),
