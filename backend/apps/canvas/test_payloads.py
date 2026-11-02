@@ -302,7 +302,8 @@ class PayloadMigrationTests(TransactionTestCase):
         board = CanvasBoard.objects.get(pk=BOARD)
         self.assertEqual((board.version, board.updated_at), (7, 1))
         nodes = {node['id']: node for node in board.data['nodes']}
-        self.assertTrue(all('payload' in nodes[key] and absent not in nodes[key] for key, absent in (('d', 'blocks'), ('h', 'html'), ('x', 'xml'))))
+        self.assertTrue(all('payload' in nodes[key] and kept in nodes[key] for key, kept in (('d', 'blocks'), ('h', 'html'), ('x', 'xml'))))
+        self.assertEqual([{key: value for key, value in node.items() if key != 'payload'} for node in board.data['nodes']], legacy['nodes'])
         self.assertNotIn('payload', nodes['r'])
         self.assertEqual(BoardFormatPayload.objects.filter(board_id=BOARD).count(), 3)
         self.assertEqual(services.get_board(BOARD)['data']['nodes'], legacy['nodes'])
@@ -339,6 +340,20 @@ class PayloadMigrationTests(TransactionTestCase):
         nodes = old.get_model('canvas', 'CanvasBoard').objects.get(pk=BOARD).data['nodes']
         self.assertEqual([{key: value for key, value in node.items() if key not in ('updatedAt', 'updatedBy')} for node in nodes],
                          validate_state({**empty_state(), 'nodes': [doc(text='new')]})['nodes'])
+
+    def test_a_board_saved_by_the_previous_release_after_the_migration_keeps_its_content(self):
+        old = self.migrate(MIGRATION_BEFORE)
+        old.get_model('canvas', 'CanvasBoard').objects.create(id=BOARD, project_id=PROJECT, name='Legacy', data=validate_state({**empty_state(), 'nodes': [doc(text='old')]}),
+                                                              created_at=1, updated_at=1, version=3)
+        self.migrate(MIGRATION_AFTER)
+        saved = validate_state({**empty_state(), 'nodes': [doc(text='edited')]})
+        self.assertNotIn('payload', saved['nodes'][0])
+        CanvasBoard.objects.filter(pk=BOARD).update(data=saved, updated_at=2, version=4)
+        self.assertEqual(services.get_board(BOARD)['data']['nodes'][0]['blocks'][0]['text'], 'edited')
+        self.assertEqual(services.get_board(BOARD, lazy=True)['data']['nodes'][0]['blocks'][0]['text'], 'edited')
+        services.save_board(BOARD, validate_state({**empty_state(), 'nodes': [doc(text='edited'), html()]}), 4, uuid4(), make_user('owner').id)
+        self.assertEqual(BoardFormatPayload.objects.get(board_id=BOARD, node_id='d').body['blocks'][0]['text'], 'edited')
+        self.assertEqual(services.get_board(BOARD)['data']['nodes'][0]['blocks'][0]['text'], 'edited')
 
     def test_a_board_saved_by_the_application_after_the_migration_sees_no_change(self):
         old = self.migrate(MIGRATION_BEFORE)

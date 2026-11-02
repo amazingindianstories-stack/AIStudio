@@ -1,8 +1,10 @@
-"""Large format payloads (Docs blocks, HTML embeds, draw.io XML and previews) move out of the board JSON into
-their own rows, one per board and node. The data step is idempotent: a node with inline payload fields gets its
-row (an existing row with the same content is kept) and a reference, and a node already holding a reference is
-left alone. The board version and update time do not change, so editors with a save in flight are unaffected.
-Unapplying puts every row back inline into its node and drops the reference before the table goes."""
+"""Large format payloads (Docs blocks, HTML embeds, draw.io XML and previews) get their own rows, one per board
+and node. This is the expand step: a node with inline payload fields gets its row (an existing row with the same
+content is kept) and a reference, and keeps the inline fields, so the previous release, which drops the reference
+and reads the fields, still shows and saves every payload. A save by this release takes the fields off. The data
+step is idempotent, and the board version and update time do not change, so editors with a save in flight are
+unaffected. Unapplying puts every row back inline into a node without its fields and drops the reference before
+the table goes."""
 import hashlib
 import json
 import django.contrib.postgres.functions
@@ -46,8 +48,8 @@ def move_payloads(apps, schema_editor):
                 row.rev += 1
             row.kind, row.body, row.digest, row.size = node['format'], body, digest, size
             row.save()
-            for field in FIELDS[node['format']]:
-                node.pop(field, None)
+            if node.get('payload') == {'size': size, 'rev': row.rev}:
+                continue
             node['payload'] = {'size': size, 'rev': row.rev}
             changed = True
         if changed:

@@ -112,9 +112,13 @@ to 1,048,576 UTF-16 units of JSON (413 `payload` beyond that), on top of the per
 Copying a board or template reads inline and re-splits; a template saved from a selection takes unloaded
 payloads from the source board.
 
-Migration `canvas.0019_format_payloads` moves inline payloads into rows. Unapplying it puts every row back inline
-into its node and drops the reference before the table goes, so a rollback first unapplies canvas 0019 with the new
-image still deployed, then rolls back the image.
+Migration `canvas.0019_format_payloads` is an expand step: it copies inline payloads into rows and adds each
+node's reference, keeping the inline fields, so the previous release (which drops the reference and reads the
+fields) still shows and saves every payload while both serve. A node without a reference is read from its inline
+fields, and a save by this release takes them off. Removing the inline copies left by the migration is a later
+contract step. Unapplying 0019 puts every row back inline into a node without its fields and drops the reference
+before the table goes, so a rollback first unapplies canvas 0019 with the new image still deployed, then rolls back
+the image.
 
 ## Roles and history
 

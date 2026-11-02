@@ -145,18 +145,37 @@ def _unloaded(node):
     return node.get('type') == 'format' and isinstance(node.get('format'), str) and node['format'] in PAYLOAD_FIELDS and 'payload' in node and PAYLOAD_PROBE[node['format']] not in node
 
 
-def hydrate(board_id, data):
-    """A copy of the graph `data` with every referenced payload put back inline and the references removed: the
-    shape of a board before payloads had their own rows. A node whose row is missing gets empty fields."""
+def _referenced(node):
+    return node.get('type') == 'format' and isinstance(node.get('format'), str) and node['format'] in PAYLOAD_FIELDS and 'payload' in node
+
+
+def slim(board_id, data):
+    """A copy of the stored graph `data` without the inline fields of nodes whose reference has a row (the copies
+    canvas.0019 keeps): the shape a save gives them, so a save compares like with like."""
     nodes = data.get('nodes') if isinstance(data, dict) else None
-    if not isinstance(nodes, list) or not any(isinstance(node, dict) and _unloaded(node) for node in nodes):
+    if not isinstance(nodes, list) or not any(isinstance(node, dict) and _referenced(node) for node in nodes):
         return data
-    rows = read(board_id, [node['id'] for node in nodes if isinstance(node, dict) and _unloaded(node)])
+    stored = set(BoardFormatPayload.objects.filter(board_id=board_id, node_id__in=[
+        node['id'] for node in nodes if isinstance(node, dict) and _referenced(node)]).values_list('node_id', flat=True))
+    return {**data, 'nodes': [{key: value for key, value in node.items() if key not in PAYLOAD_FIELDS[node['format']]}
+                              if isinstance(node, dict) and _referenced(node) and node['id'] in stored else node for node in nodes]}
+
+
+def hydrate(board_id, data):
+    """A copy of the graph `data` with every referenced payload put back inline from its row and the references
+    removed: the shape of a board before payloads had their own rows. A node without a reference keeps its inline
+    fields; one whose row is missing keeps them too, or gets empty fields."""
+    nodes = data.get('nodes') if isinstance(data, dict) else None
+    if not isinstance(nodes, list) or not any(isinstance(node, dict) and _referenced(node) for node in nodes):
+        return data
+    rows = read(board_id, [node['id'] for node in nodes if isinstance(node, dict) and _referenced(node)])
     filled = []
     for node in nodes:
-        if isinstance(node, dict) and _unloaded(node):
-            node = {key: value for key, value in node.items() if key != 'payload'}
-            restore(node, rows[node['id']]['body'] if node['id'] in rows else {})
+        if isinstance(node, dict) and _referenced(node):
+            row = rows.get(node['id'])
+            node = {key: value for key, value in node.items() if key != 'payload' and not (row and key in PAYLOAD_FIELDS[node['format']])}
+            if row or PAYLOAD_PROBE[node['format']] not in node:
+                restore(node, row['body'] if row else {})
         filled.append(node)
     return {**data, 'nodes': filled}
 

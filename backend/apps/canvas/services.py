@@ -141,7 +141,8 @@ def save_board(identifier, data, base_version, save_id, actor, patch=None, level
         with transaction.atomic():
             row = CanvasBoard.objects.select_for_update().filter(pk=identifier).values('version', 'data').first()
             if row and row['version'] == base_version:
-                stored = validate_state(row['data'])
+                current = payloads.slim(identifier, row['data'])
+                stored = validate_state(current)
                 if patch is not None:
                     data = validate_state(board_patch.apply_patch(stored, patch))
                 # Payload fields leave the graph first: everything below sees the small board, and a payload
@@ -159,7 +160,7 @@ def save_board(identifier, data, base_version, save_id, actor, patch=None, level
                 stamped, claimed = private_mode.claim(stored, stamped, actor, mode)
                 if content_length(stamped) > MAX_BOARD_JSON_UNITS:
                     raise BoardTooLarge()
-                version = base_version + 1 if corrected or _graph(stamped) != _graph(row['data']) else base_version
+                version = base_version + 1 if corrected or _graph(stamped) != _graph(current) else base_version
                 CanvasBoard.objects.filter(pk=identifier).update(data=stamped, updated_at=now, version=version)
                 payloads.write(identifier, writes, stamped, actor, now)
                 if version != base_version:
