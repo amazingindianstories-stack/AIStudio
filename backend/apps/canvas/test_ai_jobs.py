@@ -57,6 +57,19 @@ def text_contract(**changes):
 class BoardPayloadAllowlistTests(SimpleTestCase):
     """Board prompts go through the agents payload allowlist: one format's exact prompt, schema and config, text turns."""
 
+    def test_black_and_other_requested_colors_survive_parsing(self):
+        item = board_formats.STICKIES_SCHEMA['properties']['notes']['items']
+        self.assertEqual((item['properties']['color']['enum'], 'fill' in item['required']), (list(board_formats.STICKY_COLORS), True))
+        for name in ('black', 'white', 'grey', 'red', 'teal'):
+            self.assertIn(name, board_formats.STICKY_COLORS)
+        parsed = board_formats.parse_output('stickies', json.dumps({'notes': [
+            {'text': 'a', 'color': 'black', 'fill': ''}, {'text': 'b', 'color': 'yellow', 'fill': '#FF00AA'},
+            {'text': 'c', 'color': 'teal', 'fill': 'magenta'}, {'text': 'd', 'color': 'blue', 'fill': 7}]}))
+        self.assertEqual([(note['color'], note['fill']) for note in parsed['notes']],
+                         [('black', ''), ('yellow', '#ff00aa'), ('teal', ''), ('blue', '')])
+        self.assertEqual(board_formats.sticky_list([{'text': 'x', 'color': 'black', 'fill': '#123456'}]),
+                         [{'text': 'x', 'color': 'black', 'fill': '#123456'}])
+
     def test_only_the_exact_board_shape_is_allowed(self):
         body = stickies_body()
         self.assertTrue(board_payload_allowed(body))
@@ -139,7 +152,8 @@ class BoardPayloadAllowlistTests(SimpleTestCase):
     def test_results_are_validated_before_the_board_sees_them(self):
         parsed = board_formats.parse_output('stickies', json.dumps({'notes': [
             {'text': '  first  ', 'color': 'blue'}, {'text': '', 'color': 'blue'}, {'text': 'x' * 400, 'color': 'magenta'}, 'junk']}))
-        self.assertEqual(parsed, {'notes': [{'text': 'first', 'color': 'blue'}, {'text': 'x' * board_formats.MAX_STICKY_CHARS, 'color': 'yellow'}]})
+        self.assertEqual(parsed, {'notes': [{'text': 'first', 'color': 'blue', 'fill': ''},
+                                            {'text': 'x' * board_formats.MAX_STICKY_CHARS, 'color': 'yellow', 'fill': ''}]})
         many = board_formats.parse_output('stickies', json.dumps({'notes': [{'text': str(n), 'color': 'green'} for n in range(40)]}))
         self.assertEqual(len(many['notes']), board_formats.MAX_STICKIES)
         for text in ('not json', '[]', '{"notes": []}', '{"notes": [{"text": " "}]}', '{"ideas": ["a"]}'):
@@ -300,8 +314,9 @@ class BoardAiJobTests(BoardFixture):
         refined = self.submit({'format': 'stickies', 'prompt': 'make them shorter', 'parentJobId': job['id']}, key='board-key-refine').json()['job']
         self.assertEqual(refined['parentJobId'], job['id'])
         turns = Generation.objects.get(pk=refined['generationId']).submission_input['turns']
+        stored = [{key: note[key] for key in ('fill', 'text', 'color')} for note in BOARD_NOTES]    # jsonb's key order
         self.assertEqual(turns, [{'role': 'user', 'text': 'five ideas for a teaser'},
-                                 {'role': 'model', 'text': json.dumps({'notes': BOARD_NOTES}, ensure_ascii=False, separators=(',', ':'))},
+                                 {'role': 'model', 'text': json.dumps({'notes': stored}, ensure_ascii=False, separators=(',', ':'))},
                                  {'role': 'user', 'text': 'make them shorter'}])
         with FakeProviders() as fake:
             self.assertEqual(self.run_worker(refined['generationId'])['kind'], 'succeeded')

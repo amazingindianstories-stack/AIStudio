@@ -70,7 +70,8 @@ class Handler(BaseHTTPRequestHandler):
                                         'assets': assets, 'groups': list(FAKE.groups.values()),
                                         'seedance_tasks': FAKE.task_counter, 'kling_tasks': len(FAKE.kling_tasks), 'calls': FAKE.calls[-50:],
                                         'reject_image_sha256': sorted(FAKE.reject_image_sha256), 'reject_mode': FAKE.reject_mode,
-                                        'faults': FAKE.faults, 'board_jobs': len(FAKE.board_payloads)})
+                                        'faults': FAKE.faults, 'board_jobs': len(FAKE.board_payloads),
+                                        'image_requests': FAKE.image_requests()})
         if target.path == '/health':
             return self._json(200, {'ok': True})
         self._json(404, {'error': 'not found'})

@@ -30,6 +30,12 @@ test("a diagram becomes shapes and connectors, dropping edges to unknown nodes",
   assert.deepEqual(diagramGraph({ nodes: [] }, C), { nodes: [], connectors: [] });
 });
 
+test("layout notes take the requested colour, with readable text on black", () => {
+  const { nodes } = layoutGraph({ title: "Plan", frames: [{ title: "Prep", notes: [{ text: "a", color: "black" }, { text: "b", color: "yellow", fill: "#00ff88" }] }] }, C);
+  const stickies = nodes.filter((node) => node.type === "sticky");
+  assert.deepEqual(stickies.map((node) => [node.fill, node.color]), [["#1a1a1a", "#f5f5f5"], ["#00ff88", "#1c1a12"]]);
+});
+
 test("a layout is a title, frames side by side, and stickies parented to their frame", () => {
   const { nodes } = layoutGraph({ title: "Plan", frames: [{ title: "Prep", notes: [{ text: "a" }, { text: "b" }] }, { title: "Shoot", notes: [{ text: "c" }] }] }, C);
   const frames = nodes.filter((node) => node.type === "frame");

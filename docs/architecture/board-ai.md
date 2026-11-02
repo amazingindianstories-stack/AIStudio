@@ -10,7 +10,12 @@ role gets 403 and no panel.
 
 Two formats ship today:
 
-- **Sticky notes**: a batch of up to 24 notes from a text model, laid out on a grid.
+- **Sticky notes**: a batch of up to 24 notes from a text model, laid out on a grid. Each note has a `color` (one of
+  `STICKY_COLORS` in `apps/agents/sidekick.py`: the six original names plus red, teal, black, white and grey) and a
+  `fill`, a six digit hex the model sets for a colour the list has no name for. A valid hex wins over the name; an
+  unknown name falls back to yellow. The frontend (`stickyFill` and `stickyInk` in `src/lib/canvas/ai-graph.js`) turns
+  that into the note fill and picks light text on dark fills. Layout notes and Sidekick `add` and `update` actions
+  use the same two fields.
 - **Image**: an ordinary image generation, placed as an image node.
 
 ## How a job runs

@@ -27,6 +27,14 @@ test("leaves a result the server accepts after normalization", () => {
   assert.equal(parsed.nodes.length, 4);
 });
 
+test("adds and recolours objects in any requested colour", () => {
+  const present = board([sticky("a")]);
+  const added = applyActions(present, [{ op: "add", type: "sticky", text: "Dark", color: "black" }, { op: "add", type: "sticky", text: "Hex", fill: "#FF00AA" },
+    { op: "update", id: "a", color: "black" }]);
+  const [a, dark, hex] = [...added.next.nodes.filter((node) => node.id === "a"), ...added.next.nodes.filter((node) => node.id !== "a")];
+  assert.deepEqual([a, dark, hex].map((node) => [node.fill, node.color]), [["#1a1a1a", "#f5f5f5"], ["#1a1a1a", "#f5f5f5"], ["#ff00aa", "#1c1a12"]]);
+});
+
 test("updates and deletes only unlocked objects the board holds", () => {
   const present = board([sticky("a"), sticky("b", { locked: true }), sticky("c")], [{ id: "k", from: { nodeId: "c", anchor: "auto" }, to: { nodeId: "a", anchor: "auto" }, kind: "arrow", stroke: "#000", strokeWidth: 2 }]);
   const result = applyActions(present, [
