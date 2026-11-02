@@ -36,6 +36,7 @@ import { useCanvasStore, } from "@/lib/canvas-store";
 import { clampZoom, nodeBounds } from "@/lib/canvas/geometry";
 import { ZOOM_STEP, zoomAboutCenter, zoomToLevel } from "@/lib/canvas/viewport-nav";
 import { ViewMenu } from "./ViewMenu";
+import { ExportMenu } from "./ExportMenu";
 import { toggleFullscreen, useFullscreen } from "./use-board-fullscreen";
 import { Dropdown, MenuItem } from "@/components/Dropdown";
 import { isShapeTool } from "@/lib/canvas/shapes";
@@ -449,6 +450,7 @@ function ZoomControl() {
       className="absolute bottom-4 right-4 z-30 flex items-center gap-1 rounded-lg border border-line bg-ink-800 p-1 shadow-pop"
     >
       <ViewMenu />
+      <ExportMenu />
       <span className="h-4 w-px bg-line" aria-hidden />
       <button
         type="button"
