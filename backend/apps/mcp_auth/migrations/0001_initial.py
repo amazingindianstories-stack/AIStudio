@@ -98,4 +98,18 @@ class Migration(migrations.Migration):
                 'constraints': [models.CheckConstraint(condition=models.Q(('kind__in', ('pat', 'access', 'refresh'))), name='mcp_tokens_kind_check'), models.CheckConstraint(condition=models.Q(models.Q(('client__isnull', True), ('kind', 'pat')), models.Q(models.Q(('kind', 'pat'), _negated=True), ('client__isnull', False)), _connector='OR'), name='mcp_tokens_client_check'), models.CheckConstraint(condition=models.Q(('auto_approve_cents__gte', 0), ('auto_approve_cents__lte', 100), ('daily_cap_cents__gte', 1)), name='mcp_tokens_caps_check')],
             },
         ),
+        migrations.RunSQL("""
+DO $$
+DECLARE r TEXT;
+BEGIN
+    FOREACH r IN ARRAY ARRAY['goal4_green_preview_api', 'goal4_green_preview_worker'] LOOP
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname=r) THEN
+            EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON mcp_clients, mcp_rate_windows, mcp_auth_codes, mcp_tokens TO %I', r);
+        END IF;
+    END LOOP;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='goal4_green_history_writer') THEN
+        GRANT SELECT ON mcp_clients, mcp_rate_windows, mcp_auth_codes, mcp_tokens TO goal4_green_history_writer;
+    END IF;
+END $$;
+""", migrations.RunSQL.noop),
     ]
