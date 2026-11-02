@@ -132,8 +132,9 @@ export function StyleInspector({ hidden, insetLeft = 0, insetTop = 8 }) {
   // Clear of the rotation handle above the selection.
   const gap = 8 + (rotationTargets(present, selection).length ? ROTATE_HANDLE_REACH * viewport.zoom : 0);
   const panelHeight = 44;
-  const flipBelow = topLeftScreen.y - panelHeight - gap < insetTop;
-  const top = flipBelow ? bottomRightScreen.y + gap : topLeftScreen.y - panelHeight - gap;
+  const flipBelow = topLeftScreen.y - panelHeight - gap < 8;
+  // `insetTop` keeps the panel under a tall top bar (a phone's wrapped controls) rather than over it.
+  const top = flipBelow ? bottomRightScreen.y + gap : Math.max(topLeftScreen.y - panelHeight - gap, insetTop);
 
   const types = new Set(selectedNodes.map((n) => n.type));
   const homogeneous = types.size <= 1;

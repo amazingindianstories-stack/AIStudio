@@ -60,7 +60,7 @@ export function CanvasView() {
   const [importNotice, setImportNotice] = useState("");
   // One timer for the notice, so an older message's clear cannot wipe a newer one.
   const noticeTimer = useRef(0);
-  // On a phone the top bar wraps into many rows; the comment cluster sits just below it.
+  // On a phone the top bar wraps into many rows; the style inspector stays below it.
   const topBarRef = useRef(null);
   const [topBarBottom, setTopBarBottom] = useState(0);
   const showNotice = useCallback((message, lingerMs = 3500) => {
@@ -537,7 +537,7 @@ export function CanvasView() {
         }}
       />
 
-      {!noBoards && <CollabLayer boardId={boardId} insetTop={narrow ? topBarBottom + 8 : undefined} commentLink={commentLink} onCommentLinkDone={clearCommentLink} />}
+      {!noBoards && <CollabLayer boardId={boardId} commentLink={commentLink} onCommentLinkDone={clearCommentLink} />}
 
       {shareOpen && boardId && (
         <BoardShareDialog
@@ -554,7 +554,7 @@ export function CanvasView() {
 
       {importNotice && <div role="status" className="absolute bottom-20 left-1/2 z-40 -translate-x-1/2 rounded-lg border border-line bg-ink-750/95 px-3 py-2 text-xs text-white/80 shadow-pop">{importNotice}</div>}
 
-      <StyleInspector hidden={transientActive || readOnly || touchViewOnly || noBoards} insetLeft={narrow ? 0 : assetPanelWidth} insetTop={narrow ? topBarBottom + 60 : undefined} />
+      <StyleInspector hidden={transientActive || readOnly || touchViewOnly || noBoards} insetLeft={narrow ? 0 : assetPanelWidth} insetTop={narrow ? topBarBottom + 8 : undefined} />
       {!noBoards && !transientActive && <MediaSelectionBar hidden={touchViewOnly} boardId={boardId} notify={notify} />}
       {!noBoards && !transientActive && <ObjectInfo style={{ left: assetPanelWidth + 16 }} />}
       {boardId && loaded && <FacilitationDock />}

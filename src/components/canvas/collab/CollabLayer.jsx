@@ -22,7 +22,7 @@ const editable = (target) => target instanceof HTMLElement && (target.isContentE
  * comments panel, the people bar and the notification bell, all fed by one poll beside the board version poll.
  * `commentLink` ({ boardId, commentId }) is a thread to open once its board is loaded; `onCommentLinkDone` drops it.
  */
-export function CollabLayer({ boardId, commentLink, onCommentLinkDone, insetRight = 16, insetTop }) {
+export function CollabLayer({ boardId, commentLink, onCommentLinkDone, insetRight = 16 }) {
   const people = usePeople();
   const currentUser = useStore((s) => s.currentUser);
   const openBoardLink = useStore((s) => s.openBoardLink);
@@ -102,7 +102,7 @@ export function CollabLayer({ boardId, commentLink, onCommentLinkDone, insetRigh
         <CommentPins boardId={boardId} people={people} currentUserId={currentUser?.id} canComment={canComment} canManage={canShareRole(boardRole)} canMove={canEditRole(boardRole)} size={size} />
       )}
       {ready && panelOpen && <CommentsPanel people={people} onClose={() => useCommentsStore.getState().setPanelOpen(false)} />}
-      <div className="pointer-events-auto absolute top-16 z-30 flex items-center gap-1 rounded-xl border border-line bg-ink-800/95 p-1 shadow-panel" style={{ right: insetRight, ...(insetTop ? { top: insetTop } : {}) }}>
+      <div className="pointer-events-auto absolute top-16 z-30 flex items-center gap-1 rounded-xl border border-line bg-ink-800/95 p-1 shadow-panel max-md:bottom-[10.75rem] max-md:top-auto" style={{ right: insetRight }}>
         <PeopleBar people={people} currentUserId={currentUser?.id} />
         {canComment && (
           <button type="button" onClick={() => useCommentsStore.getState().setPlacing(!placing)} disabled={hidden} aria-label="Add comment" aria-pressed={placing} title="Add comment (Shift+M)" data-testid="add-comment" className={cn(button, placing && "bg-white/15 text-white", hidden && "opacity-40")}>

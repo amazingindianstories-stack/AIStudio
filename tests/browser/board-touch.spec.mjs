@@ -278,7 +278,7 @@ test('Board touch: a phone opens the board view-only, pans and zooms by touch, a
   await expect(inspector).toHaveCount(0);
   await centreNode(touch, sticky, box);
   const target = await sticky.boundingBox();
-  await touch.drag(at(target.x - box.x - 30, target.y - box.y - 30), at(target.x - box.x + target.width + 30, target.y - box.y + target.height + 30), { holdMs: 650 });
+  await touch.drag(at(target.x - box.x - 16, target.y - box.y - 16), at(target.x - box.x + target.width + 16, target.y - box.y + target.height + 16), { holdMs: 650 });
   await expect(inspector).toBeVisible();
   await pixelClean(phone.page);
   await shot(phone.page, info, 'phone-marquee-selection');
@@ -517,7 +517,7 @@ test('Board touch: after a one-finger crop drag, taps select, a double tap opens
   const touch = new Touch(await phone.context.newCDPSession(phone.page));
   const box = await canvas.boundingBox();
   const at = (x, y) => ({ x: box.x + x, y: box.y + y });
-  const empty = at(330, 560); // below the centred image and above the tool dock
+  const empty = at(330, 530); // below the centred image and above the comment cluster and the tool dock
   const node = phone.page.locator(`[data-node-id="${imageId}"]`);
   const cropButton = phone.page.getByRole('button', { name: 'Crop image', exact: true });
   const cropControls = phone.page.locator('[data-crop-controls]');
@@ -557,7 +557,7 @@ test('Board touch: after a one-finger crop drag, taps select, a double tap opens
   // One finger on empty space pans by the finger's travel and leaves the zoom alone.
   const before = await node.boundingBox();
   await phone.page.waitForTimeout(400);
-  await touch.drag(empty, at(150, 560));
+  await touch.drag(empty, at(150, 530));
   const after = await node.boundingBox();
   expect(before.x - after.x).toBeGreaterThan(150);
   expect(before.x - after.x).toBeLessThan(200);

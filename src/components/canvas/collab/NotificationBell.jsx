@@ -104,7 +104,7 @@ export function NotificationBell({ boardId, onOpen }) {
         {unread > 0 && <span data-testid="notification-count" className="absolute right-0.5 top-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-mention px-1 text-[10px] font-semibold text-white">{unread > 99 ? "99+" : unread}</span>}
       </button>
       {open && (
-        <div role="dialog" aria-label="Notifications" className="absolute right-0 top-full z-40 mt-2 flex max-h-[70vh] w-96 max-w-[calc(100vw-2rem)] flex-col rounded-xl border border-line bg-ink-750 shadow-pop">
+        <div role="dialog" aria-label="Notifications" className="absolute right-0 top-full z-40 mt-2 max-md:bottom-full max-md:top-auto max-md:mb-2 max-md:mt-0 flex max-h-[70vh] w-96 max-w-[calc(100vw-2rem)] flex-col rounded-xl border border-line bg-ink-750 shadow-pop">
           <div role="tablist" aria-label="Notification boards" className="flex items-center gap-1 overflow-x-auto border-b border-line px-2 py-1.5">
             {[{ boardId: "all", name: "All boards", unread: null }, ...boards].map((entry) => (
               <button key={entry.boardId} type="button" role="tab" aria-selected={tab === entry.boardId} onClick={() => setTab(entry.boardId)} className={cn("flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1 text-xs", tab === entry.boardId ? "bg-white/15 text-white" : "text-white/55 hover:bg-white/10")}>
