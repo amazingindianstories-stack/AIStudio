@@ -136,6 +136,10 @@ objects are left alone.
   context: it reuses the first turn of the job it refines, which already holds the original selection.
 - **Image references.** `referenceImages` (up to 4 URLs under `/api/media/`) on an `image` request are validated
   by the existing enqueue path. Selected board images become references of a new image, so the original stays.
+  A board image job (and an image refinement) assembles its references with `referenceUse: 'board'`
+  (`image_execution.py`, `board_references` in `apps/generation/prompting/assembler.py`): when no reference shows a
+  person, they are context for the request rather than a subject to reproduce, so a bare "a cat" over a landscape
+  still adds the cat. A reference that shows (or may show) a person keeps the usual identity rules.
 - **Placement kinds** in `AI_FORMATS`: `nodes` (new objects), `graph` (new objects and connectors, placed with
   `placeGeneratedNodes`; a refined result replaces the result it refines) and `edit` (rewrites
   selected objects in place with `applyBoardAiEdit`, one undo step; locked objects are skipped). An `edit` format
@@ -165,8 +169,9 @@ objects are left alone.
   - refinement, placement, and the migration.
 - `src/lib/board-ai.test.js`, `src/lib/canvas/ai-formats.test.js`, `ai-graph.test.js`, `ai-selection.test.js` and `src/components/canvas/CanvasAiPanel.test.js`
   cover the browser side.
-- `tests/browser/board-ai.spec.mjs` and `board-ai-selection.spec.mjs` are the end-to-end flows. Run it against the fake provider server with:
+- `tests/browser/board-ai.spec.mjs`, `board-ai-selection.spec.mjs` and `board-ai-quality.spec.mjs` (requested colours,
+  recolouring a selection, references as context) are the end-to-end flows. Run them against the fake provider server with:
 
   ```
-  scripts/dev/test-db.sh PYTHON scripts/dev/browser-harness.py --fake-providers --grep "Create with AI"
+  scripts/dev/test-db.sh PYTHON scripts/dev/browser-harness.py --fake-providers --grep "board-ai"
   ```
