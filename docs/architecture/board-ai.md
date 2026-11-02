@@ -121,6 +121,12 @@ The board owns its graph and autosave, so the browser places the result (`src/li
    areas, the board pans instantly so they are. It zooms out only when the result is too large to show at the
    current zoom. The pan is not an undo step.
 
+The selection toolbar (`StyleInspector`) uses the same top-chips inset on desktop as on phones, so it never covers
+the chips: with no room above a selection it goes below it, or stays just under the chips when below would leave
+the canvas. Without that inset the desktop toolbar covered the top chips (before:
+`/Users/rohit/.no-mistakes/evidence/01M6E9J8C86ER3QGC9KGY6JP5R/style-inspector-before-over-chips.png`, after:
+`/Users/rohit/.no-mistakes/evidence/01M6E9J8C86ER3QGC9KGY6JP5R/style-inspector-after-below-selection.png`).
+
 When a board reloads, the panel resumes the user's unfinished jobs and places finished, unplaced ones. Failed jobs
 are dismissed with an empty claim. Every unfinished job is polled, and the panel follows the newest. An older job
 that finishes in the background is placed but leaves the panel (its job, result, refine target and error) alone,
