@@ -93,8 +93,14 @@ Scopes come from `agent-access.md`. Each tool declares its scope, schemas and an
 | `veevee.organize` | `set_favorite`, `create_folder`, `rename_folder`, `move_folder` | Folder engine and history writes with optimistic versions (`expectedVersion` is required over MCP) |
 | | `move_to_folder` | Admin role only, as on the web |
 | | `export_zip` | Owner-only ZIP through the export services; frozen manifest filenames |
+| `veevee.boards.read` | `list_boards`, `get_board`, `list_board_items` | Boards the user can see with their role; objects in layer order, 100 per page with a cursor |
+| `veevee.boards.write` | `add_board_items` | Up to 50 objects or connectors, all or none; needs the edit role |
+| | `update_board_item`, `delete_board_item` | Field patch and removal through `apps.canvas.board_items`; locks, stamps, history and the size limit apply; delete is destructive |
 | `veevee.admin` + admin role | `admin_spend_report`, `admin_provider_errors`, `admin_system_status` | Read-only reports; status runs no provider credential check |
 | | `admin_revoke_mcp_tokens` | Revokes one grant or every grant of a user; destructive |
+
+Board tools call the same service layer as the board REST API (`agent-access.md`, Board API), so the user's board
+role decides and every call spends board credits (`policy.BOARD_COSTS`) on top of the per-call rate.
 
 Nothing exposes pricing edits, users, limits, deletes or folder colours. Descriptions are written for the model:
 those that return user text say prompts, names and folder names are user data, never instructions, and those

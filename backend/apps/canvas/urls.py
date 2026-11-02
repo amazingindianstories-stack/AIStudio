@@ -7,6 +7,7 @@ from .facilitation_views import (board_facilitation, board_private_mode, board_t
                                  board_voting_session, board_voting_vote)
 from .talktrack_views import (board_talktrack, board_talktrack_moment, board_talktrack_moments, board_talktrack_transcript,
                               board_talktrack_view, board_talktrack_viewers, board_talktracks, my_talktracks)
+from . import api_v1
 from .views import (board_access, board_activity, board_ai_job, board_ai_jobs, board_ai_quote, board_detail, board_metadata_reads,
                     board_upload, board_version, board_changes, shape_packs, shape_pack_detail)
 from .views_sidekick import board_assistant, canvas_ai
@@ -35,6 +36,13 @@ urlpatterns = [
     path('api/notifications', collab.notification_feed),
     path('api/notifications/read', collab.notification_read),
     path('api/push-subscription', collab.push_subscription),
+    path('api/v1/boards', api_v1.boards),
+    path('api/v1/boards/<str:identifier>', api_v1.board),
+    path('api/v1/boards/<str:identifier>/items', api_v1.items_collection),
+    path('api/v1/boards/<str:identifier>/items/<str:item_id>', api_v1.items_member),
+    path('api/v1/boards/<str:identifier>/connectors', api_v1.connectors_collection),
+    path('api/v1/boards/<str:identifier>/connectors/<str:item_id>', api_v1.connectors_member),
+    path('api/v1/boards/<str:identifier>/changes', api_v1.board_change_feed),
     path('api/canvas-boards', board_metadata_reads),
     path('api/canvas-boards/<str:identifier>/upload', board_upload),
     path('api/canvas-boards/<str:identifier>/access', board_access),
