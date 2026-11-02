@@ -68,6 +68,19 @@ def _format_nodes(data):
         if isinstance(nodes, list) else []
 
 
+def slim_length(data):
+    """The size of a raw (not yet validated) graph as the board JSON will be once its payload fields move to
+    rows: the early size gate in the save view measures this, so Docs and diagrams do not count against 2 Mi."""
+    from .serialization import content_length
+    nodes = data.get('nodes') if isinstance(data, dict) else None
+    if not isinstance(nodes, list):
+        return content_length(data)
+    slim = [{key: value for key, value in node.items() if key not in PAYLOAD_FIELDS[node['format']]}
+            if isinstance(node, dict) and node.get('type') == 'format' and node.get('format') in PAYLOAD_FIELDS else node
+            for node in nodes]
+    return content_length({**data, 'nodes': slim})
+
+
 def split(board_id, data):
     """Take the payload fields off the validated graph `data` (in place) and give each such node its reference.
     Returns {node id: (kind, body, digest, size, rev)} for the rows whose content changed. A reference without

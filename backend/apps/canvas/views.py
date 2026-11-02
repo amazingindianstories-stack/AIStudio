@@ -7,7 +7,7 @@ from apps.authentication.session import lookup
 from . import access, hidden, limits, payloads, services
 from . import patch as board_patch
 from .models import CanvasBoard
-from .serialization import JS_WHITESPACE, MAX_BOARD_JSON_UNITS, content_length, js_json, validate_state
+from .serialization import JS_WHITESPACE, MAX_BOARD_JSON_UNITS, js_json, validate_state
 
 UUID_PATTERN = re.compile(r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}')
 
@@ -195,7 +195,8 @@ def board_detail(request, identifier):
         save_id = save_id_of(payload)
         if save_id is False:
             return reply(request, {'error': 'Invalid save id.'}, 400)
-        if patch is None and content_length(data) > MAX_BOARD_JSON_UNITS:
+        # The 2 Mi board limit applies to the board JSON without its format payloads (each has its own limit).
+        if patch is None and payloads.slim_length(data) > MAX_BOARD_JSON_UNITS:
             return reply(request, {'error': 'Board is too large to save.'}, 413)
         try:
             saved = services.save_board(identifier, None if patch is not None else validate_state(data), base_version,

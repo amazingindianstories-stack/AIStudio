@@ -71,6 +71,13 @@ class PayloadApiTests(TransactionTestCase):
         self.assertEqual(rows['x'].body, {'xml': '<m/>', 'preview': 'data:image/svg+xml;base64,AAAA'})
         self.assertEqual(nodes['d']['payload'], {'size': rows['d'].size, 'rev': 1})
 
+    def test_payloads_beyond_the_board_json_limit_still_save(self):
+        big = 'x' * 400_000
+        nodes = [doc(f'd{index}', big) for index in range(3)] + [html('h', '<p>' + big + '</p>')]
+        self.assertEqual(self.save(self.owner, data=graph(*nodes)).status_code, 200)
+        self.assertEqual(BoardFormatPayload.objects.filter(board_id=BOARD).count(), 4)
+        self.assertLess(len(json.dumps(CanvasBoard.objects.get(pk=BOARD).data)), 100_000)
+
     def test_the_default_read_is_inline_and_the_lazy_read_is_the_reference(self):
         self.save(self.owner, data=graph(doc(text='one')))
         self.as_user(self.owner)
