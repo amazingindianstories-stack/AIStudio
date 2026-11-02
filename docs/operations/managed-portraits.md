@@ -1,11 +1,12 @@
 # Automatic portraits (managed BytePlus pool) - rollout and rollback
 
-Status 2026-10-16: v1 (2026-10-14) plus **Portrait Gallery v2** are implemented and verified **locally only**.
-Nothing is deployed. Every production step below needs explicit owner approval.
+What runs in production is recorded in `status.md`; automatic video portraits (below) are verified locally only.
+Every production step below needs explicit owner approval.
 
 ## What changes for artists
-- A video reference that contains a face (local YuNet detector, fails closed) is registered as a
-  BytePlus asset automatically and submitted as `asset://…`. Plain images stay inline.
+- A reference image with a face (local YuNet detector, fails closed) is registered as a BytePlus asset
+  automatically and submitted as `asset://…`. Images without a face stay inline. A reference video with a face
+  gets the same treatment (below).
 - Identical images share one asset (content SHA-256). Assets in use by a queued/running generation
   are pinned and never expired or evicted. Unused assets expire after `portraitAssetTtlHours` (4).
 - When the pool is full the least recently used unpinned asset is evicted; if everything is pinned
@@ -39,6 +40,23 @@ Nothing is deployed. Every production step below needs explicit owner approval.
   still running, delete every video portrait from the Gallery and wait until none is left outside `DELETED`
   (`ManagedPortraitAsset.objects.filter(media_kind='video').exclude(status='DELETED')` is empty; a held one goes once
   its generation finishes), then `python manage.py migrate assets 0006` (owner DSN; 81 → 80 rows).
+- Reference videos with a face are portraits too (Seedance models that take reference videos only; `apps/assets/video_faces.py`,
+  called from `portrait_prepare`). A reference video that is not already a Gallery clip is checked once, the first time a
+  generation needs it: its content hash comes from the upload record (or the stored object is hashed), a clip over 200 MB is
+  skipped, the clip is probed with ffprobe against the Gallery video limits above, and five frames spread across it (10 to 85 % of its
+  length, at most 960 px) are read with ffmpeg and given to the same YuNet detector. One face in any frame makes it a
+  portrait: it is registered as an `AssetType: Video` asset through the same pipeline as a Gallery clip (same processing
+  limit, pin, TTL, eviction, `PORTRAIT_WAITING`), sent to Seedance as `asset://<id>`, and shown in the Gallery as a video
+  card named "Face from ..." (`origin = 'reference'`, its card frame made on the spot, and again on its next use if that failed) while its asset is live. Identical
+  clips share one asset, also with a clip uploaded by hand to the Gallery. The answer is cached by content in
+  `reference_face_scans` (detector version `yunet-2023mar-v1+video-v1`); a clip that has a live asset is not scanned again.
+  A clip with no face, outside the video limits (length, size, frame rate, shape, 200 MB) or that ffprobe cannot read keeps
+  going as a plain URL, is not in the Gallery, and costs nothing extra and fails no job. A scan error (a frame that cannot
+  be read, a detector failure) counts as a face, like images, and is not cached as an answer. While ffmpeg is busy with
+  another clip the job waits a moment and looks again instead of guessing. If BytePlus refuses the clip as an asset
+  (when it is created or while it is processed) or has not finished processing within the video processing limit, it is marked `provider_refused_asset` and goes as a URL from then on. A Gallery clip (also one registered
+  again after it expired) fails clearly instead (not charged). A face the detector misses in a video is not
+  learned from a Seedance rejection (that learning covers images only). Output (generated) videos are not affected.
 - Pool slots are handed out strictly first come first served: the oldest waiting generation or queued
   upload gets the next free (or evictable) slot; everyone else waits behind it.
 - A face the detector misses never traps an artist: when Seedance refuses an inline reference as a real
@@ -72,6 +90,7 @@ Nothing is deployed. Every production step below needs explicit owner approval.
 | Gallery API | `apps/assets/managed_views.py` |
 | Missed-face learning | `portrait_prepare.learn_from_rejection`, called from `executor.execute_admitted` and `poller` |
 | One-off cleanup of the old BytePlus portraits | `python manage.py portraits_cutover` |
+| Reference video face scan (sampled frames, cache by content) | `apps/assets/video_faces.py` |
 | Worker preparation before admission | `apps/generation/services/portrait_prepare.py`, `executor._prepare_portraits` |
 | Scheduler: janitor (60 s) and upload/delete processing (3 s, one upload at a time) | `apps/workers/scheduler.py` (only when the flag is on) |
 | Routes | `GET/POST /api/portraits`, `PATCH /api/portraits/<id>`, `POST /api/portraits/delete`, `GET/POST /api/admin/portrait-settings` (all pass the gateway's general rule; Django enforces sessions and admin) |
@@ -147,6 +166,14 @@ Nothing is deployed. Every production step below needs explicit owner approval.
 - Scenario tests (`apps/assets/test_managed_pool.py`): sharing, eviction, pinning, wait limit,
   quota, uncertain reconcile, janitor expiry, Gallery delete, draft→final re-register, remote
   drift, group recreation, failed-job re-verification, rollback command.
+
+## Local verification of automatic video portraits (2026-11-02)
+- `apps/assets/test_auto_video_portraits.py` runs real ffmpeg, ffprobe and YuNet on generated clips: a face clip is sent as
+  `asset://` and listed as a reference video card (a face image is the control); no-face, too-short, refused-by-BytePlus
+  and busy-extractor clips; identical clips (and a Gallery upload of the same bytes) share one asset; the scan is cached by
+  content; scan errors fail closed; a full pool shows `PORTRAIT_WAITING` with nothing submitted. No migration.
+- Rolling back past this change needs nothing special: the older build already understands video rows (the Gallery
+  shows an automatic clip as a card) and simply sends reference videos as URLs again.
 
 ## Local verification of v2 (2026-10-16)
 - Scenario tests: `apps/assets/test_portrait_gallery.py` (Gallery API, first come first served between
