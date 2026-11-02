@@ -4,6 +4,7 @@ import { useCanvasStore } from "./canvas-store.js";
 import { readPendingDraft } from "./canvas-pending-draft.js";
 import { emptyCanvasState } from "./canvas/serialization.js";
 import { applyBoardPatch } from "./canvas/patch.js";
+import { useBoardUi } from "./canvas/board-ui.js";
 
 const store = useCanvasStore;
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -11,6 +12,8 @@ const unloaded = (id, rev = 1) => ({ id, type: "format", format: "doc", name: "D
 const blocks = (text) => [{ id: "b", type: "p", text }];
 const node = (id) => store.getState().history.present.nodes.find((item) => item.id === id);
 const withNode = (id, patch) => (present) => ({ ...present, nodes: present.nodes.map((item) => (item.id === id ? { ...item, ...patch } : item)) });
+const settle = () => new Promise((resolve) => setTimeout(resolve, 40));
+const notice = () => useBoardUi.getState().notice;
 
 function useStorage(t) {
   const map = new Map();
@@ -21,12 +24,15 @@ function useStorage(t) {
 
 /** A board whose format payloads live in their own rows, read with `?payloads=lazy` as apps.canvas does. */
 function lazyServer(t, nodes, rows) {
-  const server = { version: 1, data: { ...emptyCanvasState(), nodes }, rows, urls: [], saves: [], payloadReads: 0 };
+  const server = { version: 1, data: { ...emptyCanvasState(), nodes }, rows, urls: [], saves: [], payloadReads: 0, reading: 0, mostReading: 0 };
   t.mock.method(globalThis, "fetch", async (url, init = {}) => {
     server.urls.push(url);
     const payload = url.match(/\/payloads\/([^/?]+)$/);
     if (payload) {
       server.payloadReads += 1;
+      server.mostReading = Math.max(server.mostReading, ++server.reading);
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      server.reading -= 1;
       const row = server.rows[payload[1]];
       return row ? json(200, { nodeId: payload[1], kind: "doc", ...row }) : json(404, { error: "Payload not found." });
     }
@@ -134,48 +140,100 @@ test("the pending draft holds a payload only where it differs from the synced bo
   assert.equal(draft.base.nodes.some((item) => "blocks" in item), false);
 });
 
-test("copying loads nothing, and pasting loads the copied object's payload first", async (t) => {
+test("copying loads the copied objects' payloads four at a time, and pasting loads nothing", async (t) => {
   useStorage(t);
-  const server = lazyServer(t, [unloaded("d"), unloaded("e")], { d: { rev: 1, size: 40, blocks: blocks("one") }, e: { rev: 1, size: 40, blocks: blocks("two") } });
+  const ids = ["a", "b", "c", "d", "e", "f"];
+  const server = lazyServer(t, ids.map((id) => unloaded(id)), Object.fromEntries(ids.map((id) => [id, { rev: 1, size: 40, blocks: blocks(id) }])));
   store.getState().reset();
   await store.getState().loadBoard("board-1");
-  store.getState().setSelection(["d", "e"]);
+  store.getState().setSelection(ids);
   assert.equal(store.getState().copy(), true);
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.equal(server.payloadReads, 0);
+  await settle();
+  assert.deepEqual([server.payloadReads, server.mostReading], [6, 4]);
+  server.rows = {};
   store.getState().paste();
-  assert.equal(store.getState().history.present.nodes.length, 2);
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  const copies = store.getState().history.present.nodes.slice(2);
-  assert.deepEqual(copies.map((item) => item.blocks[0].text), ["one", "two"]);
-  assert.equal(server.payloadReads, 2);
+  const copies = store.getState().history.present.nodes.slice(6);
+  assert.deepEqual(copies.map((item) => item.blocks[0].text), ids);
+  assert.equal(copies.some((item) => "payload" in item), false);
+  assert.equal(server.payloadReads, 6);
 });
 
-test("a duplicate or paste whose payload cannot load copies nothing rather than part of the selection", async (t) => {
-  useStorage(t);
-  const server = lazyServer(t, [unloaded("d"), { id: "r", type: "rect", x: 0, y: 0, w: 9, h: 9, parentId: null, groupId: null }], {});
-  store.getState().reset();
-  await store.getState().loadBoard("board-1");
-  store.getState().setSelection(["d", "r"]);
-  store.getState().duplicateSelected();
-  store.getState().duplicateSelectionToward("right");
-  store.getState().copy();
-  store.getState().paste();
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.equal(server.payloadReads, 1);
-  assert.deepEqual(store.getState().history.present.nodes.map((item) => item.id), ["d", "r"]);
-  assert.deepEqual(store.getState().selection, ["d", "r"]);
-});
-
-test("an in-place duplicate waits until the selection's payloads have loaded", async (t) => {
+test("a paste straight after a copy waits for the copied payloads", async (t) => {
   useStorage(t);
   lazyServer(t, [unloaded("d")], { d: { rev: 1, size: 40, blocks: blocks("one") } });
   store.getState().reset();
   await store.getState().loadBoard("board-1");
   store.getState().setSelection(["d"]);
+  store.getState().copy();
+  store.getState().paste();
+  assert.equal(store.getState().history.present.nodes.length, 1);
+  await settle();
+  assert.deepEqual(store.getState().history.present.nodes.map((item) => item.blocks[0].text), ["one", "one"]);
+});
+
+test("a copy whose payload cannot load copies nothing, deletes nothing on cut, and says so", async (t) => {
+  useStorage(t);
+  const server = lazyServer(t, [unloaded("d"), { id: "r", type: "rect", x: 0, y: 0, w: 9, h: 9, parentId: null, groupId: null }], {});
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  const ids = () => store.getState().history.present.nodes.map((item) => item.id);
+  const seq = notice().seq;
+  store.getState().setSelection(["d", "r"]);
+  store.getState().duplicateSelected();
+  store.getState().duplicateSelectionToward("right");
+  store.getState().copy();
+  store.getState().paste();
+  await settle();
+  assert.deepEqual(ids(), ["d", "r"]);
+  assert.deepEqual(store.getState().selection, ["d", "r"]);
+  assert.equal(notice().text, "Some items could not be copied. Try again.");
+  assert.ok(notice().seq > seq);
+  store.getState().paste();
+  assert.deepEqual(ids(), ["d", "r"]);
+
+  const beforeCut = notice().seq;
+  assert.equal(store.getState().cut(), true);
+  await settle();
+  assert.deepEqual(ids(), ["d", "r"]);
+  assert.equal(notice().seq, beforeCut + 1);
+  store.getState().paste();
+  assert.deepEqual(ids(), ["d", "r"]);
+  assert.equal(server.payloadReads, 2);
+});
+
+test("a copy takes the payload the server holds when the board has not caught up with its revision", async (t) => {
+  useStorage(t);
+  lazyServer(t, [unloaded("d")], { d: { rev: 2, size: 40, blocks: blocks("newer") } });
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  store.getState().setSelection(["d"]);
+  store.getState().copy();
+  await settle();
+  store.getState().paste();
+  store.getState().setSelection(["d"]);
+  store.getState().duplicateSelected();
+  await settle();
+  store.getState().setSelection(["d"]);
+  store.getState().prepareInPlaceDuplicate();
+  await settle();
+  assert.equal(store.getState().duplicateSelectionInPlace(), true);
+  assert.equal(store.getState().quickCreateFromNode("d"), null);
+  await settle();
+  const [original, ...copies] = store.getState().history.present.nodes;
+  assert.equal("blocks" in original, false);
+  assert.deepEqual(copies.map((item) => item.blocks[0].text), ["newer", "newer", "newer", "newer"]);
+});
+
+test("an alt-drag's in-place duplicate waits until the drag has loaded the selection's payloads", async (t) => {
+  useStorage(t);
+  lazyServer(t, [unloaded("d")], { d: { rev: 1, size: 40, blocks: blocks("one") } });
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  store.getState().setSelection(["d"]);
+  store.getState().prepareInPlaceDuplicate();
   assert.equal(store.getState().duplicateSelectionInPlace(), false);
   assert.equal(store.getState().history.present.nodes.length, 1);
-  await store.getState().loadPayload("d");
+  await settle();
   assert.equal(store.getState().duplicateSelectionInPlace(), true);
   assert.deepEqual(store.getState().history.present.nodes.map((item) => item.blocks[0].text), ["one", "one"]);
 });
@@ -188,7 +246,7 @@ test("cutting loads the cut objects' payloads before the deleting save, so a pas
   store.getState().setSelection(["d"]);
   assert.equal(store.getState().cut(), true);
   assert.ok(node("d"));
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await settle();
   assert.equal(node("d"), undefined);
   assert.equal(server.payloadReads, 1);
   await store.getState().flushSave();
@@ -206,7 +264,9 @@ test("a linked copy from a connection handle waits for its source's payload and 
   await store.getState().loadBoard("board-1");
   assert.equal(store.getState().quickCreateFromNode("d"), null);
   assert.equal(store.getState().history.present.nodes.length, 1);
-  await store.getState().loadPayload("d");
-  const id = store.getState().quickCreateFromNode("d");
-  assert.deepEqual([node(id).blocks[0].text, "payload" in node(id)], ["one", false]);
+  await settle();
+  const [, copy] = store.getState().history.present.nodes;
+  assert.deepEqual([copy.blocks[0].text, "payload" in copy], ["one", false]);
+  assert.deepEqual(store.getState().history.present.connectors.map((item) => [item.from.nodeId, item.to.nodeId]), [["d", copy.id]]);
+  assert.deepEqual(store.getState().selection, [copy.id]);
 });

@@ -47,10 +47,10 @@ export function arrangeActions(set, get, { mutateGraph, buildClones, readOnly, a
       const bounds = unionBounds(history.present.nodes.filter((n) => wanted.has(n.id)).map(nodeBounds));
       if (!bounds) return;
       const { dx, dy } = duplicateOffset(bounds, direction);
-      afterPayloads(() => get().history.present.nodes.filter((n) => wanted.has(n.id)), () => {
+      afterPayloads(history.present.nodes.filter((n) => wanted.has(n.id)), (nodes) => {
         let idMap = new Map();
         mutateGraph(set, get, (present) => {
-          const built = buildClones(present.nodes, selection, dx, dy, true, present, get().activeLayerId);
+          const built = buildClones(nodes, selection, dx, dy, true, present, get().activeLayerId);
           idMap = built.idMap;
           return { ...present, nodes: [...present.nodes, ...built.clones] };
         });
