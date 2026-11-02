@@ -92,7 +92,6 @@ export const AI_FORMATS = {
     label: "Image",
     placeholder: "Describe the image, e.g. a lighthouse at dusk in heavy fog",
     refinePlaceholder: "How should the image change? e.g. make it night, add rain",
-    advancedHint: "Renders at 2K where the model offers it",
     suggestions: [
       "A moody storyboard frame of a detective in a neon alley",
       "A clean product shot of a ceramic mug on linen",

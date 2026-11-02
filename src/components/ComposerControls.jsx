@@ -72,43 +72,7 @@ export function SettingsToolbar() {
   return (
       <div className="composer-toolbar flex min-w-0 flex-wrap items-center gap-1.5 py-px">
         {/* model */}
-        <Dropdown
-          className="composer-model min-w-0 flex-1"
-          label={`Model: ${s.model}`}
-          side="top"
-          trigger={(open) => (
-            <Chip open={open}>
-              <Box className="h-4 w-4 text-white/55" />
-              <span className="max-w-[14rem] truncate font-medium">{s.model}</span>
-              <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")} />
-            </Chip>
-          )}
-        >
-          {(close) =>
-            modeModels.map((m) => (
-              <MenuItem
-                key={m.id}
-                active={m.name === s.model}
-                onClick={() => {
-                  s.setModel(m.name);
-                  close();
-                }}
-              >
-                <Box className="h-4 w-4 text-white/50" />
-                <span className="flex min-w-0 flex-1 flex-col">
-                  <span>{m.name}</span>
-                  {m.hint && <span className="text-[10px] leading-snug text-white/40">{m.hint}</span>}
-                </span>
-                {m.badge && (
-                  <span className="rounded bg-brand/20 px-1.5 py-0.5 text-[10px] font-semibold text-brand">
-                    {m.badge}
-                  </span>
-                )}
-                {m.name === s.model && <Check className="h-4 w-4 text-brand" />}
-              </MenuItem>
-            ))
-          }
-        </Dropdown>
+        <ModelPicker className="composer-model min-w-0 flex-1" models={modeModels} value={s.model} onChange={s.setModel} />
 
         {/* settings (aspect / resolution / duration / batch / audio) */}
         <Dropdown
@@ -444,7 +408,53 @@ export function Chip({ open, children }) {
   );
 }
 
-function Segment({
+/**
+ * The model menu: every model the picker offers, with its hint and badge. The library composer and the board's
+ * Create with AI image controls both render it, so a model reads the same in both.
+ */
+export function ModelPicker({ models, value, onChange, className, side = "top" }) {
+  return (
+    <Dropdown
+      className={className}
+      label={`Model: ${value}`}
+      side={side}
+      trigger={(open) => (
+        <Chip open={open}>
+          <Box className="h-4 w-4 text-white/55" />
+          <span className="max-w-[14rem] truncate font-medium">{value ?? "No model available"}</span>
+          <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")} />
+        </Chip>
+      )}
+    >
+      {(close) =>
+        models.map((m) => (
+          <MenuItem
+            key={m.id}
+            active={m.name === value}
+            onClick={() => {
+              onChange(m.name);
+              close();
+            }}
+          >
+            <Box className="h-4 w-4 text-white/50" />
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span>{m.name}</span>
+              {m.hint && <span className="text-[10px] leading-snug text-white/40">{m.hint}</span>}
+            </span>
+            {m.badge && (
+              <span className="rounded bg-brand/20 px-1.5 py-0.5 text-[10px] font-semibold text-brand">
+                {m.badge}
+              </span>
+            )}
+            {m.name === value && <Check className="h-4 w-4 text-brand" />}
+          </MenuItem>
+        ))
+      }
+    </Dropdown>
+  );
+}
+
+export function Segment({
   label,
   options,
   value,
@@ -459,6 +469,7 @@ function Segment({
         {options.map((opt) => (
           <button
             key={opt}
+            aria-pressed={value === opt}
             onClick={() => onChange(opt)}
             className={cn(
               "rounded-lg px-2.5 py-1 text-xs font-medium transition-colors",

@@ -1,7 +1,8 @@
 # Board "Create with AI" jobs
 
 The board's **Create with AI** panel sits above the board toolbar (the sparkles button). An artist picks a
-format, writes a prompt or picks a suggestion, chooses basic or advanced processing, sees the estimated cost, runs
+format, writes a prompt or picks a suggestion, chooses how it is made (basic or advanced processing for text
+formats; the library generator's model, aspect ratio and resolution for images), sees the estimated cost, runs
 it, and can keep refining the result. The result lands on the board near the viewport centre, in free space. A
 refinement replaces the result it refines, in place. Both are one undo step. **Recent results** lists the user's
 finished results on the board from the last 24 hours, so any of them can be placed again.
@@ -34,22 +35,36 @@ flowchart LR
   Text rows are not library media: library reads and live updates leave them out, they take no library name, and
   they have no project.
 - **Image** queues an ordinary image generation through `submission.submit_generation`, in the board's project. A
-  refinement sends the previous image as its reference image and keeps that image's model and aspect ratio unless
-  the request names others.
+  refinement sends the previous image as its reference image. The request carries the panel's `model`, `aspectRatio`
+  and `resolution`; a request that omits the model or ratio keeps the refined image's.
 - Every job is created with `created_via = 'board'`.
 
-## Processing
+## Processing and image settings
 
-A request carries `processing`: `basic` (the default) or `advanced`. Both use providers and models already
-configured, and both go through the same admission, spend window and paid guard.
+The two kinds of format are chosen differently.
 
-| Format | Basic | Advanced |
-| --- | --- | --- |
-| Text (sticky notes) | `AGENT_LLM_MODEL` (default `gemini-flash-latest`), priced at `Board AI text` | `AGENT_LLM_MODEL_ADVANCED` (default `gemini-pro-latest`), priced at `Board AI text (advanced)` (default 1000) |
-| Image | the model's default resolution | 2K where the model offers it (for a refinement, at a resolution it accepts with a reference), priced by the model's resolution pricing |
+**Text formats** (sticky notes and the other text formats) carry `processing`: `basic` (the default) or `advanced`.
+Basic runs `AGENT_LLM_MODEL` (default `gemini-flash-latest`), priced at `Board AI text`. Advanced runs
+`AGENT_LLM_MODEL_ADVANCED` (default `gemini-pro-latest`), priced at `Board AI text (advanced)` (default 1000). The
+text model is stored in the job's `submission_input`, so the worker, the payload allowlist and the paid guard all use
+the model the job was quoted and priced for. The quote returns the processing, the model and the cost.
 
-The text model is stored in the job's `submission_input`, so the worker, the payload allowlist and the paid guard
-all use the model the job was quoted and priced for. The quote returns the processing, the model and the cost.
+**Image** has no Basic or Advanced choice. The panel shows the library generator's own controls: the same
+`ModelPicker` and `Segment` components, the same defaults (`DEFAULTS.image`: Nano Banana Pro, 21:9, 2K) and the same
+per-model availability, clamped by `reconcileGenerationSettings` in `src/lib/config.js`, which the library's model
+switch uses too. The request carries `model`, `aspectRatio` and `resolution`. The server takes them into
+`submission.quote_generation` and `submission.submit_generation` unchanged, so validation, resolution pricing, the
+paid guard, admission and idempotency are the library's (the idempotency fingerprint includes the resolution, so the
+same request at another resolution is a new job). The quote and the job read back `model`, `aspectRatio` and
+`resolution`.
+
+- **Refinement** pre-fills the controls from the image it edits (its model, saved aspect ratio and resolution) and
+  the person can change any of them. A request that omits the model or ratio still inherits them.
+- **Not offered**: the library's 1x/2x batch. It is repeated client-side submissions, and the panel follows one job and
+  places one result.
+- **Existing API callers** that send only `processing` for an image behave as before: basic uses the model's default
+  resolution, advanced asks for 2K where the model offers it (for a refinement, at a resolution it accepts with a
+  reference). An explicit `resolution` wins over `processing`.
 
 ## Cost and admission
 
@@ -149,10 +164,13 @@ from the panel's selection strip or the context menu's AI rows, not the format t
   - the allowlist, the paid-guard quote and payload
   - idempotent submission, admission, the spend window and the paid hold
   - worker execution against the fake provider
-  - refinement, placement, and the migration.
-- `src/lib/board-ai.test.js`, `src/lib/canvas/ai-formats.test.js`, `ai-graph.test.js`, `ai-selection.test.js` and `src/components/canvas/CanvasAiPanel.test.js`
+  - refinement, placement, and the migration
+  - an image's `model`, `aspectRatio` and `resolution`: priced by resolution, stored, validated, replay-keyed, and the
+    legacy `processing` path.
+- `src/lib/board-ai.test.js`, `src/lib/config.test.js` (`reconcileGenerationSettings`), `src/lib/canvas/ai-formats.test.js`, `ai-graph.test.js`, `ai-selection.test.js` and `src/components/canvas/CanvasAiPanel.test.js`
   cover the browser side.
-- `tests/browser/board-ai.spec.mjs` and `board-ai-selection.spec.mjs` are the end-to-end flows. Run it against the fake provider server with:
+- `tests/browser/board-ai.spec.mjs` and `board-ai-selection.spec.mjs` are the end-to-end flows. The first picks a non-default model, ratio and resolution for an image, checks the quote, the
+  stored row and the request the fake provider received, and refines with the pre-filled controls. Run it against the fake provider server with:
 
   ```
   scripts/dev/test-db.sh PYTHON scripts/dev/browser-harness.py --fake-providers --grep "Create with AI"

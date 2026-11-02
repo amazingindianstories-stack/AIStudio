@@ -66,6 +66,19 @@ test("a submission sends one Idempotency-Key, reuses it after a dropped answer a
   const [refused, fresh] = calls.filter((call) => call.method === "POST").slice(2);
   assert.notEqual(fresh.headers["Idempotency-Key"], refused.headers["Idempotency-Key"], "a refused request does not pin its key");
   assert.notEqual(requestFingerprint(BOARD, request), requestFingerprint(BOARD, { ...request, prompt: "other" }));
+  // An image's resolution is part of what the key stands for.
+  const image = { format: "image", prompt: "lamp", model: "Nano Banana Pro", aspectRatio: "16:9", resolution: "2K" };
+  assert.notEqual(requestFingerprint(BOARD, image), requestFingerprint(BOARD, { ...image, resolution: "4K" }));
+});
+
+test("a placed image result remembers its model, shape and resolution for a refinement to start from", async (t) => {
+  loadedBoard([]);
+  server(t, () => json(200, { jobs: [] }));
+  await useBoardAi.getState().attach(BOARD);
+  await useBoardAi.getState().settle(job({ format: "image", status: "succeeded", model: "Nano Banana 2.1", aspectRatio: "9:16", resolution: "4K",
+    result: { url: "/api/media/x", aspectRatio: "4:5" } }));
+  const { placed } = useBoardAi.getState();
+  assert.deepEqual([placed?.model, placed?.aspectRatio, placed?.resolution], ["Nano Banana 2.1", "4:5", "4K"]);
 });
 
 test("a finished job is claimed, then placed as one undo step at the viewport centre", async (t) => {

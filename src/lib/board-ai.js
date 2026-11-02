@@ -82,7 +82,7 @@ export async function markBoardAiPlaced(boardId, jobId, nodeIds) {
 /** The request fields a job is submitted with; equal requests reuse one idempotency key. */
 export function requestFingerprint(boardId, request) {
   return JSON.stringify([boardId, request.format, request.prompt, request.processing ?? null, request.parentJobId ?? null, request.model ?? null,
-    request.aspectRatio ?? null]);
+    request.aspectRatio ?? null, request.resolution ?? null]);
 }
 
 const pollTimers = new Map();
@@ -174,7 +174,11 @@ function onItsBoard(job) {
 }
 
 function placedResult(job, nodes) {
-  return { jobId: job.id, format: job.format, prompt: job.prompt, nodeIds: nodes.map((node) => node.id), result: job.result };
+  return {
+    jobId: job.id, format: job.format, prompt: job.prompt, nodeIds: nodes.map((node) => node.id), result: job.result,
+    // An image's settings, which a refinement starts from.
+    model: job.model, aspectRatio: job.result?.aspectRatio ?? job.aspectRatio, resolution: job.resolution,
+  };
 }
 
 /**

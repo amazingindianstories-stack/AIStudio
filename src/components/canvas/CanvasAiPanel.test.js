@@ -7,6 +7,7 @@ import { useBoardAi } from "../../lib/board-ai";
 import { useCanvasStore } from "../../lib/canvas-store";
 import { useStore } from "../../lib/store";
 import { AI_FORMATS } from "../../lib/canvas/ai-formats";
+import { DEFAULTS, aspectRatiosForModel, resolutionsForModel } from "../../lib/config";
 import { emptyCanvasState } from "../../lib/canvas/serialization";
 
 const BOARD = "11111111-1111-4111-8111-111111111111";
@@ -60,11 +61,12 @@ test("panelRequest sends only what the format needs", () => {
   assert.equal(panelRequest({ format: "stickies", prompt: "  " }), null);
   assert.deepEqual(panelRequest({ format: "stickies", prompt: " ideas ", model: "x", aspectRatio: "1:1" }), { format: "stickies", prompt: "ideas", processing: "basic" });
   assert.deepEqual(panelRequest({ format: "stickies", prompt: "ideas", processing: "advanced" }), { format: "stickies", prompt: "ideas", processing: "advanced" });
-  assert.deepEqual(panelRequest({ format: "image", prompt: "lamp", processing: "basic", model: "Nano Banana Pro", aspectRatio: "16:9" }),
-    { format: "image", prompt: "lamp", processing: "basic", model: "Nano Banana Pro", aspectRatio: "16:9" });
-  // A refinement keeps the image's own model and aspect ratio (it edits that image).
-  assert.deepEqual(panelRequest({ format: "image", prompt: "night", processing: "advanced", model: "Nano Banana Pro", aspectRatio: "16:9", parentJobId: "p" }),
-    { format: "image", prompt: "night", processing: "advanced", parentJobId: "p" });
+  // An image sends the library generator's settings, not a processing choice.
+  assert.deepEqual(panelRequest({ format: "image", prompt: "lamp", processing: "advanced", model: "Nano Banana Pro", aspectRatio: "16:9", resolution: "4K" }),
+    { format: "image", prompt: "lamp", model: "Nano Banana Pro", aspectRatio: "16:9", resolution: "4K" });
+  // A refinement sends them too (pre-filled from the image it edits), with its parent.
+  assert.deepEqual(panelRequest({ format: "image", prompt: "night", model: "Nano Banana Pro", aspectRatio: "16:9", resolution: "2K", parentJobId: "p" }),
+    { format: "image", prompt: "night", parentJobId: "p", model: "Nano Banana Pro", aspectRatio: "16:9", resolution: "2K" });
 });
 
 test("a refinement sends no selection context", () => {
@@ -115,16 +117,28 @@ test("the panel shows suggestions, quotes the cost before running and submits on
     assert.equal(textarea.value, "");
     assert.match(document.querySelector("[aria-live]").textContent, /Queued/);
 
-    // The image format offers a model and aspect ratio, and quotes them.
+    // The image format has the library generator's controls instead of Basic and Advanced, with its defaults, and
+    // quotes what they say.
     await act(async () => document.querySelector("[aria-label='Format'] button[aria-checked=false]").click());
-    assert.ok(document.querySelector("[aria-label='Aspect ratio']"));
+    assert.equal(document.querySelector("[aria-label='Processing']"), null, "an image has no Basic or Advanced choice");
+    assert.ok(document.querySelector("button[aria-label^='Model: ']"));
     await act(async () => typeInto(document.querySelector("textarea"), "a lighthouse at dusk"));
+    await act(async () => sleep(450));
+    const defaultQuote = calls.filter((call) => call.url.endsWith("/quote")).at(-1);
+    assert.deepEqual(defaultQuote.body, { format: "image", prompt: "a lighthouse at dusk", model: DEFAULTS.image.model,
+      aspectRatio: DEFAULTS.image.aspectRatio, resolution: DEFAULTS.image.resolution });
+    await act(async () => document.querySelector("button[aria-label='Generation settings']").click());
+    assert.deepEqual([...document.querySelectorAll("button[aria-pressed]")].map((element) => element.textContent),
+      [...aspectRatiosForModel(DEFAULTS.image.model, "image"), ...resolutionsForModel(DEFAULTS.image.model, "image")]);
     await act(async () => buttonByText("16:9").click());
+    await act(async () => buttonByText("4K").click());
     await act(async () => sleep(450));
     const imageQuote = calls.filter((call) => call.url.endsWith("/quote")).at(-1);
     assert.equal(imageQuote.body.format, "image");
     assert.equal(imageQuote.body.aspectRatio, "16:9");
-    assert.ok(imageQuote.body.model);
+    assert.equal(imageQuote.body.resolution, "4K");
+    assert.equal(imageQuote.body.model, DEFAULTS.image.model);
+    assert.equal(document.querySelector("button[aria-label='Generation settings']").textContent, "16:9·4K");
 
     await act(async () => document.querySelector("textarea").dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
     assert.equal(closed, 1);
@@ -158,6 +172,39 @@ test("after a result is placed the panel refines it", async (t) => {
       { format: "stickies", prompt: "make them shorter", processing: "basic", parentJobId: "parent-job" });
     await act(async () => buttonByText("New prompt").click());
     assert.ok(document.querySelector("[aria-label='Format']"));
+  } finally {
+    await act(async () => root.unmount());
+    useBoardAi.getState().detach();
+  }
+});
+
+test("refining an image pre-fills the controls from the image and sends them, whether or not they change", async (t) => {
+  setupDom(t);
+  const calls = [];
+  globalThis.fetch = serve(calls);
+  useStore.setState({ availableModelIds: null });
+  await useBoardAi.getState().attach(BOARD);
+  useBoardAi.setState({ placed: { jobId: "parent-image", format: "image", prompt: "a lighthouse", nodeIds: ["a"],
+    result: { url: "/api/media/x", aspectRatio: "4:5" }, model: "Nano Banana 2.1", aspectRatio: "4:5", resolution: "4K" } });
+  const root = await createRoot(document.querySelector("#root"));
+  try {
+    await act(async () => root.render(React.createElement(CanvasAiPanel, { boardId: BOARD, onClose() {} })));
+    assert.equal(document.querySelector("[aria-label='Processing']"), null);
+    assert.equal(document.querySelector("button[aria-label='Model: Nano Banana 2.1']")?.textContent, "Nano Banana 2.1");
+    assert.equal(document.querySelector("button[aria-label='Generation settings']").textContent, "4:5·4K");
+    await act(async () => typeInto(document.querySelector("textarea"), "make it night"));
+    await act(async () => sleep(450));
+    assert.deepEqual(calls.filter((call) => call.url.endsWith("/quote")).at(-1).body,
+      { format: "image", prompt: "make it night", parentJobId: "parent-image", model: "Nano Banana 2.1", aspectRatio: "4:5", resolution: "4K" });
+    // The person can change any of them; a model without the ratio falls back to one it has.
+    await act(async () => document.querySelector("button[aria-label='Generation settings']").click());
+    await act(async () => buttonByText("2K").click());
+    await act(async () => sleep(450));
+    assert.deepEqual(calls.filter((call) => call.url.endsWith("/quote")).at(-1).body,
+      { format: "image", prompt: "make it night", parentJobId: "parent-image", model: "Nano Banana 2.1", aspectRatio: "4:5", resolution: "2K" });
+    await act(async () => buttonByText("Refine").click());
+    assert.deepEqual(calls.filter((call) => call.method === "POST" && call.url.endsWith("/ai-jobs")).at(-1).body,
+      { format: "image", prompt: "make it night", parentJobId: "parent-image", model: "Nano Banana 2.1", aspectRatio: "4:5", resolution: "2K" });
   } finally {
     await act(async () => root.unmount());
     useBoardAi.getState().detach();

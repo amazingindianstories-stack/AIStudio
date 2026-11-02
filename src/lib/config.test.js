@@ -18,6 +18,7 @@ import {
   isKlingImageModel,
   maxReferenceImagesForVideoModel,
   maxReferenceVideosForVideoModel,
+  reconcileGenerationSettings,
   resolutionsForModel,
   supportsAudio,
   supportsDraftMode,
@@ -533,4 +534,20 @@ test("each DEFAULTS combination is valid for its own model", () => {
 test("image and video composer defaults use the cinematic 21:9 aspect ratio", () => {
   assert.equal(DEFAULTS.image.aspectRatio, "21:9");
   assert.equal(DEFAULTS.video.aspectRatio, "21:9");
+});
+
+test("a model switch keeps a valid ratio and resolution and clamps an invalid one", () => {
+  const model = DEFAULTS.image.model;
+  const kept = reconcileGenerationSettings(model, "image", { model, aspectRatio: "16:9", resolution: "4K" });
+  assert.deepEqual(kept, { aspectRatio: "16:9", resolution: "4K" });
+  const ratios = aspectRatiosForModel(model, "image");
+  const resolutions = resolutionsForModel(model, "image");
+  const clamped = reconcileGenerationSettings(model, "image", { model, aspectRatio: "7:3", resolution: "8K" });
+  assert.deepEqual(clamped, { aspectRatio: ratios[0], resolution: resolutions[resolutions.length - 1] });
+  // Every picker model resolves to a ratio and resolution it offers.
+  for (const name of MODELS.filter((model) => model.kind === "image").map((model) => model.name)) {
+    const { aspectRatio, resolution } = reconcileGenerationSettings(name, "image", DEFAULTS.image);
+    assert.ok(aspectRatiosForModel(name, "image").includes(aspectRatio), name);
+    assert.ok(resolutionsForModel(name, "image").includes(resolution), name);
+  }
 });
