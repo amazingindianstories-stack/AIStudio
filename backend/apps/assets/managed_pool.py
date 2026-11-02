@@ -262,8 +262,9 @@ def force_face(sha, forced, now=None):
 
 def refuse_as_asset(sha, now=None):
     """BytePlus refused to register this image as a portrait. When only our detector thought it a face (not an upload,
-    not learned from a provider rejection) it is sent inline from now on."""
-    updated = ReferenceFaceScan.objects.filter(pk=sha, forced__isnull=True).update(has_face=False, forced=REFUSED, scanned_at=now or now_ms())
+    not learned from a provider rejection) it is sent inline from now on. Returns whether it is (now or already) refused."""
+    updated = (ReferenceFaceScan.objects.filter(Q(forced__isnull=True) | Q(forced=REFUSED), pk=sha)
+               .update(has_face=False, forced=REFUSED, scanned_at=now or now_ms()))
     return bool(updated)
 
 

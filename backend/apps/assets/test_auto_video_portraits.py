@@ -240,3 +240,17 @@ class AutoVideoPortraitTests(AutoVideoBase):
         self.assertFalse(self.storage.exists(poster))
         self.assertEqual(self.run_worker(self.enqueue_video(self.reference_clip(data))).status, 'succeeded')
         self.assertTrue(self.storage.exists(poster), 'the card has its picture')
+
+    def test_a_clip_already_refused_by_another_poller_still_goes_as_a_url(self):
+        data = make_clip(self.directory, 'face.mp4')
+        original = self.fake.asset_api
+
+        def fail(action, body):
+            if action == 'GetAsset' and body.get('Id') in self.fake.assets:
+                self.fake.assets[body['Id']]['Status'] = 'Failed'
+                ReferenceFaceScan.objects.update(has_face=False, forced=managed_pool.REFUSED)      # the janitor or another job saw it first
+            return original(action, body)
+        with patch.object(self.fake, 'asset_api', fail):
+            row = self.run_worker(self.enqueue_video(self.reference_clip(data)))
+        self.assertEqual(row.status, 'succeeded', row.error)
+        self.assertFalse(self.sent_videos()[0].startswith('asset://'))
