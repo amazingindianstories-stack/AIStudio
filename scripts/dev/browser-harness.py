@@ -1,6 +1,6 @@
 """Full Playwright UI suite against Django + independent Python workers.
 
-Run through scripts/dev/test-db.sh (locally) or the CI browser job, which supply
+Run through scripts/dev/test-db.sh (locally) or the CI browser-shard jobs, which supply
 a disposable loopback database and an allowlisted environment. Next receives no
 database, cloud, provider or session-signing credentials.
 
