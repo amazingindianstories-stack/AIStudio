@@ -307,9 +307,7 @@ function buildClones(
   present,
   layerId
 ) {
-  // A format object whose payload has not loaded has no content to copy yet, so it is left out.
-  const unloaded = new Set(sourceNodes.filter(needsPayload).map((n) => n.id));
-  const idSet = new Set(ids.filter((id) => !unloaded.has(id)));
+  const idSet = new Set(ids);
   const idMap = new Map();
   for (const id of idSet) idMap.set(id, crypto.randomUUID());
   const groupIdMap = new Map();
@@ -948,16 +946,18 @@ async function loadNodePayload(set, get, boardId, node) {
   set({ history: next, serverState: fill(serverState) });
 }
 
-/** Runs `action` once the payloads `nodes` (of board `boardId`) have not loaded yet have, since a copy needs their content. */
-function afterPayloads(set, get, boardId, nodes, action) {
-  const unloaded = nodes.filter(needsPayload);
+/**
+ * Runs `action` once every node `nodesOf()` returns has its payload, loading the missing ones from board `source`,
+ * since a copy needs their content. When one cannot load, or the board changed or became read-only meanwhile,
+ * nothing runs: a copy never leaves an object out.
+ */
+function afterPayloads(set, get, source, nodesOf, action) {
+  const unloaded = nodesOf().filter(needsPayload);
   if (!unloaded.length) return void action();
-  void Promise.allSettled(unloaded.map((node) => loadNodePayload(set, get, boardId, node))).then(action);
-}
-
-function loadClipboardPayloads(set, get) {
-  clipboardBoardId = get().boardId;
-  for (const node of clipboard) if (needsPayload(node)) loadNodePayload(set, get, clipboardBoardId, node).catch(() => {});
+  const { boardId } = get();
+  void Promise.allSettled(unloaded.map((node) => loadNodePayload(set, get, source, node))).then(() => {
+    if (get().boardId === boardId && !selectReadOnly(get()) && !nodesOf().some(needsPayload)) action();
+  });
 }
 
 export const useCanvasStore = create((set, get) => ({
@@ -989,7 +989,12 @@ export const useCanvasStore = create((set, get) => ({
   orphanedTables: [],
 
   ...lockLayerActions(set, get, { mutateGraph }),
-  ...arrangeActions(set, get, { mutateGraph, buildClones, readOnly: selectReadOnly }),
+  ...arrangeActions(set, get, {
+    mutateGraph,
+    buildClones,
+    readOnly: selectReadOnly,
+    afterPayloads: (nodesOf, action) => afterPayloads(set, get, get().boardId, nodesOf, action),
+  }),
   ...transformActions(set, get, { mutateGraph }),
   ...boardViewActions(set, get, { mutateGraph }),
 
@@ -1427,8 +1432,7 @@ export const useCanvasStore = create((set, get) => ({
     const { selection, boardId } = get();
     if (!selection.length) return;
     const wanted = new Set(selection);
-    afterPayloads(set, get, boardId, get().history.present.nodes.filter((n) => wanted.has(n.id)), () => {
-      if (get().boardId !== boardId || selectReadOnly(get())) return;
+    afterPayloads(set, get, boardId, () => get().history.present.nodes.filter((n) => wanted.has(n.id)), () => {
       let idMap = new Map();
       mutateGraph(set, get, (present) => {
         const built = buildClones(present.nodes, selection, 20, 20, true, present, get().activeLayerId);
@@ -1440,10 +1444,12 @@ export const useCanvasStore = create((set, get) => ({
     });
   },
 
+  /** Returns false, copying nothing, while a selected object's payload has not loaded. */
   duplicateSelectionInPlace: () => {
-    if (selectReadOnly(get())) return;
-    const { selection } = get();
-    if (!selection.length) return;
+    if (selectReadOnly(get())) return false;
+    const { selection, history } = get();
+    const wanted = new Set(selection);
+    if (!selection.length || history.present.nodes.some((n) => wanted.has(n.id) && needsPayload(n))) return false;
     let idMap = new Map();
     mutateGraph(
       set,
@@ -1458,6 +1464,7 @@ export const useCanvasStore = create((set, get) => ({
       { coalesce: true }
     );
     set({ selection: Array.from(idMap.values()), selectedConnectorIds: [] });
+    return true;
   },
 
   group: () => {
@@ -1662,7 +1669,7 @@ export const useCanvasStore = create((set, get) => ({
     if (selectReadOnly(get())) return null;
     const { present } = get().history;
     const source = present.nodes.find((n) => n.id === nodeId);
-    if (!source) return null;
+    if (!source || needsPayload(source)) return null;
     const GAP = 80;
     let x = source.x + source.w + GAP;
     let y = source.y;
@@ -1690,6 +1697,7 @@ export const useCanvasStore = create((set, get) => ({
     };
     if ("text" in clone) clone.text = "";
     delete clone.marks;
+    delete clone.payload;
     if (clone.type === "erd" && Array.isArray(clone.rows)) {
       clone.name = `${source.name || "Entity"} Copy`;
       clone.rows = clone.rows.map((r, i) => ({
@@ -1843,20 +1851,28 @@ export const useCanvasStore = create((set, get) => ({
     const selSet = new Set(selection);
     clipboard = history.present.nodes.filter((n) => selSet.has(n.id)).map((n) => ({ ...n }));
     clipboardOrigin = copyOrigin(clipboard, history.present.nodes);
-    loadClipboardPayloads(set, get);
+    clipboardBoardId = get().boardId;
     return true;
   },
 
-  /** Copies and deletes the selected objects; returns whether anything was cut. */
+  /**
+   * Copies and deletes the selected objects; returns whether anything was cut. The cut objects' payloads load
+   * before they are deleted, since a deleted object's payload may no longer be readable at paste.
+   */
   cut: () => {
-    const { selection, history } = get();
+    const { selection, selectedConnectorIds, history, boardId } = get();
     if (!selection.length) return false;
     const selected = new Set(selection);
     if (selectReadOnly(get())) return false;
     clipboard = history.present.nodes.filter((node) => selected.has(node.id)).map((node) => ({ ...node }));
     clipboardOrigin = copyOrigin(clipboard, history.present.nodes);
-    loadClipboardPayloads(set, get);
-    get().deleteSelected({ cut: true });
+    clipboardBoardId = boardId;
+    const cutIds = clipboard.map((node) => node.id).join("\n");
+    afterPayloads(set, get, boardId, () => get().history.present.nodes.filter((node) => selected.has(node.id)), () => {
+      if (clipboard.map((node) => node.id).join("\n") !== cutIds) return;
+      set({ selection, selectedConnectorIds });
+      get().deleteSelected({ cut: true });
+    });
     return true;
   },
 
@@ -1889,9 +1905,8 @@ export const useCanvasStore = create((set, get) => ({
   paste: () => {
     if (selectReadOnly(get())) return;
     if (!clipboard.length) return;
-    const { selection, boardId } = get();
-    afterPayloads(set, get, clipboardBoardId, clipboard, () => {
-      if (get().boardId !== boardId || selectReadOnly(get())) return;
+    const { selection } = get();
+    afterPayloads(set, get, clipboardBoardId, () => clipboard, () => {
       let idMap = new Map();
       mutateGraph(set, get, (present) => {
         // With frames selected, one copy goes into each of them at the same offsets from the frame's corner.

@@ -1,7 +1,8 @@
 """Large format payloads (Docs blocks, HTML embeds, draw.io XML and previews) move out of the board JSON into
 their own rows, one per board and node. The data step is idempotent: a node with inline payload fields gets its
 row (an existing row with the same content is kept) and a reference, and a node already holding a reference is
-left alone. The board version and update time do not change, so editors with a save in flight are unaffected."""
+left alone. The board version and update time do not change, so editors with a save in flight are unaffected.
+Unapplying puts every row back inline into its node and drops the reference before the table goes."""
 import hashlib
 import json
 import django.contrib.postgres.functions
@@ -53,6 +54,28 @@ def move_payloads(apps, schema_editor):
             Board.objects.filter(pk=board.pk).update(data=board.data)
 
 
+def inline_payloads(apps, schema_editor):
+    Board, Payload = apps.get_model('canvas', 'CanvasBoard'), apps.get_model('canvas', 'BoardFormatPayload')
+    for board in Board.objects.filter(data__nodes__contains=[{'type': 'format'}]).iterator(chunk_size=50):
+        nodes = board.data.get('nodes') if isinstance(board.data, dict) else None
+        if not isinstance(nodes, list):
+            continue
+        held = [node for node in nodes if isinstance(node, dict) and node.get('type') == 'format' and node.get('format') in PROBE and 'payload' in node]
+        if not held:
+            continue
+        rows = dict(Payload.objects.filter(board_id=board.pk, node_id__in=[node['id'] for node in held]).values_list('node_id', 'body'))
+        for node in held:
+            node.pop('payload')
+            if PROBE[node['format']] in node:
+                continue
+            body = rows.get(node['id'], {})
+            node[PROBE[node['format']]] = body.get(PROBE[node['format']], [] if node['format'] == 'doc' else '')
+            for field in FIELDS[node['format']][1:]:
+                if body.get(field):
+                    node[field] = body[field]
+        Board.objects.filter(pk=board.pk).update(data=board.data)
+
+
 class Migration(migrations.Migration):
     dependencies = [('canvas', '0017_sidekicks_flows')]
     operations = [
@@ -82,5 +105,5 @@ BEGIN
     END IF;
 END $$;
 """, migrations.RunSQL.noop),
-        migrations.RunPython(move_payloads, migrations.RunPython.noop),
+        migrations.RunPython(move_payloads, inline_payloads),
     ]

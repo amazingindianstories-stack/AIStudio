@@ -17,7 +17,7 @@ import {
   idsOfKind,
 } from "./arrange";
 
-export function arrangeActions(set, get, { mutateGraph, buildClones, readOnly }) {
+export function arrangeActions(set, get, { mutateGraph, buildClones, readOnly, afterPayloads }) {
   const moveBy = (computeDeltas) => {
     const { selection, history } = get();
     if (readOnly(get()) || selection.length < 2) return;
@@ -37,7 +37,8 @@ export function arrangeActions(set, get, { mutateGraph, buildClones, readOnly })
 
     /**
      * Alt+Arrow: copies the selection to the side in `direction` ("left" |
-     * "right" | "up" | "down"), a gap beyond its bounds, and selects the copies.
+     * "right" | "up" | "down"), a gap beyond its bounds, and selects the copies,
+     * once the selection's format payloads have loaded.
      */
     duplicateSelectionToward: (direction) => {
       const { selection, history } = get();
@@ -46,13 +47,15 @@ export function arrangeActions(set, get, { mutateGraph, buildClones, readOnly })
       const bounds = unionBounds(history.present.nodes.filter((n) => wanted.has(n.id)).map(nodeBounds));
       if (!bounds) return;
       const { dx, dy } = duplicateOffset(bounds, direction);
-      let idMap = new Map();
-      mutateGraph(set, get, (present) => {
-        const built = buildClones(present.nodes, selection, dx, dy, true, present, get().activeLayerId);
-        idMap = built.idMap;
-        return { ...present, nodes: [...present.nodes, ...built.clones] };
+      afterPayloads(() => get().history.present.nodes.filter((n) => wanted.has(n.id)), () => {
+        let idMap = new Map();
+        mutateGraph(set, get, (present) => {
+          const built = buildClones(present.nodes, selection, dx, dy, true, present, get().activeLayerId);
+          idMap = built.idMap;
+          return { ...present, nodes: [...present.nodes, ...built.clones] };
+        });
+        if (idMap.size) set({ selection: Array.from(idMap.values()), selectedConnectorIds: [] });
       });
-      if (idMap.size) set({ selection: Array.from(idMap.values()), selectedConnectorIds: [] });
     },
 
     /** Narrows the selection to one object kind (see arrange.kindOf). */

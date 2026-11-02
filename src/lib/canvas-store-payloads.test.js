@@ -133,3 +133,80 @@ test("the pending draft holds a payload only where it differs from the synced bo
   assert.equal(e.blocks[0].text, "edited");
   assert.equal(draft.base.nodes.some((item) => "blocks" in item), false);
 });
+
+test("copying loads nothing, and pasting loads the copied object's payload first", async (t) => {
+  useStorage(t);
+  const server = lazyServer(t, [unloaded("d"), unloaded("e")], { d: { rev: 1, size: 40, blocks: blocks("one") }, e: { rev: 1, size: 40, blocks: blocks("two") } });
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  store.getState().setSelection(["d", "e"]);
+  assert.equal(store.getState().copy(), true);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(server.payloadReads, 0);
+  store.getState().paste();
+  assert.equal(store.getState().history.present.nodes.length, 2);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  const copies = store.getState().history.present.nodes.slice(2);
+  assert.deepEqual(copies.map((item) => item.blocks[0].text), ["one", "two"]);
+  assert.equal(server.payloadReads, 2);
+});
+
+test("a duplicate or paste whose payload cannot load copies nothing rather than part of the selection", async (t) => {
+  useStorage(t);
+  const server = lazyServer(t, [unloaded("d"), { id: "r", type: "rect", x: 0, y: 0, w: 9, h: 9, parentId: null, groupId: null }], {});
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  store.getState().setSelection(["d", "r"]);
+  store.getState().duplicateSelected();
+  store.getState().duplicateSelectionToward("right");
+  store.getState().copy();
+  store.getState().paste();
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(server.payloadReads, 1);
+  assert.deepEqual(store.getState().history.present.nodes.map((item) => item.id), ["d", "r"]);
+  assert.deepEqual(store.getState().selection, ["d", "r"]);
+});
+
+test("an in-place duplicate waits until the selection's payloads have loaded", async (t) => {
+  useStorage(t);
+  lazyServer(t, [unloaded("d")], { d: { rev: 1, size: 40, blocks: blocks("one") } });
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  store.getState().setSelection(["d"]);
+  assert.equal(store.getState().duplicateSelectionInPlace(), false);
+  assert.equal(store.getState().history.present.nodes.length, 1);
+  await store.getState().loadPayload("d");
+  assert.equal(store.getState().duplicateSelectionInPlace(), true);
+  assert.deepEqual(store.getState().history.present.nodes.map((item) => item.blocks[0].text), ["one", "one"]);
+});
+
+test("cutting loads the cut objects' payloads before the deleting save, so a paste after it keeps their content", async (t) => {
+  useStorage(t);
+  const server = lazyServer(t, [unloaded("d"), unloaded("e")], { d: { rev: 1, size: 40, blocks: blocks("one") }, e: { rev: 1, size: 40, blocks: blocks("two") } });
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  store.getState().setSelection(["d"]);
+  assert.equal(store.getState().cut(), true);
+  assert.ok(node("d"));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(node("d"), undefined);
+  assert.equal(server.payloadReads, 1);
+  await store.getState().flushSave();
+  assert.deepEqual(server.saves[0].body.patch.nodes.delete, ["d"]);
+  delete server.rows.d;
+  store.getState().paste();
+  const nodes = store.getState().history.present.nodes;
+  assert.deepEqual(nodes.map((item) => item.id === "e" ? "e" : item.blocks[0].text), ["e", "one"]);
+});
+
+test("a linked copy from a connection handle waits for its source's payload and carries no reference", async (t) => {
+  useStorage(t);
+  lazyServer(t, [unloaded("d")], { d: { rev: 1, size: 40, blocks: blocks("one") } });
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  assert.equal(store.getState().quickCreateFromNode("d"), null);
+  assert.equal(store.getState().history.present.nodes.length, 1);
+  await store.getState().loadPayload("d");
+  const id = store.getState().quickCreateFromNode("d");
+  assert.deepEqual([node(id).blocks[0].text, "payload" in node(id)], ["one", false]);
+});

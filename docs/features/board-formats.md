@@ -96,7 +96,9 @@ reference but without its fields keeps its stored row. Reads return the payload 
 `GET /api/canvas-boards/:id/payloads/:nodeId` loads one node's payload.
 
 The editor reads lazily. A format object loads its payload when it renders (culling leaves off-screen objects
-unrendered) or opens in focus mode, and shows "Loading…" until then; duplicating or pasting one loads it first.
+unrendered) or opens in focus mode, and shows "Loading…" until then. Copying loads nothing. Duplicating or pasting
+loads the copied objects' payloads first and copies nothing if one cannot load; cutting loads the cut objects'
+payloads before deleting them, since a viewer cannot read the payload of an object no longer on the board.
 Saves and the pending draft carry a payload only where it differs from the synced graph, and a save's stamps
 return each changed node's new reference (`src/lib/canvas/formats/payloads.js` holds the client side). A row
 outlives its node, so an undo or merge that brings the node back finds its content; the rows go with the board.
@@ -105,6 +107,10 @@ The 2 Mi board limit, and the template snapshot's, count the graph without paylo
 to 1,048,576 UTF-16 units of JSON (413 `payload` beyond that); fields hold up to 500,000 characters (HTML,
 XML, preview) and docs up to 2,000 blocks of 20,000 characters. Copying a board or template reads inline and
 re-splits; a template saved from a selection takes unloaded payloads from the source board.
+
+Migration `canvas.0018_format_payloads` moves inline payloads into rows. Unapplying it puts every row back inline
+into its node and drops the reference before the table goes, so a rollback first unapplies canvas 0018 with the new
+image still deployed, then rolls back the image.
 
 ## Roles and history
 

@@ -242,8 +242,8 @@ def board_payload(request, identifier, node_id):
         level = access.require(user, existing, access.READ)
         row = payloads.read(identifier, [node_id]).get(node_id)
         if row is not None and not hidden.can_manage(level):
-            graph = hidden.view_of(validate_state(CanvasBoard.objects.filter(pk=identifier).values_list('data', flat=True).first()), level)
-            if not any(item['id'] == node_id for item in graph['nodes']):
+            nodes = (CanvasBoard.objects.filter(pk=identifier).values_list('data', flat=True).first() or {}).get('nodes', [])
+            if not any(item['id'] == node_id for item in nodes) or node_id in hidden.hidden_ids({'nodes': nodes}):
                 row = None
         if row is None:
             return reply(request, {'error': 'Payload not found.'}, 404)

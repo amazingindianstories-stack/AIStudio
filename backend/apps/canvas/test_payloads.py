@@ -102,11 +102,21 @@ class PayloadApiTests(TransactionTestCase):
 
     def test_a_payload_inside_a_hidden_frame_is_not_served_to_a_viewer(self):
         frame = {'id': 'f', 'type': 'frame', 'x': 0, 'y': 0, 'w': 50, 'h': 50, 'hidden': True}
-        self.save(self.owner, data=graph(frame, {**doc(text='secret'), 'parentId': 'f'}))
+        inner = {'id': 'g', 'type': 'frame', 'x': 0, 'y': 0, 'w': 40, 'h': 40, 'parentId': 'f'}
+        self.save(self.owner, data=graph(frame, inner, {**doc(text='secret'), 'parentId': 'g'}, html()))
+        self.as_user(self.viewer)
+        self.assertEqual(self.client.get(f'/api/canvas-boards/{BOARD}/payloads/d').status_code, 404)
+        self.assertEqual(self.client.get(f'/api/canvas-boards/{BOARD}/payloads/h').status_code, 200)
+        self.as_user(self.owner)
+        self.assertEqual(self.client.get(f'/api/canvas-boards/{BOARD}/payloads/d').status_code, 200)
+
+    def test_the_payload_of_a_deleted_object_is_served_only_to_people_who_manage_hidden_frames(self):
+        self.save(self.owner, data=graph(doc(text='one'), html()))
+        self.save(self.owner, method='patch', patch={'nodes': {'delete': ['d']}})
         self.as_user(self.viewer)
         self.assertEqual(self.client.get(f'/api/canvas-boards/{BOARD}/payloads/d').status_code, 404)
         self.as_user(self.owner)
-        self.assertEqual(self.client.get(f'/api/canvas-boards/{BOARD}/payloads/d').status_code, 200)
+        self.assertEqual(self.client.get(f'/api/canvas-boards/{BOARD}/payloads/d').json()['blocks'][0]['text'], 'one')
 
     def test_viewers_and_commenters_cannot_change_a_payload(self):
         self.save(self.owner, data=graph(doc(text='one')))
@@ -303,6 +313,32 @@ class PayloadMigrationTests(TransactionTestCase):
         from django.apps import apps as live
         step(live, None)
         self.assertEqual((CanvasBoard.objects.get(pk=BOARD).data, list(BoardFormatPayload.objects.order_by('node_id').values_list('node_id', 'rev', 'digest'))), snapshot)
+
+    def test_unapplying_the_migration_puts_every_payload_back_inline(self):
+        old = self.migrate(MIGRATION_BEFORE)
+        Board = old.get_model('canvas', 'CanvasBoard')
+        legacy = validate_state({**empty_state(), 'nodes': [doc(text='old', suggestions=[{'id': 's', 'blockId': 'b', 'kind': 'delete', 'by': 'u', 'at': 1}]),
+                                                            html(), drawio(xml='<m/>', preview='data:image/svg+xml;base64,AAAA'), drawio('y'),
+                                                            {'id': 'r', 'type': 'rect', 'x': 0, 'y': 0, 'w': 5, 'h': 5}]})
+        self.assertEqual(len(legacy['nodes'][0]['suggestions']), 1)
+        Board.objects.create(id=BOARD, project_id=PROJECT, name='Legacy', data=legacy, created_at=1, updated_at=1, version=7)
+        self.migrate(MIGRATION_AFTER)
+        self.assertNotEqual(CanvasBoard.objects.get(pk=BOARD).data, legacy)
+        old = self.migrate(MIGRATION_BEFORE)
+        board = old.get_model('canvas', 'CanvasBoard').objects.get(pk=BOARD)
+        self.assertEqual((board.data, board.version, board.updated_at), (legacy, 7, 1))
+
+    def test_unapplying_the_migration_keeps_edits_saved_after_it(self):
+        old = self.migrate(MIGRATION_BEFORE)
+        old.get_model('canvas', 'CanvasBoard').objects.create(id=BOARD, project_id=PROJECT, name='Legacy', data=validate_state({**empty_state(), 'nodes': [doc(text='old')]}),
+                                                              created_at=1, updated_at=1, version=3)
+        self.migrate(MIGRATION_AFTER)
+        services.save_board(BOARD, validate_state({**empty_state(), 'nodes': [doc(text='new'), html('h', '<p>added</p>')]}), 3, uuid4(), make_user('owner').id)
+        services.save_board(BOARD, validate_state({**empty_state(), 'nodes': [doc(text='new')]}), 4, uuid4(), make_user('editor').id)
+        old = self.migrate(MIGRATION_BEFORE)
+        nodes = old.get_model('canvas', 'CanvasBoard').objects.get(pk=BOARD).data['nodes']
+        self.assertEqual([{key: value for key, value in node.items() if key not in ('updatedAt', 'updatedBy')} for node in nodes],
+                         validate_state({**empty_state(), 'nodes': [doc(text='new')]})['nodes'])
 
     def test_a_board_saved_by_the_application_after_the_migration_sees_no_change(self):
         old = self.migrate(MIGRATION_BEFORE)
