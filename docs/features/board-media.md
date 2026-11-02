@@ -41,3 +41,14 @@ This slice covers miro-checklist.md lines 253-272 except the lines below.
 - **Automatic closed captions**: deferred by the captain on 2026-11-01 to a separate on-demand
   "Generate captions" task, which adds the video `captions` field, its WebVTT track and the generator
   together.
+
+## On-demand video captions
+
+An editor selects a board video and chooses "Generate captions". The panel shows the model and the cost step first
+(transcription has no metered price in Veevee, so none is invented); nothing runs until "Start". The backend
+(`apps/canvas/captions.py`, `caption_views.py`) extracts the video's audio, transcribes it through the existing
+audio paid-guard path and stores WebVTT in `canvas_board_captions`, outside the board JSON.
+`GET /api/canvas-boards/<id>/captions?src=` quotes, `POST` generates (edit access), and `GET .../captions/vtt?src=`
+serves `text/vtt` to anyone who can view the board. The video node fetches that text through the API and attaches it
+as a blob `<track>`, so the video never sets `crossOrigin` and CDN redirects keep working. Viewers and commenters can
+toggle CC but cannot generate.

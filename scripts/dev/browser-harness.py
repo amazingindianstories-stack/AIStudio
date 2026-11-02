@@ -132,10 +132,15 @@ class OfflineAudioTranscriber:
     def transcribe(self, data, mime, model, *, signal=None):
         if signal: signal.check()
         raw = base64.b64decode(data, validate=True)
+        if mime == 'audio/mp4' and raw[4:8] == b'ftyp':
+            # The audio track the caption route extracts from a board video.
+            return '[00:00.000 - 00:01.000] Speech: Offline caption fixture.'
         if mime != 'audio/wav' or raw[:4] != b'RIFF' or raw[8:12] != b'WAVE':
             raise ValueError('Invalid offline audio fixture.')
         return '[00:00.000 - 00:00.100] Sound: Offline audio fixture.'
 VEEVEE_AUDIO_TRANSCRIBER = OfflineAudioTranscriber
+# Board captions only check that transcription is configured; the offline transcriber above answers, no key is used.
+GOOGLE_API_KEY = 'offline-transcriber-placeholder'
 # Production runs automatic portraits; the gallery and its scheduler janitor need the flag.
 VEEVEE_MANAGED_PORTRAITS = True
 # The model switches as production set them on 2026-10-20; the pickers show only switched-on models.

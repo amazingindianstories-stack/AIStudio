@@ -8,6 +8,7 @@ import { ICONS } from "@/lib/canvas/icon-set";
 import { PROVIDER_NAMES, classifyEmbed } from "@/lib/canvas/embeds";
 import { toggleAgreement, setPdfPage } from "@/lib/canvas/media-actions";
 import { currentUserId } from "@/lib/canvas/sticky-actions";
+import { CaptionControls, useVideoCaptions } from "./VideoCaptions";
 
 /** Controls inside a node must not start a drag of the node, which the node body does on pointer down. */
 const stop = (e) => e.stopPropagation();
@@ -35,6 +36,7 @@ function DownloadLink({ href, children = "Download original" }) {
  */
 export function VideoNode({ node, selected }) {
   const [failed, setFailed] = useState(false);
+  const captions = useVideoCaptions(node, selected);
   return (
     <div className="flex h-full w-full flex-col overflow-hidden rounded-md bg-black shadow-[0_6px_16px_rgba(0,0,0,0.35)]" data-media="video">
       <TitleBar title={node.title} fallback="Video" />
@@ -54,8 +56,11 @@ export function VideoNode({ node, selected }) {
           onError={() => setFailed(true)}
           onPointerDown={selected ? stop : undefined}
           className="min-h-0 w-full flex-1 bg-black object-contain"
-        />
+        >
+          {captions.on && captions.trackUrl && <track kind="captions" label="Captions" srclang="en" src={captions.trackUrl} default />}
+        </video>
       )}
+      {selected && !failed && <CaptionControls captions={captions} />}
     </div>
   );
 }
