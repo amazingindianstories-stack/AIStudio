@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
+import { requestTemplates } from "@/lib/canvas/template-events";
 import { useStore } from "@/lib/store";
 import { useCanvasStore, selectReadOnly } from "@/lib/canvas-store";
 import { isCreateTool, isShapeNode } from "@/lib/canvas/shapes";
@@ -113,6 +114,7 @@ export function useBoardShortcuts({ surfaceRef, toolLocked, touchViewOnly, openS
     if (id === "shapes") view.openShapes();
     else if (id === "image") view.openImagePicker();
     else if (id === "ai") view.toggleAi();
+    else if (id === "templates") requestTemplates({ action: "open" });
     // Menus in the dock, not tools: nothing to arm.
     else if (id === "grid" || id === "synced") return false;
     else useCanvasStore.getState().setTool(id);

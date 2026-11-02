@@ -488,7 +488,7 @@ class BoardAiJobMigrationTests(TransactionTestCase):
             executor = MigrationExecutor(connection)
             self.assertEqual([(m.app_label, m.name) for m, backward in executor.migration_plan(final)],
                              [('canvas', '0006_boardaijob'), ('canvas', '0007_canvasboardsave_changes'), ('canvas', '0008_customshapepack'),
-                              ('canvas', '0009_work_records'), ('canvas', '0010_work_permissions'), ('canvas', '0011_work_relation_kinds'), ('canvas', '0012_boardmedia')])
+                              ('canvas', '0009_work_records'), ('canvas', '0010_work_permissions'), ('canvas', '0011_work_relation_kinds'), ('canvas', '0012_boardmedia'), ('canvas', '0013_board_templates')])
             executor.migrate(final)
             board = CanvasBoard.objects.get(pk=identifier)
             self.assertEqual((board.name, board.data, board.updated_at), ('Kept', {'version': 1, 'nodes': []}, 2))

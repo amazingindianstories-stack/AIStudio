@@ -20,6 +20,7 @@ import { Toaster } from "@/components/Toaster";
 import { TextPromptDialog } from "@/components/TextPromptDialog";
 import { useDesktopLayout } from "@/lib/use-desktop-layout";
 import { pageObjectLink } from "@/lib/canvas/object-link";
+import { templateRefFromSearch } from "@/lib/canvas/templates";
 
 function BoardPlaceholder({ children }) {
   return <div className="grid min-w-0 flex-1 place-items-center bg-ink-900">{children}</div>;
@@ -87,8 +88,9 @@ export default function Page() {
 
   // A link to a board object opens the board view; CanvasView opens the board.
   // This runs after the composer restores the last view, so the link wins.
+  // A `?template=<id>` link opens the board with that template in the picker (BoardTemplates).
   useEffect(() => {
-    if (pageObjectLink()) setView("canvas");
+    if (pageObjectLink() || templateRefFromSearch(window.location.search)) setView("canvas");
   }, [setView]);
 
   useEffect(() => {

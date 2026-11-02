@@ -27,6 +27,7 @@ import {
   Eraser,
   Maximize,
   Minimize,
+  LayoutTemplate,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCanvasStore, } from "@/lib/canvas-store";
@@ -41,6 +42,8 @@ import { ShapesPanel } from "./ShapesPanel";
 import { StickyMenu } from "./StickyMenu";
 import { GridMenu } from "./GridMenu";
 import { SyncedMenu } from "./SyncedMenu";
+import { FrameMenu } from "./FrameMenu";
+import { requestTemplates } from "@/lib/canvas/template-events";
 import { ACTIVE_STATUSES, useBoardAi } from "@/lib/board-ai";
 import { MediaMenu } from "./MediaMenu";
 import { useBoardPrefs } from "@/lib/canvas/board-prefs";
@@ -166,15 +169,18 @@ export function CanvasToolbar({
         );
       case "frame":
         return (
-          <ToolButton
-            id="frame"
-            active={tool === "frame"}
-            icon={Frame}
-            label="Frame / section"
-            shortcut="F"
-            locked={toolLocked && tool === "frame"}
-            onClick={(e) => arm("frame", e)}
-          />
+          <>
+            <ToolButton
+              id="frame"
+              active={tool === "frame"}
+              icon={Frame}
+              label="Frame / section"
+              shortcut="F"
+              locked={toolLocked && tool === "frame"}
+              onClick={(e) => arm("frame", e)}
+            />
+            <FrameMenu onFrameTool={() => setTool("frame")} />
+          </>
         );
       case "connector":
         return (
@@ -212,6 +218,18 @@ export function CanvasToolbar({
             </button>
             {!readOnly && !viewOnly && <MediaMenu onUploadClick={onAddImageClick} onUrl={onUrl} viewCenter={viewCenter} />}
           </>
+        );
+      case "templates":
+        return (
+          <button
+            type="button"
+            className="grid h-9 w-9 cursor-pointer place-items-center rounded-lg text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white max-sm:h-8 max-sm:w-8"
+            title="Templates"
+            aria-label="Templates"
+            onClick={() => requestTemplates({ action: "open" })}
+          >
+            <LayoutTemplate className="h-4 w-4" />
+          </button>
         );
       case "ai":
         return (

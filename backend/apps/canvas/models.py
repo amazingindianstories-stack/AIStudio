@@ -246,3 +246,105 @@ class BoardMedia(models.Model):
         constraints = [models.UniqueConstraint(fields=['board', 'reference_id'], name='canvas_media_upload_uniq'),
                        models.CheckConstraint(condition=models.Q(state__in=('queued', 'running', 'ready', 'failed')),
                                               name='canvas_media_state_check')]
+
+
+
+TEMPLATE_SCOPES = ('personal', 'project', 'everyone')
+
+
+class BoardTemplate(models.Model):
+    """A custom board template: a board v1 graph kept apart from the board it came from. Soft deleted
+    (``deleted_at``) so the delete toast can undo. ``board_id`` is the ordinary board a template is edited in."""
+    id = models.UUIDField(primary_key=True, db_default=RandomUUID())
+    name = models.TextField()
+    description = models.TextField(db_default='')
+    category = models.TextField(db_default='other')
+    tags = models.JSONField(default=list)
+    scope = models.TextField(db_default='personal')
+    # The project a 'project' scoped template is visible in.
+    project_id = models.UUIDField(null=True)
+    created_by = models.UUIDField(null=True)
+    featured = models.BooleanField(db_default=False)
+    graph = models.JSONField()
+    # A few normalized rectangles the picker draws as the thumbnail; never the graph itself.
+    preview = models.JSONField(default=dict)
+    node_count = models.IntegerField(db_default=0)
+    board_id = models.UUIDField(null=True)
+    # The Format a template opens in (Table, Timeline, Doc, Slides, Diagram); the Formats slice reads it.
+    default_view = models.TextField(null=True)
+    deleted_at = models.BigIntegerField(null=True)
+    created_at = models.BigIntegerField()
+    updated_at = models.BigIntegerField()
+
+    class Meta:
+        managed = True
+        db_table = 'canvas_board_templates'
+        indexes = [models.Index(fields=['scope', 'project_id'], name='canvas_templates_scope_idx'),
+                   models.Index(fields=['created_by'], name='canvas_templates_creator_idx'),
+                   models.Index(fields=['board_id'], name='canvas_templates_board_idx')]
+        constraints = [models.CheckConstraint(condition=models.Q(scope__in=TEMPLATE_SCOPES), name='canvas_templates_scope_check')]
+
+
+class Blueprint(models.Model):
+    """A custom blueprint: the boards of a project as graph snapshots, to start a new project from."""
+    id = models.UUIDField(primary_key=True, db_default=RandomUUID())
+    name = models.TextField()
+    description = models.TextField(db_default='')
+    scope = models.TextField(db_default='personal')
+    project_id = models.UUIDField(null=True)
+    created_by = models.UUIDField(null=True)
+    featured = models.BooleanField(db_default=False)
+    # [{"name": ..., "graph": {...}}], one per board.
+    boards = models.JSONField()
+    deleted_at = models.BigIntegerField(null=True)
+    created_at = models.BigIntegerField()
+    updated_at = models.BigIntegerField()
+
+    class Meta:
+        managed = True
+        db_table = 'canvas_blueprints'
+        indexes = [models.Index(fields=['scope', 'project_id'], name='canvas_blueprints_scope_idx')]
+        constraints = [models.CheckConstraint(condition=models.Q(scope__in=TEMPLATE_SCOPES), name='canvas_blueprints_scope_check')]
+
+
+class BoardTemplateUsage(models.Model):
+    """One insertion of a template (shipped or custom) or one blueprint use, for the admin counts."""
+    id = models.UUIDField(primary_key=True, db_default=RandomUUID())
+    # 'builtin:<slug>' for shipped content, the row id for custom templates and blueprints.
+    template_ref = models.TextField()
+    kind = models.TextField()
+    name = models.TextField()
+    user_id = models.UUIDField(null=True)
+    board_id = models.UUIDField(null=True)
+    created_at = models.BigIntegerField()
+
+    class Meta:
+        managed = True
+        db_table = 'canvas_template_usage'
+        indexes = [models.Index(fields=['created_at'], name='canvas_template_usage_at_idx'),
+                   models.Index(fields=['template_ref', 'created_at'], name='canvas_template_usage_ref_idx')]
+
+
+class BoardTemplateLike(models.Model):
+    pk = models.CompositePrimaryKey('template_ref', 'user_id')
+    template_ref = models.TextField()
+    user_id = models.UUIDField()
+    created_at = models.BigIntegerField()
+
+    class Meta:
+        managed = True
+        db_table = 'canvas_template_likes'
+        indexes = [models.Index(fields=['user_id'], name='canvas_template_likes_user_idx')]
+
+
+class BoardTemplateComment(models.Model):
+    id = models.UUIDField(primary_key=True, db_default=RandomUUID())
+    template_ref = models.TextField()
+    user_id = models.UUIDField(null=True)
+    body = models.TextField()
+    created_at = models.BigIntegerField()
+
+    class Meta:
+        managed = True
+        db_table = 'canvas_template_comments'
+        indexes = [models.Index(fields=['template_ref', 'created_at'], name='canvas_template_comments_idx')]

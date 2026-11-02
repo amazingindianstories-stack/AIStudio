@@ -1,6 +1,6 @@
 from django.urls import path
 from .admin_api import user_mutations, pricing_mutation, global_limit_mutation, user_limit_mutation, token_mutation, retired_schema_migration
-from .queries import dashboard, logs, activity
+from .queries import dashboard, logs, activity, template_usage
 from .errors import errors
 from .status import status_view
 from .runtime_audit import runtime_audit
@@ -14,6 +14,7 @@ urlpatterns = [
     path('api/admin/logs',logs),
     path('api/admin/errors',errors),
     path('api/admin/activity',activity),
+    path('api/admin/template-usage',template_usage),
     path('api/admin/status',status_view),
     path('api/admin/audit/runtime',runtime_audit),
     path('api/admin/set-token',token_mutation),

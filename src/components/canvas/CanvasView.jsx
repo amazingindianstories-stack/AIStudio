@@ -20,6 +20,7 @@ import { BoardProjectSelector } from "./BoardProjectSelector";
 import { CanvasAssetPanel } from "./CanvasAssetPanel";
 import { BoardShareDialog } from "./BoardShareDialog";
 import { CanvasAiPanel } from "./CanvasAiPanel";
+import { BoardTemplates } from "./BoardTemplates";
 import { useBoardAi } from "@/lib/board-ai";
 import { BoardHistoryPanel } from "./BoardHistoryPanel";
 import { LayersPanel } from "./LayersPanel";
@@ -184,6 +185,17 @@ export function CanvasView() {
     wantedBoard.current = null;
     setBoardId(wanted ?? id);
   }, []);
+  // A template's editing board may be new or live in another project, so the switcher reloads to list it.
+  const openTemplateBoard = useCallback(
+    (id, projectId) => {
+      if (projectId !== activeProjectId) {
+        wantedBoard.current = id;
+        setActiveProject(projectId);
+      } else setBoardsReload((count) => count + 1);
+      setBoardId(id);
+    },
+    [activeProjectId, setActiveProject]
+  );
   const openBoardProject = useCallback(
     (projectId) => {
       if (!useStore.getState().projects.some((p) => p.id === projectId)) return false;
@@ -454,6 +466,8 @@ export function CanvasView() {
           />
         )}
         {boardId && !noBoards && <NotesPanel />}
+
+        {boardId && loaded && <BoardTemplates boardId={boardId} projectId={activeProjectId} viewCenter={viewCenter} onOpenBoard={openTemplateBoard} />}
         {aiOpen && boardId && !readOnly && !touchViewOnly && <CanvasAiPanel boardId={boardId} leftInset={assetPanelWidth} onClose={() => setAiOpen(false)} />}
       </div>
 

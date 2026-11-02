@@ -128,7 +128,17 @@ def board_metadata_reads(request):
             access.require_board_creator(user, project)
             if not name:
                 return reply(request, {'error': 'Name required.'}, 400)
-            board = services.create_board(project, name, user)
+            template_ref = property_of(data, 'templateId')
+            if truthy(template_ref):
+                from . import templates
+                try:
+                    graph, _ = templates.graph_for_new_board(user, str(template_ref), blank=property_of(data, 'blank') is True)
+                except templates.TemplateError as error:
+                    return reply(request, {'error': str(error)}, error.status)
+                board = services.create_board(project, name, user, graph)
+                templates.record_usage(user, str(template_ref), board['id'])
+            else:
+                board = services.create_board(project, name, user)
             return reply(request, {**board_list(project, user), 'board': board})
         if operation in ('renameBoard', 'deleteBoard'):
             identifier = property_of(data, 'id')

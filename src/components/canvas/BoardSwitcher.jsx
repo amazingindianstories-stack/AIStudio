@@ -2,19 +2,21 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Plus, Pencil, Trash2, Check, MoreHorizontal, AlertCircle } from "lucide-react";
+import { ChevronDown, Plus, Pencil, Trash2, Check, MoreHorizontal, AlertCircle, LayoutTemplate } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
 import { Dropdown, MenuItem } from "@/components/Dropdown";
 import { canOwnRole, canShareRole } from "@/lib/board-access";
 import { useCanvasStore } from "@/lib/canvas-store";
+import { readShowPicker } from "@/lib/canvas/templates";
+import { NewBoardPicker } from "./NewBoardPicker";
 
 /** The create reply, or null when the caller may not add boards to the project. */
-async function postCreateBoard(projectId) {
+async function postCreateBoard(projectId, template = null) {
   const created = await apiFetch("/api/canvas-boards", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ op: "createBoard", projectId, name: "Untitled board" }),
+    body: JSON.stringify({ op: "createBoard", projectId, name: template?.name ?? "Untitled board", ...(template ? { templateId: template.id, blank: template.blank } : {}) }),
   });
   if (created.status === 403) return null;
   if (!created.ok) throw new Error("Could not create a board");
@@ -138,11 +140,15 @@ export function BoardSwitcher({
     return () => clearTimeout(timer);
   }, [notice]);
 
-  const createBoard = async () => {
+  // The picker (or a plain board) starts a board; a person can keep the picker for every new board.
+  const [startPicker, setStartPicker] = useState(false);
+  const startBoard = () => (readShowPicker() ? setStartPicker(true) : createBoard());
+
+  const createBoard = async (template = null) => {
     if (!projectId) return;
     let json;
     try {
-      json = await postCreateBoard(projectId);
+      json = await postCreateBoard(projectId, template);
     } catch {
       setNotice("Could not create a board. Try again.");
       return;
@@ -322,11 +328,19 @@ export function BoardSwitcher({
                   <div className="my-1 h-px bg-line" />
                   <MenuItem
                     onClick={() => {
-                      createBoard();
+                      startBoard();
                       close();
                     }}
                   >
                     <Plus className="h-4 w-4 text-white/60" /> New board
+                  </MenuItem>
+                  <MenuItem
+                    onClick={() => {
+                      setStartPicker(true);
+                      close();
+                    }}
+                  >
+                    <LayoutTemplate className="h-4 w-4 text-white/60" /> New board from template
                   </MenuItem>
                 </>
               )}
@@ -339,6 +353,17 @@ export function BoardSwitcher({
         <p role="status" className="rounded-full border border-line bg-ink-700 px-3 py-1.5 text-xs text-white/70">
           {notice}
         </p>
+      )}
+
+      {startPicker && (
+        <NewBoardPicker
+          projectId={projectId}
+          onClose={() => setStartPicker(false)}
+          onStart={(template) => {
+            setStartPicker(false);
+            void createBoard(template);
+          }}
+        />
       )}
 
       {deleteTarget &&

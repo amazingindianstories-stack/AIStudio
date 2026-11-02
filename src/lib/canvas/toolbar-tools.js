@@ -20,6 +20,7 @@ export const CREATION_TOOLS = [
   { id: "grid", label: "Grid" },
   { id: "synced", label: "Synced copy" },
   { id: "ai", label: "Create with AI" },
+  { id: "templates", label: "Templates" },
 ];
 
 const KNOWN = new Set(CREATION_TOOLS.map((t) => t.id));

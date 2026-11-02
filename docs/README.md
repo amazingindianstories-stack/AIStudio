@@ -20,6 +20,7 @@
 | [features/board-drawing-frames.md](features/board-drawing-frames.md) | Pen, highlighter, eraser and smart drawing, grids, synced copies, visual notes, frame presets, nesting and hiding |
 | [features/board-formats.md](features/board-formats.md) | Docs, Slides, HTML and Draw.io formats, focus mode, Mermaid code diagrams, click-through prototypes, their format v1 fields and caps |
 | [features/board-media.md](features/board-media.md) | Board files, PDF pages, URL imports, link cards, embeds, saved files and the slice's declined and deferred lines |
+| [features/board-templates.md](features/board-templates.md) | Template library, picker, blueprints, save as template, access levels, likes and usage insights |
 | [operations/status.md](operations/status.md) | Current production state, incidents, owner approval gates and open items |
 | [operations/release-runbook.md](operations/release-runbook.md) | Release gates, staging and rolling a backend commit to Railway, rollback |
 | [operations/managed-portraits.md](operations/managed-portraits.md) | Rollout and rollback of the automatic BytePlus portrait pool |

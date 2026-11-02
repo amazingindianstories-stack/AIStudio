@@ -11,7 +11,7 @@ test("the saved order wins, unknown tools drop out and new tools follow in defau
 
 test("unpinned tools leave the dock, and only editors get creation tools", () => {
   const prefs = { toolbarHidden: ["frame", "ai"] };
-  assert.deepEqual(pinnedTools(prefs), ["sticky", "text", "shapes", "connector", "pen", "highlighter", "eraser", "image", "grid", "synced"]);
+  assert.deepEqual(pinnedTools(prefs), ["sticky", "text", "shapes", "connector", "pen", "highlighter", "eraser", "image", "grid", "synced", "templates"]);
   assert.deepEqual(dockTools(prefs, true).slice(0, 4), ["select", "hand", "lasso", "sticky"]);
   assert.deepEqual(dockTools(prefs, false), ["select", "hand", "lasso"]);
 });
