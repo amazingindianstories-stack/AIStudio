@@ -86,8 +86,8 @@ class CaptionRouteTests(FacilitationBase):
 
     def test_quote_shows_the_cost_and_starts_nothing(self):
         quote = self.quote(self.ben)
-        self.assertEqual((quote['exists'], quote['pending'], quote['failure'], quote['available'], quote['costCents'], quote['format']),
-                         (False, False, '', True, 0, 'webvtt'))
+        self.assertEqual((quote['exists'], quote['pending'], quote['failure'], quote['available']),
+                         (False, False, '', True))
         self.assertTrue(quote['model'].startswith('Gemini ('))
         self.persist.assert_not_called()
         self.assertEqual(BoardCaption.objects.count(), 0)
@@ -104,7 +104,7 @@ class CaptionRouteTests(FacilitationBase):
 
     def test_a_run_that_outlives_its_request_is_finished_later_and_never_submitted_again(self):
         with patch('apps.media.audio_wait.wait_for_audio', side_effect=AudioResultPending('x')):
-            self.assertEqual(self.generate(self.dee, 202)['captions'], {'exists': False, 'pending': True, 'createdAt': self.clock})
+            self.assertEqual(self.generate(self.dee, 202)['captions'], {'exists': False, 'pending': True})
             self.generate(self.dee, 202)
         self.assertEqual(self.persist.call_count, 1)
         job = Generation.objects.get(pk=BoardCaption.objects.get(board_id=BOARD).generation_id)

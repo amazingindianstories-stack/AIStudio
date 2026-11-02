@@ -47,8 +47,7 @@ test("rejects when the VTT is missing", async () => {
 });
 
 test("words the cost step without inventing a price and without an em dash", () => {
-  const label = costLabel({ model: "Gemini (m)", costCents: 0 });
-  assert.match(label, /No price is metered/);
-  assert.match(costLabel({ model: "G", costCents: 250 }), /2\.50/);
+  const label = costLabel({ model: "Gemini (m)" });
+  assert.match(label, /Uses Gemini \(m\)\. No price is metered/);
   assert.ok(!label.includes("—"));
 });

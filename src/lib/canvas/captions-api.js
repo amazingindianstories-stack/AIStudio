@@ -48,8 +48,5 @@ export async function loadCaptionTrack(boardId, src, fetchImpl = apiFetch, urls 
 /** The cost step's wording. Transcription has no metered price in Veevee, so none is invented. */
 export function costLabel(quote) {
   const model = quote?.model || "the speech-to-text provider";
-  const cents = Number(quote?.costCents) || 0;
-  return cents > 0
-    ? `Uses ${model}. Estimated cost: ${(cents / 100).toFixed(2)} USD.`
-    : `Uses ${model}. No price is metered in Veevee for this step.`;
+  return `Uses ${model}. No price is metered in Veevee for this step.`;
 }

@@ -80,7 +80,6 @@ def model_name():
 def quote(board_id, src, now):
     """What a run would do, for the cost step that comes before it. No provider call; a run in flight is finished
     here once its job has ended, and a failed run reports why."""
-    from apps.media.audio_inputs import MAX_AUDIO_BYTES
     key = _video_src(board_id, src)
     row = BoardCaption.objects.filter(board_id=board_id, media_key=key).first()
     if row is not None:
@@ -90,8 +89,7 @@ def quote(board_id, src, now):
             row = BoardCaption.objects.filter(pk=row.pk).first()
     return {'available': transcription_available(), 'exists': bool(row and row.vtt),
             'pending': bool(row and not row.vtt and not row.error), 'failure': row.error if row else '',
-            'model': f'Gemini ({model_name()})', 'costCents': 0, 'costBasis': 'estimated', 'maxAudioBytes': MAX_AUDIO_BYTES,
-            'format': 'webvtt'}
+            'model': f'Gemini ({model_name()})'}
 
 
 def vtt_for(board_id, src):

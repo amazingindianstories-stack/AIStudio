@@ -17,7 +17,7 @@ def board_captions(request, identifier):
             return {'captions': captions.quote(board['id'], request.GET.get('src', ''), now)}, 200
         row = captions.generate(board['id'], _data(request).get('src'), user.id, now)
         done = bool(row.vtt)
-        return {'captions': {'exists': done, 'pending': not done, 'createdAt': row.created_at}}, 200 if done else 202
+        return {'captions': {'exists': done, 'pending': not done}}, 200 if done else 202
     return _guarded(handle)(request, identifier, minimum=access.READ if request.method in ('GET', 'HEAD') else access.WRITE)
 
 
