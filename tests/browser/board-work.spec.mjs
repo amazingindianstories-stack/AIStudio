@@ -258,6 +258,8 @@ test('Board work: data widgets group and load the whole table, link off-page rec
   expect((await context.request.post(path, { headers: { Origin: baseURL }, data: { op: 'update', id: linked.id, version: linked.version, cells: { ...linked.cells, needs: [parent.id] } } })).ok()).toBeTruthy();
   await details.getByRole('button', { name: 'Close', exact: true }).click();
   await records.getByRole('button', { name: 'Refresh', exact: true }).click();
+  // Open the record only once the refreshed table shows the relation cell, so the details start from the new data.
+  await expect(workspace.getByText(parent.id).first()).toBeVisible();
   await workspace.getByRole('button', { name: '↳ Item 000', exact: true }).click();
   const blockers = details.getByRole('list', { name: 'Blocked by records' });
   await expect(blockers).toContainText('Item 204');

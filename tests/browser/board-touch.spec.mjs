@@ -203,7 +203,7 @@ test('Board touch: a phone opens the board view-only, pans and zooms by touch, a
   // One finger on empty space pans; the sticky (world 400,200) starts past the phone's right edge.
   const offscreen = await sticky.boundingBox();
   expect(offscreen.x).toBeGreaterThan(box.width - 1);
-  await touch.drag(at(300, 650), at(80, 650));
+  await touch.drag(at(300, 500), at(80, 500));
   const before = await sticky.boundingBox();
   expect(before.x).toBeLessThan(box.width - 60);
   expect(offscreen.x - before.x).toBeGreaterThan(200);
@@ -274,7 +274,7 @@ test('Board touch: a phone opens the board view-only, pans and zooms by touch, a
   // Long press on empty space then drag draws a marquee that selects the node; the style inspector shows.
   const inspector = phone.page.getByRole("button", { name: "More", exact: true });
   await expect(inspector).toBeVisible(); // still selected from the move
-  await touch.tap(at(20, 700)); // tap empty space: clears the selection
+  await touch.tap(at(30, 560)); // tap empty space: clears the selection
   await expect(inspector).toHaveCount(0);
   await centreNode(touch, sticky, box);
   const target = await sticky.boundingBox();
@@ -461,7 +461,7 @@ test('Board touch: viewing, a keyboard cannot edit, save trouble stays visible, 
   await phone.page.route(isBoard, (route) => (['PUT', 'PATCH'].includes(route.request().method())
     ? route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"down"}' })
     : route.continue()));
-  await touch.drag(at(300, 650), at(120, 650));
+  await touch.drag(at(300, 500), at(120, 500));
   await expect(phone.page.getByText(/Could not save/)).toBeVisible({ timeout: 10000 });
   await expect(viewOnly).toHaveCount(0);
   await phone.page.unroute(isBoard);

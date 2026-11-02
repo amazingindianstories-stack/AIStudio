@@ -58,6 +58,16 @@ export function CanvasView() {
   const [assetPanelCollapsed, setAssetPanelCollapsed] = useState(false);
   const [transientActive, setTransientActive] = useState(false);
   const [importNotice, setImportNotice] = useState("");
+  // One timer for the notice, so an older message's clear cannot wipe a newer one.
+  const noticeTimer = useRef(0);
+  // On a phone the top bar wraps into many rows; the comment cluster sits just below it.
+  const topBarRef = useRef(null);
+  const [topBarBottom, setTopBarBottom] = useState(0);
+  const showNotice = useCallback((message, lingerMs = 3500) => {
+    window.clearTimeout(noticeTimer.current);
+    setImportNotice(message);
+    if (lingerMs) noticeTimer.current = window.setTimeout(() => setImportNotice(""), lingerMs);
+  }, []);
   const [shareOpen, setShareOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const closeHistory = useCallback(() => setHistoryOpen(false), []);
@@ -159,6 +169,15 @@ export function CanvasView() {
   // the top controls wrap. Touch-first devices open every board view-only
   // (pan and zoom) until Edit is tapped; a mouse-driven desktop never does.
   const narrow = useMediaQuery("(max-width: 767px)");
+  useEffect(() => {
+    const bar = topBarRef.current;
+    if (!bar || !narrow || typeof ResizeObserver === "undefined") return undefined;
+    const measure = () => setTopBarBottom(bar.offsetTop + bar.offsetHeight);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(bar);
+    return () => observer.disconnect();
+  }, [narrow, boardId, noBoards]);
   const coarsePointer = useMediaQuery("(pointer: coarse)");
   const touchViewOnly = coarsePointer && !touchEditMode;
 
@@ -248,7 +267,7 @@ export function CanvasView() {
       const accepted = all.filter(isBrowserImage);
       const others = all.filter((file) => !accepted.includes(file));
       if (!all.length) return;
-      setImportNotice(`Uploading ${all.length} file${all.length === 1 ? "" : "s"}…`);
+      showNotice(`Uploading ${all.length} file${all.length === 1 ? "" : "s"}…`, 0);
       const target = worldPoint ?? surfaceRef.current?.getViewportCenterWorld() ?? { x: 0, y: 0 };
       let added = 0;
       let failed = 0;
@@ -268,12 +287,11 @@ export function CanvasView() {
           lastError = error.message;
         }
       }
-      setImportNotice(failed
+      showNotice(failed
         ? `${added} file${added === 1 ? "" : "s"} added; ${failed} failed.${lastError ? ` ${lastError}` : ""}`
         : `${added} file${added === 1 ? "" : "s"} added.`);
-      window.setTimeout(() => setImportNotice(""), 3500);
     },
-    [boardId, addImageBatch]
+    [boardId, addImageBatch, showNotice]
   );
 
   const importLink = useCallback(
@@ -285,10 +303,7 @@ export function CanvasView() {
   );
 
   const viewCenter = useCallback(() => surfaceRef.current?.getViewportCenterWorld() ?? { x: 0, y: 0 }, []);
-  const notify = useCallback((message) => {
-    setImportNotice(message);
-    window.setTimeout(() => setImportNotice(""), 3500);
-  }, []);
+  const notify = useCallback((message) => showNotice(message), [showNotice]);
   useBoardClipboard({ importImageFiles, importLink, touchViewOnly, viewCenter, notify });
 
   // Single source of truth for "add image" (⇧I shortcut B / toolbar button)
@@ -378,6 +393,7 @@ export function CanvasView() {
             take pointer events, the gaps between them reach the canvas. An
             open Board menu lifts the bar over the z-40 side panels. */}
         <div
+          ref={topBarRef}
           className={cn(
             "pointer-events-none absolute top-4 z-30 flex has-[[role=menu]]:z-[45] flex-wrap items-center gap-2 transition-[left] duration-200",
             !(boardsLoading || (!loaded && boardId)) && "[&>*]:pointer-events-auto"
@@ -521,7 +537,7 @@ export function CanvasView() {
         }}
       />
 
-      {!noBoards && <CollabLayer boardId={boardId} commentLink={commentLink} onCommentLinkDone={clearCommentLink} />}
+      {!noBoards && <CollabLayer boardId={boardId} insetTop={narrow ? topBarBottom + 8 : undefined} commentLink={commentLink} onCommentLinkDone={clearCommentLink} />}
 
       {shareOpen && boardId && (
         <BoardShareDialog
@@ -538,7 +554,7 @@ export function CanvasView() {
 
       {importNotice && <div role="status" className="absolute bottom-20 left-1/2 z-40 -translate-x-1/2 rounded-lg border border-line bg-ink-750/95 px-3 py-2 text-xs text-white/80 shadow-pop">{importNotice}</div>}
 
-      <StyleInspector hidden={transientActive || readOnly || touchViewOnly || noBoards} insetLeft={narrow ? 0 : assetPanelWidth} />
+      <StyleInspector hidden={transientActive || readOnly || touchViewOnly || noBoards} insetLeft={narrow ? 0 : assetPanelWidth} insetTop={narrow ? topBarBottom + 60 : undefined} />
       {!noBoards && !transientActive && <MediaSelectionBar hidden={touchViewOnly} boardId={boardId} notify={notify} />}
       {!noBoards && !transientActive && <ObjectInfo style={{ left: assetPanelWidth + 16 }} />}
       {boardId && loaded && <FacilitationDock />}

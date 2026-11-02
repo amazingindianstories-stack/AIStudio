@@ -55,7 +55,7 @@ const FRAME_TITLE_HEIGHT = 24;
 /** World height GridNode keeps above a selected grid for its own controls (`-top-9`). */
 const GRID_TOOLBAR_HEIGHT = 36;
 
-export function StyleInspector({ hidden, insetLeft = 0 }) {
+export function StyleInspector({ hidden, insetLeft = 0, insetTop = 8 }) {
   const selection = useCanvasStore((s) => s.selection);
   const selectedConnectorIds = useCanvasStore((s) => s.selectedConnectorIds);
   const present = useCanvasStore((s) => s.history.present);
@@ -132,7 +132,7 @@ export function StyleInspector({ hidden, insetLeft = 0 }) {
   // Clear of the rotation handle above the selection.
   const gap = 8 + (rotationTargets(present, selection).length ? ROTATE_HANDLE_REACH * viewport.zoom : 0);
   const panelHeight = 44;
-  const flipBelow = topLeftScreen.y - panelHeight - gap < 8;
+  const flipBelow = topLeftScreen.y - panelHeight - gap < insetTop;
   const top = flipBelow ? bottomRightScreen.y + gap : topLeftScreen.y - panelHeight - gap;
 
   const types = new Set(selectedNodes.map((n) => n.type));
