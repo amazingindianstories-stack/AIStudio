@@ -631,12 +631,16 @@ def _poll(asset, client):
     if status == 'Failed' or now_ms() - registered_at > limit:
         code = 'processing_failed' if status == 'Failed' else 'processing_timeout'
         # Only a row that is still PROCESSING is condemned, and never one a generation holds: that generation fails
-        # cleanly (not charged) and releases its pin, then the next poll (janitor or upload pass) deletes the asset.
+        # cleanly (not charged) and releases its pin, then the next poll (janitor or upload pass) deletes the asset. A clip
+        # refused here goes on as a URL for every job holding it, so its pins go and it is deleted now.
+        refused = status == 'Failed' and asset.media_kind == 'video' and asset.origin == 'reference' and refuse_as_asset(asset.content_sha256)
         with transaction.atomic():
             _locked()
             row = ManagedPortraitAsset.objects.select_for_update().get(pk=asset.pk)
             if row.status != 'PROCESSING':
                 return wait('portrait_registering', 1000)       # someone else already settled it
+            if refused:
+                ManagedPortraitPin.objects.filter(asset=row).delete()
             held = ManagedPortraitPin.objects.filter(asset=row).exclude(generation_id=row.id).exists()
             if not held:
                 row.status, row.error_code, row.updated_at = 'DELETING', code, now_ms()
@@ -644,8 +648,8 @@ def _poll(asset, client):
                 row.save(update_fields=['status', 'error_code', 'updated_at', 'receipt'])
         if not held and remote_delete(row, client) and row.origin == 'upload':
             _finish(row, status='FAILED', deleted_at=None)      # an upload stays visible as "can't be used"
-        if status == 'Failed' and row.media_kind == 'video' and row.origin == 'reference' and refuse_as_asset(row.content_sha256):
-            return wait('portrait_registering', 1000)       # a guess of the detector: the job goes on with the clip as a URL
+        if refused:
+            return wait('portrait_registering', 1000)
         from apps.generation import provider_errors
         detail = provider_errors.capture('byteplus-assets', phase='GetAsset', code=code, message='Asset status: ' + (status or 'unknown'),
                                          task_id=asset.byteplus_asset_id, source='veevee',

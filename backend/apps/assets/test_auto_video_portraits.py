@@ -228,6 +228,8 @@ class AutoVideoPortraitTests(AutoVideoBase):
             self.assertEqual(row.status, 'succeeded', row.error)
             self.assertFalse(self.sent_videos()[0].startswith('asset://'))
             self.assertEqual(ReferenceFaceScan.objects.get().forced, managed_pool.REFUSED)
+            self.assertEqual(ManagedPortraitAsset.objects.get().status, 'DELETED', 'the failed clip frees its slot at once')
+            self.assertEqual([item['Status'] for item in self.fake.assets.values()], ['Deleted'])
             self.assertEqual(self.run_worker(self.enqueue_video(self.reference_clip(data))).status, 'succeeded')
             self.assertFalse(self.sent_videos()[0].startswith('asset://'))
             self.assertEqual(len(creates), 1, 'not asked again')
