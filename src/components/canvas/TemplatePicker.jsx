@@ -197,8 +197,8 @@ export function TemplatePicker({
     <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)}
       className={cn("cursor-pointer rounded-md px-3 py-1.5 text-xs", tab === id ? "bg-ink-600 text-white" : "text-white/55 hover:text-white")}>{label}</button>
   );
-  const sideButton = (active, label, onClick) => (
-    <button type="button" onClick={onClick} aria-current={active}
+  const sideButton = (key, active, label, onClick) => (
+    <button key={key} type="button" onClick={onClick} aria-current={active}
       className={cn("w-full cursor-pointer rounded-md px-2.5 py-1.5 text-left text-xs", active ? "bg-ink-600 text-white" : "text-white/60 hover:bg-white/[0.06] hover:text-white")}>{label}</button>
   );
 
@@ -234,12 +234,12 @@ export function TemplatePicker({
         {tab === "templates" && (
           <div className="grid min-h-0 flex-1 grid-cols-[11rem_minmax(0,1fr)_20rem] max-lg:grid-cols-[minmax(0,1fr)] max-lg:overflow-y-auto">
             <nav aria-label="Template filters" className="scroll-thin flex flex-col gap-0.5 overflow-y-auto border-r border-line p-3 max-lg:flex-row max-lg:flex-wrap max-lg:border-b max-lg:border-r-0">
-              {TEMPLATE_COLLECTIONS.map((item) => sideButton(!mine && collection === item.id, item.label, () => { setMine(false); setCollection(item.id); }))}
-              {sideButton(mine, "My templates", () => { setMine(true); setCollection("all"); })}
-              {sideButton(!mine && collection === "liked", "Liked", () => { setMine(false); setCollection("liked"); })}
+              {TEMPLATE_COLLECTIONS.map((item) => sideButton(item.id, !mine && collection === item.id, item.label, () => { setMine(false); setCollection(item.id); }))}
+              {sideButton("mine", mine, "My templates", () => { setMine(true); setCollection("all"); })}
+              {sideButton("liked", !mine && collection === "liked", "Liked", () => { setMine(false); setCollection("liked"); })}
               <div className="my-2 h-px bg-line max-lg:hidden" />
-              {sideButton(category === "all", "All categories", () => setCategory("all"))}
-              {Object.entries(TEMPLATE_CATEGORY_LABELS).map(([id, label]) => sideButton(category === id, label, () => setCategory(id)))}
+              {sideButton("all-categories", category === "all", "All categories", () => setCategory("all"))}
+              {Object.entries(TEMPLATE_CATEGORY_LABELS).map(([id, label]) => sideButton(`category-${id}`, category === id, label, () => setCategory(id)))}
             </nav>
             <div className="flex min-h-0 min-w-0 flex-col">
               <div className="relative border-b border-line p-3">

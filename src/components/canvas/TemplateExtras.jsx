@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { scopeOptions, templateApi } from "@/lib/canvas/templates";
 import { fetchProjectAccess } from "@/lib/board-access";
@@ -119,7 +119,7 @@ export function BlueprintsTab({ projectId, isAdmin, onMade }) {
                 <>
                   <h3 className="text-sm font-medium text-white">{item.name}</h3>
                   <p className="text-xs text-white/55">{item.description}</p>
-                  <p className="text-[11px] text-white/40">{item.boards.map((board) => board.name).join(" · ")}</p>
+                  <p className="text-[11px] text-white/40">{item.boards.map((board, index) => <Fragment key={index}>{index > 0 && " · "}<span className="whitespace-nowrap">{board.name}</span></Fragment>)}</p>
                   <div className="mt-auto flex gap-2">
                     <button type="button" disabled={busy === item.id} onClick={() => use(item)}
                       className="cursor-pointer rounded-lg bg-brand px-3 py-1.5 text-xs font-medium text-ink-950 disabled:opacity-50">

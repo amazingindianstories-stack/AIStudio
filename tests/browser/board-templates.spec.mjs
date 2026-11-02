@@ -80,6 +80,7 @@ test('Board templates: picker, pre-filled and blank, Cmd+Delete, save and delete
   const { context, page } = await signIn(browser, baseURL, OWNER, project.id);
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
+  page.on('console', (message) => { if (message.type() === 'error' && /unique "key" prop/.test(message.text())) errors.push(message.text()); });
   const boardRequest = currentBoardId(page);
   await openBoard(page);
   const boardId = await boardRequest;
@@ -234,6 +235,7 @@ test('Board templates: save permissions, scope options, selection source, scratc
   const { context, page } = await signIn(browser, baseURL, EDITOR, project.id);
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
+  page.on('console', (message) => { if (message.type() === 'error' && /unique "key" prop/.test(message.text())) errors.push(message.text()); });
   const boardRequest = currentBoardId(page);
   await openBoard(page);
   const boardId = await boardRequest;
