@@ -66,8 +66,11 @@ the job read-back carries `model`, `aspectRatio` and `resolution`.
   `<key>-1`), so a re-sent POST returns its slot's job and never queues a second billed one. The server sees two
   ordinary image jobs. The estimated cost is the per-job quote times the count. If the server refuses the second
   submission, the first job is kept and the panel reports the rest as failed. If the second submission's answer is
-  lost (a network drop, no HTTP status), the panel re-sends it under the same slot key every 1.5 s until the server
-  answers, so a job it already committed is returned, followed and placed rather than reported as failed. The panel follows both jobs and, once both have ended,
+  lost (a network drop, or a gateway 502/504 that could not verify completion), the panel re-sends it under the same
+  slot key every 1.5 s, up to 10 tries, so a job the server already committed is returned, followed and placed rather
+  than reported as failed. A slot the maintenance freeze stops before it is sent is not retried: the first job stays
+  followed and the freeze message is shown. A single submission (or a batch's first) that ends the same uncertain way
+  keeps its key, so trying again returns the same job. The panel follows both jobs and, once both have ended,
   claims each one and places the finished results side by side in free space as one undo step; a failed one is
   dismissed and its error shown. The first result is the one **Refine** continues. A refinement is always one job, so
   the batch control is hidden while refining. After a reload, a batch's unplaced results are placed one by one like
@@ -177,7 +180,7 @@ from the panel's selection strip or the context menu's AI rows, not the format t
   - refinement, placement, and the migration
   - an image's `model`, `aspectRatio` and `resolution`: priced by resolution, stored, validated, replay-keyed, and the
     legacy `processing` path.
-- `src/lib/board-ai.test.js` (including a batch's per-slot keys, a refused or lost second submission and its one-step
+- `src/lib/board-ai.test.js` (including a batch's per-slot keys, a refused, lost, timed-out or frozen second submission and its one-step
   side-by-side placement), `src/lib/config.test.js` (`reconcileGenerationSettings`), `src/lib/canvas/ai-formats.test.js`, `ai-graph.test.js`, `ai-selection.test.js` and `src/components/canvas/CanvasAiPanel.test.js`
   cover the browser side.
 - `tests/browser/board-ai.spec.mjs` and `board-ai-selection.spec.mjs` are the end-to-end flows. The first picks a non-default model, ratio and resolution for an image, checks the quote, the

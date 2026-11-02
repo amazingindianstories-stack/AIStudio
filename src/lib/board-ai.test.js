@@ -3,6 +3,8 @@ import test from "node:test";
 import { useBoardAi, requestFingerprint, trackPanelLayout } from "./board-ai.js";
 import { useCanvasStore } from "./canvas-store.js";
 import { emptyCanvasState } from "./canvas/serialization.js";
+import { MAINTENANCE_MESSAGE } from "./maintenance.js";
+import { useMaintenance } from "./maintenance-client.js";
 
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 const BOARD = "11111111-1111-4111-8111-111111111111";
@@ -143,7 +145,13 @@ test("a batch whose second slot is refused keeps the accepted job and reports th
   assert.equal(calls.filter((call) => call.method === "POST").length, 2);
 });
 
-test("a batch slot whose answer is lost after the server committed it is re-sent under its key, followed and placed", async (t) => {
+const GATEWAY_TIMEOUT = { error: "The upstream request timed out. Its completion could not be verified.", code: "UPSTREAM_TIMEOUT" };
+const LOST_ANSWERS = [
+  ["a dropped connection", () => { throw new TypeError("Failed to fetch"); }],
+  ["a gateway 502 that could not verify completion", () => json(502, GATEWAY_TIMEOUT)],
+];
+
+for (const [lost, lose] of LOST_ANSWERS) test(`a batch slot whose answer is lost to ${lost} after the server committed it is re-sent under its key, followed and placed`, async (t) => {
   loadedBoard();
   const committed = new Map();
   let dropped = false;
@@ -153,7 +161,7 @@ test("a batch slot whose answer is lost after the server committed it is re-sent
       if (!committed.has(key)) committed.set(key, imageJob(Number(key.at(-1)), { status: "queued" }));
       if (key.endsWith("-1") && !dropped) {
         dropped = true;
-        throw new TypeError("Failed to fetch");
+        return lose();
       }
       return json(201, { job: committed.get(key) });
     }
@@ -179,6 +187,72 @@ test("a batch slot whose answer is lost after the server committed it is re-sent
   assert.equal(canvas.history.present.nodes.length, 2);
   assert.equal(canvas.history.past.length, pastBefore + 1, "both results as one undo step");
   assert.deepEqual(calls.filter((call) => call.method === "PATCH").map((call) => call.url.split("/").at(-1)).sort(), SLOTS);
+});
+
+test("a batch slot that never gets an answer is re-sent a bounded number of times, then reported", async (t) => {
+  loadedBoard();
+  const calls = server(t, (call) => {
+    if (call.method === "POST") {
+      if (call.headers["Idempotency-Key"].endsWith("-0")) return json(201, { job: imageJob(0, { status: "queued" }) });
+      throw new TypeError("Failed to fetch");
+    }
+    return json(200, { jobs: [] });
+  });
+  await useBoardAi.getState().attach(BOARD);
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let created = null;
+  const submitted = useBoardAi.getState().submit(IMAGE, 2).then((jobs) => { created = jobs; });
+  while (!created) {
+    await new Promise((resolve) => setImmediate(resolve));
+    t.mock.timers.tick(1500);
+  }
+  await submitted;
+  assert.deepEqual(created.map((item) => item.id), [SLOTS[0]]);
+  const keys = calls.filter((call) => call.method === "POST").map((call) => call.headers["Idempotency-Key"]);
+  assert.equal(keys.length, 11);
+  assert.equal(new Set(keys.slice(1)).size, 1, "every re-send uses the slot's own key");
+  assert.equal(useBoardAi.getState().job.id, SLOTS[0]);
+  assert.equal(useBoardAi.getState().error, "1 of 2 started. The rest failed: Failed to fetch");
+  assert.equal(useBoardAi.getState().submitting, false);
+});
+
+test("a batch slot stopped by the maintenance freeze before it is sent is not retried; the accepted job is still placed", async (t) => {
+  loadedBoard();
+  t.after(() => useMaintenance.setState({ enabled: false }));
+  const calls = server(t, (call) => {
+    if (call.method === "POST") {
+      useMaintenance.setState({ enabled: true });
+      return json(201, { job: imageJob(0, { status: "queued" }) });
+    }
+    if (call.method === "PATCH") return json(200, { job: { placedAt: 5, placedNodeIds: call.body.placedNodeIds } });
+    return json(200, { jobs: [] });
+  });
+  await useBoardAi.getState().attach(BOARD);
+  const created = await useBoardAi.getState().submit(IMAGE, 2);
+  assert.deepEqual(created.map((item) => item.id), [SLOTS[0]]);
+  assert.equal(calls.filter((call) => call.method === "POST").length, 1, "the frozen slot is never sent");
+  assert.equal(useBoardAi.getState().job.id, SLOTS[0]);
+  assert.equal(useBoardAi.getState().error, `1 of 2 started. The rest failed: ${MAINTENANCE_MESSAGE}`);
+  useMaintenance.setState({ enabled: false });
+  await useBoardAi.getState().settle(imageJob(0, { status: "succeeded", result: { url: "/api/media/x", aspectRatio: "1:1" } }));
+  assert.equal(useCanvasStore.getState().history.present.nodes.length, 1);
+});
+
+test("a single submission whose gateway timed out keeps its key, so a retry returns the same job", async (t) => {
+  loadedBoard();
+  let mode = "timeout";
+  const calls = server(t, (call) => {
+    if (call.method === "POST") return mode === "timeout" ? json(502, GATEWAY_TIMEOUT) : json(201, { job: job() });
+    return json(200, { jobs: [] });
+  });
+  await useBoardAi.getState().attach(BOARD);
+  const request = { format: "stickies", prompt: "ideas" };
+  assert.deepEqual(await useBoardAi.getState().submit(request), []);
+  assert.equal(useBoardAi.getState().error, GATEWAY_TIMEOUT.error);
+  mode = "ok";
+  await useBoardAi.getState().submit(request);
+  const [first, retry] = calls.filter((call) => call.method === "POST").map((call) => call.headers["Idempotency-Key"]);
+  assert.equal(retry, first);
 });
 
 test("a batch with a failed job dismisses it, places the finished one and reports the failure", async (t) => {

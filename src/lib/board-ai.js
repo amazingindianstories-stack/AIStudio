@@ -15,6 +15,7 @@ import { useCanvasStore } from "./canvas-store";
 export const ACTIVE_STATUSES = ["queued", "running"];
 const POLL_MS = 1500;
 const HIDDEN_POLL_MS = 6000;
+const SLOT_ATTEMPTS = 10;
 
 function jobsPath(boardId, suffix = "") {
   return `/api/canvas-boards/${encodeURIComponent(boardId)}/ai-jobs${suffix}`;
@@ -78,6 +79,16 @@ export async function fetchBoardAiJobs(boardId, ids = [], { recent = false } = {
 
 export async function markBoardAiPlaced(boardId, jobId, nodeIds) {
   return (await send(jobsPath(boardId, `/${encodeURIComponent(jobId)}`), "PATCH", { placedNodeIds: nodeIds })).job;
+}
+
+/**
+ * True when a submission may have been accepted although its answer never arrived (a dropped connection, or a gateway
+ * 502/504 that could not verify completion): only a re-send under the same key is safe. A request that was never sent
+ * (the maintenance freeze) or a definite refusal is not.
+ */
+function unanswered(error) {
+  if (error?.retryable === false) return false;
+  return typeof error?.status !== "number" || error.status === 502 || error.status === 504;
 }
 
 /** The request fields a job is submitted with; equal requests reuse one idempotency key. */
@@ -284,7 +295,8 @@ export const useBoardAi = create((set, get) => ({
   /**
    * Queue `count` independent jobs with the same request (a batch), each under its own slot of one Idempotency-Key, so
    * a re-sent POST returns its slot's job. A refused slot keeps the accepted jobs and reports the rest; a later slot
-   * whose answer was dropped is re-sent under the same key, so a job the server committed is still followed and placed.
+   * whose answer never arrived is re-sent under the same key (up to SLOT_ATTEMPTS tries), so a job the server committed
+   * is still followed and placed.
    */
   submit: async (request, count = 1) => {
     const { boardId, submitting, pendingKey } = get();
@@ -297,12 +309,12 @@ export const useBoardAi = create((set, get) => ({
     const created = [];
     let failure = null;
     for (let slot = 0; slot < count && !failure; slot += 1) {
-      for (;;) {
+      for (let attempt = 1; ; attempt += 1) {
         try {
           created.push(await submitBoardAi(boardId, request, `${key}-${slot}`));
           break;
         } catch (error) {
-          if (!created.length || typeof error.status === "number") {
+          if (!created.length || !unanswered(error) || attempt === SLOT_ATTEMPTS) {
             failure = error;
             break;
           }
@@ -315,8 +327,7 @@ export const useBoardAi = create((set, get) => ({
     const message = failure?.message || "Could not start the job.";
     if (!created.length) {
       // A refusal is final for this request: the next submission gets a new key. A dropped answer keeps the key.
-      const answered = typeof failure?.status === "number";
-      set({ submitting: false, error: message, pendingKey: answered ? null : get().pendingKey });
+      set({ submitting: false, error: message, pendingKey: unanswered(failure) ? get().pendingKey : null });
       return created;
     }
     const lead = created.at(-1);
