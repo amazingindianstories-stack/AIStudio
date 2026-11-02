@@ -194,7 +194,14 @@ test('Create with AI recolours the notes already selected on the board: black fr
     await panel.getByRole('button', { name: 'Change colour: keep the picked format instead' }).click();
     await expect(stickiesFormat).toHaveAttribute('aria-checked', 'true');
     await expect(prompt).toHaveValue('make these notes black');
-    // The dismissal holds only for the words it was given for: a new recolour request is routed again.
+    // The dismissal holds only for the selection it was given for: the same words over another selection are routed again.
+    await page.locator(`[data-node-id="${(await stickies())[0].id}"]`).click({ position: { x: 12, y: 12 }, modifiers: ['Shift'] });
+    await expect(panel.getByLabel('Selection', { exact: true })).toContainText('2 selected');
+    await expect(prompt).toHaveValue('make these notes black');
+    await expect(stickiesFormat).toHaveAttribute('aria-checked', 'false');
+    await panel.getByRole('button', { name: 'Change colour: keep the picked format instead' }).click();
+    await expect(stickiesFormat).toHaveAttribute('aria-checked', 'true');
+    // And only for the words it was given for: a new recolour request over the same selection is routed again.
     await prompt.fill('change the colour of these notes to red');
     await expect(stickiesFormat).toHaveAttribute('aria-checked', 'false');
     await expect(panel.getByRole('button', { name: 'Change colour: keep the picked format instead' })).toBeVisible();
