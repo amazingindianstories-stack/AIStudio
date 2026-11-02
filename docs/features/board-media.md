@@ -62,8 +62,12 @@ again, and the next run takes over the row. Nothing sweeps or cancels audio jobs
 read. The panel checks again every few seconds while the run is pending. Only media that `/api/media/` would serve
 (the shared read policy, so no unfinished uploads or exports) is captioned.
 
-Known gap: nothing in the audio path refunds or reconciles an uncertain submission. If Gemini did run an uncertain
-job, a retry after the grace period bills a second transcription. The uncertain job also keeps the editor's single
-audio slot reserved, so that editor's retry stays queued (shown as still working) until the reservation clears. The gateway lets the `POST`
-through only with the paid initial routes on, and waits 125 s for it, the same as `/api/audio/transcribe`
-(`deploy/gateway.py` `BOARD_TRANSCRIPTIONS`, which also covers the Talktrack transcript).
+The gateway lets the `POST` through only with the paid initial routes on, and waits 125 s for it, the same as
+`/api/audio/transcribe` (`deploy/gateway.py` `BOARD_TRANSCRIPTIONS`, which also covers the Talktrack transcript).
+
+Known gap: nothing refunds, reconciles or clears an uncertain audio submission. If Gemini did run an uncertain job, a
+retry after the grace period bills a second transcription. Audio admission (`audio_capacity_available`) also counts
+every `SUBMISSION_UNCERTAIN` row against its limits for good: one per user, two in total. So if the editor whose
+submission was uncertain retries, the new job never leaves the queue. The run stays pending, and Start stays hidden
+for every editor on that board, until an operator resolves the uncertain audio row. Two uncertain rows anywhere stop
+all audio admission the same way.
