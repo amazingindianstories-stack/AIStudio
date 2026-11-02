@@ -4,7 +4,15 @@
  * Saves can fail, be cancelled by navigation, or exceed the browser's
  * keepalive quota. Until a PUT for exactly this content succeeds, the latest
  * edit lives in localStorage and is restored the next time the board opens.
+ * A draft holds format payloads (formats/payloads.js) only where they differ
+ * from the synced graph: the server keeps the rest.
  */
+import { slimGraph } from "./canvas/formats/payloads";
+
+/** `graph` as a draft keeps it, measured against the synced `base`. */
+function slim(graph, base) {
+  return Array.isArray(graph?.nodes) ? slimGraph(graph, base) : graph;
+}
 
 const PREFIX = "veevee-canvas-pending-v1:";
 /** Browsers reject keepalive bodies above ~64 KiB; stay safely under it. */
@@ -49,7 +57,9 @@ export function savePendingDraft(boardId, data, at = Date.now(), sync = {}) {
   const ownSave = save && save.data === data ? { id: save.id } : undefined;
   let evictable = null;
   try {
-    for (const draft of [{ at, data, baseVersion, base, save: ownSave ?? save }, { at, data, baseVersion, save: ownSave }]) {
+    const kept = slim(data, base);
+    const attempt = ownSave ?? (save && { ...save, data: slim(save.data, base) });
+    for (const draft of [{ at, data: kept, baseVersion, base: slim(base, base), save: attempt }, { at, data: kept, baseVersion, save: ownSave }]) {
       const serialized = JSON.stringify(draft);
       if (serialized.length > MAX_DRAFT_CHARS) continue;
       for (;;) {
@@ -98,14 +108,14 @@ export function readPendingDraft(boardId) {
   }
 }
 
-/** Clear only if the stored draft is exactly what the server acknowledged. */
-export function clearPendingDraft(boardId, acknowledgedData) {
+/** Clear only if the stored draft is exactly what the server acknowledged, measured against the same synced `base`. */
+export function clearPendingDraft(boardId, acknowledgedData, base) {
   const store = storage();
   if (!store || !boardId) return;
   try {
     const current = readPendingDraft(boardId);
     if (!current) return;
-    if (acknowledgedData === undefined || JSON.stringify(current.data) === JSON.stringify(acknowledgedData)) {
+    if (acknowledgedData === undefined || JSON.stringify(current.data) === JSON.stringify(slim(acknowledgedData, base))) {
       store.removeItem(PREFIX + boardId);
     }
   } catch {

@@ -177,7 +177,7 @@ def save_board(identifier, data, base_version, save_id, actor, patch=None, level
                 if stamped.get('notes') and stamped['notes'] != stored.get('notes'):
                     # The author and time this save gave the visual notes, for the saving editor's panel.
                     result['notesStamp'] = {key: stamped['notes'][key] for key in ('updatedBy', 'updatedAt')}
-                return {**result, 'board': visible} if corrected else result
+                return {**result, 'board': visible if lazy else payloads.hydrate(identifier, visible)} if corrected else result
     current = get_board(identifier, viewer=actor, lazy=lazy)
     if current is None:
         return None

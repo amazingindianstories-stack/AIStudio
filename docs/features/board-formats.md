@@ -89,14 +89,22 @@ when the target is not on the board; copying objects together with their targets
 
 Docs blocks and suggestions, HTML embeds and draw.io XML and previews live in `canvas_board_format_payloads`,
 one row per board and node (`apps/canvas/payloads.py`), not in the board JSON. The node keeps
-`payload: {size, rev}`; `rev` rises only when the content changes. A save still sends the whole node: the
-server splits the fields off inside the board-locked save, so roles, version conflicts and History apply
-unchanged, and a node sent with its reference but without its fields keeps its stored row. Reads return the
-payload inline by default; `?payloads=lazy` on the board, its save and its changes feed leaves the reference
-only, and `GET /api/canvas-boards/:id/payloads/:nodeId` loads one node's payload (`src/lib/canvas/formats/payloads.js`
-holds the load-on-demand logic). One payload may hold up to 1,048,576 UTF-16 units of JSON (413 `payload`
-beyond that); fields hold up to 500,000 characters (HTML, XML, preview) and docs up to 2,000 blocks of
-20,000 characters. Copying a board or template reads inline and re-splits; deleting a board or node removes its rows.
+`payload: {size, rev}`; `rev` rises only when the content changes. The server splits the fields off inside
+the board-locked save, so roles, version conflicts and History apply unchanged, and a node sent with its
+reference but without its fields keeps its stored row. Reads return the payload inline by default;
+`?payloads=lazy` on the board, its save and its changes feed leaves the reference only, and
+`GET /api/canvas-boards/:id/payloads/:nodeId` loads one node's payload.
+
+The editor reads lazily. A format object loads its payload when it renders (culling leaves off-screen objects
+unrendered) or opens in focus mode, and shows "Loading…" until then; duplicating or pasting one loads it first.
+Saves and the pending draft carry a payload only where it differs from the synced graph, and a save's stamps
+return each changed node's new reference (`src/lib/canvas/formats/payloads.js` holds the client side). A row
+outlives its node, so an undo or merge that brings the node back finds its content; the rows go with the board.
+
+The 2 Mi board limit, and the template snapshot's, count the graph without payloads. One payload may hold up
+to 1,048,576 UTF-16 units of JSON (413 `payload` beyond that); fields hold up to 500,000 characters (HTML,
+XML, preview) and docs up to 2,000 blocks of 20,000 characters. Copying a board or template reads inline and
+re-splits; a template saved from a selection takes unloaded payloads from the source board.
 
 ## Roles and history
 

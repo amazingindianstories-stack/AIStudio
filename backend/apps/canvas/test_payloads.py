@@ -155,10 +155,50 @@ class PayloadApiTests(TransactionTestCase):
         self.assertEqual(BoardFormatPayload.objects.get(board_id=BOARD, node_id='d').body['blocks'][0]['id'], 'b0')
         self.assertEqual(len(BoardFormatPayload.objects.get(board_id=BOARD, node_id='d').body['blocks']), 30)
 
-    def test_deleting_a_node_removes_its_row(self):
-        self.save(self.owner, data=graph(doc(), html()))
+    def test_a_deleted_node_keeps_its_row_so_an_undo_without_the_payload_restores_its_content(self):
+        self.save(self.owner, data=graph(doc(text='one'), html()))
+        self.as_user(self.owner)
+        unloaded = self.client.get(f'/api/canvas-boards/{BOARD}?payloads=lazy').json()['data']['nodes'][0]
         self.save(self.owner, method='patch', patch={'nodes': {'delete': ['d']}})
-        self.assertEqual(set(BoardFormatPayload.objects.filter(board_id=BOARD).values_list('node_id', flat=True)), {'h'})
+        self.assertNotIn('d', self.stored_nodes())
+        self.assertEqual(self.save(self.owner, method='patch', patch={'nodes': {'upsert': [unloaded], 'add': ['d']}}).status_code, 200)
+        self.as_user(self.owner)
+        restored = self.client.get(f'/api/canvas-boards/{BOARD}').json()['data']['nodes']
+        self.assertEqual(next(node for node in restored if node['id'] == 'd')['blocks'][0]['text'], 'one')
+
+    def test_a_save_returns_the_new_reference_of_a_changed_payload_with_its_stamps(self):
+        self.save(self.owner, data=graph(doc(text='one'), html()))
+        stamps = self.save(self.owner, method='patch', query='?payloads=lazy', patch={'nodes': {'upsert': [doc(text='two')]}}).json()['stamps']
+        self.assertEqual(stamps['d']['payload'], self.stored_nodes()['d']['payload'])
+        self.assertEqual(stamps['d']['payload']['rev'], 2)
+        self.assertNotIn('h', stamps)
+
+    def test_a_corrected_save_returns_the_board_inline_unless_lazy(self):
+        editor = make_user('editor')
+        BoardMember.objects.create(board_id=BOARD, user_id=editor.id, role='edit', created_at=1, updated_at=1)
+        held = {'locked': True, 'lockedBy': str(self.owner.id), 'lockProtected': True}
+        self.save(self.owner, data=graph(doc(text='one', **held), html()))
+        for query, inline in (('', True), ('?payloads=lazy', False)):
+            with self.subTest(query=query):
+                reply = self.save(editor, query=query, data=graph(doc(text='one', x=50, **held), html()))
+                self.assertEqual(reply.status_code, 200)
+                node = next(item for item in reply.json()['board']['nodes'] if item['id'] == 'd')
+                self.assertEqual(node['x'], 0)
+                if inline:
+                    self.assertEqual(node['blocks'][0]['text'], 'one')
+                    self.assertNotIn('payload', node)
+                else:
+                    self.assertNotIn('blocks', node)
+                    self.assertEqual(node['payload']['rev'], 1)
+
+    def test_a_synced_frame_reads_the_payloads_of_its_own_objects_inline(self):
+        frame = {'id': 'f', 'type': 'frame', 'x': 0, 'y': 0, 'w': 50, 'h': 50}
+        self.save(self.owner, data=graph(frame, {**doc(text='inside'), 'parentId': 'f'}, html()))
+        self.as_user(self.viewer)
+        content = self.client.get(f'/api/canvas-boards/{BOARD}/frames/f').json()
+        self.assertEqual([node['id'] for node in content['nodes']], ['f', 'd'])
+        self.assertEqual(content['nodes'][1]['blocks'][0]['text'], 'inside')
+        self.assertNotIn('payload', content['nodes'][1])
 
     def test_the_changes_feed_is_inline_unless_lazy(self):
         self.save(self.owner, data=graph(doc(text='one')))
@@ -198,6 +238,30 @@ class PayloadLifecycleTests(TransactionTestCase):
         self.assertEqual(BoardFormatPayload.objects.filter(board_id=made['id']).count(), 3)
         services.delete_board(made['id'])
         self.assertEqual(BoardFormatPayload.objects.count(), 0)
+
+    def test_a_template_counts_its_graph_without_payloads_against_the_board_limit(self):
+        from .models import BoardTemplate
+        from .templates import TemplateError, create_template, snapshot
+        blocks = [{'id': f'b{n}', 'type': 'p', 'text': 'y' * 20000} for n in range(40)]
+        made = services.create_board(PROJECT, 'Big', self.owner, validate_state(graph(*(doc(f'd{n}', blocks=blocks) for n in range(3)))))
+        entry = create_template(self.owner, {'name': 'Big', 'boardId': str(made['id'])})
+        nodes = BoardTemplate.objects.get(pk=entry['id']).graph['nodes']
+        self.assertEqual([len(node['blocks']) for node in nodes], [40, 40, 40])
+        self.assertGreater(len(json.dumps(nodes)), 2 * 1024 * 1024)
+        huge = [{'id': f'b{n}', 'type': 'p', 'text': 'y' * 20000} for n in range(60)]
+        with self.assertRaises(TemplateError) as refused:
+            snapshot(graph(doc(blocks=huge)))
+        self.assertEqual(refused.exception.status, 413)
+
+    def test_a_template_from_a_selection_takes_unloaded_payloads_from_the_source_board(self):
+        from .models import BoardTemplate
+        from .templates import create_template
+        made = services.create_board(PROJECT, 'Source', self.owner, validate_state(graph(doc(text='kept'), html())))
+        unloaded = services.get_board(made['id'], lazy=True)['data']['nodes'][0]
+        self.assertNotIn('blocks', unloaded)
+        entry = create_template(self.owner, {'name': 'Part', 'boardId': str(made['id']), 'graph': {'nodes': [unloaded], 'connectors': []}})
+        nodes = BoardTemplate.objects.get(pk=entry['id']).graph['nodes']
+        self.assertEqual([(node['id'], node['blocks'][0]['text'], 'payload' in node) for node in nodes], [('d', 'kept', False)])
 
     def test_a_template_made_from_a_board_carries_the_payloads_inline(self):
         from .templates import _board_graph

@@ -56,6 +56,15 @@ test("the size check refuses a template that would pass the 2 Mi board cap", () 
   assert.equal(insertTemplate(huge, graph(), { x: 0, y: 0 }).tooLarge, true);
 });
 
+test("format payloads do not count against the board cap and their copies carry no stored reference", () => {
+  const text = "x".repeat(18000);
+  const docs = Array.from({ length: 4 }, (_, n) => ({ ...base, id: `d${n}`, type: "format", format: "doc", name: "Doc", payload: { size: 1, rev: 1 }, blocks: Array.from({ length: 30 }, (_, b) => ({ id: `b${b}`, type: "p", text })) }));
+  const result = insertTemplate(emptyCanvasState(), { ...graph(), nodes: docs }, { x: 0, y: 0 });
+  assert.ok(JSON.stringify(result.next).length > MAX_BOARD_UNITS);
+  assert.equal(result.tooLarge, false);
+  assert.ok(result.next.nodes.every((node) => !("payload" in node) && node.blocks.length === 30));
+});
+
 test("clearing a selection clears sticky, text and shape text in one new graph and ignores the rest", () => {
   const present = { ...emptyCanvasState(), nodes: [sticky("a"), { ...base, id: "t", type: "text", text: "Hi", fontSize: 16, align: "left", color: "#000000" }, { ...base, id: "f", type: "frame", name: "Keep", fill: "transparent", stroke: "#000000" }] };
   const next = clearSelection(present, ["a", "t", "f"]);

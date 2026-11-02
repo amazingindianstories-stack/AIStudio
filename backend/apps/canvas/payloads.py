@@ -2,10 +2,11 @@
 
 Each lives in its own row keyed by board and node (`BoardFormatPayload`); the board node keeps `payload`, a
 `{size, rev}` reference. An editor loads the rows it needs on demand (`GET .../payloads/<node>`), so a board
-never needs every payload to render. Saves still carry the whole node: `split` runs inside `save_board`, under
-the board lock, takes the payload fields off the validated graph and returns the rows to write, `write`
-applies them once the graph has settled. A node saved with its reference but without the fields (its payload
-was never loaded) keeps the stored row. Every other reader gets the inline shape back from `hydrate`, which
+never needs every payload to render. A save carries a node's fields only when they changed: `split` runs
+inside `save_board`, under the board lock, takes the payload fields off the validated graph and returns the
+rows to write, `write` applies them once the graph has settled. A node saved with its reference but without
+the fields (its payload was not loaded or did not change) keeps the stored row, and the save's stamps give
+the saving editor each changed node's new reference. Every other reader gets the inline shape back from `hydrate`, which
 is also how a board not yet migrated (payload fields still inline, no reference) is read."""
 import hashlib
 import json
@@ -16,8 +17,6 @@ from .serialization import utf16_length
 # One payload's JSON, in UTF-16 units. Over it the save is refused (413); the per-field caps in formats.py
 # (500,000 characters each, 2,000 blocks of 20,000) are tighter for a single field, this bounds the sum.
 MAX_PAYLOAD_UNITS = 1024 * 1024
-# The most payloads one request reads.
-MAX_BATCH = 20
 
 
 class PayloadTooLarge(Exception):
@@ -76,9 +75,18 @@ def slim_length(data):
     if not isinstance(nodes, list):
         return content_length(data)
     slim = [{key: value for key, value in node.items() if key not in PAYLOAD_FIELDS[node['format']]}
-            if isinstance(node, dict) and node.get('type') == 'format' and node.get('format') in PAYLOAD_FIELDS else node
+            if isinstance(node, dict) and node.get('type') == 'format' and isinstance(node.get('format'), str) and node['format'] in PAYLOAD_FIELDS else node
             for node in nodes]
     return content_length({**data, 'nodes': slim})
+
+
+def oversized(data):
+    """The id of the first format node of the validated graph `data` whose inline payload is over MAX_PAYLOAD_UNITS, or None."""
+    for node in _format_nodes(data):
+        body = body_of(node)
+        if body is not None and size_of(body) > MAX_PAYLOAD_UNITS:
+            return node['id']
+    return None
 
 
 def split(board_id, data):
@@ -115,8 +123,8 @@ def split(board_id, data):
 
 def write(board_id, writes, data, actor, now):
     """Store the rows `split` returned that the settled graph `data` still refers to at that revision (a change
-    the save then put back, such as a locked object's, is not written), and drop the rows of nodes the graph no
-    longer holds."""
+    the save then put back, such as a locked object's, is not written). A row outlives its node: an undo or a
+    merge that brings the node back with only its reference finds the payload. The rows go with the board."""
     final = {node['id']: node for node in _format_nodes(data)}
     for node_id, (kind, body, digest, size, rev) in writes.items():
         node = final.get(node_id)
@@ -125,7 +133,6 @@ def write(board_id, writes, data, actor, now):
         BoardFormatPayload.objects.update_or_create(board_id=board_id, node_id=node_id, defaults={
             'kind': kind, 'body': body, 'digest': digest, 'size': size, 'rev': rev,
             'updated_by': actor, 'updated_at': now})
-    BoardFormatPayload.objects.filter(board_id=board_id).exclude(node_id__in=list(final)).delete()
 
 
 def read(board_id, node_ids):
@@ -135,7 +142,7 @@ def read(board_id, node_ids):
 
 
 def _unloaded(node):
-    return node.get('type') == 'format' and node.get('format') in PAYLOAD_FIELDS and 'payload' in node and PAYLOAD_PROBE[node['format']] not in node
+    return node.get('type') == 'format' and isinstance(node.get('format'), str) and node['format'] in PAYLOAD_FIELDS and 'payload' in node and PAYLOAD_PROBE[node['format']] not in node
 
 
 def hydrate(board_id, data):
@@ -154,5 +161,19 @@ def hydrate(board_id, data):
     return {**data, 'nodes': filled}
 
 
-def delete_board(board_id):
-    BoardFormatPayload.objects.filter(board_id=board_id).delete()
+def fill_from(data, source):
+    """A copy of the raw graph `data` (part of a board, sent by an editor) whose unloaded format nodes take their
+    payload fields from the same node of the inline graph `source`, that board as its reader sees it. A node
+    `source` does not hold gets empty fields."""
+    nodes = data.get('nodes') if isinstance(data, dict) else None
+    if not isinstance(nodes, list) or not any(isinstance(node, dict) and _unloaded(node) for node in nodes):
+        return data
+    known = {node['id']: node for node in _format_nodes(source)}
+    filled = []
+    for node in nodes:
+        if isinstance(node, dict) and _unloaded(node):
+            same = known.get(node['id'])
+            node = {key: value for key, value in node.items() if key != 'payload'}
+            restore(node, (body_of(same) if same and same['format'] == node['format'] else None) or {})
+        filled.append(node)
+    return {**data, 'nodes': filled}

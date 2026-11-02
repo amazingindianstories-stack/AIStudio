@@ -25,6 +25,7 @@ import {
   DRAWIO_PREVIEW_PREFIX,
 } from "./model";
 import { validateMarks } from "../rich-text";
+import { PAYLOAD_PROBE } from "./payloads";
 
 const SUGGESTION_KINDS = ["replace", "delete"];
 const SOURCE_MAX = 20000;
@@ -166,9 +167,6 @@ function validateLanes(raw) {
   return out.slice(0, MAX_LANES);
 }
 
-/** The `format` node type; null when its kind is unknown. */
-const PAYLOAD_PROBE = { doc: "blocks", html: "html", drawio: "xml" };
-
 /** The `{ size, rev }` reference to a node's stored payload, or null when absent or malformed. */
 export function payloadRef(r) {
   const ref = r.payload;
@@ -177,6 +175,7 @@ export function payloadRef(r) {
   return ok(ref.size) && ok(ref.rev) ? { size: ref.size, rev: ref.rev } : null;
 }
 
+/** The `format` node type; null when its kind is unknown. */
 export function validateFormatNode(r, base) {
   if (!FORMAT_KINDS.includes(r.format)) return null;
   const ref = PAYLOAD_PROBE[r.format] ? payloadRef(r) : null;
