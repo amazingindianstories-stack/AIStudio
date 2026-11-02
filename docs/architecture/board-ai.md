@@ -64,8 +64,10 @@ the job read-back carries `model`, `aspectRatio` and `resolution`.
   the library's batch setting) and shown on the settings chip when it is 2x. A 2x run submits the same request twice,
   as the library does: two independent jobs, each under one submission key with a per-slot suffix (`<key>-0`,
   `<key>-1`), so a re-sent POST returns its slot's job and never queues a second billed one. The server sees two
-  ordinary image jobs. The estimated cost is the per-job quote times the count. If the second submission fails, the
-  first job is kept and the panel reports the rest as failed. The panel follows both jobs and, once both have ended,
+  ordinary image jobs. The estimated cost is the per-job quote times the count. If the server refuses the second
+  submission, the first job is kept and the panel reports the rest as failed. If the second submission's answer is
+  lost (a network drop, no HTTP status), the panel re-sends it under the same slot key every 1.5 s until the server
+  answers, so a job it already committed is returned, followed and placed rather than reported as failed. The panel follows both jobs and, once both have ended,
   claims each one and places the finished results side by side in free space as one undo step; a failed one is
   dismissed and its error shown. The first result is the one **Refine** continues. A refinement is always one job, so
   the batch control is hidden while refining. After a reload, a batch's unplaced results are placed one by one like
@@ -175,7 +177,7 @@ from the panel's selection strip or the context menu's AI rows, not the format t
   - refinement, placement, and the migration
   - an image's `model`, `aspectRatio` and `resolution`: priced by resolution, stored, validated, replay-keyed, and the
     legacy `processing` path.
-- `src/lib/board-ai.test.js` (including a batch's per-slot keys, a partial submission failure and its one-step
+- `src/lib/board-ai.test.js` (including a batch's per-slot keys, a refused or lost second submission and its one-step
   side-by-side placement), `src/lib/config.test.js` (`reconcileGenerationSettings`), `src/lib/canvas/ai-formats.test.js`, `ai-graph.test.js`, `ai-selection.test.js` and `src/components/canvas/CanvasAiPanel.test.js`
   cover the browser side.
 - `tests/browser/board-ai.spec.mjs` and `board-ai-selection.spec.mjs` are the end-to-end flows. The first picks a non-default model, ratio and resolution for an image, checks the quote, the

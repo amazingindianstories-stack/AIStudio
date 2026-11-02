@@ -143,6 +143,44 @@ test("a batch whose second slot is refused keeps the accepted job and reports th
   assert.equal(calls.filter((call) => call.method === "POST").length, 2);
 });
 
+test("a batch slot whose answer is lost after the server committed it is re-sent under its key, followed and placed", async (t) => {
+  loadedBoard();
+  const committed = new Map();
+  let dropped = false;
+  const calls = server(t, (call) => {
+    if (call.method === "POST") {
+      const key = call.headers["Idempotency-Key"];
+      if (!committed.has(key)) committed.set(key, imageJob(Number(key.at(-1)), { status: "queued" }));
+      if (key.endsWith("-1") && !dropped) {
+        dropped = true;
+        throw new TypeError("Failed to fetch");
+      }
+      return json(201, { job: committed.get(key) });
+    }
+    if (call.method === "PATCH") return json(200, { job: { placedAt: 5, placedNodeIds: call.body.placedNodeIds } });
+    return json(200, { jobs: [] });
+  });
+  await useBoardAi.getState().attach(BOARD);
+  const created = await useBoardAi.getState().submit(IMAGE, 2);
+  assert.deepEqual(created.map((item) => item.id), SLOTS);
+  const keys = calls.filter((call) => call.method === "POST").map((call) => call.headers["Idempotency-Key"]);
+  assert.equal(keys.length, 3);
+  assert.equal(keys[2], keys[1], "the lost slot is re-sent under the same key");
+  assert.equal(committed.size, 2, "no second job is created");
+  assert.equal(useBoardAi.getState().error, null);
+  assert.equal(useBoardAi.getState().pendingKey, null);
+
+  const result = { url: "/api/media/x", aspectRatio: "1:1" };
+  const pastBefore = useCanvasStore.getState().history.past.length;
+  await useBoardAi.getState().settle(imageJob(0, { status: "succeeded", result }));
+  assert.equal(useCanvasStore.getState().history.present.nodes.length, 0, "the batch waits for the re-sent slot's job");
+  await useBoardAi.getState().settle(imageJob(1, { status: "succeeded", result }));
+  const canvas = useCanvasStore.getState();
+  assert.equal(canvas.history.present.nodes.length, 2);
+  assert.equal(canvas.history.past.length, pastBefore + 1, "both results as one undo step");
+  assert.deepEqual(calls.filter((call) => call.method === "PATCH").map((call) => call.url.split("/").at(-1)).sort(), SLOTS);
+});
+
 test("a batch with a failed job dismisses it, places the finished one and reports the failure", async (t) => {
   loadedBoard();
   const calls = server(t, (call) => {

@@ -283,7 +283,8 @@ export const useBoardAi = create((set, get) => ({
 
   /**
    * Queue `count` independent jobs with the same request (a batch), each under its own slot of one Idempotency-Key, so
-   * a re-sent POST returns its slot's job. A partial failure keeps the accepted jobs and reports the rest.
+   * a re-sent POST returns its slot's job. A refused slot keeps the accepted jobs and reports the rest; a later slot
+   * whose answer was dropped is re-sent under the same key, so a job the server committed is still followed and placed.
    */
   submit: async (request, count = 1) => {
     const { boardId, submitting, pendingKey } = get();
@@ -296,10 +297,18 @@ export const useBoardAi = create((set, get) => ({
     const created = [];
     let failure = null;
     for (let slot = 0; slot < count && !failure; slot += 1) {
-      try {
-        created.push(await submitBoardAi(boardId, request, `${key}-${slot}`));
-      } catch (error) {
-        failure = error;
+      for (;;) {
+        try {
+          created.push(await submitBoardAi(boardId, request, `${key}-${slot}`));
+          break;
+        } catch (error) {
+          if (!created.length || typeof error.status === "number") {
+            failure = error;
+            break;
+          }
+        }
+        await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+        if (mine !== generation) return created;
       }
       if (mine !== generation) return created;
     }
