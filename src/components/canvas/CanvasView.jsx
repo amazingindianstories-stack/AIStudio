@@ -23,6 +23,7 @@ import { CanvasAiPanel } from "./CanvasAiPanel";
 import { useBoardAi } from "@/lib/board-ai";
 import { BoardHistoryPanel } from "./BoardHistoryPanel";
 import { LayersPanel } from "./LayersPanel";
+import { WorkTools } from "./WorkTools";
 import { ObjectInfo } from "./ObjectInfo";
 import { useBoardShortcuts } from "./useBoardShortcuts";
 import { useBoardLinks } from "./useBoardLinks";
@@ -50,6 +51,8 @@ export function CanvasView() {
   const closeHistory = useCallback(() => setHistoryOpen(false), []);
   const [layersOpen, setLayersOpen] = useState(false);
   const closeLayers = useCallback(() => setLayersOpen(false), []);
+  // Work tools render their buttons here so they wrap with the bar instead of floating over it.
+  const [workSlot, setWorkSlot] = useState(null);
   const [shapesOpen, setShapesOpen] = useState(false);
   const [boardsReload, setBoardsReload] = useState(0);
   const [noBoards, setNoBoards] = useState(false);
@@ -380,6 +383,7 @@ export function CanvasView() {
               {touchEditMode ? "Done" : "Edit"}
             </button>
           )}
+          <div ref={setWorkSlot} className="contents" />
           {!noBoards && (
             <span className="ml-auto">
               {readOnly ? (
@@ -392,6 +396,7 @@ export function CanvasView() {
             </span>
           )}
         </div>
+        {!noBoards && <WorkTools viewCenter={viewCenter} viewOnly={touchViewOnly} triggerSlot={workSlot} />}
         {!noBoards && (
           <CanvasToolbar
             projectId={activeProjectId}

@@ -1,4 +1,5 @@
 from django.contrib.postgres.functions import RandomUUID
+from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 from apps.authentication.models import User
 
@@ -129,3 +130,90 @@ class CustomShapePack(models.Model):
         db_table = 'canvas_custom_shape_packs'
         indexes = [models.Index(fields=['created_by'], name='canvas_shape_packs_creator_idx'),
                    models.Index(fields=['shared', 'updated_at'], name='canvas_shape_packs_shared_idx')]
+
+
+class WorkTable(models.Model):
+    """Shared records and views; board nodes carry only this id and their geometry."""
+    id = models.UUIDField(primary_key=True, db_default=RandomUUID())
+    board = models.ForeignKey(CanvasBoard, on_delete=models.CASCADE)
+    name = models.TextField()
+    fields = models.JSONField()
+    views = models.JSONField(default=list)
+    owner_id = models.UUIDField()
+    owner_only = models.BooleanField(default=False)
+    version = models.PositiveBigIntegerField(default=1)
+    created_at = models.BigIntegerField()
+    updated_at = models.BigIntegerField()
+
+    class Meta:
+        db_table = 'canvas_work_tables'
+
+
+class WorkRecord(models.Model):
+    id = models.UUIDField(primary_key=True, db_default=RandomUUID())
+    table = models.ForeignKey(WorkTable, on_delete=models.CASCADE, related_name='records')
+    cells = models.JSONField()
+    parent = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, related_name='children')
+    position = models.PositiveIntegerField(default=0)
+    version = models.PositiveBigIntegerField(default=1)
+    created_at = models.BigIntegerField()
+    updated_at = models.BigIntegerField()
+
+    class Meta:
+        db_table = 'canvas_work_records'
+        indexes = [GinIndex(fields=['cells'], name='work_records_cells_gin_idx', opclasses=['jsonb_path_ops']),
+                   models.Index(fields=['table', 'position', 'id'], name='work_record_table_order_idx'),
+                   models.Index(fields=['table', 'updated_at'], name='work_record_table_updated_idx')]
+
+
+class WorkRelation(models.Model):
+    source = models.ForeignKey(WorkRecord, on_delete=models.CASCADE, related_name='dependencies')
+    target = models.ForeignKey(WorkRecord, on_delete=models.CASCADE, related_name='dependents')
+    kind = models.TextField(default='blocked_by')
+
+    class Meta:
+        db_table = 'canvas_work_relations'
+        constraints = [models.UniqueConstraint(fields=['source', 'target', 'kind'], name='work_relation_unique'),
+                       models.CheckConstraint(condition=~models.Q(source=models.F('target')), name='work_relation_not_self'),
+                       models.CheckConstraint(condition=models.Q(kind__in=['blocked_by', 'relation']), name='work_relation_kind_check')]
+
+
+class WorkHistory(models.Model):
+    id = models.UUIDField(primary_key=True, db_default=RandomUUID())
+    table = models.ForeignKey(WorkTable, on_delete=models.CASCADE)
+    actor_id = models.UUIDField()
+    target_id = models.TextField()
+    action = models.TextField()
+    before = models.JSONField(null=True)
+    after = models.JSONField(null=True)
+    created_at = models.BigIntegerField()
+
+    class Meta:
+        db_table = 'canvas_work_history'
+        indexes = [models.Index(fields=['table', '-created_at', '-id'], name='work_history_table_time_idx')]
+
+
+class BoardNotification(models.Model):
+    """Generic in-app delivery. Recipients are re-authorized on every inbox read."""
+    id = models.UUIDField(primary_key=True, db_default=RandomUUID())
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    actor_id = models.UUIDField(null=True)
+    board = models.ForeignKey(CanvasBoard, on_delete=models.CASCADE)
+    kind = models.TextField()
+    target_id = models.TextField()
+    payload = models.JSONField(default=dict)
+    event_key = models.TextField(unique=True)
+    created_at = models.BigIntegerField()
+    read_at = models.BigIntegerField(null=True)
+
+    class Meta:
+        db_table = 'board_notifications'
+        indexes = [models.Index(fields=['user', '-created_at'], name='board_notifications_user_idx')]
+
+
+class BoardNotificationPreference(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, primary_key=True)
+    preferences = models.JSONField(default=dict)
+
+    class Meta:
+        db_table = 'board_notification_preferences'

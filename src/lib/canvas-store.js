@@ -32,6 +32,7 @@ import {
   connectorPointAt,
   resizeAnchored,
 } from "./canvas/geometry";
+import { inColumnsCell } from "./canvas/work-records";
 import { getDiagramTheme, loadDiagramThemeId, saveDiagramThemeId } from "./canvas/diagram-themes";
 import { hiddenBoardIds, visibleGraph } from "./canvas/culling";
 import {
@@ -805,6 +806,7 @@ async function loadBoardImpl(set, get, id) {
     editingTextId: null,
     croppingImageId: null,
     cropDraft: null,
+    orphanedTables: [],
     saveStatus: restored ? "dirty" : "idle",
     saveError: null,
     loaded: true,
@@ -916,6 +918,8 @@ export const useCanvasStore = create((set, get) => ({
   saveError: null,
   croppingImageId: null,
   cropDraft: null,
+  // Tables whose last widget the user just deleted; WorkTools offers to delete them too.
+  orphanedTables: [],
 
   ...lockLayerActions(set, get, { mutateGraph }),
   ...arrangeActions(set, get, { mutateGraph, buildClones, readOnly: selectReadOnly }),
@@ -957,8 +961,11 @@ export const useCanvasStore = create((set, get) => ({
       saveError: null,
       croppingImageId: null,
       cropDraft: null,
+      orphanedTables: [],
     });
   },
+
+  dismissOrphanedTables: () => set({ orphanedTables: [] }),
 
   flushSave: (opts) => flushSaveImpl(set, get, opts),
 
@@ -1250,7 +1257,9 @@ export const useCanvasStore = create((set, get) => ({
           nodes: next.nodes.map((n) => {
             if (isContainerNode(n) || !selectedIds.has(n.id) || !movable.has(n.id)) return n;
             const newParentId = computeFrameMembership(n, containers);
-            return newParentId !== (n.parentId ?? null) ? { ...n, parentId: newParentId } : n;
+            const parent = n.type === "card" && containers.find((c) => c.id === newParentId && c.kind === "columns");
+            const placed = parent ? inColumnsCell(n, parent) : n;
+            return newParentId !== (n.parentId ?? null) ? { ...placed, parentId: newParentId } : placed;
           }),
         };
         // A dragged frame joins the smallest container it now sits wholly inside (frames nest to any depth).
@@ -1296,10 +1305,11 @@ export const useCanvasStore = create((set, get) => ({
     );
   },
 
-  deleteSelected: () => {
+  deleteSelected: (opts) => {
     const { selection, selectedConnectorIds } = get();
     if (!selection.length && !selectedConnectorIds.length) return;
-    const deleteIds = new Set(unlockedIds(get().history.present, selection));
+    const before = get().history.present;
+    const deleteIds = new Set(unlockedIds(before, selection));
     const connDeleteIds = new Set(selectedConnectorIds);
     mutateGraph(set, get, (present) => {
       const nodes = present.nodes
@@ -1316,6 +1326,9 @@ export const useCanvasStore = create((set, get) => ({
     });
     // Locked objects were kept, and stay selected.
     set({ selection: selection.filter((id) => !deleteIds.has(id)), selectedConnectorIds: [] });
+    const kept = new Set(get().history.present.nodes.map((n) => n.datasetId));
+    const orphaned = new Set(before.nodes.filter((n) => deleteIds.has(n.id) && n.datasetId && !kept.has(n.datasetId)).map((n) => n.datasetId));
+    if (orphaned.size && !opts?.cut) set({ orphanedTables: [...orphaned] });
   },
 
   duplicateSelected: () => {
@@ -1746,7 +1759,7 @@ export const useCanvasStore = create((set, get) => ({
     if (selectReadOnly(get())) return false;
     clipboard = history.present.nodes.filter((node) => selected.has(node.id)).map((node) => ({ ...node }));
     clipboardOrigin = copyOrigin(clipboard, history.present.nodes);
-    get().deleteSelected();
+    get().deleteSelected({ cut: true });
     return true;
   },
 
