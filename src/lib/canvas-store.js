@@ -31,6 +31,7 @@ import {
   isContainerNode,
   connectorPointAt,
   resizeAnchored,
+  reparented,
 } from "./canvas/geometry";
 import { inColumnsCell } from "./canvas/work-records";
 import { getDiagramTheme, loadDiagramThemeId, saveDiagramThemeId } from "./canvas/diagram-themes";
@@ -216,6 +217,8 @@ export function applyStylePatchToNode(n, patch) {
     }
     case "image":
       return applyDiagramLayerPatch({ ...n, opacity }, patch);
+    case "format":
+      return { ...n, opacity };
   }
 }
 
@@ -281,7 +284,11 @@ function shiftFreeEndpoint(ep, dx, dy) {
  * `duplicateSelectionInPlace`: new ids, a group-id remap (each distinct
  * source `groupId` gets one new shared id, so duplicated grouped nodes stay
  * grouped with each other but not with the originals), a `parentId` remap
- * when the parent was ALSO cloned, and a uniform (dx,dy) offset.
+ * when the parent was ALSO cloned, and a uniform (dx,dy) offset. A copy
+ * keeps its Mermaid key only inside a copy of its diagram, so the key still
+ * names one shape per diagram; click-through links and slide frames follow
+ * their targets when those were copied too, and a copy is never the board's
+ * default view.
  *
  * `keepUnmappedParent` preserves the two callers' pre-existing (and
  * different!) behavior when a clone's parent frame ISN'T itself in the
@@ -319,7 +326,13 @@ function buildClones(
         ? n.parentId ?? null
         : null;
     // A copy is a new object: the server stamps it on save.
-    clones.push({ ...withoutLock(unstamped(n)), id: newId, x: n.x + dx, y: n.y + dy, parentId: newParentId, groupId: newGroupId });
+    const clone = { ...withoutLock(unstamped(n)), id: newId, x: n.x + dx, y: n.y + dy, parentId: newParentId, groupId: newGroupId };
+    if (!idMap.has(n.parentId)) delete clone.mermaidKey;
+    if (idMap.has(n.screenLink)) clone.screenLink = idMap.get(n.screenLink);
+    if (n.slides) clone.slides = n.slides.map((slide) => (idMap.has(slide.frameId) ? { ...slide, frameId: idMap.get(slide.frameId) } : slide));
+    delete clone.defaultView;
+    delete clone.viewLocked;
+    clones.push(clone);
   }
   return { clones: placeCopies(present, clones, layerId), idMap };
 }
@@ -1259,7 +1272,7 @@ export const useCanvasStore = create((set, get) => ({
             const newParentId = computeFrameMembership(n, containers);
             const parent = n.type === "card" && containers.find((c) => c.id === newParentId && c.kind === "columns");
             const placed = parent ? inColumnsCell(n, parent) : n;
-            return newParentId !== (n.parentId ?? null) ? { ...placed, parentId: newParentId } : placed;
+            return newParentId !== (n.parentId ?? null) ? reparented(placed, newParentId) : placed;
           }),
         };
         // A dragged frame joins the smallest container it now sits wholly inside (frames nest to any depth).
@@ -1732,7 +1745,7 @@ export const useCanvasStore = create((set, get) => ({
         diagramNode,
         ...present.nodes.map((n) =>
           selSet.has(n.id) && n.type !== "diagram"
-            ? { ...n, parentId: diagramNode.id, diagramLayerId: n.diagramLayerId || "layer-main" }
+            ? { ...reparented(n, diagramNode.id), diagramLayerId: n.diagramLayerId || "layer-main" }
             : n
         ),
       ],

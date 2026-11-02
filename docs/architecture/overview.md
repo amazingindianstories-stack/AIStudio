@@ -88,6 +88,10 @@ Board "Create with AI" jobs (`board-ai.md`) are generation rows: sticky notes ru
 not library media) on the agent Gemini model and an image as an ordinary image generation, both under the same
 admission, spend window, paid guard and idempotent submission.
 
+Board formats (`src/lib/canvas/formats`, `backend/apps/canvas/formats.py`) are ordinary board nodes. Opening a board
+contacts no outside origin; only an editor who opens a Draw.io diagram's editor loads `https://embed.diagrams.net`
+(`../features/board-formats.md`).
+
 `backend/testsupport` holds fake providers and the frozen historical Node outputs used as test
 oracles. `backend/parity` pins current production behavior through seams the backend restructure
 keeps unchanged (HTTP, gateway, entrypoint, command names, settings flags); its package docstring

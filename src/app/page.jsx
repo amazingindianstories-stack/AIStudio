@@ -113,6 +113,11 @@ export default function Page() {
     };
   }, [loadMe, loadUsers, loadHistory, loadProjects, loadLimits, loadAssets, startLiveUpdates, stopLiveUpdates]);
 
+  // A board link (?board=...) opens on the Board, whichever view was used last.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).has("board")) setView("canvas");
+  }, [setView]);
+
   useEffect(() => {
     if (!mobileHistoryOpen) return;
     const previousFocus = document.activeElement ;

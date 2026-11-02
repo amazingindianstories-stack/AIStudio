@@ -23,6 +23,14 @@ async function postCreateBoard(projectId) {
   return json;
 }
 
+/** The project that owns board `id`, or null when it cannot be read. */
+async function boardProject(id) {
+  const res = await apiFetch(`/api/canvas-boards/${encodeURIComponent(id)}`, { cache: "no-store" }).catch(() => null);
+  if (!res?.ok) return null;
+  const json = await res.json().catch(() => ({}));
+  return typeof json.projectId === "string" ? json.projectId : null;
+}
+
 /**
  * Board dropdown (ui-spec §8): list/create/rename/switch, delete gated
  * behind a styled confirm dialog (never a native `confirm()`). Owns the
@@ -38,6 +46,7 @@ export function BoardSwitcher({
   onBoardIdChange,
   onLoadingChange,
   onEmptyChange,
+  onBoardInOtherProject,
   reloadToken = 0,
 }
 
@@ -92,8 +101,13 @@ export function BoardSwitcher({
         setCanCreate(creatable);
         if (list.length === 0) {
           onBoardIdChange(null);
-        } else if (!list.some((b) => b.id === boardIdRef.current)) {
-          onBoardIdChange(list[0].id);
+        } else {
+          const wanted = boardIdRef.current;
+          if (!list.some((b) => b.id === wanted)) {
+            const owner = wanted ? await boardProject(wanted) : null;
+            if (requestIdRef.current !== requestId) return;
+            if (!owner || owner === projectId || !onBoardInOtherProject?.(owner)) onBoardIdChange(list[0].id);
+          }
         }
       } catch {
         if (requestIdRef.current !== requestId) return;

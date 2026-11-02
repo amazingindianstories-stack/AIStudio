@@ -19,6 +19,7 @@ import { FONT_FAMILY_PATTERN } from "./fonts";
 import { uniqueStrings, validateReactions } from "./reactions";
 import { MAX_NODE_TAGS, MAX_TAG_ID, validateTags } from "./tags";
 import { validateGrid, validateInk, validateNotes, validateSynced } from "./extras";
+import { dropDanglingFormatRefs, validateFormatNode, withDiagramSource, withMermaidKey, withScreenLink } from "./formats/validate";
 
 export function emptyCanvasState() {
   return {
@@ -48,6 +49,7 @@ const NODE_TYPES = new Set([
   "ink",
   "grid",
   "synced",
+  "format",
 ]);
 const TEXT_ALIGNS = ["left", "center", "right"];
 
@@ -215,7 +217,8 @@ function withStickyExtras(node, r) {
 
 function validateNode(raw) {
   if (raw == null || typeof raw !== "object") return null;
-  return withStamps(validateNodeContent(raw), raw);
+  const node = validateNodeContent(raw);
+  return withStamps(node && withMermaidKey(withScreenLink(node, raw), raw), raw);
 }
 
 function validateNodeContent(raw) {
@@ -447,6 +450,7 @@ function validateNodeContent(raw) {
         strokeWidth: num(r.strokeWidth, 2),
       };
       withStructuredTheme(node, r);
+      withDiagramSource(node, r);
       if (Array.isArray(r.containers)) {
         const containers = [];
         for (const c of r.containers.slice(0, 50)) {
@@ -466,6 +470,8 @@ function validateNodeContent(raw) {
       }
       return node;
     }
+    case "format":
+      return validateFormatNode(r, base);
     default:
       return null;
   }
@@ -557,6 +563,8 @@ export function validateCanvasState(raw) {
     }
     if (n.layerId && !layerIds.has(n.layerId)) delete n.layerId;
   }
+
+  dropDanglingFormatRefs(nodes, nodeIds);
 
   const connectors = Array.isArray(obj.connectors)
     ? obj.connectors

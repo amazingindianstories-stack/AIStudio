@@ -33,6 +33,7 @@ import { useOpenBoardRequests } from "@/lib/open-board";
 import { NotesButton, NotesPanel } from "./NotesPanel";
 import { BoardViewOverlays } from "./BoardViewOverlays";
 import { useBoardView } from "./use-board-view";
+import { FormatsPanel } from "./formats/FormatsPanel";
 
 export function CanvasView() {
   const activeProjectId = useStore((s) => s.activeProjectId);
@@ -180,6 +181,14 @@ export function CanvasView() {
     wantedBoard.current = null;
     setBoardId(wanted ?? id);
   }, []);
+  const openBoardProject = useCallback(
+    (projectId) => {
+      if (!useStore.getState().projects.some((p) => p.id === projectId)) return false;
+      setActiveProject(projectId);
+      return true;
+    },
+    [setActiveProject]
+  );
 
   const placeAsset = useCallback(
     (asset) => {
@@ -269,6 +278,7 @@ export function CanvasView() {
         touchViewOnly={touchViewOnly}
       />
       <BoardViewOverlays insetLeft={narrow ? 0 : assetPanelWidth} gestureActive={transientActive} />
+      <FormatsPanel boardId={boardId} touchViewOnly={touchViewOnly} />
 
       {noBoards && (
         <div
@@ -317,6 +327,7 @@ export function CanvasView() {
             onBoardIdChange={onBoardIdChange}
             onLoadingChange={setBoardsLoading}
             onEmptyChange={setNoBoards}
+            onBoardInOtherProject={openBoardProject}
             reloadToken={boardsReload}
           />
           {boardId && loaded && (

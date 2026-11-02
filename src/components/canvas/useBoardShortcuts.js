@@ -13,7 +13,7 @@ import { describeObject } from "@/lib/canvas/a11y-check";
 import { selectionText, writeClipboardImage, writeClipboardText } from "@/lib/canvas/clipboard-export";
 import { orderedFrames } from "@/lib/canvas/frames";
 import { frameSelection } from "@/lib/frame-actions";
-import { noteKeyboardCopy, pageTextSelected } from "@/lib/canvas/use-board-clipboard";
+import { modalOpen, noteKeyboardCopy, pageTextSelected } from "@/lib/canvas/use-board-clipboard";
 import { copySelectionStyle, pasteSelectionStyle } from "@/lib/canvas/sticky-actions";
 import { buildDefaultNode } from "./CanvasSurface";
 
@@ -125,6 +125,8 @@ export function useBoardShortcuts({ surfaceRef, toolLocked, touchViewOnly, openS
       const ui = useBoardUi.getState();
       // A presentation owns the keyboard while a slide is up.
       if (ui.presenting && !ui.presenting.onBoard) return;
+      // A modal dialog (focus mode, an editor) keeps the keyboard away from the board behind it.
+      if (modalOpen()) return;
       const store = useCanvasStore.getState();
       const readOnly = selectReadOnly(store);
       const canEdit = !readOnly && !view.touchViewOnly;

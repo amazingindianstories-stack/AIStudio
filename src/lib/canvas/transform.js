@@ -12,6 +12,7 @@ import {
   nodeCenter,
   nodeRotation,
   normalizeRotation,
+  reparented,
   resizeAnchored,
   rotatePoint,
   unionBounds,
@@ -91,7 +92,7 @@ export function rotateNodesAbout(state, ids, deltaDeg, center = null) {
     let next = withRotation({ ...n, x: c.x - n.w / 2, y: c.y - n.h / 2 }, nodeRotation(n) + deltaDeg);
     if (next.x !== n.x || next.y !== n.y) {
       const parentId = computeFrameMembership(next, containers);
-      if (parentId !== (n.parentId ?? null)) next = { ...next, parentId };
+      if (parentId !== (n.parentId ?? null)) next = reparented(next, parentId);
     }
     changed = true;
     return next;

@@ -319,20 +319,42 @@ export function resizeNode(
 
 // ---- frame membership ----
 
+/** `n` moved under `parentId`; its Mermaid key names a shape only in the diagram that keyed it. */
+export function reparented(n, parentId) {
+  const next = { ...n, parentId };
+  if (parentId !== (n.parentId ?? null)) delete next.mermaidKey;
+  return next;
+}
+
 /**
- * The front-most (highest z-index) frame whose bounds contain `node`'s
- * center, or null. `frames` must be passed in z-order (as they appear in
- * CanvasState.nodes) — later entries win ties, matching "front-most wins".
+ * The innermost frame whose bounds contain `node`'s center, or null: a
+ * containing frame nested (by parentId) inside another containing frame wins.
+ * `frames` must be passed in z-order (as they appear in CanvasState.nodes) —
+ * among equally nested frames later entries win, matching "front-most wins".
  */
 export function computeFrameMembership(
   node,
   frames
 ) {
   const center = { x: node.x + node.w / 2, y: node.y + node.h / 2 };
+  const hits = frames.filter((frame) => frame.id !== node.id && boundsContain(nodeBounds(frame), center));
+  const byId = new Map(frames.map((frame) => [frame.id, frame]));
+  const depth = (frame) => {
+    let d = 0;
+    let steps = 0;
+    for (let p = byId.get(frame.parentId); p && steps < frames.length; p = byId.get(p.parentId), steps++) {
+      if (hits.includes(p)) d++;
+    }
+    return d;
+  };
   let winner = null;
-  for (const frame of frames) {
-    if (frame.id === node.id) continue;
-    if (boundsContain(nodeBounds(frame), center)) winner = frame.id;
+  let best = -1;
+  for (const frame of hits) {
+    const d = depth(frame);
+    if (d >= best) {
+      winner = frame.id;
+      best = d;
+    }
   }
   return winner;
 }

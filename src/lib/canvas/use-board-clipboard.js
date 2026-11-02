@@ -22,8 +22,13 @@ export function markSystemClipboard() {
   document.execCommand("copy");
 }
 
+/** Whether a modal dialog is open, which keeps keyboard and clipboard input away from the board behind it. */
+export function modalOpen() {
+  return Boolean(document.querySelector('[aria-modal="true"]'));
+}
+
 function typing(target) {
-  return target?.isContentEditable || target?.tagName === "INPUT" || target?.tagName === "TEXTAREA";
+  return target?.isContentEditable || target?.tagName === "INPUT" || target?.tagName === "TEXTAREA" || modalOpen();
 }
 
 /** Page text the person selected (board objects hold no selectable text), which a copy copies instead. */

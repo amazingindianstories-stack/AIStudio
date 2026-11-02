@@ -21,6 +21,7 @@ import { DiagramNode } from "./DiagramNode";
 import { InkNode } from "./InkNode";
 import { GridNode } from "./GridNode";
 import { SyncedNode } from "./SyncedNode";
+import { FormatNode } from "../formats/FormatNode";
 
 ;
 
@@ -146,6 +147,8 @@ export function NodeView({
           case "card":
           case "work":
             return <WorkNode node={node} />;
+          case "format":
+            return <FormatNode node={node} />;
           case "rect":
           case "ellipse":
           case "triangle":

@@ -76,10 +76,16 @@ export function validateMarks(raw, text) {
  */
 export function clipRichText(text, marks, max) {
   if (text.length <= max) return { text, marks };
+  const clipped = clipText(text, max);
+  return { text: clipped, marks: validateMarks(marks ?? [], clipped) };
+}
+
+/** `text` cut to at most `max` UTF-16 units, never splitting a surrogate pair. */
+export function clipText(text, max) {
+  if (text.length <= max) return text;
   let end = Math.max(0, max);
   if (end > 0 && /[\uD800-\uDBFF]/.test(text[end - 1])) end -= 1;
-  const clipped = text.slice(0, end);
-  return { text: clipped, marks: validateMarks(marks ?? [], clipped) };
+  return text.slice(0, end);
 }
 
 /**
