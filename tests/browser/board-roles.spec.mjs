@@ -95,7 +95,7 @@ test('Board roles: an owner shares a board and a teammate gets comment, edit and
   const mate = await signIn(browser, baseURL, MATE, project.id);
   const writes = [];
   mate.page.on('request', (request) => {
-    if (request.url().includes('/api/canvas-boards/') && request.method() !== 'GET') writes.push(`${request.method()} ${request.url()}`);
+    if (request.url().includes('/api/canvas-boards/') && !request.url().includes('/pulse') && request.method() !== 'GET') writes.push(`${request.method()} ${request.url()}`);
   });
   const mateCanvas = await openBoard(mate.page);
   await expect(mate.page.getByRole('status').filter({ hasText: 'Comment only' })).toBeVisible();

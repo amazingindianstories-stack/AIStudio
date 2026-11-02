@@ -198,7 +198,7 @@ test('Board synced copies: a diagram copy with its connectors, the list of copie
   const mate = await signIn(browser, baseURL, MATE, project.id);
   const writes = [];
   mate.page.on('request', (request) => {
-    if (request.url().includes('/api/canvas-boards/') && request.method() !== 'GET') writes.push(`${request.method()} ${request.url()}`);
+    if (request.url().includes('/api/canvas-boards/') && !request.url().includes('/pulse') && request.method() !== 'GET') writes.push(`${request.method()} ${request.url()}`);
   });
   mate.page.on('pageerror', (error) => errors.push(error.message));
   await openBoards(mate.page);

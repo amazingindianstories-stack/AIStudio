@@ -56,7 +56,7 @@ export function NotesPanel() {
   return (
     <aside
       aria-label="Board notes"
-      className="pointer-events-auto absolute bottom-20 right-3 top-16 z-20 flex w-[320px] max-w-[calc(100%-24px)] flex-col rounded-xl border border-line bg-ink-750/95 text-sm text-white/85 shadow-pop"
+      className="pointer-events-auto absolute bottom-20 right-3 top-32 z-20 flex w-[320px] max-w-[calc(100%-24px)] flex-col rounded-xl border border-line bg-ink-750/95 text-sm text-white/85 shadow-pop"
       onPointerDown={(e) => e.stopPropagation()}
     >
       <header className="flex items-center gap-1 border-b border-line px-3 py-2">

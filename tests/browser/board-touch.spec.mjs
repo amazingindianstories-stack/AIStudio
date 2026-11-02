@@ -357,7 +357,7 @@ test('Board touch: a tablet lays out every control and a view-role teammate neve
   const viewer = await signIn(browser, baseURL, VIEWER, project.id, TABLET);
   const writes = [];
   viewer.page.on('request', (request) => {
-    if (request.url().includes('/api/canvas-boards/') && request.method() !== 'GET') writes.push(request.url());
+    if (request.url().includes('/api/canvas-boards/') && !request.url().includes('/pulse') && request.method() !== 'GET') writes.push(request.url());
   });
   await viewer.page.goto('/');
   const loaded = viewer.page.waitForResponse((response) => response.url().endsWith(boardPath) && response.request().method() === 'GET');

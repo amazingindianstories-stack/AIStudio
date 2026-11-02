@@ -295,7 +295,7 @@ export function CanvasToolbar({
           and on phones its buttons shrink so every tool fits the width. */}
       {!viewOnly && (
       <div
-        className="pointer-events-none absolute bottom-4 right-44 z-30 flex justify-center transition-[left] duration-200 max-lg:bottom-[4.25rem] max-lg:right-4"
+        className="pointer-events-none absolute bottom-4 right-60 z-30 flex justify-center transition-[left] duration-200 max-lg:bottom-[4.25rem] max-lg:right-4"
         style={{ left: insetLeft + 16 }}
       >
       <div

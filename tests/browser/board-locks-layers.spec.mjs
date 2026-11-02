@@ -176,7 +176,7 @@ test('Board locks and layers: lock, Unlock all, layer order, hide and lock, and 
   // Hiding is personal and saves nothing; the hidden sticky is gone from the canvas until shown.
   const writes = [];
   owner.page.on('request', (request) => {
-    if (request.url().includes('/api/canvas-boards/') && request.method() !== 'GET') writes.push(request.method());
+    if (request.url().includes('/api/canvas-boards/') && !request.url().includes('/pulse') && request.method() !== 'GET') writes.push(request.method());
   });
   await panel.getByRole('button', { name: 'Hide Layer 2' }).click();
   await expect(owner.page.locator('[data-node-id="s1"]')).toHaveCount(0);

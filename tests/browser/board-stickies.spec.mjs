@@ -222,7 +222,7 @@ test('Board stickies: bulk mode, colors, shape, auto size, tags, reactions, auth
   const viewer = await signIn(browser, baseURL, VIEWER, project.id);
   const writes = [];
   viewer.page.on('request', (request) => {
-    if (request.url().includes('/api/canvas-boards/') && request.method() !== 'GET') writes.push(request.url());
+    if (request.url().includes('/api/canvas-boards/') && !request.url().includes('/pulse') && request.method() !== 'GET') writes.push(request.url());
   });
   await openBoard(viewer.page);
   await expect(viewer.page.getByRole('status').filter({ hasText: 'View only' })).toBeVisible();

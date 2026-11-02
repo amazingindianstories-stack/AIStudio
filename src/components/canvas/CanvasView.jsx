@@ -466,7 +466,7 @@ export function CanvasView() {
           )}
           <div ref={setWorkSlot} className="contents" />
           {!noBoards && (
-            <span className="ml-auto">
+            <span className="min-[1700px]:ml-auto">
               {readOnly ? (
                 <AccessChip role={boardRole} accessLost={accessLost} />
               ) : touchViewOnly && (saveStatus === "idle" || saveStatus === "saved") ? (
