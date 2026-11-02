@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from urllib.parse import parse_qs, urlsplit
 
 from django.db import connection, transaction
-from django.db.models import F, Q
+from django.db.models import Exists, F, OuterRef, Q
 
 from apps.integrations.transport import HttpTransport
 
@@ -261,9 +261,10 @@ def force_face(sha, forced, now=None):
 
 
 def refuse_as_asset(sha, now=None):
-    """BytePlus refused to register this image as a portrait. When only our detector thought it a face (not an upload,
-    not learned from a provider rejection) it is sent inline from now on. Returns whether it is (now or already) refused."""
-    updated = (ReferenceFaceScan.objects.filter(Q(forced__isnull=True) | Q(forced=REFUSED), pk=sha)
+    """BytePlus refused to register this image or clip as a portrait. When only our detector thought it a face (not a Gallery
+    upload, not learned from a provider rejection) it is sent inline from now on. Returns whether it is (now or already) refused."""
+    gallery = ManagedPortraitAsset.objects.filter(content_sha256=OuterRef('pk'), origin='upload')
+    updated = (ReferenceFaceScan.objects.filter(Q(forced__isnull=True) | Q(forced=REFUSED), ~Exists(gallery), pk=sha)
                .update(has_face=False, forced=REFUSED, scanned_at=now or now_ms()))
     return bool(updated)
 
@@ -633,7 +634,7 @@ def _poll(asset, client):
         # Only a row that is still PROCESSING is condemned, and never one a generation holds: that generation fails
         # cleanly (not charged) and releases its pin, then the next poll (janitor or upload pass) deletes the asset. A clip
         # refused here goes on as a URL for every job holding it, so its pins go and it is deleted now.
-        refused = asset.media_kind == 'video' and asset.origin == 'reference' and refuse_as_asset(asset.content_sha256)
+        refused = asset.media_kind == 'video' and refuse_as_asset(asset.content_sha256)
         with transaction.atomic():
             _locked()
             row = ManagedPortraitAsset.objects.select_for_update().get(pk=asset.pk)

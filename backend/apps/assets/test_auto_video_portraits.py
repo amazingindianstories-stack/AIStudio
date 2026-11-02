@@ -268,3 +268,27 @@ class AutoVideoPortraitTests(AutoVideoBase):
         self.assertEqual(ReferenceFaceScan.objects.get().forced, managed_pool.REFUSED)
         self.assertEqual(ManagedPortraitAsset.objects.get().status, 'DELETED', 'the slow clip frees its slot at once')
         self.assertEqual([item['Status'] for item in self.fake.assets.values()], ['Deleted'])
+
+    def test_an_expired_gallery_clip_the_asset_service_fails_fails_the_job_clearly_without_a_charge(self):
+        data = make_clip(self.directory, 'face.mp4')
+        self.assertEqual(self.run_worker(self.enqueue_video(self.reference_clip(data))).status, 'succeeded')
+        managed_pool._mark_deleting(ManagedPortraitAsset.objects.get(), 'expired', 1)
+        managed_pool.janitor()
+        hand = self.reference_clip(data, purpose='portrait')
+        self.client.post('/api/portraits', {'uploads': [{**hand, 'name': 'Mine'}]}, content_type='application/json')
+        self.settle_uploads()
+        managed_pool._mark_deleting(ManagedPortraitAsset.objects.get(origin='upload'), 'expired', 1)
+        managed_pool.janitor()
+        sent, original, creates = len(self.fake.seedance_payloads), self.fake.asset_api, []
+
+        def fail(action, body):
+            if action == 'CreateAsset':
+                creates.append(body)
+            if action == 'GetAsset' and body.get('Id') in self.fake.assets:
+                self.fake.assets[body['Id']]['Status'] = 'Failed'
+            return original(action, body)
+        with patch.object(self.fake, 'asset_api', fail):
+            row = self.run_worker(self.enqueue_video(hand))
+        self.assertEqual((row.status, row.error), ('failed', managed_pool.PORTRAIT_UNPREPARED + managed_pool.NOT_CHARGED))
+        self.assertEqual((len(self.fake.seedance_payloads), len(creates)), (sent, 1))
+        self.assertIsNone(ReferenceFaceScan.objects.get().forced)

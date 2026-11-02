@@ -54,7 +54,8 @@ Nothing is deployed. Every production step below needs explicit owner approval.
   going as a plain URL, is not in the Gallery, and costs nothing extra and fails no job. A scan error (a frame that cannot
   be read, a detector failure) counts as a face, like images, and is not cached as an answer. While ffmpeg is busy with
   another clip the job waits a moment and looks again instead of guessing. If BytePlus refuses the clip as an asset
-  (when it is created or while it is processed) or has not finished processing within the video processing limit, it is marked `provider_refused_asset` and goes as a URL from then on. A face the detector misses in a video is not
+  (when it is created or while it is processed) or has not finished processing within the video processing limit, it is marked `provider_refused_asset` and goes as a URL from then on; the same bytes uploaded by hand to the Gallery fail
+  clearly instead (not charged), like a Gallery clip. A face the detector misses in a video is not
   learned from a Seedance rejection (that learning covers images only). Output (generated) videos are not affected.
 - Pool slots are handed out strictly first come first served: the oldest waiting generation or queued
   upload gets the next free (or evictable) slot; everyone else waits behind it.
