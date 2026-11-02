@@ -5,7 +5,7 @@ import json
 import math
 from datetime import datetime, timezone
 from django.db import connection
-from django.http import HttpResponse
+from django.http import HttpResponse, StreamingHttpResponse
 from apps.authentication.models import User
 from apps.common.leases import now_ms
 from apps.canvas.serialization import JS_WHITESPACE, js_json
@@ -17,6 +17,7 @@ from .default_pricing import DEFAULT_PRICING
 from .views import LIMITS, USER_LIMITS, parse
 
 MAX_CSV_ROWS = 20000
+ACTIVITY_CSV_BATCH = 500
 COST = """count(*)::int AS count,
  coalesce(sum(case when status='succeeded' then cost_cents else 0 end),0)::int AS cost,
  coalesce(sum(case when status='succeeded' and cost_basis='reconciled' then cost_cents else 0 end),0)::int AS reconciled,
@@ -86,13 +87,23 @@ def price_rows():
     return [{'model': row.model, 'unitCostCents': row.unit_cost_cents, 'unit': row.unit, 'notes': row.notes} for row in Pricing.objects.all()]
 
 
+def board_statistics():
+    """Board adoption figures, all SQL aggregates (activity is kept 90 days, so the 30 day windows are complete)."""
+    since = now_ms() - 30*86400000
+    boards = query('SELECT count(*)::int AS total,count(*) FILTER (WHERE created_at >= %s)::int AS recent FROM canvas_boards', [since])[0]
+    edits = query('SELECT count(*)::int AS changes,count(DISTINCT actor_id)::int AS editors,count(DISTINCT board_id)::int AS active FROM board_activity WHERE created_at >= %s', [since])[0]
+    jobs = query('SELECT count(*)::int AS total,count(*) FILTER (WHERE created_at >= %s)::int AS recent FROM canvas_board_ai_jobs', [since])[0]
+    return {'total': boards['total'], 'createdLast30Days': boards['recent'], 'activeLast30Days': edits['active'], 'editorsLast30Days': edits['editors'],
+            'changesLast30Days': edits['changes'], 'aiJobs': jobs['total'], 'aiJobsLast30Days': jobs['recent']}
+
+
 def statistics():
     totals = query('SELECT ' + COST + ' FROM generations')[0]
     kinds = {row['name']: row['value'] for row in query('SELECT kind AS name,count(*)::int AS value FROM generations GROUP BY kind')}
     models = query('SELECT model AS name,count(*)::int AS value FROM generations GROUP BY model ORDER BY count(*) DESC')
     days = query("SELECT to_char(to_timestamp(created_at/1000.0) at time zone 'utc','YYYY-MM-DD') AS day,count(*)::int AS count FROM generations WHERE created_at >= %s GROUP BY 1 ORDER BY 1 ASC", [now_ms() - 90*86400000])
     return {'totalGenerations': totals['count'], 'totalCostCents': totals['cost'], 'reconciledCostCents': totals['reconciled'], 'estimatedCostCents': totals['estimated'],
-            'byKind': [{'name': kind, 'value': kinds.get(kind, 0)} for kind in ('image', 'video')], 'byModel': models, 'overTime': days, 'models': [row['name'] for row in models]}
+            'byKind': [{'name': kind, 'value': kinds.get(kind, 0)} for kind in ('image', 'video')], 'byModel': models, 'overTime': days, 'boards': board_statistics(), 'models': [row['name'] for row in models]}
 
 
 # Dashboard controls whose routes the ingress gateway may refuse (deploy/gateway.py is the single authority).
@@ -155,11 +166,53 @@ def activity_page(params):
     return result
 
 
+def csv_cell(value):
+    # Audit details hold user-controlled text; neutralise spreadsheet formulas.
+    value = '' if value is None else str(value)
+    return "'" + value if value[:1] in ('=', '+', '-', '@', '\t', '\r') else value
+
+
+def csv_line(row):
+    stream = io.StringIO(newline='')
+    csv.writer(stream, lineterminator='\r\n').writerow(row)
+    return stream.getvalue()
+
+
+def activity_csv_rows(params):
+    clauses, values = conditions(params, activity=True)
+    emails = {str(user.id): user.email for user in User.objects.all()}
+    yield csv_line(['time', 'user', 'user_id', 'action', 'detail'])
+    sent, last = 0, None
+    while sent < MAX_CSV_ROWS:
+        page_clauses, page_values = clauses[:], values[:]
+        if last:
+            page_clauses.append('(created_at,id)<(%s::text::bigint,%s::uuid)'); page_values += [text(last[0]), last[1]]
+        size = min(ACTIVITY_CSV_BATCH, MAX_CSV_ROWS - sent)
+        rows = query('SELECT * FROM activity_logs' + where(page_clauses) + ' ORDER BY created_at DESC,id DESC LIMIT %s::text::bigint', page_values + [text(size)])
+        for row in rows:
+            user_id = str(row['user_id']) if row['user_id'] else ''
+            detail = json_value(row['detail'])
+            yield csv_line([iso_time(row['created_at']), csv_cell(emails.get(user_id, '')), user_id, csv_cell(row['action']),
+                            csv_cell(js_json(detail) if detail is not None else '')])
+        sent += len(rows)
+        if len(rows) < size: return
+        last = (rows[-1]['created_at'], str(rows[-1]['id']))
+
+
+def activity_csv_response(params):
+    response = StreamingHttpResponse(activity_csv_rows(params), content_type='text/csv; charset=utf-8')
+    response['Content-Disposition'] = f'attachment; filename="veevee-audit-{iso_time(now_ms())[:10]}.csv"'
+    response['Cache-Control'] = 'no-store'
+    return response
+
+
 @node_route(['GET'])
 def activity(request):
     refused = admin_gate(request)[1]
     if refused: return refused
-    try: return reply(request, activity_page(request.query_params))
+    try:
+        if first(request.query_params, 'format') == 'csv': return activity_csv_response(request.query_params)
+        return reply(request, activity_page(request.query_params))
     except Exception: return failure()
 
 

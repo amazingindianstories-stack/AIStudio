@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 from unittest.mock import patch
 from PIL import Image
-from django.test import SimpleTestCase, TransactionTestCase, override_settings
+from django.test import TransactionTestCase, override_settings
 from apps.admin_dashboard import tests as session_fixtures
 from apps.admin_dashboard.models import AppSetting, Pricing, UserLimit
 from apps.assets.models import Asset
@@ -36,7 +36,7 @@ def node(script, values):
     return json.loads(result.stdout)
 
 
-class EnqueueOracleTests(SimpleTestCase):
+class EnqueueOracleTests(TransactionTestCase):
     def test_seedream_empty_references_need_no_native_runtime_or_io(self):
         import sys
         from unittest.mock import Mock

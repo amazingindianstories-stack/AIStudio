@@ -23,8 +23,8 @@ ARTICLES = {'image': 'an image', 'video': 'a video', 'audio': 'an audio'}
 DEFAULT_UPSCALERS = {'image': 'magnific-creative', 'video': 'magnific-video-creative'}
 
 
-def upscalers():
-    return [model for model in catalog.offered() if model['kind'] == 'upscale']
+def upscalers(blocks=True):
+    return [model for model in catalog.offered(blocks) if model['kind'] == 'upscale']
 
 
 def media_of(model):
@@ -32,7 +32,7 @@ def media_of(model):
 
 
 def upscale_schema():
-    ids = [model['id'] for model in upscalers()]
+    ids = [model['id'] for model in upscalers(blocks=False)]
     return obj({
         'sourceId': {**results.UUID, 'description': 'The finished image or video generation id to upscale, or your own image or '
                                                     'video reference id from upload_reference.'},

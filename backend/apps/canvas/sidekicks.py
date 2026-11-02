@@ -22,7 +22,7 @@ from apps.generation.services import text_submission
 from apps.generation.services.submission import AdmissionRefused
 from apps.library.services import idempotency
 from . import ai_allowance, switches
-from .ai_jobs import ORIGIN, PROCESSING, UUID, JobError, job_json, receipt_key
+from .ai_jobs import ORIGIN, PROCESSING, UUID, JobError, job_json, receipt_key, require_enabled
 from .models import BoardAiJob, BoardSidekickChat, Sidekick
 
 OWN_FORMATS = ('sidekick', 'flowstep', 'catchup', 'boardsearch')
@@ -463,6 +463,7 @@ def resolve_name(chat):
 # ---- shared quote and submit --------------------------------------------------------------------------------------
 
 def quote_job(actor, name, processing, turns):
+    require_enabled(actor)
     result = text_submission.quote_text(actor, name, turns, processing)
     return {'format': name, 'processing': processing, 'model': result['model'], 'costCents': result['costCents'],
             'credits': quote_credits(actor.id)}
@@ -474,6 +475,7 @@ def submit_job(actor, board, name, prompt, idempotency_key, *, request, build, c
     The key is bound to ``request``, what the client asked for. ``build`` returns (processing, turns) from server state
     (the board, its activity, the chat so far) and runs only for a new request, so a retry after a lost response gets
     the accepted job even if that state changed meanwhile."""
+    require_enabled(actor)
     key = receipt_key(idempotency_key, actor)
     digest = hashlib.sha256(json.dumps(request, sort_keys=True).encode('utf-8')).hexdigest()
     fingerprint = {'boardId': str(board.id), 'format': name, 'request': digest, 'chat': str(chat.id) if chat else None}

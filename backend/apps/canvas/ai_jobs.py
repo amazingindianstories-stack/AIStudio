@@ -140,8 +140,18 @@ def image_body(board, values, generation):
     return {key: value for key, value in body.items() if value is not None}
 
 
+def require_enabled(actor):
+    """Workspace feature activation (apps.admin_dashboard.workspace): an admin can turn board AI off for everyone or all
+    but chosen users; refused before any provider work. The ``boardAiEnabled`` limit (apps.canvas.switches) is a second,
+    separate switch checked when a job is admitted; either one off blocks the job."""
+    from apps.admin_dashboard.workspace import feature_enabled
+    if not feature_enabled('board_ai', actor.id):
+        raise JobError(403, 'Board AI is turned off for your workspace.', 'FEATURE_DISABLED')
+
+
 def quote(actor, board, body):
     values = request_values(body)
+    require_enabled(actor)
     parent, generation = parent_job(board, actor, values)
     if ENGINES[values['format']] == 'text':
         result = text_submission.quote_text(actor, values['format'], text_turns(values, parent, generation), values['processing'], prompt=values['prompt'])
@@ -162,6 +172,7 @@ def receipt_key(raw, actor):
 def submit(actor, board, body, idempotency_key):
     """Queue the job's generation and its job row once per key; returns the job."""
     values = request_values(body)
+    require_enabled(actor)
     key = receipt_key(idempotency_key, actor)
 
     def mutation():

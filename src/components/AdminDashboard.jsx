@@ -49,6 +49,8 @@ import { apiFetch } from "@/lib/api";
 import { AccountSettings } from "./AccountSettings";
 import { AdminErrorsTab } from "./AdminErrorsTab";
 import { AdminAiUsageTab } from "./AdminAiUsageTab";
+import { AdminWorkspaceTab } from "./AdminWorkspaceTab";
+import { AdminBoardLogsTab } from "./AdminBoardLogsTab";
 import { apiErrorMessage } from "@/lib/api-error";
 
 /** Mirrors ACTIVITY_PAGE_SIZE in admin-activity.ts. Copied rather than imported
@@ -137,6 +139,8 @@ export function AdminDashboard() {
               ["pricing", "Pricing", DollarSign],
               ["limits", "Limits", SlidersHorizontal],
               ["ai", "AI usage", Sparkles],
+              ["workspace", "Workspace", Settings],
+              ["boardlogs", "Board logs", ScrollText],
               ["status", "Status", Activity],
             ] 
           ).map(([id, label, Icon]) => (
@@ -159,6 +163,8 @@ export function AdminDashboard() {
 
         {tab === "status" ? (
           <StatusTab operations={data?.operations} />
+        ) : tab === "boardlogs" ? (
+          <AdminBoardLogsTab />
         ) : !data ? (
           <p className="py-20 text-center text-white/40">Loading…</p>
         ) : tab === "overview" ? (
@@ -171,6 +177,8 @@ export function AdminDashboard() {
           <AdminAiUsageTab />
         ) : tab === "errors" ? (
           <AdminErrorsTab data={data} usersById={usersById} />
+        ) : tab === "workspace" ? (
+          <AdminWorkspaceTab models={(data?.pricing ?? []).map((p) => p.model).sort()} />
         ) : tab === "pricing" ? (
           <PricingTab data={data} reload={load} />
         ) : (
@@ -234,6 +242,7 @@ function Overview({ data }) {
     byKind,
     byModel,
     overTime,
+    boards,
   } = data.stats;
 
   const costPerUser = data.users
@@ -261,6 +270,15 @@ function Overview({ data }) {
           detail="Recorded cost; may include provider estimates"
         />
       </div>
+
+      {boards && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4" data-testid="board-stats">
+          <Stat label="Boards" value={boards.total.toLocaleString()} detail={`${boards.createdLast30Days} created in 30 days`} />
+          <Stat label="Active boards" value={boards.activeLast30Days.toLocaleString()} detail="Edited in the last 30 days" />
+          <Stat label="Board editors" value={boards.editorsLast30Days.toLocaleString()} detail={`${boards.changesLast30Days.toLocaleString()} changes in 30 days`} />
+          <Stat label="Board AI jobs" value={boards.aiJobs.toLocaleString()} detail={`${boards.aiJobsLast30Days} in 30 days`} />
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Panel title="Cost per user ($)">

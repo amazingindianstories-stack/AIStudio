@@ -277,6 +277,19 @@ class AiCreditTests(AssistantFixture):
         self.assertEqual(Generation.objects.count(), 1)
         self.assertEqual(self.personal('post', 'credits/request', {'message': 'please'}).status_code, 404)
 
+    def test_both_board_ai_switches_block_sidekick_jobs(self):
+        from apps.admin_dashboard import workspace
+        from apps.admin_dashboard.models import AppSetting
+        path = f"sidekick-chats/{self.new_chat()['id']}/turns"
+        workspace.save(workspace.FEATURES_KEY, {'board_ai': {'mode': 'none', 'userIds': []}})
+        refused = self.board_api('post', path, {'message': 'one'}, key='switch-key-0001')
+        self.assertEqual((refused.status_code, refused.json()['code']), (403, 'FEATURE_DISABLED'))
+        workspace.save(workspace.FEATURES_KEY, {})
+        AppSetting.objects.create(key='boardAiEnabled', value='0', updated_at=1)
+        refused = self.board_api('post', path, {'message': 'one'}, key='switch-key-0002')
+        self.assertEqual((refused.status_code, refused.json()['code']), (403, 'AI_DISABLED'))
+        self.assertEqual((Generation.objects.count(), BoardAiJob.objects.count()), (0, 0))
+
     def test_failed_jobs_do_not_use_credits_and_last_months_jobs_do_not_count(self):
         chat = self.new_chat()
         job = self.board_api('post', f"sidekick-chats/{chat['id']}/turns", {'message': 'one'}, key='credit-key-0004').json()['job']
