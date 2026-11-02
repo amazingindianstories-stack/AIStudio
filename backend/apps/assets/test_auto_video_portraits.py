@@ -202,3 +202,41 @@ class AutoVideoPortraitTests(AutoVideoBase):
         self.assertEqual((row.status, ManagedPortraitAsset.objects.count(), self.fake.seedance_payloads), ('queued', 0, []))
         self.assertEqual(self.run_worker(job).status, 'succeeded')
         self.assertEqual(self.sent_videos(), ['asset://' + ManagedPortraitAsset.objects.get().byteplus_asset_id])
+
+    def test_a_clip_over_the_asset_size_limit_goes_as_a_url_without_a_scan_or_a_registration(self):
+        from apps.media.models import UploadSession
+        from . import video_limits
+        clip = self.reference_clip(make_clip(self.directory, 'face.mp4'))
+        UploadSession.objects.filter(pk=clip['referenceId']).update(byte_size=video_limits.MAX_BYTES + 1)
+        row = self.run_worker(self.enqueue_video(clip))
+        self.assertEqual(row.status, 'succeeded', row.error)
+        self.assertFalse(self.sent_videos()[0].startswith('asset://'))
+        self.assertEqual((ManagedPortraitAsset.objects.count(), ReferenceFaceScan.objects.count(), self.fake.assets), (0, 0, {}))
+
+    def test_a_clip_the_asset_service_fails_while_processing_goes_as_a_url_and_is_not_asked_again(self):
+        data = make_clip(self.directory, 'face.mp4')
+        original, creates = self.fake.asset_api, []
+
+        def fail(action, body):
+            if action == 'CreateAsset':
+                creates.append(body)
+            if action == 'GetAsset' and body.get('Id') in self.fake.assets:
+                self.fake.assets[body['Id']]['Status'] = 'Failed'
+            return original(action, body)
+        with patch.object(self.fake, 'asset_api', fail):
+            row = self.run_worker(self.enqueue_video(self.reference_clip(data)))
+            self.assertEqual(row.status, 'succeeded', row.error)
+            self.assertFalse(self.sent_videos()[0].startswith('asset://'))
+            self.assertEqual(ReferenceFaceScan.objects.get().forced, managed_pool.REFUSED)
+            self.assertEqual(self.run_worker(self.enqueue_video(self.reference_clip(data))).status, 'succeeded')
+            self.assertFalse(self.sent_videos()[0].startswith('asset://'))
+            self.assertEqual(len(creates), 1, 'not asked again')
+
+    def test_a_card_picture_that_could_not_be_made_is_made_on_the_next_use_of_the_clip(self):
+        data = make_clip(self.directory, 'face.mp4')
+        with patch.object(posters, 'bounded_poster', return_value=None):
+            self.assertEqual(self.run_worker(self.enqueue_video(self.reference_clip(data))).status, 'succeeded')
+        poster = self.listing()['portraits'][0]['posterUrl'].removeprefix('/api/media/')
+        self.assertFalse(self.storage.exists(poster))
+        self.assertEqual(self.run_worker(self.enqueue_video(self.reference_clip(data))).status, 'succeeded')
+        self.assertTrue(self.storage.exists(poster), 'the card has its picture')

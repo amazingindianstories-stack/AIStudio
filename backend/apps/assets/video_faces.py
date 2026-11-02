@@ -36,9 +36,9 @@ def reference_sha(storage, key):
     if row:
         return row
     from apps.media.models import UploadSession
-    uploaded = UploadSession.objects.filter(key=key, state='ready').exclude(sha256='').values_list('sha256', flat=True).first()
+    uploaded = UploadSession.objects.filter(key=key, state='ready').exclude(sha256='').values_list('sha256', 'byte_size').first()
     if uploaded:
-        return uploaded
+        return uploaded[0] if uploaded[1] <= video_limits.MAX_BYTES else None
     with _HASHES_LOCK:
         known = _HASHES.get(key)
     if known:
@@ -112,15 +112,26 @@ def _scan_frames(storage, key, duration):
 def is_portrait(storage, key, sha):
     """True when this reference clip should be registered as a portrait asset, False when it goes as a URL, None when
     the answer is not known yet (the frame extractor is busy)."""
-    if ManagedPortraitAsset.objects.filter(content_sha256=sha).exclude(status__in=('DELETED', 'FAILED')).exists():
-        return True       # already (being) registered, or a Gallery upload waiting its turn: share it, no scan needed
     cached = ReferenceFaceScan.objects.filter(pk=sha).first()
     if cached and cached.forced == managed_pool.REFUSED:
         return False      # BytePlus refused the asset: the clip goes as it did before
-    if cached and cached.forced:
-        return True       # a Gallery upload of this clip said so
+    live = ManagedPortraitAsset.objects.filter(content_sha256=sha).exclude(status__in=('DELETED', 'FAILED')).values_list('source_key', flat=True).first()
+    if live:              # already (being) registered, or a Gallery upload waiting its turn: share it, no scan needed
+        return _with_poster(storage, live)
     if cached and cached.detector_version == VIDEO_DETECTOR_VERSION and not cached.error:
-        return cached.has_face
+        return _with_poster(storage, key) if cached.has_face else False
+    found = _scan(storage, key, sha)
+    return _with_poster(storage, key) if found else found
+
+
+def _with_poster(storage, key):
+    """True, once the Gallery card of the clip registered from ``key`` has its picture (best effort: tried again next time)."""
+    from apps.media import posters
+    posters.bounded_poster(storage, key, video=True, wait=posters.DEADLINE_SECONDS)
+    return True
+
+
+def _scan(storage, key, sha):
     info = video_limits.probe_stored(storage, key)
     if info is None:      # unreadable now (maybe only for now): the clip goes as a URL and is looked at again next time
         logger.info('reference video %s stays a URL: it could not be probed', sha[:12])
@@ -135,9 +146,6 @@ def is_portrait(storage, key, sha):
         return None
     has_face, faces, error = scanned
     _record(sha, has_face, faces, error)
-    if has_face:
-        from apps.media import posters
-        posters.bounded_poster(storage, key, video=True, wait=posters.DEADLINE_SECONDS)     # the Gallery card's picture; best effort
-    else:
+    if not has_face:
         logger.info('reference video %s stays a URL: no face found', sha[:12])
     return has_face

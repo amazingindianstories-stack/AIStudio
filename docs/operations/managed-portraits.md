@@ -42,19 +42,19 @@ Nothing is deployed. Every production step below needs explicit owner approval.
   its generation finishes), then `python manage.py migrate assets 0006` (owner DSN; 81 → 80 rows).
 - Reference videos with a face are portraits too (Seedance models that take reference videos only; `apps/assets/video_faces.py`,
   called from `portrait_prepare`). A reference video that is not already a Gallery clip is checked once, the first time a
-  generation needs it: its content hash comes from the upload record (or the stored object is hashed, at most 200 MB), the
-  clip is probed with ffprobe against the Gallery video limits above, and five frames spread across it (10 to 85 % of its
+  generation needs it: its content hash comes from the upload record (or the stored object is hashed), a clip over 200 MB is
+  skipped, the clip is probed with ffprobe against the Gallery video limits above, and five frames spread across it (10 to 85 % of its
   length, at most 960 px) are read with ffmpeg and given to the same YuNet detector. One face in any frame makes it a
   portrait: it is registered as an `AssetType: Video` asset through the same pipeline as a Gallery clip (same processing
   limit, pin, TTL, eviction, `PORTRAIT_WAITING`), sent to Seedance as `asset://<id>`, and shown in the Gallery as a video
-  card named "Face from ..." (`origin = 'reference'`, its card frame made on the spot) while its asset is live. Identical
+  card named "Face from ..." (`origin = 'reference'`, its card frame made on the spot, and again on its next use if that failed) while its asset is live. Identical
   clips share one asset, also with a clip uploaded by hand to the Gallery. The answer is cached by content in
   `reference_face_scans` (detector version `yunet-2023mar-v1+video-v1`); a clip that has a live asset is not scanned again.
   A clip with no face, outside the video limits (length, size, frame rate, shape, 200 MB) or that ffprobe cannot read keeps
   going as a plain URL, is not in the Gallery, and costs nothing extra and fails no job. A scan error (a frame that cannot
   be read, a detector failure) counts as a face, like images, and is not cached as an answer. While ffmpeg is busy with
   another clip the job waits a moment and looks again instead of guessing. If BytePlus refuses the clip as an asset
-  it is marked `provider_refused_asset` and goes as a URL from then on. A face the detector misses in a video is not
+  (when it is created or while it is processed) it is marked `provider_refused_asset` and goes as a URL from then on. A face the detector misses in a video is not
   learned from a Seedance rejection (that learning covers images only). Output (generated) videos are not affected.
 - Pool slots are handed out strictly first come first served: the oldest waiting generation or queued
   upload gets the next free (or evictable) slot; everyone else waits behind it.

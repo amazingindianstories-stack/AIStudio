@@ -643,6 +643,8 @@ def _poll(asset, client):
                 row.save(update_fields=['status', 'error_code', 'updated_at', 'receipt'])
         if not held and remote_delete(row, client) and row.origin == 'upload':
             _finish(row, status='FAILED', deleted_at=None)      # an upload stays visible as "can't be used"
+        if status == 'Failed' and row.media_kind == 'video' and row.origin == 'reference' and refuse_as_asset(row.content_sha256):
+            return wait('portrait_registering', 1000)       # a guess of the detector: the job goes on with the clip as a URL
         from apps.generation import provider_errors
         detail = provider_errors.capture('byteplus-assets', phase='GetAsset', code=code, message='Asset status: ' + (status or 'unknown'),
                                          task_id=asset.byteplus_asset_id, source='veevee',
