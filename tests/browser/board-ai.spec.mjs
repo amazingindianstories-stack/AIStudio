@@ -52,6 +52,11 @@ test('Create with AI quotes, runs once, places sticky notes and an image on the 
       return Boolean(boardId);
     }).toBeTruthy();
     const nodes = async () => (await (await context.request.get(`/api/canvas-boards/${boardId}`)).json()).data.nodes;
+    // Placed results stay clear of the board's top chips (Inbox, Cards and work, Saved): the bar the work tools'
+    // buttons are portaled into.
+    const chipsBottom = () => page.getByRole('button', { name: 'Cards and work', exact: true })
+      .evaluate(element => element.parentElement.parentElement.getBoundingClientRect().bottom);
+    const top = async node => (await page.locator(`[data-node-id="${node.id}"]`).boundingBox()).y;
 
     await page.getByRole('button', { name: 'Create with AI', exact: true }).click();
     const panel = page.getByRole('region', { name: 'Create with AI' });
@@ -162,6 +167,8 @@ test('Create with AI quotes, runs once, places sticky notes and an image on the 
     const [{ aspect_ratio: savedRatio }] = await db`SELECT aspect_ratio FROM generations WHERE id = ${imageJob.generationId}`;
     expect(savedRatio).toBe(FAKE ? '4:3' : '4:5');
     expect([image.w, image.h]).toEqual(FAKE ? [320, 240] : [256, 320]);
+    expect(await top(image)).toBeGreaterThanOrEqual(await chipsBottom());
+    await page.screenshot({ path: test.info().outputPath('board-ai-image-below-chips.png') });
 
     // Refining the image pre-fills the controls from it, and they can be changed.
     await expect(panel.getByRole('textbox', { name: 'Refinement' })).toBeVisible();
@@ -216,6 +223,8 @@ test('Create with AI quotes, runs once, places sticky notes and an image on the 
       .sort((a, b) => a.x - b.x);
     expect(left.y).toBe(right.y);
     expect(left.x + left.w).toBeLessThan(right.x);
+    for (const placedImage of [left, right]) expect(await top(placedImage)).toBeGreaterThanOrEqual(await chipsBottom());
+    await page.screenshot({ path: test.info().outputPath('board-ai-batch-below-chips.png') });
     if (FAKE) expect((await fakeState()).gemini_images.length - batchImagesBefore).toBe(2);
 
     // A reload resumes nothing: every result was placed exactly once.

@@ -171,7 +171,7 @@ export function CanvasView() {
   const narrow = useMediaQuery("(max-width: 767px)");
   useEffect(() => {
     const bar = topBarRef.current;
-    if (!bar || !narrow || typeof ResizeObserver === "undefined") return undefined;
+    if (!bar || typeof ResizeObserver === "undefined") return undefined;
     const measure = () => setTopBarBottom(bar.offsetTop + bar.offsetHeight);
     measure();
     const observer = new ResizeObserver(measure);
@@ -518,7 +518,7 @@ export function CanvasView() {
         {boardId && !noBoards && <NotesPanel />}
 
         {boardId && loaded && <BoardTemplates boardId={boardId} projectId={activeProjectId} viewCenter={viewCenter} onOpenBoard={openTemplateBoard} />}
-        {aiOpen && boardId && !readOnly && !touchViewOnly && <CanvasAiPanel boardId={boardId} leftInset={assetPanelWidth} onClose={() => setAiOpen(false)} />}
+        {aiOpen && boardId && !readOnly && !touchViewOnly && <CanvasAiPanel boardId={boardId} leftInset={assetPanelWidth} topInset={topBarBottom} onClose={() => setAiOpen(false)} />}
         {sidekick !== null && boardId && !readOnly && !touchViewOnly && <SidekickPanel boardId={boardId} projectId={activeProjectId} initialTab={sidekick} onClose={() => setSidekick(null)} />}
         {boardId && loaded && !readOnly && !touchViewOnly && sidekick === null && <CatchUpChip boardId={boardId} onOpen={() => setSidekick("catchup")} />}
       </div>
@@ -554,7 +554,7 @@ export function CanvasView() {
 
       {importNotice && <div role="status" className="absolute bottom-20 left-1/2 z-40 -translate-x-1/2 rounded-lg border border-line bg-ink-750/95 px-3 py-2 text-xs text-white/80 shadow-pop">{importNotice}</div>}
 
-      <StyleInspector hidden={transientActive || readOnly || touchViewOnly || noBoards} insetLeft={narrow ? 0 : assetPanelWidth} insetTop={narrow ? topBarBottom + 8 : undefined} />
+      <StyleInspector hidden={transientActive || readOnly || touchViewOnly || noBoards} insetLeft={narrow ? 0 : assetPanelWidth} insetTop={topBarBottom + 8} />
       {!noBoards && !transientActive && <MediaSelectionBar hidden={touchViewOnly} boardId={boardId} notify={notify} />}
       {!noBoards && !transientActive && <ObjectInfo style={{ left: assetPanelWidth + 16 }} />}
       {boardId && loaded && <FacilitationDock />}

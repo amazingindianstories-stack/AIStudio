@@ -114,10 +114,11 @@ the job read-back carries `model`, `aspectRatio` and `resolution`.
 The board owns its graph and autosave, so the browser places the result (`src/lib/board-ai.js`):
 
 1. It builds the nodes (`src/lib/canvas/ai-formats.js`). A new result goes to the free slot nearest the viewport
-   centre. The board area under the open panel and the asset panel counts as occupied, like existing nodes.
+   centre. The board area under the open panel, the asset panel and the board's top chips counts as occupied, like
+   existing nodes.
 2. It claims the job with `PATCH placedNodeIds`. Only the first claim succeeds; a second gets 409 `ALREADY_PLACED`.
 3. It inserts the nodes with `placeGeneratedNodes` as one undo step (a batch's results together, side by side). If they are not fully visible outside those
-   panels, the board pans instantly so they are. It zooms out only when the result is too large to show at the
+   areas, the board pans instantly so they are. It zooms out only when the result is too large to show at the
    current zoom. The pan is not an undo step.
 
 When a board reloads, the panel resumes the user's unfinished jobs and places finished, unplaced ones. Failed jobs

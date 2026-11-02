@@ -643,3 +643,25 @@ test("a result never lands under the asset panel either, and is panned out from 
   assert.ok(shown.x >= 300 && shown.y >= 0 && shown.x + shown.w <= 1600 && shown.y + shown.h <= 900, `beside the asset panel: ${JSON.stringify(shown)}`);
   assert.ok(!intersects(shown, PANEL), "clear of the AI panel");
 });
+
+test("a result never lands under the board's top chips, and the board does not pan to show it", async (t) => {
+  useCanvasStore.getState().setViewportSize(1600, 900);
+  // The chips row covers the canvas's top 140 px.
+  const visible = { x: 0, y: 140, w: 1600, h: 760 };
+  t.after(trackPanelLayout(() => ({ panel: PANEL, visible })));
+  // The centre and the slot left of it are taken; the slot above reaches under the chips and the slot below is under
+  // the panel, so the result goes to the right.
+  loadedBoard([sticky("block", 0, 330, 1012, 240)]);
+  server(t, (call) => (call.method === "PATCH"
+    ? json(200, { job: job({ status: "succeeded", result: NOTES, placedNodeIds: call.body.placedNodeIds, placedAt: 5 }) })
+    : json(200, { jobs: [] })));
+  await useBoardAi.getState().attach(BOARD);
+  await useBoardAi.getState().settle(job({ status: "succeeded", result: NOTES }));
+  const { nodes, viewport } = useCanvasStore.getState().history.present;
+  const added = nodes.filter((node) => node.id !== "block");
+  assert.deepEqual(added.map((node) => node.text), ["One", "Two"]);
+  assert.deepEqual(viewport, { x: 0, y: 0, zoom: 1 }, "placed in visible free space, not panned out from under the chips");
+  const shown = onScreen(added, viewport);
+  assert.ok(shown.y >= 140 && shown.x + shown.w <= 1600 && shown.y + shown.h <= 900, `below the chips: ${JSON.stringify(shown)}`);
+  assert.ok(!intersects(shown, PANEL), "clear of the AI panel");
+});

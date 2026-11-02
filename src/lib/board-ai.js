@@ -107,8 +107,8 @@ let newPrompts = 0;
 let measureLayout = null;
 
 /**
- * The open panel reports, in canvas pixels, its own rect (`panel`) and the canvas area side panels leave visible
- * (`visible`) through `measure`; the returned function stops reporting.
+ * The open panel reports, in canvas pixels, its own rect (`panel`) and the canvas area side panels and the board's top
+ * chips leave visible (`visible`) through `measure`; the returned function stops reporting.
  */
 export function trackPanelLayout(measure) {
   measureLayout = measure;
@@ -125,12 +125,16 @@ function layout(canvas) {
   return { panel: null, visible: { x: 0, y: 0, w: size.w, h: size.h } };
 }
 
-/** Board space a new result must avoid: the board's nodes (less `exclude`) and the board area the panels cover. */
+/** Board space a new result must avoid: the board's nodes (less `exclude`) and the board area the panels and chips cover. */
 function occupied(canvas, exclude = []) {
   const nodes = canvas.history.present.nodes.filter((node) => !exclude.includes(node.id));
   const { panel, visible } = layout(canvas);
   const { viewport } = canvas.history.present;
-  const covered = [panel, visible.x > 0 ? { x: 0, y: visible.y, w: visible.x, h: visible.h } : null].filter(Boolean);
+  const covered = [
+    panel,
+    visible.x > 0 ? { x: 0, y: visible.y, w: visible.x, h: visible.h } : null,
+    visible.y > 0 ? { x: 0, y: 0, w: visible.x + visible.w, h: visible.y } : null,
+  ].filter(Boolean);
   return [...nodes, ...covered.map((rect) => screenRectToBoard(rect, viewport))];
 }
 

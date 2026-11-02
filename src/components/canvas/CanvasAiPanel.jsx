@@ -62,7 +62,7 @@ function statusLine(job) {
  * it refines, in place, as one undo step). Recent results lists the last day's finished results so any of them can be
  * placed again.
  */
-export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
+export function CanvasAiPanel({ boardId, leftInset = 0, topInset = 0, onClose }) {
   const job = useBoardAi((s) => s.job);
   const placed = useBoardAi((s) => s.placed);
   const submitting = useBoardAi((s) => s.submitting);
@@ -182,7 +182,8 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
   };
 
   // Placement keeps results in view: report this panel's rect and the canvas left visible beside the asset panel
-  // (`leftInset` wide), relative to the canvas, which shares the panel's positioned parent.
+  // (`leftInset` wide) and below the board's top chips (`topInset` tall), relative to the canvas, which shares the
+  // panel's positioned parent.
   useEffect(() => trackPanelLayout(() => {
     const panel = panelRef.current;
     const canvas = panel?.offsetParent;
@@ -191,9 +192,9 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
     const origin = canvas.getBoundingClientRect();
     return {
       panel: { x: rect.left - origin.left, y: rect.top - origin.top, w: rect.width, h: rect.height },
-      visible: { x: leftInset, y: 0, w: Math.max(origin.width - leftInset, 0), h: origin.height },
+      visible: { x: leftInset, y: topInset, w: Math.max(origin.width - leftInset, 0), h: Math.max(origin.height - topInset, 0) },
     };
-  }), [leftInset]);
+  }), [leftInset, topInset]);
 
   // Reload when board AI attaches a board (after the board loads, not when the prop changes), since attaching
   // clears the list.
