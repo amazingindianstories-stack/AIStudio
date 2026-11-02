@@ -3,6 +3,8 @@ import test from "node:test";
 import { useBoardAi, requestFingerprint, trackPanelLayout } from "./board-ai.js";
 import { useCanvasStore } from "./canvas-store.js";
 import { emptyCanvasState } from "./canvas/serialization.js";
+import { MAINTENANCE_MESSAGE } from "./maintenance.js";
+import { useMaintenance } from "./maintenance-client.js";
 
 const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 const BOARD = "11111111-1111-4111-8111-111111111111";
@@ -46,10 +48,10 @@ test("a submission sends one Idempotency-Key, reuses it after a dropped answer a
   });
   await useBoardAi.getState().attach(BOARD);
   const request = { format: "stickies", prompt: "ideas" };
-  assert.equal(await useBoardAi.getState().submit(request), null);
+  assert.deepEqual(await useBoardAi.getState().submit(request), []);
   assert.equal(useBoardAi.getState().error, "Failed to fetch");
   mode = "ok";
-  const created = await useBoardAi.getState().submit(request);
+  const [created] = await useBoardAi.getState().submit(request);
   assert.equal(created.id, job().id);
   const posts = calls.filter((call) => call.method === "POST");
   assert.equal(posts.length, 2);
@@ -59,13 +61,226 @@ test("a submission sends one Idempotency-Key, reuses it after a dropped answer a
 
   mode = "refuse";
   useBoardAi.setState({ job: null });
-  assert.equal(await useBoardAi.getState().submit({ format: "stickies", prompt: "more" }), null);
+  assert.deepEqual(await useBoardAi.getState().submit({ format: "stickies", prompt: "more" }), []);
   assert.match(useBoardAi.getState().error, /budget/);
   mode = "ok";
   await useBoardAi.getState().submit({ format: "stickies", prompt: "more" });
   const [refused, fresh] = calls.filter((call) => call.method === "POST").slice(2);
   assert.notEqual(fresh.headers["Idempotency-Key"], refused.headers["Idempotency-Key"], "a refused request does not pin its key");
   assert.notEqual(requestFingerprint(BOARD, request), requestFingerprint(BOARD, { ...request, prompt: "other" }));
+  // An image's resolution is part of what the key stands for.
+  const image = { format: "image", prompt: "lamp", model: "Nano Banana Pro", aspectRatio: "16:9", resolution: "2K" };
+  assert.notEqual(requestFingerprint(BOARD, image), requestFingerprint(BOARD, { ...image, resolution: "4K" }));
+});
+
+const IMAGE = { format: "image", prompt: "lamp", model: "Nano Banana Pro", aspectRatio: "1:1", resolution: "2K" };
+const SLOTS = ["44444444-4444-4444-8444-444444444444", "55555555-5555-4555-8555-555555555555"];
+
+function imageJob(slot, fields = {}) {
+  return job({ id: SLOTS[slot], createdAt: slot + 1, ...IMAGE, ...fields });
+}
+
+test("a batch queues the same request once per key slot, follows both jobs and places them side by side as one undo step", async (t) => {
+  loadedBoard();
+  const calls = server(t, (call) => {
+    if (call.method === "POST") return json(201, { job: imageJob(Number(call.headers["Idempotency-Key"].at(-1)), { status: "queued" }) });
+    if (call.method === "PATCH") return json(200, { job: { placedAt: 5, placedNodeIds: call.body.placedNodeIds } });
+    return json(200, { jobs: [] });
+  });
+  await useBoardAi.getState().attach(BOARD);
+  const created = await useBoardAi.getState().submit(IMAGE, 2);
+  assert.deepEqual(created.map((item) => item.id), SLOTS);
+  const posts = calls.filter((call) => call.method === "POST");
+  assert.deepEqual(posts.map((call) => call.body), [IMAGE, IMAGE]);
+  const [base] = posts[0].headers["Idempotency-Key"].match(/^[0-9a-f-]{36}/);
+  assert.deepEqual(posts.map((call) => call.headers["Idempotency-Key"]), [`${base}-0`, `${base}-1`]);
+  assert.equal(useBoardAi.getState().job.id, SLOTS[0]);
+
+  // The second finishes first: nothing is placed until the whole batch has ended, and the panel follows the running job.
+  const result = { url: "/api/media/x", aspectRatio: "1:1" };
+  await useBoardAi.getState().settle(imageJob(1, { status: "succeeded", result }));
+  await useBoardAi.getState().settle(imageJob(0, { status: "running" }));
+  assert.equal(useCanvasStore.getState().history.present.nodes.length, 0);
+  assert.deepEqual([useBoardAi.getState().job.id, useBoardAi.getState().job.status], [SLOTS[0], "running"]);
+  const pastBefore = useCanvasStore.getState().history.past.length;
+  await useBoardAi.getState().settle(imageJob(0, { status: "succeeded", result }));
+
+  const canvas = useCanvasStore.getState();
+  const [left, right] = canvas.history.present.nodes;
+  assert.equal(canvas.history.present.nodes.length, 2);
+  assert.equal(canvas.history.past.length, pastBefore + 1, "one undo step");
+  assert.equal(left.y, right.y);
+  assert.ok(left.x + left.w < right.x, "side by side, not on top of each other");
+  const claims = calls.filter((call) => call.method === "PATCH");
+  assert.deepEqual(claims.map((call) => [call.url.split("/").at(-1), call.body.placedNodeIds]).sort(),
+    [[SLOTS[0], [left.id]], [SLOTS[1], [right.id]]], "one claim per job, each for its own node");
+  assert.deepEqual(useBoardAi.getState().placed.nodeIds, [left.id], "the first result is the one to refine");
+  canvas.undo();
+  assert.equal(useCanvasStore.getState().history.present.nodes.length, 0);
+
+  // Settling either job again places nothing more.
+  await useBoardAi.getState().settle(imageJob(0, { status: "succeeded", result, placedAt: 5 }));
+  assert.equal(calls.filter((call) => call.method === "PATCH").length, 2);
+});
+
+test("a batch whose second slot is refused keeps the accepted job and reports the rest", async (t) => {
+  loadedBoard();
+  const calls = server(t, (call) => {
+    if (call.method === "POST") {
+      return call.headers["Idempotency-Key"].endsWith("-0")
+        ? json(201, { job: imageJob(0, { status: "queued" }) })
+        : json(409, { error: "Paid Preview budget unavailable or exhausted; no provider submission occurred.", code: "PREVIEW_PAID_BUDGET_HOLD" });
+    }
+    if (call.method === "PATCH") return json(200, { job: { placedAt: 5, placedNodeIds: call.body.placedNodeIds } });
+    return json(200, { jobs: [] });
+  });
+  await useBoardAi.getState().attach(BOARD);
+  const created = await useBoardAi.getState().submit(IMAGE, 2);
+  assert.deepEqual(created.map((item) => item.id), [SLOTS[0]]);
+  assert.equal(useBoardAi.getState().job.id, SLOTS[0]);
+  assert.match(useBoardAi.getState().error, /^1 of 2 started\. The rest failed: Paid Preview budget/);
+  assert.equal(useBoardAi.getState().pendingKey, null);
+  await useBoardAi.getState().settle(imageJob(0, { status: "succeeded", result: { url: "/api/media/x", aspectRatio: "1:1" } }));
+  assert.equal(useCanvasStore.getState().history.present.nodes.length, 1);
+  assert.equal(calls.filter((call) => call.method === "POST").length, 2);
+});
+
+const GATEWAY_TIMEOUT = { error: "The upstream request timed out. Its completion could not be verified.", code: "UPSTREAM_TIMEOUT" };
+const LOST_ANSWERS = [
+  ["a dropped connection", () => { throw new TypeError("Failed to fetch"); }],
+  ["a gateway 502 that could not verify completion", () => json(502, GATEWAY_TIMEOUT)],
+];
+
+for (const [lost, lose] of LOST_ANSWERS) test(`a batch slot whose answer is lost to ${lost} after the server committed it is re-sent under its key, followed and placed`, async (t) => {
+  loadedBoard();
+  const committed = new Map();
+  let dropped = false;
+  const calls = server(t, (call) => {
+    if (call.method === "POST") {
+      const key = call.headers["Idempotency-Key"];
+      if (!committed.has(key)) committed.set(key, imageJob(Number(key.at(-1)), { status: "queued" }));
+      if (key.endsWith("-1") && !dropped) {
+        dropped = true;
+        return lose();
+      }
+      return json(201, { job: committed.get(key) });
+    }
+    if (call.method === "PATCH") return json(200, { job: { placedAt: 5, placedNodeIds: call.body.placedNodeIds } });
+    return json(200, { jobs: [] });
+  });
+  await useBoardAi.getState().attach(BOARD);
+  const created = await useBoardAi.getState().submit(IMAGE, 2);
+  assert.deepEqual(created.map((item) => item.id), SLOTS);
+  const keys = calls.filter((call) => call.method === "POST").map((call) => call.headers["Idempotency-Key"]);
+  assert.equal(keys.length, 3);
+  assert.equal(keys[2], keys[1], "the lost slot is re-sent under the same key");
+  assert.equal(committed.size, 2, "no second job is created");
+  assert.equal(useBoardAi.getState().error, null);
+  assert.equal(useBoardAi.getState().pendingKey, null);
+
+  const result = { url: "/api/media/x", aspectRatio: "1:1" };
+  const pastBefore = useCanvasStore.getState().history.past.length;
+  await useBoardAi.getState().settle(imageJob(0, { status: "succeeded", result }));
+  assert.equal(useCanvasStore.getState().history.present.nodes.length, 0, "the batch waits for the re-sent slot's job");
+  await useBoardAi.getState().settle(imageJob(1, { status: "succeeded", result }));
+  const canvas = useCanvasStore.getState();
+  assert.equal(canvas.history.present.nodes.length, 2);
+  assert.equal(canvas.history.past.length, pastBefore + 1, "both results as one undo step");
+  assert.deepEqual(calls.filter((call) => call.method === "PATCH").map((call) => call.url.split("/").at(-1)).sort(), SLOTS);
+});
+
+test("a batch slot that never gets an answer is re-sent a bounded number of times, then reported", async (t) => {
+  loadedBoard();
+  const calls = server(t, (call) => {
+    if (call.method === "POST") {
+      if (call.headers["Idempotency-Key"].endsWith("-0")) return json(201, { job: imageJob(0, { status: "queued" }) });
+      throw new TypeError("Failed to fetch");
+    }
+    return json(200, { jobs: [] });
+  });
+  await useBoardAi.getState().attach(BOARD);
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let created = null;
+  const submitted = useBoardAi.getState().submit(IMAGE, 2).then((jobs) => { created = jobs; });
+  while (!created) {
+    await new Promise((resolve) => setImmediate(resolve));
+    t.mock.timers.tick(1500);
+  }
+  await submitted;
+  assert.deepEqual(created.map((item) => item.id), [SLOTS[0]]);
+  const keys = calls.filter((call) => call.method === "POST").map((call) => call.headers["Idempotency-Key"]);
+  assert.equal(keys.length, 11);
+  assert.equal(new Set(keys.slice(1)).size, 1, "every re-send uses the slot's own key");
+  assert.equal(useBoardAi.getState().job.id, SLOTS[0]);
+  assert.equal(useBoardAi.getState().error, "1 of 2 started. The rest failed: Failed to fetch");
+  assert.equal(useBoardAi.getState().submitting, false);
+});
+
+test("a batch slot stopped by the maintenance freeze before it is sent is not retried; the accepted job is still placed", async (t) => {
+  loadedBoard();
+  t.after(() => useMaintenance.setState({ enabled: false }));
+  const calls = server(t, (call) => {
+    if (call.method === "POST") {
+      useMaintenance.setState({ enabled: true });
+      return json(201, { job: imageJob(0, { status: "queued" }) });
+    }
+    if (call.method === "PATCH") return json(200, { job: { placedAt: 5, placedNodeIds: call.body.placedNodeIds } });
+    return json(200, { jobs: [] });
+  });
+  await useBoardAi.getState().attach(BOARD);
+  const created = await useBoardAi.getState().submit(IMAGE, 2);
+  assert.deepEqual(created.map((item) => item.id), [SLOTS[0]]);
+  assert.equal(calls.filter((call) => call.method === "POST").length, 1, "the frozen slot is never sent");
+  assert.equal(useBoardAi.getState().job.id, SLOTS[0]);
+  assert.equal(useBoardAi.getState().error, `1 of 2 started. The rest failed: ${MAINTENANCE_MESSAGE}`);
+  useMaintenance.setState({ enabled: false });
+  await useBoardAi.getState().settle(imageJob(0, { status: "succeeded", result: { url: "/api/media/x", aspectRatio: "1:1" } }));
+  assert.equal(useCanvasStore.getState().history.present.nodes.length, 1);
+});
+
+test("a single submission whose gateway timed out keeps its key, so a retry returns the same job", async (t) => {
+  loadedBoard();
+  let mode = "timeout";
+  const calls = server(t, (call) => {
+    if (call.method === "POST") return mode === "timeout" ? json(502, GATEWAY_TIMEOUT) : json(201, { job: job() });
+    return json(200, { jobs: [] });
+  });
+  await useBoardAi.getState().attach(BOARD);
+  const request = { format: "stickies", prompt: "ideas" };
+  assert.deepEqual(await useBoardAi.getState().submit(request), []);
+  assert.equal(useBoardAi.getState().error, GATEWAY_TIMEOUT.error);
+  mode = "ok";
+  await useBoardAi.getState().submit(request);
+  const [first, retry] = calls.filter((call) => call.method === "POST").map((call) => call.headers["Idempotency-Key"]);
+  assert.equal(retry, first);
+});
+
+test("a batch with a failed job dismisses it, places the finished one and reports the failure", async (t) => {
+  loadedBoard();
+  const calls = server(t, (call) => {
+    if (call.method === "POST") return json(201, { job: imageJob(Number(call.headers["Idempotency-Key"].at(-1)), { status: "queued" }) });
+    if (call.method === "PATCH") return json(200, { job: { placedAt: 5, placedNodeIds: call.body.placedNodeIds } });
+    return json(200, { jobs: [] });
+  });
+  await useBoardAi.getState().attach(BOARD);
+  await useBoardAi.getState().submit(IMAGE, 2);
+  await useBoardAi.getState().settle(imageJob(0, { status: "succeeded", result: { url: "/api/media/x", aspectRatio: "1:1" } }));
+  await useBoardAi.getState().settle(imageJob(1, { status: "failed", error: "The AI provider returned an error." }));
+  assert.equal(useCanvasStore.getState().history.present.nodes.length, 1);
+  const claims = calls.filter((call) => call.method === "PATCH").map((call) => [call.url.split("/").at(-1), call.body.placedNodeIds.length]);
+  assert.deepEqual(claims.sort(), [[SLOTS[0], 1], [SLOTS[1], 0]]);
+  assert.equal(useBoardAi.getState().error, "The AI provider returned an error.");
+  assert.equal(useBoardAi.getState().placed.jobId, SLOTS[0]);
+});
+
+test("a placed image result remembers its model, shape and resolution for a refinement to start from", async (t) => {
+  loadedBoard([]);
+  server(t, () => json(200, { jobs: [] }));
+  await useBoardAi.getState().attach(BOARD);
+  await useBoardAi.getState().settle(job({ format: "image", status: "succeeded", model: "Nano Banana 2.1", aspectRatio: "9:16", resolution: "4K",
+    result: { url: "/api/media/x", aspectRatio: "4:5" } }));
+  const { placed } = useBoardAi.getState();
+  assert.deepEqual([placed?.model, placed?.aspectRatio, placed?.resolution], ["Nano Banana 2.1", "4:5", "4K"]);
 });
 
 test("a finished job is claimed, then placed as one undo step at the viewport centre", async (t) => {
@@ -426,5 +641,27 @@ test("a result never lands under the asset panel either, and is panned out from 
   assert.equal(added.length, 2);
   const shown = onScreen(added, viewport);
   assert.ok(shown.x >= 300 && shown.y >= 0 && shown.x + shown.w <= 1600 && shown.y + shown.h <= 900, `beside the asset panel: ${JSON.stringify(shown)}`);
+  assert.ok(!intersects(shown, PANEL), "clear of the AI panel");
+});
+
+test("a result never lands under the board's top chips, and the board does not pan to show it", async (t) => {
+  useCanvasStore.getState().setViewportSize(1600, 900);
+  // The chips row covers the canvas's top 140 px.
+  const visible = { x: 0, y: 140, w: 1600, h: 760 };
+  t.after(trackPanelLayout(() => ({ panel: PANEL, visible })));
+  // The centre and the slot left of it are taken; the slot above reaches under the chips and the slot below is under
+  // the panel, so the result goes to the right.
+  loadedBoard([sticky("block", 0, 330, 1012, 240)]);
+  server(t, (call) => (call.method === "PATCH"
+    ? json(200, { job: job({ status: "succeeded", result: NOTES, placedNodeIds: call.body.placedNodeIds, placedAt: 5 }) })
+    : json(200, { jobs: [] })));
+  await useBoardAi.getState().attach(BOARD);
+  await useBoardAi.getState().settle(job({ status: "succeeded", result: NOTES }));
+  const { nodes, viewport } = useCanvasStore.getState().history.present;
+  const added = nodes.filter((node) => node.id !== "block");
+  assert.deepEqual(added.map((node) => node.text), ["One", "Two"]);
+  assert.deepEqual(viewport, { x: 0, y: 0, zoom: 1 }, "placed in visible free space, not panned out from under the chips");
+  const shown = onScreen(added, viewport);
+  assert.ok(shown.y >= 140 && shown.x + shown.w <= 1600 && shown.y + shown.h <= 900, `below the chips: ${JSON.stringify(shown)}`);
   assert.ok(!intersects(shown, PANEL), "clear of the AI panel");
 });

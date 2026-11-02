@@ -1,19 +1,21 @@
 import { create } from "zustand";
 import { apiFetch } from "./api";
 import { apiErrorMessage } from "./api-error";
-import { AI_FORMATS, inFreeSpace, placedCenter, screenRectToBoard, viewportShowing } from "./canvas/ai-formats";
+import { AI_FORMATS, inFreeSpace, placedCenter, screenRectToBoard, sideBySide, viewportShowing } from "./canvas/ai-formats";
 import { useCanvasStore } from "./canvas-store";
 
 // Board "Create with AI" jobs (backend/apps/canvas/ai_jobs.py). The server queues each job on the generation
-// worker; this module quotes, submits (one Idempotency-Key per request, reused on retry, so a double click or a
-// retried request never queues a second paid job), polls each unfinished job until it ends, then places its result on
-// the board and marks it placed so a reload or another tab never places it twice. The owner's finished results of the last
+// worker; this module quotes, submits (one Idempotency-Key per request and batch slot, reused on retry, so a double
+// click or a retried request never queues a second paid job), polls each unfinished job until it ends, then places its
+// result on the board and marks it placed so a reload or another tab never places it twice. A batch's results are
+// placed together, side by side, once all of its jobs have ended. The owner's finished results of the last
 // day stay listed, so any of them can be placed again without a new job. A placed result is always left in view:
 // the canvas the open panels cover counts as occupied space, and the board pans when the result would still be hidden.
 
 export const ACTIVE_STATUSES = ["queued", "running"];
 const POLL_MS = 1500;
 const HIDDEN_POLL_MS = 6000;
+const SLOT_ATTEMPTS = 10;
 
 function jobsPath(boardId, suffix = "") {
   return `/api/canvas-boards/${encodeURIComponent(boardId)}/ai-jobs${suffix}`;
@@ -79,13 +81,25 @@ export async function markBoardAiPlaced(boardId, jobId, nodeIds) {
   return (await send(jobsPath(boardId, `/${encodeURIComponent(jobId)}`), "PATCH", { placedNodeIds: nodeIds })).job;
 }
 
+/**
+ * True when a submission may have been accepted although its answer never arrived (a dropped connection, or a gateway
+ * 502/504 that could not verify completion): only a re-send under the same key is safe. A request that was never sent
+ * (the maintenance freeze) or a definite refusal is not.
+ */
+function unanswered(error) {
+  if (error?.retryable === false) return false;
+  return typeof error?.status !== "number" || error.status === 502 || error.status === 504;
+}
+
 /** The request fields a job is submitted with; equal requests reuse one idempotency key. */
 export function requestFingerprint(boardId, request) {
   return JSON.stringify([boardId, request.format, request.prompt, request.processing ?? null, request.parentJobId ?? null, request.model ?? null,
-    request.aspectRatio ?? null]);
+    request.aspectRatio ?? null, request.resolution ?? null]);
 }
 
 const pollTimers = new Map();
+// A batch submitted from this tab, by job id: `{ leadId, ids, jobs }` with each job's latest state.
+const batches = new Map();
 let placing = Promise.resolve();
 let generation = 0;
 let newestFollowed = -Infinity;
@@ -93,8 +107,8 @@ let newPrompts = 0;
 let measureLayout = null;
 
 /**
- * The open panel reports, in canvas pixels, its own rect (`panel`) and the canvas area side panels leave visible
- * (`visible`) through `measure`; the returned function stops reporting.
+ * The open panel reports, in canvas pixels, its own rect (`panel`) and the canvas area side panels and the board's top
+ * chips leave visible (`visible`) through `measure`; the returned function stops reporting.
  */
 export function trackPanelLayout(measure) {
   measureLayout = measure;
@@ -111,12 +125,16 @@ function layout(canvas) {
   return { panel: null, visible: { x: 0, y: 0, w: size.w, h: size.h } };
 }
 
-/** Board space a new result must avoid: the board's nodes (less `exclude`) and the board area the panels cover. */
+/** Board space a new result must avoid: the board's nodes (less `exclude`) and the board area the panels and chips cover. */
 function occupied(canvas, exclude = []) {
   const nodes = canvas.history.present.nodes.filter((node) => !exclude.includes(node.id));
   const { panel, visible } = layout(canvas);
   const { viewport } = canvas.history.present;
-  const covered = [panel, visible.x > 0 ? { x: 0, y: visible.y, w: visible.x, h: visible.h } : null].filter(Boolean);
+  const covered = [
+    panel,
+    visible.x > 0 ? { x: 0, y: visible.y, w: visible.x, h: visible.h } : null,
+    visible.y > 0 ? { x: 0, y: 0, w: visible.x + visible.w, h: visible.y } : null,
+  ].filter(Boolean);
   return [...nodes, ...covered.map((rect) => screenRectToBoard(rect, viewport))];
 }
 
@@ -174,7 +192,11 @@ function onItsBoard(job) {
 }
 
 function placedResult(job, nodes) {
-  return { jobId: job.id, format: job.format, prompt: job.prompt, nodeIds: nodes.map((node) => node.id), result: job.result };
+  return {
+    jobId: job.id, format: job.format, prompt: job.prompt, nodeIds: nodes.map((node) => node.id), result: job.result,
+    // An image's settings, which a refinement starts from.
+    model: job.model, aspectRatio: job.result?.aspectRatio ?? job.aspectRatio, resolution: job.resolution,
+  };
 }
 
 /**
@@ -195,6 +217,7 @@ export const useBoardAi = create((set, get) => ({
   attach: async (boardId) => {
     if (get().boardId === boardId) return;
     clearPolls();
+    batches.clear();
     generation += 1;
     newestFollowed = -Infinity;
     const mine = generation;
@@ -218,6 +241,7 @@ export const useBoardAi = create((set, get) => ({
 
   detach: () => {
     clearPolls();
+    batches.clear();
     generation += 1;
     newestFollowed = -Infinity;
     set({ boardId: null, job: null, placed: null, recent: [], submitting: false, error: null, pendingKey: null });
@@ -244,7 +268,7 @@ export const useBoardAi = create((set, get) => ({
     const format = AI_FORMATS[job.format];
     if (!format || job.status !== "succeeded" || !onItsBoard(job)) return;
     if (!job.placedAt) {
-      await placeJob(get, set, job, generation, true);
+      await placeJobs(get, set, [job], generation, { chosen: true });
       return;
     }
     const mine = generation;
@@ -272,44 +296,74 @@ export const useBoardAi = create((set, get) => ({
     set({ job: null, placed: null, error: null });
   },
 
-  submit: async (request) => {
+  /**
+   * Queue `count` independent jobs with the same request (a batch), each under its own slot of one Idempotency-Key, so
+   * a re-sent POST returns its slot's job. A refused slot keeps the accepted jobs and reports the rest; a later slot
+   * whose answer never arrived is re-sent under the same key (up to SLOT_ATTEMPTS tries), so a job the server committed
+   * is still followed and placed.
+   */
+  submit: async (request, count = 1) => {
     const { boardId, submitting, pendingKey } = get();
-    if (!boardId || submitting) return null;
+    if (!boardId || submitting) return [];
     const fingerprint = requestFingerprint(boardId, request);
     const key = pendingKey?.fingerprint === fingerprint ? pendingKey.key : crypto.randomUUID();
     set({ submitting: true, error: null, pendingKey: { fingerprint, key } });
     const mine = generation;
     const prompts = newPrompts;
-    try {
-      const job = await submitBoardAi(boardId, request, key);
-      if (mine !== generation) return job;
-      if (prompts === newPrompts) {
-        set({ submitting: false, pendingKey: null, job });
-      } else {
-        toBackground(job);
-        set({ submitting: false, pendingKey: null });
+    const created = [];
+    let failure = null;
+    for (let slot = 0; slot < count && !failure; slot += 1) {
+      for (let attempt = 1; ; attempt += 1) {
+        try {
+          created.push(await submitBoardAi(boardId, request, `${key}-${slot}`));
+          break;
+        } catch (error) {
+          if (!created.length || !unanswered(error) || attempt === SLOT_ATTEMPTS) {
+            failure = error;
+            break;
+          }
+        }
+        await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+        if (mine !== generation) return created;
       }
-      await get().settle(job, mine);
-      return job;
-    } catch (error) {
-      if (mine !== generation) return null;
-      // A refusal is final for this request: the next submission gets a new key. A dropped answer keeps the key.
-      const answered = typeof error?.status === "number";
-      set({ submitting: false, error: error?.message || "Could not start the job.", pendingKey: answered ? null : get().pendingKey });
-      return null;
+      if (mine !== generation) return created;
     }
+    const message = failure?.message || "Could not start the job.";
+    if (!created.length) {
+      // A refusal is final for this request: the next submission gets a new key. A dropped answer keeps the key.
+      set({ submitting: false, error: message, pendingKey: unanswered(failure) ? get().pendingKey : null });
+      return created;
+    }
+    const lead = created.at(-1);
+    if (created.length > 1) {
+      const batch = { leadId: lead.id, ids: created.map((job) => job.id), jobs: new Map(created.map((job) => [job.id, job])) };
+      for (const job of created) batches.set(job.id, batch);
+    }
+    if (prompts === newPrompts) {
+      set({ submitting: false, pendingKey: null, job: lead, error: failure ? `${created.length} of ${count} started. The rest failed: ${message}` : null });
+    } else {
+      created.forEach(toBackground);
+      set({ submitting: false, pendingKey: null });
+    }
+    for (const job of created) await get().settle(job, mine);
+    return created;
   },
 
   /** Act on a job's latest state: keep polling it, place its result, or show why it failed. */
   settle: async (job, mine = generation) => {
     if (mine !== generation) return;
+    const batch = batches.get(job.id);
+    if (batch) {
+      await settleBatch(get, set, batch, job, mine);
+      return;
+    }
     if (ACTIVE_STATUSES.includes(job.status)) {
       set(panelState(get, job, false, { job }));
       schedulePoll(get, set, job.id, mine);
       return;
     }
     if (job.status === "succeeded" && !job.placedAt) {
-      await placeJob(get, set, job, mine);
+      await placeJobs(get, set, [job], mine);
       return;
     }
     if (!job.placedAt) {
@@ -337,16 +391,48 @@ function schedulePoll(get, set, jobId, mine) {
   }, hidden ? HIDDEN_POLL_MS : POLL_MS));
 }
 
-function placeJob(get, set, job, mine, chosen = false) {
-  return oneAtATime(() => claimAndInsert(get, set, job, mine, chosen));
+/**
+ * Record a batch job's latest state. While any of the batch runs, the panel follows the first that does; once all have
+ * ended, the failed ones are dismissed and the finished ones placed together.
+ */
+async function settleBatch(get, set, batch, job, mine) {
+  batch.jobs.set(job.id, job);
+  const members = batch.ids.map((id) => batch.jobs.get(id));
+  const lead = batch.jobs.get(batch.leadId);
+  const active = members.find((member) => ACTIVE_STATUSES.includes(member.status));
+  if (active) {
+    set(panelState(get, lead, false, { job: active }));
+    if (ACTIVE_STATUSES.includes(job.status)) schedulePoll(get, set, job.id, mine);
+    return;
+  }
+  for (const id of batch.ids) batches.delete(id);
+  for (const member of members) {
+    if (member.status !== "succeeded" && !member.placedAt) markBoardAiPlaced(member.boardId, member.id, []).catch(() => {});
+  }
+  const failed = members.find((member) => member.status !== "succeeded");
+  const failure = failed ? failed.error || "The job did not finish." : null;
+  const finished = members.filter((member) => member.status === "succeeded" && !member.placedAt);
+  if (finished.length) await placeJobs(get, set, finished, mine, { lead, failure });
+  else set(panelState(get, lead, false, { job: lead, error: failure }));
 }
 
-async function claimAndInsert(get, set, job, mine, chosen) {
+function placeJobs(get, set, jobs, mine, options = {}) {
+  return oneAtATime(() => claimAndInsert(get, set, jobs, mine, options));
+}
+
+/**
+ * Place the finished `jobs` of one submission (one job, or a batch) as one undo step, side by side: claim each job's
+ * nodes, then insert the nodes of every job whose claim succeeded. `lead` is the job the panel follows for them, and
+ * `failure` the error of a batch job that did not finish.
+ */
+async function claimAndInsert(get, set, jobs, mine, { chosen = false, lead = jobs.at(-1), failure = null }) {
   if (mine !== generation) return;
+  // The jobs of one submission share its board, format and parent.
+  const [job] = jobs;
   const format = AI_FORMATS[job.format];
   // Place only on the board the job belongs to, once it has loaded; otherwise leave it for that board's next visit.
   if (!format || !onItsBoard(job)) {
-    set(panelState(get, job, chosen, { job }));
+    set(panelState(get, lead, chosen, { job: lead }));
     return;
   }
   const canvas = useCanvasStore.getState();
@@ -358,25 +444,28 @@ async function claimAndInsert(get, set, job, mine, chosen) {
   const refines = previous && job.parentJobId === previous.jobId;
   const replaceIds = refines ? previous.nodeIds : [];
   const previousCenter = refines ? placedCenter(canvas.history.present.nodes, replaceIds) : null;
-  // A refinement takes the place of the result it refines; a new result goes to free space near the viewport centre.
-  const built = buildResult(format, job, canvas, previousCenter ?? canvas.viewportCenter(), Boolean(previousCenter));
-  const nodes = previousCenter ? built.nodes : inFreeSpace(built.nodes, occupied(canvas, replaceIds));
-  let marked;
-  try {
-    // Claim the placement first: only the caller whose mark succeeds inserts the nodes.
-    marked = await markBoardAiPlaced(job.boardId, job.id, nodes.map((node) => node.id));
-  } catch (error) {
-    if (mine !== generation) return;
-    if (error?.code === "ALREADY_PLACED") {
-      set(panelState(get, job, chosen, { job: { ...job, placedAt: Date.now() } }));
-      return;
-    }
-    set(panelState(get, job, chosen, { job, error: error?.message || "Could not place the result." }));
+  // A refinement takes the place of the result it refines; new results go to free space near the viewport centre.
+  const builds = jobs.map((member) => buildResult(format, member, canvas, previousCenter ?? canvas.viewportCenter(), Boolean(previousCenter)));
+  const row = sideBySide(builds.map((built) => built.nodes));
+  const moved = previousCenter ? row.flat() : inFreeSpace(row.flat(), occupied(canvas, replaceIds));
+  let start = 0;
+  const placements = jobs.map((member, index) => ({ member, connectors: builds[index].connectors, nodes: moved.slice(start, start += row[index].length) }));
+  // Claim each placement first: only the caller whose mark succeeds inserts its nodes.
+  const claims = await Promise.allSettled(placements.map(({ member, nodes }) => markBoardAiPlaced(member.boardId, member.id, nodes.map((node) => node.id))));
+  if (mine !== generation) return;
+  const refused = claims.find((claim) => claim.status === "rejected" && claim.reason?.code !== "ALREADY_PLACED")?.reason;
+  const error = refused ? refused.message || "Could not place the result." : failure;
+  const kept = placements.filter((_, index) => claims[index].status === "fulfilled");
+  if (!kept.length) {
+    set(panelState(get, lead, chosen, { job: lead, error }));
     return;
   }
-  if (mine !== generation || !onItsBoard(job)) return;
-  insertVisible(nodes, replaceIds, built.connectors);
-  set(panelState(get, job, chosen, { job: marked, error: null, placed: placedResult(job, nodes) }));
+  if (!onItsBoard(job)) return;
+  insertVisible(kept.flatMap((placement) => placement.nodes), replaceIds, kept.flatMap((placement) => placement.connectors));
+  // A batch is refined from its first result.
+  const [first] = kept;
+  const marked = claims[placements.indexOf(kept.at(-1))].value;
+  set(panelState(get, lead, chosen, { job: marked, error, placed: placedResult(first.member, first.nodes) }));
 }
 
 /** Rewrite the selected objects in place (an edit format): claim the objects it will change, then apply it as one undo step. */

@@ -110,6 +110,31 @@ export function aspectRatiosForModel(model, kind) {
 }
 
 /**
+ * The aspect ratio and resolution a composer shows after `previous` (its model, ratio and resolution) moves to
+ * `model`. The library composer's model switch and the board's "Create with AI" image controls both use it, so a
+ * model offers and clamps the same choices in both. Seedream 5.0 Pro opens at 2K; 21:9 comes back when the new model
+ * has it and the old one did not (Omni only offers 16:9/9:16); otherwise a valid choice is kept and an invalid
+ * one falls to the model's last resolution or first ratio.
+ */
+export function reconcileGenerationSettings(model, kind, previous, hasReference = false) {
+  const resolutions = resolutionsForModel(model, kind, hasReference);
+  const seedreamPro = model === "Seedream 5.0 Pro" || model === "seedream-5-pro";
+  const resolution = seedreamPro && model !== previous.model
+    ? "2K"
+    : resolutions.includes(previous.resolution)
+      ? previous.resolution
+      : resolutions[resolutions.length - 1];
+  const aspectRatios = aspectRatiosForModel(model, kind);
+  const previousAspectRatios = aspectRatiosForModel(previous.model, kind);
+  const aspectRatio = aspectRatios.includes("21:9") && !previousAspectRatios.includes("21:9")
+    ? "21:9"
+    : aspectRatios.includes(previous.aspectRatio)
+      ? previous.aspectRatio
+      : aspectRatios[0];
+  return { aspectRatio, resolution };
+}
+
+/**
  * Kling image models. Resolved through browser-safe registry metadata rather
  * than importing providers/kling.js, which pulls in `sharp`.
  */
