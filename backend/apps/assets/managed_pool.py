@@ -33,7 +33,7 @@ ASSET_HOST = 'ark.ap-southeast-1.byteplusapi.com'
 NAME_PREFIX = 'veevee-'
 POOL_GROUP_NAME = 'veevee-portraits'      # the one hidden BytePlus group; adopted by name so it survives a flag off and on
 SETTINGS = {'portraitAssetTtlHours': (4, 1, 72), 'portraitPoolCapacity': (90, 1, 10000), 'portraitQueueWaitMinutes': (15, 1, 240)}
-REFUSED = 'provider_refused_asset'      # ReferenceFaceScan.forced: the detector saw a face but BytePlus refused the asset, so the image goes inline
+REFUSED = 'provider_refused_asset'      # ReferenceFaceScan.forced: the detector saw a face but BytePlus refused the asset, so the image goes inline (a clip as a URL)
 PROCESSING_LIMIT_MS = 3 * 60 * 1000
 VIDEO_PROCESSING_LIMIT_MS = 15 * 60 * 1000      # video assets process more slowly than images (BytePlus docs)
 REGISTERING_STALE_MS = 2 * 60 * 1000
@@ -261,10 +261,17 @@ def force_face(sha, forced, now=None):
 
 
 def refuse_as_asset(sha, now=None):
-    """BytePlus refused to register this image as a portrait. When only our detector thought it a face (not an upload,
-    not learned from a provider rejection) it is sent inline from now on."""
-    updated = ReferenceFaceScan.objects.filter(pk=sha, forced__isnull=True).update(has_face=False, forced=REFUSED, scanned_at=now or now_ms())
+    """BytePlus refused to register this image or clip as a portrait. When only our detector thought it a face (not an upload,
+    not learned from a provider rejection) it is sent inline from now on. Returns whether it is (now or already) refused."""
+    updated = (ReferenceFaceScan.objects.filter(Q(forced__isnull=True) | Q(forced=REFUSED), pk=sha)
+               .update(has_face=False, forced=REFUSED, scanned_at=now or now_ms()))
     return bool(updated)
+
+
+def automatic(asset):
+    """True for a row registered because a prompt reference looked like a face, not for a Gallery portrait (an upload, or a
+    Gallery clip registered again after it expired)."""
+    return asset.origin == 'reference' and not (asset.receipt or {}).get('gallery')
 
 
 def _claimants():
@@ -315,7 +322,7 @@ def has_room():
     return not _eviction_unresolved() and ManagedPortraitAsset.objects.filter(status='ACTIVE').exclude(id__in=pinned).exists()
 
 
-def _claim(sha, source_key, generation_id, user_id, now, media_kind='image'):
+def _claim(sha, source_key, generation_id, user_id, now, media_kind='image', gallery=False):
     """Under the pool lock: decide what this reference needs. Returns (outcome_or_None, asset, action)."""
     values = setting_values()
     with transaction.atomic():
@@ -355,7 +362,7 @@ def _claim(sha, source_key, generation_id, user_id, now, media_kind='image'):
             return wait('portrait_evicting', 1000), slot, 'delete'
         _unclaim(generation_id)
         asset = ManagedPortraitAsset.objects.create(id=uuid.uuid4(), content_sha256=sha, source_key=source_key, status='REGISTERING',
-            receipt={'version': 1, 'state': 'CLAIMED', 'attempt': str(uuid.uuid4()), 'registered_at': now}, created_by_id=user_id,
+            receipt={'version': 1, 'state': 'CLAIMED', 'attempt': str(uuid.uuid4()), 'registered_at': now, **({'gallery': True} if gallery else {})}, created_by_id=user_id,
             created_at=now, updated_at=now, last_used_at=now, media_kind=media_kind)
         pin(generation_id, asset)
         return None, asset, 'register'
@@ -573,7 +580,7 @@ def _register(asset, data, storage, client, user_id, requeue=False):
             return wait('portrait_paused', 15000)
         if content_refusal(error):
             _finish(asset, status='FAILED', error_code=str(error.code)[:100], receipt=_last_error(asset, error))
-            if refuse_as_asset(asset.content_sha256):       # a guess of the detector: the job goes on with the image inline
+            if automatic(asset) and refuse_as_asset(asset.content_sha256):       # a guess of the detector: the job goes on with the image inline
                 return wait('portrait_registering', 1000)
             message = PORTRAIT_REFUSED if error.code == 'moderation_rejected' else PORTRAIT_UNPREPARED
             return failed(message + NOT_CHARGED, 'portrait_rejected', error.provider_error)
@@ -630,12 +637,16 @@ def _poll(asset, client):
     if status == 'Failed' or now_ms() - registered_at > limit:
         code = 'processing_failed' if status == 'Failed' else 'processing_timeout'
         # Only a row that is still PROCESSING is condemned, and never one a generation holds: that generation fails
-        # cleanly (not charged) and releases its pin, then the next poll (janitor or upload pass) deletes the asset.
+        # cleanly (not charged) and releases its pin, then the next poll (janitor or upload pass) deletes the asset. A clip
+        # refused here goes on as a URL for every job holding it, so its pins go and it is deleted now.
+        refused = asset.media_kind == 'video' and automatic(asset) and refuse_as_asset(asset.content_sha256)
         with transaction.atomic():
             _locked()
             row = ManagedPortraitAsset.objects.select_for_update().get(pk=asset.pk)
             if row.status != 'PROCESSING':
                 return wait('portrait_registering', 1000)       # someone else already settled it
+            if refused:
+                ManagedPortraitPin.objects.filter(asset=row).delete()
             held = ManagedPortraitPin.objects.filter(asset=row).exclude(generation_id=row.id).exists()
             if not held:
                 row.status, row.error_code, row.updated_at = 'DELETING', code, now_ms()
@@ -643,6 +654,8 @@ def _poll(asset, client):
                 row.save(update_fields=['status', 'error_code', 'updated_at', 'receipt'])
         if not held and remote_delete(row, client) and row.origin == 'upload':
             _finish(row, status='FAILED', deleted_at=None)      # an upload stays visible as "can't be used"
+        if refused:
+            return wait('portrait_registering', 1000)
         from apps.generation import provider_errors
         detail = provider_errors.capture('byteplus-assets', phase='GetAsset', code=code, message='Asset status: ' + (status or 'unknown'),
                                          task_id=asset.byteplus_asset_id, source='veevee',
@@ -676,16 +689,16 @@ def _verify(asset, client):
     return ready(asset.byteplus_asset_id)
 
 
-def ensure(data, source_key, generation_id, user_id, *, storage, client=None, now=None, sha=None, media_kind='image', _retry=True):
-    """Make the face reference with these bytes, or the Gallery video portrait with this ``sha`` (registered again when it
-    expired), usable as a BytePlus asset for this generation."""
+def ensure(data, source_key, generation_id, user_id, *, storage, client=None, now=None, sha=None, media_kind='image', gallery=False, _retry=True):
+    """Make the face reference with these bytes, or the video portrait with this ``sha`` (a Gallery clip, registered again
+    when it expired, when ``gallery``; otherwise a reference clip with a face), usable as a BytePlus asset for this generation."""
     client = client or default_client()
     sha = sha or content_sha256(data)
-    outcome, asset, action = _claim(sha, source_key, generation_id, user_id, now or now_ms(), media_kind)
+    outcome, asset, action = _claim(sha, source_key, generation_id, user_id, now or now_ms(), media_kind, gallery)
     if action == 'verify':
         verified = _verify(asset, client)
         if verified is None and _retry:     # vanished remotely: register it again
-            return ensure(data, source_key, generation_id, user_id, storage=storage, client=client, sha=sha, media_kind=media_kind, _retry=False)
+            return ensure(data, source_key, generation_id, user_id, storage=storage, client=client, sha=sha, media_kind=media_kind, gallery=gallery, _retry=False)
         return verified or wait('portrait_registering', 1000)
     if action == 'register':
         return _register(asset, data, storage, client, user_id)
