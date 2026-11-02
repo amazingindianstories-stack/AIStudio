@@ -103,6 +103,8 @@ export function validateMediaNode(type, r, base) {
       const node = { ...base, type, src, aspectLocked: r.aspectLocked !== false, title: text(r.title, "", 200) };
       if (finite(r.naturalW)) node.naturalW = r.naturalW;
       if (finite(r.naturalH)) node.naturalH = r.naturalH;
+      const captions = mediaRef(r.captions);
+      if (captions) node.captions = captions;
       return node;
     }
     case "pdf": {

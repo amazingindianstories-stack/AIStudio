@@ -1,7 +1,7 @@
 {
  "description": "Format v1 media objects (video, PDF, embed, link card, code block, emoji, icon) and the per-object link: the frontend (src/lib/canvas/media-nodes.js) and backend (media_nodes.py) serializers must both turn each input into its expected board.",
  "cases": {
-  "video_and_pdf": {
+  "video_pdf_and_captions": {
    "input": {
     "version": 1,
     "viewport": {
@@ -121,7 +121,8 @@
       "aspectLocked": true,
       "title": "Demo",
       "naturalW": 1920,
-      "naturalH": 1080
+      "naturalH": 1080,
+      "captions": "/api/media/canvas/b/a.vtt"
      },
      {
       "id": "v3",

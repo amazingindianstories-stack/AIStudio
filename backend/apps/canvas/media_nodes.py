@@ -98,6 +98,9 @@ def coerce(kind, r, result):
         for key in ('naturalW', 'naturalH'):
             if _finite(r.get(key)):
                 result[key] = r[key]
+        captions = media_ref(r.get('captions'))
+        if captions:
+            result['captions'] = captions
     elif kind == 'pdf':
         src = media_ref(r.get('src'))
         pages = _integer(r.get('pages'))

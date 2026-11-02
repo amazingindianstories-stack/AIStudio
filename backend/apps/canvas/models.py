@@ -582,3 +582,17 @@ class TalktrackMoment(models.Model):
 
 
 from .collab_models import (BoardComment, BoardPresence, CommentFollow, CommentRead, CommentReaction, Notification, PushSubscription)  # noqa: E402,F401
+
+
+class BoardCaption(models.Model):
+    """On-demand WebVTT captions for one stored board video, kept outside the board JSON."""
+    id = models.UUIDField(primary_key=True, db_default=RandomUUID())
+    board = models.ForeignKey(CanvasBoard, on_delete=models.CASCADE, db_index=False)
+    actor_id = models.UUIDField()
+    media_key = models.TextField()
+    vtt = models.TextField(default='')
+    created_at = models.BigIntegerField()
+
+    class Meta:
+        db_table = 'canvas_board_captions'
+        constraints = [models.UniqueConstraint(fields=['board', 'media_key'], name='canvas_caption_media_uniq')]
