@@ -14,6 +14,70 @@ preview build first. Production only receives a release after it has passed ther
 
 Legend: PASS · FAIL · NOT VERIFIED · PENDING (not started) · BLOCKED (needs owner approval)
 
+## Production release 2026-11-02 - main `7cfe50b1` (deployed as `f24be255`)
+
+Owner-approved release of `main` through `7cfe50b1`: agent access tokens, OAuth 2.1 and spending controls (#117),
+the MCP server as a new Railway service (#118), shared generation submission services (#116), board phase 1
+(#119 to #131) and MP4/MOV video portraits (#131). Two fixes sit on top of `main` and are in this record's PR, so `main`
+gets them: `139eb443` (the Docker context allowlist omitted `backend/apps/canvas/fixtures/*.json`, so three canvas test
+modules could not import in the gate image) and `f24be255` (below). **The deployed commit is `f24be255`.** Its gate
+(1,561 backend and 1,071 frontend tests) and 114-check rehearsal passed, plus a check that the previous production image
+can run the migration with the new source.
+
+**Finding fixed in place: missing table grants.** The first rehearsal on `139eb443` failed: `mcp_auth.0001` (four tables)
+and `canvas.0006` (`canvas_board_ai_jobs`) created tables without the guarded `GRANT` block every other new table has, and
+production has no default privileges, so the API role got "permission denied for table mcp_tokens" (and admin user delete
+and the dashboard answered 500). Both migrations had never been applied anywhere, so the grants went into them (API and
+worker roles SELECT/INSERT/UPDATE/DELETE, history writer SELECT, each only when the role exists) with
+`mcp_auth/test_grants.py`. Any local or preview database that already applied those two migrations keeps the old version
+without grants (harmless locally, where the app connects as owner). Production applied the corrected migrations and the
+grants were read back from `pg_class` afterwards.
+
+Maintenance was ON 09:01:26 to 09:12:08 UTC. Queues were empty before the backup and the migration.
+
+### Migration and backup evidence
+
+A fresh read-only backup (bundle SHA-256 `25c62d1f01d2b4e2b8b948adbc8da69b750f8360bfb611848e6e9b4649fda692`, 19.9 MB) is
+kept privately outside Git. Production applied 13 migrations (`assets.0007`, `canvas.0002` to `0008`,
+`generation.0008` to `0010`, `mcp_auth.0001`, `projects.0002`): 68 -> 81 rows, none pending. `audit_generation_names` gave
+the same result before and after. The post-migration script's name-owner equality assertion, carried from the previous
+release, tripped (8,290 named, 8,244 owners, 8,243 self-owned); no migration in this set touches those rows, and the audit
+is unchanged, so it is recorded as a stale check and not a data change.
+
+### Deployments
+
+| Service | Deployed | Before this release (rollback target) |
+|---|---|---|
+| api | `f4bc9194-f6e3-447a-9a06-dc0bde805efe` | `249d4a1c-de15-49ae-9097-6c582d8a84da` |
+| generation | `23618dcf-be01-484c-a1a4-da501ecb9ba9` | `840ef77d-9766-433c-878b-bd36a4c38a71` |
+| export | `40db4173-f467-435e-9553-6ecba2819168` | `b14c4a0d-07ca-41dc-9e68-36ada92c14ab` |
+| scheduler | `0f615bde-e7f7-451a-b713-2eac49a8ca93` | `5fcc4e74-d1ad-48f0-a1cc-b6e2799b1042` |
+| mcp (new service `green-django-mcp`, `66fc363a-0026-4d7b-9555-4d5b0d151134`) | `e478ee20-7dcd-40e4-a02e-f3287dd69f6c` | none |
+| Vercel | `dpl_5PXB4LoBfb5KfhmREVkiXGK49WZJ` | `dpl_GwAqxYBnEoXwLPjMFud4cZ6MLazZ` |
+
+**The previous Railway images accept schema 68 only, so recovery is forward only.** The previous Vercel deployment is
+still compatible for a frontend rollback by promotion (it would drop the `/mcp` route).
+
+The MCP service runs `python -m deploy.entrypoint mcp` from the same image tree with the API database role and storage and
+no provider credentials (provider environment values in its copy of the preview configuration are placeholders). Its
+variables were created from an allowlist of the API's, plus `VEEVEE_MCP=1`, `MCP_MAX_HOLD_SECONDS=45`, `PORT=18083` and a
+`MCP_QUOTE_SECRET` generated locally and piped straight into Railway. A new Railway service defaults to the Railpack
+builder, which failed (no build plan); setting `dockerfilePath=backend/Dockerfile` on the service instance fixed it (the
+builder enum has no DOCKERFILE value, the other services work the same way). It has a Railway domain on target port 18083;
+Vercel Production got the server-only `MCP_API_ORIGIN` before the frontend build.
+
+Verified: start commands in each deployment manifest; the frontend deployment's health and an unauthenticated `POST /mcp`
+(401 with the `WWW-Authenticate` challenge, through Vercel to the MCP gateway) through `vercel curl` before promotion;
+the same 401 and `/api/mcp/me` 401 on www.veevee.ai after; `/api/health` database ready and empty-input login 400 on
+veevee.ai, www.veevee.ai and aistudio-v1.vercel.app; the generation, export and scheduler entrypoints running; maintenance
+`enabled:false, available:true` and OPTIONS reaching Django on all three origins. An authenticated MCP tool call was not
+made (it needs a signed-in user's token).
+
+**Open: the public app URL (F-01).** The API and MCP still derive the public app URL from `GOAL4_PREVIEW_APP_ORIGIN`, a
+stale `aistudio-v1-*.vercel.app` preview deployment, so the OAuth protected-resource metadata and the MCP challenge point at
+that host rather than veevee.ai. The fix is the single variable `VEEVEE_PUBLIC_APP_URL_OVERRIDE` on the API and MCP
+services; it needs owner approval and is not applied. Agents should not be told to connect until it is.
+
 ## Production release 2026-10-28 - 87688a0 (deployed as 15e25c2)
 
 Owner-approved release of `main` `87688a0` (#108 to #114: Next.js 15.5.28, finals keep draft names, library Filters and

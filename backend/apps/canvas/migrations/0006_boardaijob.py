@@ -29,4 +29,18 @@ class Migration(migrations.Migration):
                             models.Index(fields=['parent_job'], name='canvas_ai_jobs_parent_idx')],
             },
         ),
+        migrations.RunSQL("""
+DO $$
+DECLARE r TEXT;
+BEGIN
+    FOREACH r IN ARRAY ARRAY['goal4_green_preview_api', 'goal4_green_preview_worker'] LOOP
+        IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname=r) THEN
+            EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON canvas_board_ai_jobs TO %I', r);
+        END IF;
+    END LOOP;
+    IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname='goal4_green_history_writer') THEN
+        GRANT SELECT ON canvas_board_ai_jobs TO goal4_green_history_writer;
+    END IF;
+END $$;
+""", migrations.RunSQL.noop),
     ]
