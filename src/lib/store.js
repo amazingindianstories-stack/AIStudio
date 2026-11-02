@@ -19,6 +19,7 @@ import {
   isPickerModel,
   modeAvailable,
   pickerModels,
+  reconcileGenerationSettings,
   aspectRatiosForModel,
   durationsForModel,
   durationRangeForModel,
@@ -698,22 +699,13 @@ export const useStore = create((set, get) => ({
           ? s.duration
           : durations[durations.length - 1];
       }
-      const resolutions = resolutionsForModel(model, s.mode, s.referenceImages.length > 0);
-      let resolution = (model === "Seedream 5.0 Pro" || model === "seedream-5-pro") && model !== s.model
-        ? "2K" : resolutions.includes(s.resolution)
-        ? s.resolution
-        : resolutions[resolutions.length - 1];
-      const aspectRatios = aspectRatiosForModel(model, s.mode);
       // 21:9 is the global image/video default. Preserve a deliberate valid
       // choice while switching between capable models, but restore 21:9 when
       // returning from a constrained provider (Omni only offers 16:9/9:16).
-      const previousAspectRatios = aspectRatiosForModel(s.model, s.mode);
-      const aspectRatio =
-        aspectRatios.includes("21:9") && !previousAspectRatios.includes("21:9")
-          ? "21:9"
-          : aspectRatios.includes(s.aspectRatio)
-            ? s.aspectRatio
-            : aspectRatios[0];
+      // The board's Create with AI image controls clamp the same way.
+      const settings = reconcileGenerationSettings(model, s.mode, s, s.referenceImages.length > 0);
+      let { resolution } = settings;
+      const { aspectRatio } = settings;
       // Same reasoning as the clamps above: a setting the chosen model has no
       // field for must not survive the switch, or the composer shows an
       // enabled toggle whose value the provider will silently discard.

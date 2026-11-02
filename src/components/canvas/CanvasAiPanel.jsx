@@ -1,15 +1,17 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, History, Image as ImageIcon, LayoutDashboard, Loader2, Mic, Power, Sparkles, StickyNote, Workflow, X } from "lucide-react";
+import { ChevronDown, History, Image as ImageIcon, LayoutDashboard, Loader2, Mic, Power, Settings2, Sparkles, StickyNote, Workflow, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
-import { fallbackModel, pickerModels } from "@/lib/config";
-import { capability } from "@/lib/model-registry";
+import {
+  DEFAULTS, aspectRatiosForModel, fallbackModel, pickerModels, reconcileGenerationSettings, resolutionsForModel,
+} from "@/lib/config";
 import { formatCost } from "@/lib/format-cost";
 import { ACTIVE_STATUSES, quoteBoardAi, requestFingerprint, trackPanelLayout, useBoardAi } from "@/lib/board-ai";
 import { AI_FORMATS, AI_FORMAT_ORDER } from "@/lib/canvas/ai-formats";
 import { Dropdown, MenuItem } from "@/components/Dropdown";
+import { Chip, ModelPicker, Segment } from "@/components/ComposerControls";
 import { useCanvasStore } from "@/lib/canvas-store";
 import { setAiInputs, useAiPanelIntent } from "@/lib/board-ai-panel";
 import { dictationSupported, startDictation } from "@/lib/canvas/dictation";
@@ -18,26 +20,29 @@ import {
 } from "@/lib/canvas/ai-selection";
 
 const FORMAT_ICONS = { stickies: StickyNote, image: ImageIcon, diagram: Workflow, layout: LayoutDashboard };
-const BOARD_RATIOS = ["1:1", "16:9", "9:16", "4:3", "3:4"];
 const QUOTE_DELAY_MS = 350;
 const PROCESSING = [
   { id: "basic", label: "Basic" },
   { id: "advanced", label: "Advanced" },
 ];
 
-/** The request the panel would submit right now (null while the prompt is empty). */
-export function panelRequest({ format, prompt, processing = "basic", model, aspectRatio, parentJobId, extra }) {
+/**
+ * The request the panel would submit right now (null while the prompt is empty). An image sends the library
+ * generator's settings (model, aspect ratio, resolution), which a refinement pre-fills from the image it edits; the
+ * text formats send their Basic or Advanced processing.
+ */
+export function panelRequest({ format, prompt, processing = "basic", model, aspectRatio, resolution, parentJobId, extra }) {
   const text = prompt.trim();
   if (!text) return null;
-  const request = { format, prompt: text, processing };
+  const request = format === "image" ? { format, prompt: text } : { format, prompt: text, processing };
   if (parentJobId) request.parentJobId = parentJobId;
   // The selection: text context, or reference images for a new image. A refinement continues its own result, so it
   // sends none (the server ignores it, and a large selection would be rejected for nothing).
   if (extra && !parentJobId) Object.assign(request, extra);
-  // A refinement keeps the image's own model and aspect ratio (it edits that image).
-  if (format === "image" && !parentJobId) {
+  if (format === "image") {
     if (model) request.model = model;
     if (aspectRatio) request.aspectRatio = aspectRatio;
+    if (resolution) request.resolution = resolution;
   }
   return request;
 }
@@ -51,12 +56,13 @@ function statusLine(job) {
 
 /**
  * "Create with AI" (Miro's Create with AI panel): pick a format, write a prompt or pick a suggestion, choose basic or
- * advanced processing, see the estimated cost, run it, and keep refining. It floats above the board toolbar; the
+ * advanced processing (sticky notes and the other text formats) or the library generator's model, aspect ratio,
+ * resolution and batch (images), see the estimated cost, run it, and keep refining. It floats above the board toolbar; the
  * result lands on the board near the viewport centre, clear of the panel and in view (a refinement replaces the result
  * it refines, in place, as one undo step). Recent results lists the last day's finished results so any of them can be
  * placed again.
  */
-export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
+export function CanvasAiPanel({ boardId, leftInset = 0, topInset = 0, onClose }) {
   const job = useBoardAi((s) => s.job);
   const placed = useBoardAi((s) => s.placed);
   const submitting = useBoardAi((s) => s.submitting);
@@ -72,8 +78,9 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
   const [prompt, setPrompt] = useState("");
   const [processing, setProcessing] = useState("basic");
   const [showRecent, setShowRecent] = useState(false);
-  const [aspectRatio, setAspectRatio] = useState("1:1");
   const [chosenModel, setChosenModel] = useState(null);
+  const [imageChoice, setImageChoice] = useState({ aspectRatio: DEFAULTS.image.aspectRatio, resolution: DEFAULTS.image.resolution });
+  const [batchCount, setBatchCount] = useState(1);
   const [quote, setQuote] = useState({ state: "idle" });
   const [useSelection, setUseSelection] = useState(true);
   const [action, setAction] = useState(null);
@@ -87,25 +94,55 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
   const textareaRef = useRef(null);
   const panelRef = useRef(null);
 
-  const imageModels = useMemo(() => pickerModels(availableModelIds, "image"), [availableModelIds]);
-  const model = format === "image"
-    ? (chosenModel && imageModels.some((entry) => entry.name === chosenModel) ? chosenModel : fallbackModel("image", availableModelIds))
-    : null;
-  const ratios = useMemo(() => {
-    const supported = model ? capability(model, "aspectRatios", null) : null;
-    return Array.isArray(supported) ? BOARD_RATIOS.filter((ratio) => supported.includes(ratio)) : BOARD_RATIOS;
-  }, [model]);
-  const ratio = ratios.includes(aspectRatio) ? aspectRatio : ratios[0] ?? "1:1";
-
   // Refining continues the result this panel last placed, in its format.
   const refining = Boolean(placed);
   const activeFormat = refining ? placed.format : action ? action.format : format;
   const selectionFormat = SELECTION_FORMATS.includes(activeFormat);
   const extra = useSelection || selectionFormat ? contextFields(activeFormat, context) : null;
   const spec = AI_FORMATS[activeFormat];
+
+  // The image controls are the library generator's: its model menu, aspect ratios and resolutions per model (a
+  // reference image, as a refinement always has, can narrow the resolutions), clamped to what the model offers.
+  const imageModels = useMemo(() => pickerModels(availableModelIds, "image"), [availableModelIds]);
+  const imageActive = activeFormat === "image";
+  const hasReference = imageActive && (refining || Boolean(extra?.referenceImages?.length));
+  const model = imageActive
+    ? (chosenModel && imageModels.some((entry) => entry.name === chosenModel) ? chosenModel : fallbackModel("image", availableModelIds))
+    : null;
+  const imageSettings = useMemo(
+    () => (model ? reconcileGenerationSettings(model, "image", { model, ...imageChoice }, hasReference) : null),
+    [model, imageChoice, hasReference]
+  );
+  const ratios = model ? aspectRatiosForModel(model, "image") : [];
+  const resolutions = model ? resolutionsForModel(model, "image", hasReference) : [];
+  const ratio = imageSettings?.aspectRatio;
+  const resolution = imageSettings?.resolution;
+  // A new image can be a batch, like the library's; a refinement is always one job.
+  const count = imageActive && !refining ? batchCount : 1;
+  const chooseModel = (name) => {
+    setChosenModel(name);
+    setImageChoice(reconcileGenerationSettings(name, "image", { model, aspectRatio: ratio, resolution }, hasReference));
+  };
+
   const running = Boolean(job && ACTIVE_STATUSES.includes(job.status));
-  const request = panelRequest({ format: activeFormat, prompt, processing, model, aspectRatio: ratio, parentJobId: refining ? placed.jobId : null, extra });
+  const request = panelRequest({
+    format: activeFormat, prompt, processing, model, aspectRatio: ratio, resolution, parentJobId: refining ? placed.jobId : null, extra,
+  });
   const fingerprint = request && boardId ? requestFingerprint(boardId, request) : null;
+
+  // A refinement starts from the image it edits: its model, aspect ratio and resolution fill the controls, and the
+  // person can change any of them.
+  const refinedJobId = placed?.format === "image" ? placed.jobId : null;
+  useEffect(() => {
+    if (!refinedJobId) return;
+    const refined = imageModels.find((entry) => entry.name === placed.model)?.name ?? fallbackModel("image", availableModelIds);
+    if (!refined) return;
+    setChosenModel(refined);
+    setImageChoice(reconcileGenerationSettings(refined, "image",
+      { model: refined, aspectRatio: placed.aspectRatio ?? DEFAULTS.image.aspectRatio, resolution: placed.resolution ?? DEFAULTS.image.resolution }, true));
+    // The refined image's settings fill the controls once per refinement.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refinedJobId]);
 
   useEffect(() => {
     textareaRef.current?.focus();
@@ -145,7 +182,8 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
   };
 
   // Placement keeps results in view: report this panel's rect and the canvas left visible beside the asset panel
-  // (`leftInset` wide), relative to the canvas, which shares the panel's positioned parent.
+  // (`leftInset` wide) and below the board's top chips (`topInset` tall), relative to the canvas, which shares the
+  // panel's positioned parent.
   useEffect(() => trackPanelLayout(() => {
     const panel = panelRef.current;
     const canvas = panel?.offsetParent;
@@ -154,9 +192,9 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
     const origin = canvas.getBoundingClientRect();
     return {
       panel: { x: rect.left - origin.left, y: rect.top - origin.top, w: rect.width, h: rect.height },
-      visible: { x: leftInset, y: 0, w: Math.max(origin.width - leftInset, 0), h: origin.height },
+      visible: { x: leftInset, y: topInset, w: Math.max(origin.width - leftInset, 0), h: Math.max(origin.height - topInset, 0) },
     };
-  }), [leftInset]);
+  }), [leftInset, topInset]);
 
   // Reload when board AI attaches a board (after the board loads, not when the prop changes), since attaching
   // clears the list.
@@ -195,8 +233,8 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
   const run = async () => {
     if (!canRun) return;
     stopListening.current?.();
-    const created = await submit(request);
-    if (created) {
+    const created = await submit(request, count);
+    if (created.length) {
       setPrompt("");
       setAction(null);
     }
@@ -374,72 +412,74 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        <div role="radiogroup" aria-label="Processing" className="flex items-center gap-1 rounded-lg bg-ink-900/60 p-0.5">
-          {PROCESSING.map((option) => (
-            <button
-              key={option.id}
-              type="button"
-              role="radio"
-              aria-checked={option.id === processing}
-              title={option.id === "advanced" ? spec.advancedHint : "Standard model and settings"}
-              onClick={() => setProcessing(option.id)}
-              className={cn(
-                "rounded-md px-2 py-1 text-xs font-medium transition-colors",
-                option.id === processing ? "bg-ink-600 text-white ring-1 ring-line" : "text-white/55 hover:bg-white/[0.07] hover:text-white"
-              )}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
-        {activeFormat === "image" && !refining && (
+        {imageActive ? (
           <>
+            <ModelPicker className="min-w-0 max-w-full" models={imageModels} value={model} onChange={chooseModel} />
             <Dropdown
+              label="Generation settings"
               side="top"
-              label="Image model"
+              panelClassName="w-max min-w-[230px] max-w-[min(92vw,340px)] p-3 max-h-[60vh] overflow-y-auto scroll-thin"
               trigger={(open) => (
-                <span
-                  className={cn(
-                    "flex items-center gap-1 rounded-md border border-line px-2 py-1 text-xs text-white/75 transition-colors hover:bg-white/[0.07]",
-                    open && "bg-white/[0.07]"
+                <Chip open={open}>
+                  <Settings2 className="h-4 w-4 text-white/55" />
+                  <span className="font-medium">{ratio}</span>
+                  <span className="text-white/35">·</span>
+                  <span>{resolution}</span>
+                  {count > 1 && (
+                    <>
+                      <span className="text-white/35">·</span>
+                      <span className="text-brand">{count}×</span>
+                    </>
                   )}
-                >
-                  {model ?? "No image model available"}
-                  <ChevronDown className={cn("h-3 w-3 transition-transform", open && "rotate-180")} />
-                </span>
+                  <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")} />
+                </Chip>
               )}
             >
-              {(close) => imageModels.map((entry) => (
-                <MenuItem
-                  key={entry.id}
-                  active={entry.name === model}
-                  onClick={() => {
-                    setChosenModel(entry.name);
-                    close();
-                  }}
-                >
-                  <span className="flex-1">{entry.name}</span>
-                </MenuItem>
-              ))}
-            </Dropdown>
-            <div role="radiogroup" aria-label="Aspect ratio" className="flex items-center gap-1">
-              {ratios.map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  role="radio"
-                  aria-checked={value === ratio}
-                  onClick={() => setAspectRatio(value)}
-                  className={cn(
-                    "rounded-md px-2 py-1 text-xs tabular-nums transition-colors",
-                    value === ratio ? "bg-ink-600 text-white ring-1 ring-line" : "text-white/55 hover:bg-white/[0.07] hover:text-white"
+              {() => (
+                <div className="space-y-3">
+                  <Segment
+                    label="Aspect ratio"
+                    options={ratios}
+                    value={ratio}
+                    onChange={(value) => setImageChoice((current) => ({ ...current, aspectRatio: value }))}
+                  />
+                  <Segment
+                    label="Resolution"
+                    options={resolutions}
+                    value={resolution}
+                    onChange={(value) => setImageChoice((current) => ({ ...current, resolution: value }))}
+                  />
+                  {!refining && (
+                    <Segment
+                      label="Batch (per generate)"
+                      options={["1×", "2×"]}
+                      value={`${batchCount}×`}
+                      onChange={(value) => setBatchCount(parseInt(value))}
+                    />
                   )}
-                >
-                  {value}
-                </button>
-              ))}
-            </div>
+                </div>
+              )}
+            </Dropdown>
           </>
+        ) : (
+          <div role="radiogroup" aria-label="Processing" className="flex items-center gap-1 rounded-lg bg-ink-900/60 p-0.5">
+            {PROCESSING.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                role="radio"
+                aria-checked={option.id === processing}
+                title={option.id === "advanced" ? spec.advancedHint : "Standard model and settings"}
+                onClick={() => setProcessing(option.id)}
+                className={cn(
+                  "rounded-md px-2 py-1 text-xs font-medium transition-colors",
+                  option.id === processing ? "bg-ink-600 text-white ring-1 ring-line" : "text-white/55 hover:bg-white/[0.07] hover:text-white"
+                )}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
         )}
       </div>
 
@@ -463,17 +503,17 @@ export function CanvasAiPanel({ boardId, leftInset = 0, onClose }) {
 
       <footer className="mt-3 flex min-w-0 items-center gap-3">
         <div className="min-w-0 flex-1 text-xs" aria-live="polite">
-          {running ? (
+          {jobError ? (
+            <span role="alert" className="block truncate text-red-300/90" title={jobError}>{jobError}</span>
+          ) : running ? (
             <span className="flex min-w-0 items-center gap-1.5 text-white/70">
               <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden />
               <span className="truncate">{status}</span>
             </span>
-          ) : jobError ? (
-            <span role="alert" className="block truncate text-red-300/90" title={jobError}>{jobError}</span>
           ) : !request ? (
             <span className="text-white/40">Enter to run · Shift+Enter for a new line</span>
           ) : quote.state === "ready" && quoted ? (
-            <span className="text-white/60">Estimated cost <span className="font-medium text-white/85">≈{formatCost(quote.costCents)}</span>{quote.model ? <span className="text-white/40" title="Model"> · {quote.model}</span> : null}</span>
+            <span className="text-white/60">Estimated cost <span className="font-medium text-white/85">≈{formatCost(quote.costCents * count)}</span>{count > 1 ? <span className="text-white/40"> · {count} images</span> : null}{quote.model ? <span className="text-white/40" title="Model"> · {quote.model}</span> : null}</span>
           ) : quote.state === "error" && quote.fingerprint === fingerprint ? (
             <span className="block truncate text-amber-200/85" title={quote.message}>{quote.message}</span>
           ) : (

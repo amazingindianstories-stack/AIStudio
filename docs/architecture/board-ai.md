@@ -1,8 +1,9 @@
 # Board "Create with AI" jobs
 
 The board's **Create with AI** panel sits above the board toolbar (the sparkles button). An artist picks a
-format, writes a prompt or picks a suggestion, chooses basic or advanced processing, sees the estimated cost, runs
-it, and can keep refining the result. The result lands on the board near the viewport centre, in free space. A
+format, writes a prompt or picks a suggestion, chooses how it is made (basic or advanced processing for text
+formats; the library generator's model, aspect ratio, resolution and batch for images), sees the estimated cost,
+runs it, and can keep refining the result. The result lands on the board near the viewport centre, in free space. A
 refinement replaces the result it refines, in place. Both are one undo step. **Recent results** lists the user's
 finished results on the board from the last 24 hours, so any of them can be placed again.
 The panel and its routes need edit access to the board (`../features/board-roles.md`); a view or comment
@@ -34,22 +35,49 @@ flowchart LR
   Text rows are not library media: library reads and live updates leave them out, they take no library name, and
   they have no project.
 - **Image** queues an ordinary image generation through `submission.submit_generation`, in the board's project. A
-  refinement sends the previous image as its reference image and keeps that image's model and aspect ratio unless
-  the request names others.
+  refinement sends the previous image as its reference image. The request carries the panel's `model`, `aspectRatio`
+  and `resolution`; a request that omits the model or ratio keeps the refined image's.
 - Every job is created with `created_via = 'board'`.
 
-## Processing
+## Processing and image settings
 
-A request carries `processing`: `basic` (the default) or `advanced`. Both use providers and models already
-configured, and both go through the same admission, spend window and paid guard.
+The two kinds of format are chosen differently.
 
-| Format | Basic | Advanced |
-| --- | --- | --- |
-| Text (sticky notes) | `AGENT_LLM_MODEL` (default `gemini-flash-latest`), priced at `Board AI text` | `AGENT_LLM_MODEL_ADVANCED` (default `gemini-pro-latest`), priced at `Board AI text (advanced)` (default 1000) |
-| Image | the model's default resolution | 2K where the model offers it (for a refinement, at a resolution it accepts with a reference), priced by the model's resolution pricing |
+**Text formats** (sticky notes and the other text formats) carry `processing`: `basic` (the default) or `advanced`.
+Basic runs `AGENT_LLM_MODEL` (default `gemini-flash-latest`), priced at `Board AI text`. Advanced runs
+`AGENT_LLM_MODEL_ADVANCED` (default `gemini-pro-latest`), priced at `Board AI text (advanced)` (default 1000). The
+text model is stored in the job's `submission_input`, so the worker, the payload allowlist and the paid guard all use
+the model the job was quoted and priced for. The quote returns the processing, the model and the cost.
 
-The text model is stored in the job's `submission_input`, so the worker, the payload allowlist and the paid guard
-all use the model the job was quoted and priced for. The quote returns the processing, the model and the cost.
+**Image** has no Basic or Advanced choice. The panel shows the library generator's own controls: the same
+`ModelPicker` and `Segment` components, the same defaults (`DEFAULTS.image`: Nano Banana Pro, 21:9, 2K) and the same
+per-model availability, clamped by `reconcileGenerationSettings` in `src/lib/config.js`, which the library's model
+switch uses too. The request carries `model`, `aspectRatio` and `resolution`. The server takes them into
+`submission.quote_generation` and `submission.submit_generation` unchanged, so validation, resolution pricing, the
+paid guard, admission and idempotency are the library's (the idempotency fingerprint includes the resolution, so the
+same request at another resolution is a new job). The quote returns `format`, `processing`, `model` and `costCents`;
+the job read-back carries `model`, `aspectRatio` and `resolution`.
+
+- **Refinement** pre-fills the controls from the image it edits (its model, saved aspect ratio and resolution) and
+  the person can change any of them. A request that omits the model or ratio still inherits them.
+- **Batch**: the library's `Batch (per generate)` 1x or 2x, held by the panel (default 1x; it never reads or changes
+  the library's batch setting) and shown on the settings chip when it is 2x. A 2x run submits the same request twice,
+  as the library does: two independent jobs, each under one submission key with a per-slot suffix (`<key>-0`,
+  `<key>-1`), so a re-sent POST returns its slot's job and never queues a second billed one. The server sees two
+  ordinary image jobs. The estimated cost is the per-job quote times the count. If the server refuses the second
+  submission, the first job is kept and the panel reports the rest as failed. If the second submission's answer is
+  lost (a network drop, or a gateway 502/504 that could not verify completion), the panel re-sends it under the same
+  slot key every 1.5 s, up to 10 tries, so a job the server already committed is returned, followed and placed rather
+  than reported as failed. A slot the maintenance freeze stops before it is sent is not retried: the first job stays
+  followed and the freeze message is shown. A single submission (or a batch's first) that ends the same uncertain way
+  keeps its key, so trying again returns the same job. The panel follows both jobs and, once both have ended,
+  claims each one and places the finished results side by side in free space as one undo step; a failed one is
+  dismissed and its error shown. The first result is the one **Refine** continues. A refinement is always one job, so
+  the batch control is hidden while refining. After a reload, a batch's unplaced results are placed one by one like
+  any other job, each still exactly once.
+- **Existing API callers** that send only `processing` for an image behave as before: basic uses the model's default
+  resolution, advanced asks for 2K where the model offers it (for a refinement, at a resolution it accepts with a
+  reference). An explicit `resolution` wins over `processing`.
 
 ## Cost and admission
 
@@ -86,11 +114,18 @@ all use the model the job was quoted and priced for. The quote returns the proce
 The board owns its graph and autosave, so the browser places the result (`src/lib/board-ai.js`):
 
 1. It builds the nodes (`src/lib/canvas/ai-formats.js`). A new result goes to the free slot nearest the viewport
-   centre. The board area under the open panel and the asset panel counts as occupied, like existing nodes.
+   centre. The board area under the open panel, the asset panel and the board's top chips counts as occupied, like
+   existing nodes.
 2. It claims the job with `PATCH placedNodeIds`. Only the first claim succeeds; a second gets 409 `ALREADY_PLACED`.
-3. It inserts the nodes with `placeGeneratedNodes` as one undo step. If they are not fully visible outside those
-   panels, the board pans instantly so they are. It zooms out only when the result is too large to show at the
+3. It inserts the nodes with `placeGeneratedNodes` as one undo step (a batch's results together, side by side). If they are not fully visible outside those
+   areas, the board pans instantly so they are. It zooms out only when the result is too large to show at the
    current zoom. The pan is not an undo step.
+
+The selection toolbar (`StyleInspector`) uses the same top-chips inset on desktop as on phones, so it never covers
+the chips: with no room above a selection it goes below it (under a frame's or diagram's own controls), or stays just
+under the chips when below would leave the canvas or reach the object actions bar at its bottom. Without that inset the desktop toolbar covered the top chips (before:
+`/Users/rohit/.no-mistakes/evidence/01M6E9J8C86ER3QGC9KGY6JP5R/style-inspector-before-over-chips.png`, after:
+`/Users/rohit/.no-mistakes/evidence/01M6E9J8C86ER3QGC9KGY6JP5R/style-inspector-after-below-selection.png`).
 
 When a board reloads, the panel resumes the user's unfinished jobs and places finished, unplaced ones. Failed jobs
 are dismissed with an empty claim. Every unfinished job is polled, and the panel follows the newest. An older job
@@ -149,10 +184,14 @@ from the panel's selection strip or the context menu's AI rows, not the format t
   - the allowlist, the paid-guard quote and payload
   - idempotent submission, admission, the spend window and the paid hold
   - worker execution against the fake provider
-  - refinement, placement, and the migration.
-- `src/lib/board-ai.test.js`, `src/lib/canvas/ai-formats.test.js`, `ai-graph.test.js`, `ai-selection.test.js` and `src/components/canvas/CanvasAiPanel.test.js`
+  - refinement, placement, and the migration
+  - an image's `model`, `aspectRatio` and `resolution`: priced by resolution, stored, validated, replay-keyed, and the
+    legacy `processing` path.
+- `src/lib/board-ai.test.js` (including a batch's per-slot keys, a refused, lost, timed-out or frozen second submission and its one-step
+  side-by-side placement), `src/lib/config.test.js` (`reconcileGenerationSettings`), `src/lib/canvas/ai-formats.test.js`, `ai-graph.test.js`, `ai-selection.test.js` and `src/components/canvas/CanvasAiPanel.test.js`
   cover the browser side.
-- `tests/browser/board-ai.spec.mjs` and `board-ai-selection.spec.mjs` are the end-to-end flows. Run it against the fake provider server with:
+- `tests/browser/board-ai.spec.mjs` and `board-ai-selection.spec.mjs` are the end-to-end flows. The first picks a non-default model, ratio and resolution for an image, checks the quote, the
+  stored row and the request the fake provider received, and refines with the pre-filled controls, then runs a 2x batch and checks both images land side by side as two jobs. Run it against the fake provider server with:
 
   ```
   scripts/dev/test-db.sh PYTHON scripts/dev/browser-harness.py --fake-providers --grep "Create with AI"
