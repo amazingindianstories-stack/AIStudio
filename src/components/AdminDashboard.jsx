@@ -40,6 +40,7 @@ import {
   SlidersHorizontal,
   Lock,
   Bot,
+  Sparkles,
 } from "lucide-react";
 import { formatCost } from "@/lib/format-cost";
 import { LIMIT_DEFINITIONS, USER_LIMIT_DEFINITIONS } from "@/lib/limits";
@@ -47,6 +48,7 @@ import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
 import { AccountSettings } from "./AccountSettings";
 import { AdminErrorsTab } from "./AdminErrorsTab";
+import { AdminAiUsageTab } from "./AdminAiUsageTab";
 import { apiErrorMessage } from "@/lib/api-error";
 
 /** Mirrors ACTIVITY_PAGE_SIZE in admin-activity.ts. Copied rather than imported
@@ -134,6 +136,7 @@ export function AdminDashboard() {
               ["errors", "Errors", AlertTriangle],
               ["pricing", "Pricing", DollarSign],
               ["limits", "Limits", SlidersHorizontal],
+              ["ai", "AI usage", Sparkles],
               ["status", "Status", Activity],
             ] 
           ).map(([id, label, Icon]) => (
@@ -164,6 +167,8 @@ export function AdminDashboard() {
           <UsersTab data={data} reload={load} currentUserId={currentUser?.id ?? null} />
         ) : tab === "logs" ? (
           <LogsTab data={data} usersById={usersById} />
+        ) : tab === "ai" ? (
+          <AdminAiUsageTab />
         ) : tab === "errors" ? (
           <AdminErrorsTab data={data} usersById={usersById} />
         ) : tab === "pricing" ? (

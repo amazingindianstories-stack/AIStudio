@@ -104,9 +104,9 @@ export async function copySelectionAsImage() {
  * picker, AI panel); they are read at key time, so they may change freely.
  * Returns `runToolbarTool(id)` for the command palette.
  */
-export function useBoardShortcuts({ surfaceRef, toolLocked, touchViewOnly, openShapes, openImagePicker, toggleAi }) {
+export function useBoardShortcuts({ surfaceRef, toolLocked, touchViewOnly, openShapes, openImagePicker, toggleAi, toggleSidekick }) {
   const latest = useRef(null);
-  latest.current = { surfaceRef, toolLocked, touchViewOnly, openShapes, openImagePicker, toggleAi };
+  latest.current = { surfaceRef, toolLocked, touchViewOnly, openShapes, openImagePicker, toggleAi, toggleSidekick };
 
   // Picks a dock tool: arms it, or opens its panel (shapes, image, AI).
   const runToolbarTool = useCallback((id) => {
@@ -114,6 +114,7 @@ export function useBoardShortcuts({ surfaceRef, toolLocked, touchViewOnly, openS
     if (id === "shapes") view.openShapes();
     else if (id === "image") view.openImagePicker();
     else if (id === "ai") view.toggleAi();
+    else if (id === "sidekick") view.toggleSidekick();
     else if (id === "templates") requestTemplates({ action: "open" });
     // Menus in the dock, not tools: nothing to arm.
     else if (id === "grid" || id === "synced") return false;

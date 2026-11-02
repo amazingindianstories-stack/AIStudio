@@ -9,6 +9,7 @@ from .talktrack_views import (board_talktrack, board_talktrack_moment, board_tal
                               board_talktrack_view, board_talktrack_viewers, board_talktracks, my_talktracks)
 from .views import (board_access, board_activity, board_ai_job, board_ai_jobs, board_ai_quote, board_detail, board_metadata_reads,
                     board_upload, board_version, board_changes, shape_packs, shape_pack_detail)
+from .views_sidekick import board_assistant, canvas_ai
 
 from .media_views import media_detail, media_library, import_url
 from .work_views import tables, table_detail, table_history, notification_inbox
@@ -61,6 +62,7 @@ urlpatterns = [
     path('api/canvas-boards/<str:identifier>/talktracks/<str:talktrack_id>/moments/<str:moment_id>', board_talktrack_moment),
     path('api/canvas-boards/<str:identifier>/talktracks/<str:talktrack_id>/transcript', board_talktrack_transcript),
     path('api/my-talktracks', my_talktracks),
+    path('api/canvas-boards/<str:identifier>/assistant/<path:action>', board_assistant),
     path('api/canvas-boards/<str:identifier>', board_detail),
     path('api/canvas-templates', template_list),
     path('api/canvas-templates/by-board/<str:board_id>', template_for_board),
@@ -72,6 +74,7 @@ urlpatterns = [
     path('api/canvas-blueprints', blueprint_list),
     path('api/canvas-blueprints/<str:ref>/use', blueprint_use),
     path('api/canvas-blueprints/<str:ref>', blueprint_detail),
+    path('api/canvas-ai/<path:action>', canvas_ai),
     path('api/canvas-shape-packs', shape_packs),
     path('api/canvas-shape-packs/<str:identifier>', shape_pack_detail),
 ]

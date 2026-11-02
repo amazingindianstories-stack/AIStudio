@@ -92,6 +92,10 @@ def process_talktracks():
     return {'ok': True, 'started': True}
 
 
+def prune_flow_versions():
+    from apps.canvas.flows import prune_flow_versions as prune
+    return prune()
+
 def default_handlers():
     from django.conf import settings
     handlers = {'depth': maintenance.reconcile_depth, 'video': maintenance.reconcile_videos,
@@ -99,7 +103,8 @@ def default_handlers():
                 'board_table_reminders': board_table_reminders, 'board_saves': prune_board_saves, 'board_activity': prune_board_activity,
                 'board_notifications': prune_board_notifications,
                 'push': push_notifications, 'notifications': prune_notifications,
-                'talktracks': process_talktracks}
+                'talktracks': process_talktracks,
+                'flow_versions': prune_flow_versions}
     if getattr(settings, 'VEEVEE_MANAGED_PORTRAITS', False):
         handlers['portraits'] = maintain_portraits
         handlers['portrait_uploads'] = process_portrait_uploads
@@ -115,6 +120,7 @@ def tick(*, now=None, handlers=None):
                'login': (86400000, (3*60+17)*60000), 'board_saves': (86400000, (3*60+17)*60000),
                'board_activity': (86400000, (3*60+17)*60000), 'board_notifications': (86400000, (3*60+17)*60000),
                'notifications': (86400000, (3*60+17)*60000),
+               'flow_versions': (86400000, (3*60+17)*60000),
                'push': (5000, 0),
                'portraits': (60000, 0), 'portrait_uploads': (3000, 0), 'talktracks': (5000, 0)}
     results = {}

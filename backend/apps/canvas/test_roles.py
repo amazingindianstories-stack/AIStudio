@@ -334,6 +334,7 @@ class BoardRoleMigrationTests(TransactionTestCase):
                               ('canvas', '0004_canvasboardsave'), ('canvas', '0005_boardactivity'), ('canvas', '0006_boardaijob'),
                               ('canvas', '0007_canvasboardsave_changes'), ('canvas', '0008_customshapepack'),
                               ('canvas', '0009_work_records'), ('canvas', '0010_work_permissions'), ('canvas', '0011_work_relation_kinds'), ('canvas', '0012_boardmedia'), ('canvas', '0013_board_templates'), ('canvas', '0014_collaboration'), ('canvas', '0015_facilitation'), ('canvas', '0016_talktrack'),
+                              ('canvas', '0017_sidekicks_flows'),
                               ('projects', '0002_project_members')])
             executor.migrate(final)
             row = CanvasBoard.objects.get(pk=identifier)

@@ -150,6 +150,26 @@ def with_stamps(result, raw):
             result[key] = True
     if isinstance(raw.get('privateBy'), str):
         result['privateBy'] = raw['privateBy']
+    with_ai(result, raw)
+    return result
+
+
+FLOW_BLOCKS = ('format', 'instruction')
+MAX_FLOW_TASK = 4000
+
+
+def with_ai(result, raw):
+    """AI attribution (`aiCreated`, `aiEditedAt`) and a Flow step's settings (`flow`), each only when set."""
+    if raw.get('aiCreated') is True:
+        result['aiCreated'] = True
+    if finite(raw.get('aiEditedAt')):
+        result['aiEditedAt'] = raw['aiEditedAt']
+    flow = raw.get('flow')
+    if isinstance(flow, dict) and flow.get('block') in FLOW_BLOCKS:
+        step = {'block': flow['block'], 'task': string(flow.get('task'), '')[:MAX_FLOW_TASK]}
+        if isinstance(flow.get('inputHash'), str) and len(flow['inputHash']) <= 64:
+            step['inputHash'] = flow['inputHash']
+        result['flow'] = step
     return result
 
 

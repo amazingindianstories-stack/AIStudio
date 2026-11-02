@@ -168,6 +168,8 @@ def submit(actor, board, body, idempotency_key):
         created = {}
 
         def admit(item):
+            from .sidekicks import require_credits
+            require_credits(actor, item.get('costCents') or 0)
             now = now_ms()
             created['job'] = BoardAiJob.objects.create(id=uuid.uuid4(), board=board, user_id=actor.id, format=values['format'],
                 prompt=values['prompt'], generation_id=item['id'], parent_job=parent, created_at=now, updated_at=now)
@@ -184,6 +186,8 @@ def submit(actor, board, body, idempotency_key):
                                       actor_id=actor.id, idempotency_key=key)
     except idempotency.OrganizationError as error:
         raise JobError(error.status, str(error), error.code) from None
+    except submission.AdmissionRefused as error:
+        raise (error.error if isinstance(error.error, JobError) else error) from None
     return job_json(BoardAiJob.objects.get(pk=receipt['jobId']))
 
 
@@ -194,10 +198,10 @@ def jobs(actor, board, ids=None, recent=False):
     if ids:
         rows = rows.filter(pk__in=[value for value in ids if UUID.fullmatch(value)][:LIST_LIMIT])
     elif recent:
-        rows = rows.filter(created_at__gt=now_ms() - RECENT_MS,
+        rows = rows.filter(format__in=ENGINES, created_at__gt=now_ms() - RECENT_MS,
                            generation_id__in=Generation.objects.filter(status='succeeded').values('id'))
     else:
-        rows = rows.filter(placed_at__isnull=True, created_at__gt=now_ms() - RECENT_MS)
+        rows = rows.filter(format__in=ENGINES, placed_at__isnull=True, created_at__gt=now_ms() - RECENT_MS)
     rows = list(rows.order_by('-created_at', '-id')[:LIST_LIMIT])
     generations = {row.id: row for row in Generation.objects.filter(pk__in=[row.generation_id for row in rows])}
     return [job_json(row, generations.get(row.generation_id)) for row in rows]
@@ -242,7 +246,7 @@ def job_json(job, generation=None):
         if position.get('heldReason'):
             result['heldReason'] = position['heldReason']
     if generation.status == 'succeeded':
-        if ENGINES.get(job.format) == 'text':
+        if ENGINES.get(job.format, 'text') == 'text':
             result['result'] = generation.output
         else:
             result['result'] = {'url': generation.url, 'aspectRatio': generation.aspect_ratio}

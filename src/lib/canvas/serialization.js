@@ -204,7 +204,23 @@ function withStamps(item, r) {
   // Private mode (backend/apps/canvas/private_mode.py): who wrote a hidden note, and that its text is withheld.
   if (typeof r.privateBy === "string") item.privateBy = r.privateBy;
   for (const key of ["anonBy", "hiddenText"]) if (r[key] === true) item[key] = true;
+  withAi(item, r);
   return item;
+}
+
+const FLOW_BLOCKS = ["format", "instruction"];
+const MAX_FLOW_TASK = 4000;
+
+/** AI attribution (`aiCreated`, `aiEditedAt`) and a Flow step's settings (`flow`), each only when set. */
+function withAi(item, r) {
+  if (r.aiCreated === true) item.aiCreated = true;
+  if (isFiniteNumber(r.aiEditedAt)) item.aiEditedAt = r.aiEditedAt;
+  const flow = r.flow;
+  if (flow && typeof flow === "object" && FLOW_BLOCKS.includes(flow.block)) {
+    const step = { block: flow.block, task: (typeof flow.task === "string" ? flow.task : "").slice(0, MAX_FLOW_TASK) };
+    if (typeof flow.inputHash === "string" && flow.inputHash.length <= 64) step.inputHash = flow.inputHash;
+    item.flow = step;
+  }
 }
 
 function withFont(node, r) {

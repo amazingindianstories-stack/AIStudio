@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef } from "react";
-import { EyeOff } from "lucide-react";
+import { EyeOff, Sparkles } from "lucide-react";
 import { useCanvasStore } from "@/lib/canvas-store";
 import { displayName } from "@/lib/board-access";
 import { fontFamilyCss } from "@/lib/canvas/fonts";
@@ -31,9 +31,14 @@ export function StickyNode({ node, editing: wantsEditing, readOnly, onCommit, on
   const hasFooter = Boolean(node.tagIds?.length || (node.reactions && Object.keys(node.reactions).length) || node.showAuthor);
   return (
     <div
-      className="flex h-full w-full flex-col overflow-hidden rounded-md p-3 shadow-[0_6px_16px_rgba(0,0,0,0.35)]"
+      className="relative flex h-full w-full flex-col overflow-hidden rounded-md p-3 shadow-[0_6px_16px_rgba(0,0,0,0.35)]"
       style={{ background: node.fill }}
     >
+      {node.flow && (
+        <span data-flow-block={node.flow.block} title={node.flow.task} className="pointer-events-none absolute right-1.5 top-1.5 flex max-w-[70%] items-center gap-1 truncate rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] font-medium text-white">
+          <Sparkles className="h-2.5 w-2.5 shrink-0" aria-hidden />AI step
+        </span>
+      )}
       <div ref={fitRef} data-sticky-text="" className="min-h-0 w-full flex-1 overflow-hidden" style={style}>
         {editing ? (
           <RichTextEditor

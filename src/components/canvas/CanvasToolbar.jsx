@@ -29,6 +29,7 @@ import {
   Maximize,
   Minimize,
   LayoutTemplate,
+  Bot,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCanvasStore, } from "@/lib/canvas-store";
@@ -77,6 +78,8 @@ export function CanvasToolbar({
   aiOpen,
   onAiClick,
   aiInputs = true,
+  sidekickOpen,
+  onSidekickClick,
   /** World point at the middle of the view, where bulk stickies and stacks go. */
   viewCenter,
 }
@@ -261,6 +264,22 @@ export function CanvasToolbar({
           >
             <Sparkles className="h-4 w-4" />
             {aiRunning && <span className="absolute right-1 top-1 h-1.5 w-1.5 animate-pulse rounded-full bg-brand" aria-hidden />}
+          </button>
+        );
+      case "sidekick":
+        return (
+          <button
+            type="button"
+            className={cn(
+              "grid h-9 w-9 cursor-pointer place-items-center rounded-lg transition-colors max-sm:h-8 max-sm:w-8",
+              sidekickOpen ? "bg-ink-600 text-white ring-1 ring-line" : "text-white/55 hover:bg-white/[0.07] hover:text-white"
+            )}
+            title="Sidekick"
+            aria-label="Sidekick"
+            aria-pressed={Boolean(sidekickOpen)}
+            onClick={onSidekickClick}
+          >
+            <Bot className="h-4 w-4" />
           </button>
         );
       default:

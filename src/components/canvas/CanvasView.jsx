@@ -21,6 +21,8 @@ import { CanvasAssetPanel } from "./CanvasAssetPanel";
 import { BoardShareDialog } from "./BoardShareDialog";
 import { CanvasAiPanel } from "./CanvasAiPanel";
 import { BoardTemplates } from "./BoardTemplates";
+import { SidekickPanel } from "./SidekickPanel";
+import { CatchUpChip } from "./CatchUpChip";
 import { useBoardAi } from "@/lib/board-ai";
 import { useAiInputs, useAiPanelIntent } from "@/lib/board-ai-panel";
 import { BoardHistoryPanel } from "./BoardHistoryPanel";
@@ -75,6 +77,7 @@ export function CanvasView() {
   useEffect(() => {
     if (!aiInputs) setAiOpen(false);
   }, [aiInputs]);
+  const [sidekick, setSidekick] = useState(null); // null, or the tab the Sidekick panel opens on
 
   const surfaceRef = useRef(null);
   const rootRef = useRef(null);
@@ -298,7 +301,8 @@ export function CanvasView() {
   // Document-level keyboard shortcuts, from the registry in lib/canvas/shortcuts.
   const openShapes = useCallback(() => setShapesOpen(true), []);
   const toggleAi = useCallback(() => setAiOpen((v) => !v), []);
-  const runToolbarTool = useBoardShortcuts({ surfaceRef, toolLocked, touchViewOnly, openShapes, openImagePicker, toggleAi });
+  const toggleSidekick = useCallback(() => setSidekick((v) => (v === null ? "chat" : null)), []);
+  const runToolbarTool = useBoardShortcuts({ surfaceRef, toolLocked, touchViewOnly, openShapes, openImagePicker, toggleAi, toggleSidekick });
   const openBoard = useBoardLinks({ boardId, setBoardId });
 
   // One side panel at a time: a board panel replaces History and back.
@@ -489,6 +493,8 @@ export function CanvasView() {
             aiOpen={aiOpen && Boolean(boardId)}
             onAiClick={() => setAiOpen((v) => !v)}
             aiInputs={aiInputs}
+            sidekickOpen={sidekick !== null && Boolean(boardId)}
+            onSidekickClick={toggleSidekick}
             viewCenter={viewCenter}
           />
         )}
@@ -496,6 +502,8 @@ export function CanvasView() {
 
         {boardId && loaded && <BoardTemplates boardId={boardId} projectId={activeProjectId} viewCenter={viewCenter} onOpenBoard={openTemplateBoard} />}
         {aiOpen && boardId && !readOnly && !touchViewOnly && <CanvasAiPanel boardId={boardId} leftInset={assetPanelWidth} onClose={() => setAiOpen(false)} />}
+        {sidekick !== null && boardId && !readOnly && !touchViewOnly && <SidekickPanel boardId={boardId} projectId={activeProjectId} initialTab={sidekick} onClose={() => setSidekick(null)} />}
+        {boardId && loaded && !readOnly && !touchViewOnly && sidekick === null && <CatchUpChip boardId={boardId} onOpen={() => setSidekick("catchup")} />}
       </div>
 
       <input

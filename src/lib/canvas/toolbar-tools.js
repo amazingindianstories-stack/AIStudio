@@ -20,6 +20,7 @@ export const CREATION_TOOLS = [
   { id: "grid", label: "Grid" },
   { id: "synced", label: "Synced copy" },
   { id: "ai", label: "Create with AI" },
+  { id: "sidekick", label: "Sidekick" },
   { id: "templates", label: "Templates" },
 ];
 

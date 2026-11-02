@@ -84,12 +84,83 @@ class BoardAiJob(models.Model):
     placed_at = models.BigIntegerField(null=True)
     created_at = models.BigIntegerField()
     updated_at = models.BigIntegerField()
+    # The Sidekick conversation a turn belongs to (apps.canvas.sidekicks); null for every other job.
+    chat = models.ForeignKey('BoardSidekickChat', on_delete=models.SET_NULL, null=True, db_column='chat_id', db_index=False)
 
     class Meta:
         managed = True
         db_table = 'canvas_board_ai_jobs'
         indexes = [models.Index(fields=['board', 'user_id', 'created_at'], name='canvas_ai_jobs_board_user_idx'),
-                   models.Index(fields=['parent_job'], name='canvas_ai_jobs_parent_idx')]
+                   models.Index(fields=['parent_job'], name='canvas_ai_jobs_parent_idx'),
+                   models.Index(fields=['chat', 'created_at'], name='canvas_ai_jobs_chat_idx')]
+
+
+class Sidekick(models.Model):
+    """A user-made Sidekick: instructions, conversation starters and knowledge text. Private to its owner; an admin
+    can also change or delete it."""
+    id = models.UUIDField(primary_key=True, db_default=RandomUUID())
+    owner_id = models.UUIDField()
+    name = models.TextField()
+    description = models.TextField(db_default='')
+    instructions = models.TextField(db_default='')
+    starters = models.JSONField(default=list)
+    processing = models.TextField(db_default='basic')
+    # [{"name": ..., "text": ...}], at most SIDEKICK_KNOWLEDGE_CHARS characters of text in all.
+    knowledge = models.JSONField(default=list)
+    created_at = models.BigIntegerField()
+    updated_at = models.BigIntegerField()
+
+    class Meta:
+        managed = True
+        db_table = 'canvas_sidekicks'
+        indexes = [models.Index(fields=['owner_id'], name='canvas_sidekicks_owner_idx')]
+
+
+class BoardSidekickChat(models.Model):
+    """One Sidekick conversation on a board. Its turns are the board AI jobs that point here (``BoardAiJob.chat``): the
+    user's message is the job's prompt and the Sidekick's answer is the job's result."""
+    id = models.UUIDField(primary_key=True, db_default=RandomUUID())
+    board = models.ForeignKey(CanvasBoard, on_delete=models.CASCADE, db_column='board_id', db_index=False)
+    user_id = models.UUIDField()
+    # A premade Sidekick's key or a custom Sidekick's id.
+    sidekick = models.TextField()
+    title = models.TextField()
+    created_at = models.BigIntegerField()
+    updated_at = models.BigIntegerField()
+
+    class Meta:
+        managed = True
+        db_table = 'canvas_sidekick_chats'
+        indexes = [models.Index(fields=['board', 'user_id', '-updated_at'], name='canvas_sk_chats_board_user_idx')]
+
+
+class BoardVisit(models.Model):
+    """When a user last opened a board, for Catch up."""
+    pk = models.CompositePrimaryKey('board_id', 'user_id')
+    board_id = models.UUIDField()
+    user_id = models.UUIDField()
+    visited_at = models.BigIntegerField()
+
+    class Meta:
+        managed = True
+        db_table = 'canvas_board_visits'
+
+
+class FlowOutputVersion(models.Model):
+    """An output a Flow step had before it was replaced, kept FLOW_OUTPUT_RETENTION_MS so it can be restored; run_scheduler
+    prunes older ones."""
+    id = models.UUIDField(primary_key=True, db_default=RandomUUID())
+    board_id = models.UUIDField()
+    node_id = models.TextField()
+    user_id = models.UUIDField(null=True)
+    text = models.TextField()
+    created_at = models.BigIntegerField()
+
+    class Meta:
+        managed = True
+        db_table = 'canvas_flow_output_versions'
+        indexes = [models.Index(fields=['board_id', 'node_id', '-created_at'], name='canvas_flow_out_node_idx'),
+                   models.Index(fields=['created_at'], name='canvas_flow_out_created_idx')]
 
 
 ACTIVITY_ACTIONS = ('add', 'edit', 'delete')

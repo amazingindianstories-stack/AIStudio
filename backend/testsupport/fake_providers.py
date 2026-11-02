@@ -224,6 +224,13 @@ class FakeProviders:
                     self.board_payloads.append(data)
                 return 200, {'candidates': [{'content': {'role': 'model', 'parts': [{'text': json.dumps(board_reply(board, data))}]},
                                              'finishReason': 'STOP'}], 'usageMetadata': {'promptTokenCount': 300, 'candidatesTokenCount': 90}}
+            board_name = body_format(data)
+            if board_name and board_name != 'stickies':     # a Sidekick, Flow step, Catch up or AI search text job
+                from apps.agents.sidekick import MOCK_OUTPUTS
+                with self.lock:
+                    self.board_payloads.append(data)
+                return 200, {'candidates': [{'content': {'role': 'model', 'parts': [{'text': json.dumps(MOCK_OUTPUTS[board_name])}]},
+                                             'finishReason': 'STOP'}], 'usageMetadata': {'promptTokenCount': 300, 'candidatesTokenCount': 90}}
             if 'systemInstruction' in data:     # the admin chat agent (apps/agents)
                 return 200, {'candidates': [{'content': {'role': 'model', 'parts': [{'text': AGENT_REPLY}]}, 'finishReason': 'STOP'}],
                              'usageMetadata': {'promptTokenCount': 40, 'candidatesTokenCount': 12}}

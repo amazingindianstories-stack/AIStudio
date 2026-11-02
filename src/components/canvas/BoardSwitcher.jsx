@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { BoardAiSearch } from "./BoardAiSearch";
 import { createPortal } from "react-dom";
 import { ChevronDown, Plus, Pencil, Trash2, Check, MoreHorizontal, AlertCircle, LayoutTemplate } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -249,6 +250,7 @@ export function BoardSwitcher({
         >
           {(close) => (
             <div className="w-56">
+              {boardId && <BoardAiSearch boardId={boardId} onPick={(id) => { onBoardIdChange(id); close(); }} />}
               {boards.map((b) =>
                 renamingRowId === b.id ? (
                   <input

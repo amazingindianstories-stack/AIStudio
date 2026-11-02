@@ -8,6 +8,8 @@ adds one entry to ``TEXT_FORMATS`` with its prompt, schema and parser; nothing e
 import json
 import re
 
+from . import sidekick
+
 OPERATION = 'board-text'
 VERSION = 1
 # One original prompt, then (previous result, refinement) pairs: a refine sends the latest result, not the chain.
@@ -286,6 +288,9 @@ TEXT_FORMATS = {
     'layout': {'prompt': LAYOUT_PROMPT, 'schema': LAYOUT_SCHEMA, 'max_output_tokens': 8192, 'temperature': 0.7, 'parse': parse_layout},
     'diagram': {'prompt': DIAGRAM_PROMPT, 'schema': DIAGRAM_SCHEMA, 'max_output_tokens': 8192, 'temperature': 0.4, 'parse': parse_diagram},
 }
+# Sidekick turns, Flow steps, Catch up and AI search (apps.agents.sidekick) run through the same request path. A format
+# may set max_turns, max_turn_chars and max_body_bytes (else the stickies limits above).
+TEXT_FORMATS.update(sidekick.FORMATS)
 
 
 def generation_config(name):
@@ -309,18 +314,23 @@ def submission_input(name, model, turns):
         raise ValueError('Unknown board text format.')
     if not isinstance(model, str) or MODEL_CODE.fullmatch(model) is None:
         raise ValueError('The board text model is not a Gemini model code.')
-    if not valid_turns(turns):
+    if not valid_turns(turns, name):
         raise ValueError('Invalid board conversation.')
-    return {'version': VERSION, 'operation': OPERATION, 'format': name, 'model': model,
-            'turns': [{'role': turn['role'], 'text': turn['text']} for turn in turns]}
+    value = {'version': VERSION, 'operation': OPERATION, 'format': name, 'model': model,
+             'turns': [{'role': turn['role'], 'text': turn['text']} for turn in turns]}
+    if body_bytes(build_body(value)) > TEXT_FORMATS[name].get('max_body_bytes', MAX_BODY_BYTES):
+        raise ValueError('This request is too large to send to the AI. Shorten it, or use less knowledge or fewer sources.')
+    return value
 
 
-def valid_turns(turns):
-    if not isinstance(turns, list) or not 1 <= len(turns) <= MAX_TURNS or len(turns) % 2 != 1:
+def valid_turns(turns, name='stickies'):
+    spec = TEXT_FORMATS[name]
+    max_turns, max_chars = spec.get('max_turns', MAX_TURNS), spec.get('max_turn_chars', MAX_TURN_CHARS)
+    if not isinstance(turns, list) or not 1 <= len(turns) <= max_turns or len(turns) % 2 != 1:
         return False
     for index, turn in enumerate(turns):
         if (not isinstance(turn, dict) or set(turn) != {'role', 'text'} or turn['role'] != ('user' if index % 2 == 0 else 'model')
-                or not isinstance(turn['text'], str) or not turn['text'].strip() or len(turn['text']) > MAX_TURN_CHARS):
+                or not isinstance(turn['text'], str) or not turn['text'].strip() or len(turn['text']) > max_chars):
             return False
     return True
 
@@ -332,12 +342,17 @@ def is_board_input(value):
 
 def build_body(value):
     """The exact generateContent body for a stored board text input."""
-    if not is_board_input(value) or not valid_turns(value.get('turns')):
+    if not is_board_input(value) or not valid_turns(value.get('turns'), value['format']):
         raise ValueError('Invalid board text input.')
     name = value['format']
     return {'systemInstruction': {'parts': [{'text': TEXT_FORMATS[name]['prompt']}]},
             'contents': [{'role': turn['role'], 'parts': [{'text': turn['text']}]} for turn in value['turns']],
             'generationConfig': generation_config(name)}
+
+
+def body_bytes(body):
+    """The size of a request body as the payload allowlist measures it."""
+    return len(json.dumps(body, separators=(',', ':')))
 
 
 def body_format(body):
@@ -357,7 +372,7 @@ def body_format(body):
                 if not isinstance(part, dict) or set(part) != {'text'}:
                     return None
                 turns.append({'role': item['role'], 'text': part['text']})
-            if not valid_turns(turns) or len(json.dumps(body, separators=(',', ':'))) > MAX_BODY_BYTES:
+            if not valid_turns(turns, name) or body_bytes(body) > spec.get('max_body_bytes', MAX_BODY_BYTES):
                 return None
             return name
     return None

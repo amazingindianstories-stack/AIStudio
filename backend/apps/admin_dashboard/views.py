@@ -11,11 +11,13 @@ from apps.generation.services.admission import LANE_DEFAULT, LANE_MAX, LANE_SETT
 LIMITS = {'maxPromptLength': (30000, 1, None), 'maxConcurrentJobs': (PER_USER_DEFAULT, 1, PER_USER_MAX),
           LANE_SETTING: (LANE_DEFAULT, 1, LANE_MAX),
           # Agent (MCP) spending: estimator cents per user per trailing day, and queued-or-running agent jobs.
-          'mcpDailyCapCents': (2000, 1, 100000), 'mcpActiveJobs': (4, 1, 8)}
+          'mcpDailyCapCents': (2000, 1, 100000), 'mcpActiveJobs': (4, 1, 8),
+          # Board AI (Sidekicks, Flows, Create with AI): estimator cents per user per calendar month.
+          'boardAiMonthlyCapCents': (5000, 1, 1000000)}
 GLOBAL_ONLY = {LANE_SETTING}        # account-wide provider limits: no per-user override
 USER_LIMITS = {key: value for key, value in LIMITS.items() if key not in GLOBAL_ONLY}
 # What the composer reads back through /api/settings; agent limits are enforced by apps.mcp_auth instead.
-COMPOSER_LIMITS = {key: value for key, value in USER_LIMITS.items() if not key.startswith('mcp')}
+COMPOSER_LIMITS = {key: value for key, value in USER_LIMITS.items() if not key.startswith(('mcp', 'boardAi'))}
 
 def parse(raw, definition):
     fallback, minimum, maximum = definition
