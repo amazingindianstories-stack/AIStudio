@@ -1,7 +1,9 @@
 """On-demand captions for a board video node. Nothing starts by itself: `quote` only reports what a run would use,
 and `generate` runs when an editor asks. It goes through the audio transcription path that already exists (paid
 guard, generation worker, Gemini), as the Talktrack transcript does, then turns the timestamped transcript into
-WebVTT. The VTT lives in its own table, outside the board JSON, and is served as same-origin text."""
+WebVTT. The VTT lives in its own table, outside the board JSON, and is served as same-origin text. The caption row
+is committed with its transcription job, so a run that outlives its request is finished by a later quote, never
+submitted twice."""
 import base64
 import subprocess
 import tempfile
@@ -9,14 +11,16 @@ import time
 from pathlib import Path
 from uuid import uuid4
 from django.conf import settings
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from .facilitation import FacilitationError
 from .media_nodes import MEDIA_PREFIX
 from .models import BoardCaption, CanvasBoard
 from .talktrack import parse_transcript, transcription_available
 
 MAX_VIDEO_BYTES = 200 * 1024 * 1024
-FFMPEG_TIMEOUT_S = 300
+FFMPEG_TIMEOUT_S = 60
+# The request answers within this, inside the gateway's 125 s wait; a run still going then is finished later.
+BUDGET_S = 110
 MAX_VTT_CHARS = 400_000
 
 
@@ -26,16 +30,22 @@ def _timestamp(ms):
     return f'{hours:02d}:{minutes:02d}:{rest // 1000:02d}.{rest % 1000:03d}'
 
 
+def _cue_text(value):
+    """Plain cue text: `&`, `<` and `>` would start a character reference or a tag, which also covers `-->`."""
+    text = ' '.join(str(value or '').split())
+    return text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+
 def vtt_from_segments(segments):
     """WebVTT cues for the transcript's timed segments. Untimed or empty segments are dropped, and a cue that
     would end before it starts is given a short duration, so the file always parses in a browser."""
     cues = []
     for segment in segments:
-        text = ' '.join(str(segment.get('text') or '').split()).replace('-->', '->')
+        text = _cue_text(segment.get('text'))
         if not text or segment['endMs'] <= 0 and segment['startMs'] <= 0:
             continue
         end = segment['endMs'] if segment['endMs'] > segment['startMs'] else segment['startMs'] + 2000
-        speaker = segment.get('speaker') or ''
+        speaker = _cue_text(segment.get('speaker'))
         if speaker:
             text = f'{speaker}: {text}'
         cues.append(f'{_timestamp(segment["startMs"])} --> {_timestamp(end)}\n{text}')
@@ -65,39 +75,63 @@ def model_name():
 
 
 def quote(board_id, src):
-    """What a run would do, for the cost step that comes before it. No provider call, nothing stored."""
+    """What a run would do, for the cost step that comes before it. No provider call; a run in flight is finished
+    here once its job has ended."""
     from apps.media.audio_inputs import MAX_AUDIO_BYTES
     key = _video_src(board_id, src)
     row = BoardCaption.objects.filter(board_id=board_id, media_key=key).first()
-    return {'available': transcription_available(), 'exists': row is not None, 'model': f'Gemini ({model_name()})',
-            'costCents': 0, 'costBasis': 'estimated', 'maxAudioBytes': MAX_AUDIO_BYTES, 'format': 'webvtt'}
+    if row is not None:
+        try:
+            row = _settle(row)
+        except FacilitationError:
+            row = None
+    return {'available': transcription_available(), 'exists': bool(row and row.vtt), 'pending': bool(row and not row.vtt),
+            'model': f'Gemini ({model_name()})', 'costCents': 0, 'costBasis': 'estimated', 'maxAudioBytes': MAX_AUDIO_BYTES,
+            'format': 'webvtt'}
 
 
 def vtt_for(board_id, src):
     key = media_key(src)
-    row = BoardCaption.objects.filter(board_id=board_id, media_key=key).first() if key else None
+    row = BoardCaption.objects.filter(board_id=board_id, media_key=key).exclude(vtt='').first() if key else None
     if row is None:
         raise FacilitationError('No captions for this video.', 404)
     return row.vtt
 
 
-def _audio_reference(storage, src):
+def _audio_reference(storage, key, src, deadline):
     """An audio reference for the transcription path: the file itself when it is audio, else the video's audio
-    track extracted to a small mono AAC file, handed over as a data URI so no extra object is stored."""
+    track extracted to a small mono AAC file, handed over as a data URI so no extra object is stored. The video is
+    streamed to a temporary file, never held in memory."""
     from apps.media.audio_inputs import AUDIO_EXTENSIONS, MAX_AUDIO_BYTES
-    raw = storage.read_reference_bytes(src, max_bytes=MAX_VIDEO_BYTES)
-    mime = str(raw['mimeType']).lower()
-    if mime in AUDIO_EXTENSIONS:
-        return src
-    if not mime.startswith('video/'):
+    from apps.media.errors import MediaTooLargeError
+    from apps.media.keys import is_export_key
+    if is_export_key(key):
         raise FacilitationError('This media cannot be captioned.', 400)
     with tempfile.TemporaryDirectory() as directory:
         source, target = Path(directory, 'in'), Path(directory, 'out.m4a')
-        source.write_bytes(raw['bytes'])
+        media = storage.open(key)
+        try:
+            mime = str(media.content_type).lower()
+            if mime in AUDIO_EXTENSIONS:
+                return src
+            if not mime.startswith('video/'):
+                raise FacilitationError('This media cannot be captioned.', 400)
+            if media.content_length > MAX_VIDEO_BYTES:
+                raise MediaTooLargeError('Media exceeds the configured input size limit.')
+            with source.open('wb') as staged:
+                for chunk in media.stream:
+                    if staged.tell() + len(chunk) > MAX_VIDEO_BYTES:
+                        raise MediaTooLargeError('Media exceeds the configured input size limit.')
+                    staged.write(chunk)
+        finally:
+            media.stream.close()
         binary = getattr(settings, 'FFMPEG_BINARY', 'ffmpeg')
         try:
             subprocess.run([binary, '-nostdin', '-hide_banner', '-y', '-i', str(source), '-vn', '-ac', '1', '-c:a', 'aac',
-                            '-b:a', '48k', '-f', 'ipod', str(target)], capture_output=True, timeout=FFMPEG_TIMEOUT_S, check=True)
+                            '-b:a', '48k', '-f', 'ipod', str(target)], capture_output=True, check=True,
+                           timeout=min(FFMPEG_TIMEOUT_S, max(1, deadline - time.monotonic())))
+        except subprocess.TimeoutExpired:
+            raise FacilitationError('This video took too long to prepare for captions.', 504)
         except (subprocess.SubprocessError, OSError):
             raise FacilitationError('This video has no audio track that can be captioned.', 409)
         audio = target.read_bytes()
@@ -106,44 +140,69 @@ def _audio_reference(storage, src):
     return 'data:audio/mp4;base64,' + base64.b64encode(audio).decode()
 
 
+def _settle(row, timeout=0):
+    """Follow a row's transcription job for up to `timeout` seconds. The row gets its VTT once the job succeeded and
+    goes once the job definitely failed or is gone, so only then can a new run start. While the job runs, or its
+    submission is uncertain, the row stays as it is and is returned without VTT."""
+    from apps.generation.models import Generation
+    from apps.media.audio_wait import AudioFailed, AudioResultPending, wait_for_audio
+    if row.vtt:
+        return row
+    job = Generation.objects.filter(pk=row.generation_id).first()
+    pending = BoardCaption.objects.filter(pk=row.pk, vtt='')
+    if job is None:
+        pending.delete()
+        raise FacilitationError('The caption run is gone. Try again.', 409)
+    try:
+        saved = wait_for_audio(job, timeout=timeout)
+    except AudioResultPending:
+        return row
+    except AudioFailed as error:
+        pending.delete()
+        raise FacilitationError(str(error), 429 if error.busy else 502)
+    vtt = vtt_from_transcript(saved.prompt)
+    if not vtt or len(vtt) > MAX_VTT_CHARS:
+        pending.delete()
+        raise FacilitationError('No speech could be captioned in this video.', 422)
+    pending.update(vtt=vtt)
+    return BoardCaption.objects.get(pk=row.pk)
+
+
 def generate(board_id, src, user_id, now):
-    """Caption one board video, once. A second call returns the stored captions without another provider job."""
+    """Caption one board video, once. A later call returns the stored captions, or the run still in flight,
+    without another provider job."""
     from apps.generation.services import audio_submission
     from apps.generation.services.audio_submission import AUDIO_READY
     from apps.media.audio_inputs import InvalidAudioType, capture_audio_input
-    from apps.media.audio_wait import AudioFailed, AudioResultPending, wait_for_audio
     from apps.media.storage import MediaNotFoundError, MediaTooLargeError, get_storage
+    deadline = time.monotonic() + BUDGET_S
     key = _video_src(board_id, src)
     existing = BoardCaption.objects.filter(board_id=board_id, media_key=key).first()
     if existing is not None:
-        return existing
+        return _settle(existing)
     if not transcription_available():
         raise FacilitationError('Captions are not configured.', 503)
     model = model_name()
     identifier, started = uuid4(), int(time.time() * 1000)
     try:
         storage = get_storage()
-        reference = _audio_reference(storage, src)
+        reference = _audio_reference(storage, key, src, deadline)
         snapshot = capture_audio_input(storage, reference, identifier, model=model, name='Video captions')
-        intent = audio_submission.persist_audio_intent(dict(
-            id=identifier, kind='audio', status='queued', prompt='', model=f'Gemini ({model})', aspect_ratio='audio',
-            reference_audios=[snapshot['source']], project_id=None, user_id=user_id, cost_cents=0,
-            cost_basis='estimated', created_at=started, updated_at=started, provider_status=AUDIO_READY, submission_input=snapshot))
-        saved = wait_for_audio(intent)
     except MediaNotFoundError:
         raise FacilitationError('That video could not be found.', 404)
     except MediaTooLargeError:
         raise FacilitationError('The video is too large to caption.', 413)
     except InvalidAudioType:
         raise FacilitationError('The audio type cannot be captioned.', 400)
-    except AudioResultPending as error:
-        raise FacilitationError(str(error), 504)
-    except AudioFailed as error:
-        raise FacilitationError(str(error), 429 if error.busy else 502)
-    vtt = vtt_from_transcript(saved.prompt)
-    if not vtt or len(vtt) > MAX_VTT_CHARS:
-        raise FacilitationError('No speech could be captioned in this video.', 422)
     try:
-        return BoardCaption.objects.create(board_id=board_id, actor_id=user_id, media_key=key, vtt=vtt, created_at=now)
+        with transaction.atomic():
+            row = BoardCaption.objects.create(board_id=board_id, actor_id=user_id, media_key=key, generation_id=identifier,
+                                              created_at=now)
+            audio_submission.persist_audio_intent(dict(
+                id=identifier, kind='audio', status='queued', prompt='', model=f'Gemini ({model})', aspect_ratio='audio',
+                reference_audios=[snapshot['source']], project_id=None, user_id=user_id, cost_cents=0,
+                cost_basis='estimated', created_at=started, updated_at=started, provider_status=AUDIO_READY,
+                submission_input=snapshot))
     except IntegrityError:
-        return BoardCaption.objects.get(board_id=board_id, media_key=key)
+        return _settle(BoardCaption.objects.get(board_id=board_id, media_key=key))
+    return _settle(row, max(0, deadline - time.monotonic()))

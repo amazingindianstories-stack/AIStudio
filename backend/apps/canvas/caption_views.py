@@ -11,12 +11,13 @@ from apps.authentication.session import lookup
 
 @node_route(['GET', 'POST'])
 def board_captions(request, identifier):
-    """GET quotes a run (no provider call); POST generates, when an editor asks."""
+    """GET quotes a run (no provider call); POST generates, when an editor asks, and answers 202 while it runs."""
     def handle(request, user, board, level, now):
         if request.method in ('GET', 'HEAD'):
             return {'captions': captions.quote(board['id'], request.GET.get('src', ''))}, 200
         row = captions.generate(board['id'], _data(request).get('src'), user.id, now)
-        return {'captions': {'exists': True, 'createdAt': row.created_at}}, 200
+        done = bool(row.vtt)
+        return {'captions': {'exists': done, 'pending': not done, 'createdAt': row.created_at}}, 200 if done else 202
     return _guarded(handle)(request, identifier, minimum=access.READ if request.method in ('GET', 'HEAD') else access.WRITE)
 
 

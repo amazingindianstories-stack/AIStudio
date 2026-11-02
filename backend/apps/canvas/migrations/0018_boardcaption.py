@@ -14,6 +14,7 @@ class Migration(migrations.Migration):
                 ('board', models.ForeignKey(to='canvas.canvasboard', on_delete=django.db.models.deletion.CASCADE, db_index=False)),
                 ('actor_id', models.UUIDField()),
                 ('media_key', models.TextField()),
+                ('generation_id', models.UUIDField()),
                 ('vtt', models.TextField(default='')),
                 ('created_at', models.BigIntegerField()),
             ], options={'db_table': 'canvas_board_captions',

@@ -169,6 +169,8 @@ BOARD_SLICES = {
  '/api/canvas-blueprints/[ref]': ['DELETE', 'PATCH'],
  '/api/canvas-blueprints/[ref]/use': ['POST'],
  '/api/canvas-boards/[identifier]/assistant/[action]': ['DELETE', 'GET', 'PATCH', 'POST'],
+ '/api/canvas-boards/[identifier]/captions': ['GET', 'POST'],
+ '/api/canvas-boards/[identifier]/captions/vtt': ['GET'],
  '/api/canvas-boards/[identifier]/comments': ['GET', 'POST'],
  '/api/canvas-boards/[identifier]/comments/[comment_id]': ['DELETE', 'PATCH'],
  '/api/canvas-boards/[identifier]/comments/[comment_id]/react': ['POST'],
@@ -245,8 +247,8 @@ class CompleteApiCoverageTests(SimpleTestCase):
     def test_all_139_explicit_methods_resolve_to_the_declared_python_handlers(self):
         # 90 migrated methods, the media resolver, the managed-portrait routes, the admin provider error log, agent access,
         # board roles, board sync, board AI jobs, board history, synced copies, board work tables, board media and the board integration slices.
-        self.assertEqual(len(EXPECTED),160)
-        self.assertEqual(sum(map(len,EXPECTED.values())),220)
+        self.assertEqual(len(EXPECTED),162)
+        self.assertEqual(sum(map(len,EXPECTED.values())),223)
         resolved_routes=set()
         for path,methods in EXPECTED.items():
             with self.subTest(path=path):
@@ -381,7 +383,7 @@ class CompleteApiNegativeBoundaryTests(TransactionTestCase):
         payload,signature=self.valid.split('.')
         self.forged=payload+'.'+('A' if signature[0]!='A' else 'B')+signature[1:]
         self.tables=sorted({model._meta.db_table for model in apps.get_models() if model._meta.managed})
-        self.assertEqual(len(self.tables),70)
+        self.assertEqual(len(self.tables),71)
         self.assertEqual({path:set(methods) for path,methods in EXPECTED.items()},
             {path:set(methods) for path,methods in NEGATIVE_STATUS.items()})
 
@@ -448,7 +450,7 @@ class CompleteApiNegativeBoundaryTests(TransactionTestCase):
                             if path=='/api/auth/me' and method=='GET': self.assertEqual(response.json(),{'user':None})
                             if path=='/api/auth/logout': self.assertEqual(response.json(),{'ok':True})
                             seen.add((mode,path,method))
-            self.assertEqual(len(seen),3*220)
+            self.assertEqual(len(seen),3*223)
             self.assert_no_effects(before)
 
     def test_every_unsafe_method_rejects_hostile_origin_even_with_valid_credentials(self):

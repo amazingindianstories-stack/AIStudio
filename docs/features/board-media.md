@@ -38,17 +38,23 @@ This slice covers miro-checklist.md lines 253-272 except the lines below.
   Animated GIFs still upload as images.
 - **Images and icons library**, Unsplash stock photo search: declined by the captain on 2026-11-01. The
   bundled recolorable icon set is built.
-- **Automatic closed captions**: deferred by the captain on 2026-11-01 to a separate on-demand
-  "Generate captions" task, which adds the video `captions` field, its WebVTT track and the generator
-  together.
+- **Automatic closed captions**: declined by the captain on 2026-11-01 in favour of the on-demand
+  "Generate captions" button described below.
 
 ## On-demand video captions
 
 An editor selects a board video and chooses "Generate captions". The panel shows the model and the cost step first
 (transcription has no metered price in Veevee, so none is invented); nothing runs until "Start". The backend
 (`apps/canvas/captions.py`, `caption_views.py`) extracts the video's audio, transcribes it through the existing
-audio paid-guard path and stores WebVTT in `canvas_board_captions`, outside the board JSON.
+audio paid-guard path and stores WebVTT in `canvas_board_captions`, outside the board JSON. The caption row is
+committed together with its transcription job, so a second click or a second editor never submits another paid job.
 `GET /api/canvas-boards/<id>/captions?src=` quotes, `POST` generates (edit access), and `GET .../captions/vtt?src=`
 serves `text/vtt` to anyone who can view the board. The video node fetches that text through the API and attaches it
 as a blob `<track>`, so the video never sets `crossOrigin` and CDN redirects keep working. Viewers and commenters can
 toggle CC but cannot generate.
+
+`POST` waits up to 110 s and answers 202 with `pending: true` if the job is still running then. The quote finishes
+that run once the job ends: it stores the VTT on success, and on a definite failure it removes the row so the run can
+be started again. The panel checks again every few seconds while the run is pending. The gateway lets the `POST`
+through only with the paid initial routes on, and waits 125 s for it, the same as `/api/audio/transcribe`
+(`deploy/gateway.py` `BOARD_TRANSCRIPTIONS`, which also covers the Talktrack transcript).

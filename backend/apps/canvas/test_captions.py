@@ -1,10 +1,12 @@
 """Board video captions: WebVTT conversion, the quote that comes before any spend, the generate route's roles,
-guard and failure path, and same-origin VTT serving."""
+guard and failure path, a run that outlives its request, and same-origin VTT serving."""
 import shutil
 import tempfile
 from types import SimpleNamespace
 from unittest.mock import patch
+from uuid import uuid4
 from django.test import SimpleTestCase
+from apps.generation.models import Generation
 from apps.media.audio_wait import AudioFailed, AudioResultPending
 from apps.media.storage import FileSystemAdapter, StorageService
 from . import captions
@@ -26,8 +28,12 @@ class VttTests(SimpleTestCase):
     def test_transcript_becomes_webvtt(self):
         vtt = captions.vtt_from_transcript(TEXT)
         self.assertTrue(vtt.startswith('WEBVTT\n\n00:00:00.000 --> 00:00:04.000\nAna: Welcome.\n'))
-        self.assertIn('00:00:04.500 --> 00:00:09.000\nHere is the -> roadmap.', vtt)
+        self.assertIn('00:00:04.500 --> 00:00:09.000\nHere is the --&gt; roadmap.', vtt)
         self.assertIn('00:00:10.000 --> 00:00:12.000\nShort.', vtt)
+
+    def test_cue_text_cannot_become_markup(self):
+        vtt = captions.vtt_from_segments([{'startMs': 0, 'endMs': 1000, 'speaker': 'A<b>', 'text': '<laughs> a < b & c'}])
+        self.assertIn('\nA&lt;b&gt;: &lt;laughs&gt; a &lt; b &amp; c\n', vtt)
 
     def test_nothing_timed_gives_no_file(self):
         self.assertEqual(captions.vtt_from_transcript(''), '')
@@ -46,32 +52,32 @@ class CaptionRouteTests(FacilitationBase):
         self.addCleanup(shutil.rmtree, directory, True)
         self.storage = StorageService(FileSystemAdapter(directory))
         self.storage.primary.put('uploads/clip.mp4', b'mp4', 'video/mp4', 'private')
-        for target in ('apps.media.storage.get_storage',):
-            patcher = patch(target, return_value=self.storage)
+        for target, value in (('apps.media.storage.get_storage', self.storage),
+                              ('apps.canvas.captions.transcription_available', True),
+                              ('apps.canvas.captions._audio_reference', 'data:audio/mp4;base64,AAAA'),
+                              ('apps.media.audio_inputs.capture_audio_input', {'source': '/api/media/references/x'})):
+            patcher = patch(target, return_value=value)
             patcher.start()
             self.addCleanup(patcher.stop)
-        self.available = patch('apps.canvas.captions.transcription_available', return_value=True)
-        self.available.start()
-        self.addCleanup(self.available.stop)
-        audio = patch('apps.canvas.captions._audio_reference', return_value='data:audio/mp4;base64,AAAA')
-        audio.start()
-        self.addCleanup(audio.stop)
-        capture = patch('apps.media.audio_inputs.capture_audio_input', return_value={'source': '/api/media/references/x'})
-        capture.start()
-        self.addCleanup(capture.stop)
+        from apps.generation.services import audio_submission
+        persist = patch('apps.generation.services.audio_submission.persist_audio_intent', wraps=audio_submission.persist_audio_intent)
+        self.persist = persist.start()
+        self.addCleanup(persist.stop)
 
     def generate(self, user, expect=200, src=SRC):
         return self.call(user, 'post', '/captions', {'src': src}, expect)
 
+    def quote(self, user=None):
+        return self.call(user or self.dee, 'get', f'/captions?src={SRC}')['captions']
+
     def test_roles_only_editors_generate_everyone_can_quote_and_read(self):
-        with patch('apps.generation.services.audio_submission.persist_audio_intent', return_value='i') as persist, \
-                patch('apps.media.audio_wait.wait_for_audio', return_value=SimpleNamespace(prompt=TEXT)):
+        with patch('apps.media.audio_wait.wait_for_audio', return_value=SimpleNamespace(prompt=TEXT)):
             for user in (self.ben, self.cat):
                 self.generate(user, 403)
-            self.assertEqual(persist.call_count, 0)
+            self.assertEqual(self.persist.call_count, 0)
             self.generate(self.dee)
         for user in (self.ben, self.cat, self.dee):
-            self.assertTrue(self.call(user, 'get', f'/captions?src={SRC}')['captions']['exists'])
+            self.assertTrue(self.quote(user)['exists'])
             self.client.cookies['veevee_session'] = __import__('apps.authentication.session', fromlist=['x']).sign_session(user)
             response = self.client.get(f'/api/canvas-boards/{BOARD}/captions/vtt?src={SRC}')
             self.assertEqual(response.status_code, 200)
@@ -79,36 +85,88 @@ class CaptionRouteTests(FacilitationBase):
             self.assertTrue(response.content.startswith(b'WEBVTT'))
 
     def test_quote_shows_the_cost_and_starts_nothing(self):
-        with patch('apps.generation.services.audio_submission.persist_audio_intent') as persist:
-            quote = self.call(self.ben, 'get', f'/captions?src={SRC}')['captions']
-        self.assertEqual((quote['exists'], quote['available'], quote['costCents'], quote['format']), (False, True, 0, 'webvtt'))
+        quote = self.quote(self.ben)
+        self.assertEqual((quote['exists'], quote['pending'], quote['available'], quote['costCents'], quote['format']),
+                         (False, False, True, 0, 'webvtt'))
         self.assertTrue(quote['model'].startswith('Gemini ('))
-        persist.assert_not_called()
+        self.persist.assert_not_called()
         self.assertEqual(BoardCaption.objects.count(), 0)
 
     def test_generating_runs_the_paid_guard_path_once(self):
-        with patch('apps.generation.services.audio_submission.persist_audio_intent', return_value='i') as persist, \
-                patch('apps.media.audio_wait.wait_for_audio', return_value=SimpleNamespace(prompt=TEXT)) as wait:
+        with patch('apps.media.audio_wait.wait_for_audio', return_value=SimpleNamespace(prompt=TEXT)) as wait:
+            self.assertEqual(self.generate(self.dee)['captions']['exists'], True)
             self.generate(self.dee)
-            self.generate(self.dee)
-        self.assertEqual((persist.call_count, wait.call_count), (1, 1))
-        intent = persist.call_args.args[0]
+        self.assertEqual((self.persist.call_count, wait.call_count), (1, 1))
+        intent = self.persist.call_args.args[0]
         self.assertEqual((intent['user_id'], intent['cost_cents'], intent['kind']), (self.dee.id, 0, 'audio'))
-        self.assertEqual(BoardCaption.objects.get(board_id=BOARD).media_key, 'uploads/clip.mp4')
+        row = BoardCaption.objects.get(board_id=BOARD)
+        self.assertEqual((row.media_key, row.generation_id), ('uploads/clip.mp4', intent['id']))
 
-    def test_failures_store_nothing(self):
-        with patch('apps.generation.services.audio_submission.persist_audio_intent', return_value='i'):
-            with patch('apps.media.audio_wait.wait_for_audio', side_effect=failed()):
-                self.generate(self.dee, 502)
-            with patch('apps.media.audio_wait.wait_for_audio', side_effect=AudioResultPending('x')):
-                self.generate(self.dee, 504)
-            with patch('apps.media.audio_wait.wait_for_audio', return_value=SimpleNamespace(prompt='no timestamps here')):
-                self.generate(self.dee, 422)
-        self.assertEqual(BoardCaption.objects.count(), 0)
+    def test_a_run_that_outlives_its_request_is_finished_later_and_never_submitted_again(self):
+        with patch('apps.media.audio_wait.wait_for_audio', side_effect=AudioResultPending('x')):
+            self.assertEqual(self.generate(self.dee, 202)['captions'], {'exists': False, 'pending': True, 'createdAt': self.clock})
+            self.generate(self.dee, 202)
+        self.assertEqual(self.persist.call_count, 1)
+        job = Generation.objects.get(pk=BoardCaption.objects.get(board_id=BOARD).generation_id)
+        self.assertEqual((self.quote()['pending'], self.quote()['exists']), (True, False))
         self.call(self.dee, 'get', f'/captions/vtt?src={SRC}', expect=404)
+        Generation.objects.filter(pk=job.pk).update(status='succeeded', provider_status='COMPLETED', prompt=TEXT)
+        self.assertEqual((self.quote(self.ben)['pending'], self.quote(self.ben)['exists']), (False, True))
+        self.client.cookies['veevee_session'] = __import__('apps.authentication.session', fromlist=['x']).sign_session(self.ben)
+        self.assertIn(b'Ana: Welcome.', self.client.get(f'/api/canvas-boards/{BOARD}/captions/vtt?src={SRC}').content)
+        self.assertEqual(self.persist.call_count, 1)
+
+    def test_a_second_editor_starting_at_the_same_time_submits_nothing(self):
+        winner = uuid4()
+
+        def race(*args, **kwargs):
+            Generation.objects.create(id=winner, kind='audio', status='queued', prompt='', model='Gemini (m)', aspect_ratio='audio',
+                                      reference_audios=[], user_id=self.ana.id, cost_cents=0, cost_basis='estimated',
+                                      created_at=1, updated_at=1, provider_status='READY', submission_input={})
+            BoardCaption.objects.create(board_id=BOARD, actor_id=self.ana.id, media_key='uploads/clip.mp4', generation_id=winner, created_at=1)
+            return {'source': '/api/media/references/x'}
+        with patch('apps.media.audio_inputs.capture_audio_input', side_effect=race), \
+                patch('apps.media.audio_wait.wait_for_audio', side_effect=AudioResultPending('x')):
+            self.assertTrue(self.generate(self.dee, 202)['captions']['pending'])
+        self.assertEqual(list(Generation.objects.values_list('id', flat=True)), [winner])
+        self.assertEqual(list(BoardCaption.objects.values_list('generation_id', flat=True)), [winner])
+
+    def test_definite_failures_store_nothing_and_allow_a_new_run(self):
+        with patch('apps.media.audio_wait.wait_for_audio', side_effect=failed()):
+            self.generate(self.dee, 502)
+        self.assertEqual(BoardCaption.objects.count(), 0)
+        with patch('apps.media.audio_wait.wait_for_audio', return_value=SimpleNamespace(prompt='no timestamps here')):
+            self.generate(self.dee, 422)
+        self.assertEqual((BoardCaption.objects.count(), self.persist.call_count), (0, 2))
+        self.call(self.dee, 'get', f'/captions/vtt?src={SRC}', expect=404)
+        self.assertEqual(self.quote()['exists'], False)
 
     def test_unconfigured_provider_and_foreign_media_are_refused(self):
         with patch('apps.canvas.captions.transcription_available', return_value=False):
             self.generate(self.dee, 503)
         self.generate(self.dee, 404, src='/api/media/uploads/other.mp4')
         self.generate(self.dee, 404, src='https://example.com/a.mp4')
+        self.persist.assert_not_called()
+
+
+class AudioReferenceTests(SimpleTestCase):
+    def setUp(self):
+        directory = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, directory, True)
+        self.storage = StorageService(FileSystemAdapter(directory))
+
+    def reference(self, key, data, mime):
+        self.storage.primary.put(key, data, mime, 'private')
+        return captions._audio_reference(self.storage, key, '/api/media/' + key, __import__('time').monotonic() + 60)
+
+    def test_audio_is_handed_over_as_it_is_and_other_media_is_refused(self):
+        self.assertEqual(self.reference('uploads/a.mp3', b'ID3', 'audio/mpeg'), '/api/media/uploads/a.mp3')
+        with self.assertRaises(captions.FacilitationError) as raised:
+            self.reference('uploads/a.png', b'png', 'image/png')
+        self.assertEqual(raised.exception.status, 400)
+
+    def test_a_video_over_the_limit_is_refused_before_ffmpeg(self):
+        from apps.media.errors import MediaTooLargeError
+        with patch.object(captions, 'MAX_VIDEO_BYTES', 2), patch('subprocess.run') as run, self.assertRaises(MediaTooLargeError):
+            self.reference('uploads/big.mp4', b'mp4', 'video/mp4')
+        run.assert_not_called()

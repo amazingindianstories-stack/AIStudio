@@ -11,29 +11,40 @@ import { costLabel, generateCaptions, loadCaptionTrack, quoteCaptions } from "@/
  */
 const QUOTE_TRIES = 5;
 const QUOTE_RETRY_MS = 2000;
+const PENDING_POLL_MS = 5000;
 
 export function useVideoCaptions(node, active) {
   const boardId = useCanvasStore((s) => s.boardId);
   const canGenerate = useCanvasStore((s) => !selectReadOnly(s));
-  const [quote, setQuote] = useState(null);
+  const scope = `${boardId}\n${node.src}`;
+  const [answer, setAnswer] = useState(null);
+  const [round, setRound] = useState(0);
   const [on, setOn] = useState(false);
   const [trackUrl, setTrackUrl] = useState(null);
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [tries, setTries] = useState(0);
+  const quote = answer?.scope === scope ? answer.quote : null;
   const exists = Boolean(quote?.exists);
 
-  // A video just added to the board is not saved yet, so the first quote can answer 404: ask again shortly.
+  // Ask each time the video is selected, so captions another editor made show up. A video just added to the board
+  // is not saved yet, so the first quote can answer 404: ask again shortly. While a run is pending, keep checking.
   useEffect(() => {
-    if (!active || !boardId || quote || tries >= QUOTE_TRIES) return undefined;
+    if (!active || !boardId) return undefined;
     let cancelled = false;
     let timer = null;
-    quoteCaptions(boardId, node.src).then((q) => { if (!cancelled) setQuote(q); }, () => {
-      if (!cancelled) timer = setTimeout(() => setTries((n) => n + 1), QUOTE_RETRY_MS);
+    let tries = 0;
+    const ask = () => quoteCaptions(boardId, node.src).then((q) => {
+      if (cancelled) return;
+      setAnswer({ scope, quote: q });
+      if (q?.pending) timer = setTimeout(ask, PENDING_POLL_MS);
+    }, () => {
+      tries += 1;
+      if (!cancelled && tries < QUOTE_TRIES) timer = setTimeout(ask, QUOTE_RETRY_MS);
     });
+    ask();
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [active, boardId, node.src, quote, tries]);
+  }, [active, boardId, node.src, scope, round]);
 
   useEffect(() => {
     if (!on || !exists || !boardId) return undefined;
@@ -50,15 +61,17 @@ export function useVideoCaptions(node, active) {
     setError("");
     try {
       const result = await generateCaptions(boardId, node.src);
-      setQuote((q) => ({ ...q, ...result }));
+      setAnswer((a) => ({ scope, quote: { ...(a?.scope === scope ? a.quote : null), ...result } }));
       setConfirming(false);
-      setOn(true);
+      if (result?.exists) setOn(true);
+      else setRound((n) => n + 1);
     } catch (e) {
       setError(e.message || "Captions could not be generated.");
+      setRound((n) => n + 1);
     } finally {
       setBusy(false);
     }
-  }, [boardId, node.src]);
+  }, [boardId, node.src, scope]);
 
   return { quote, exists, on, setOn, trackUrl, confirming, setConfirming, busy, error, canGenerate, generate };
 }
@@ -69,6 +82,7 @@ export function CaptionControls({ captions }) {
   const { quote, exists, on, setOn, confirming, setConfirming, busy, error, canGenerate, generate } = captions;
   if (!quote) return null;
   const available = quote.available !== false;
+  const pending = Boolean(quote.pending);
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-2 bg-black/70 px-2 py-1 text-[11px] text-white/80" data-captions-controls="" onPointerDown={stop}>
       {exists ? (
@@ -77,6 +91,8 @@ export function CaptionControls({ captions }) {
           <Captions className="h-3 w-3" aria-hidden />
           CC
         </button>
+      ) : pending ? (
+        <span data-captions-pending="">Making captions...</span>
       ) : canGenerate && available && !confirming ? (
         <button type="button" onClick={() => setConfirming(true)} data-captions-generate=""
           className="inline-flex items-center gap-1 rounded bg-white/15 px-1.5 py-0.5">
@@ -84,7 +100,7 @@ export function CaptionControls({ captions }) {
           Generate captions
         </button>
       ) : null}
-      {confirming && !exists && (
+      {confirming && !exists && !pending && (
         <span className="flex flex-wrap items-center gap-2" data-captions-confirm="">
           <span>{costLabel(quote)}</span>
           <button type="button" disabled={busy} onClick={generate} data-captions-start="" className="rounded bg-white px-1.5 py-0.5 text-black disabled:opacity-60">
