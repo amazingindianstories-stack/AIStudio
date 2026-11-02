@@ -85,6 +85,19 @@ Restart. A deck's slides render their frames from the full graph, and dragging a
 onto a slide moves it into that frame. The server drops a `screenLink` and clears a slide's `frameId`
 when the target is not on the board; copying objects together with their targets remaps both.
 
+## Payload storage
+
+Docs blocks and suggestions, HTML embeds and draw.io XML and previews live in `canvas_board_format_payloads`,
+one row per board and node (`apps/canvas/payloads.py`), not in the board JSON. The node keeps
+`payload: {size, rev}`; `rev` rises only when the content changes. A save still sends the whole node: the
+server splits the fields off inside the board-locked save, so roles, version conflicts and History apply
+unchanged, and a node sent with its reference but without its fields keeps its stored row. Reads return the
+payload inline by default; `?payloads=lazy` on the board, its save and its changes feed leaves the reference
+only, and `GET /api/canvas-boards/:id/payloads/:nodeId` loads one node's payload (`src/lib/canvas/formats/payloads.js`
+holds the load-on-demand logic). One payload may hold up to 1,048,576 UTF-16 units of JSON (413 `payload`
+beyond that); fields hold up to 500,000 characters (HTML, XML, preview) and docs up to 2,000 blocks of
+20,000 characters. Copying a board or template reads inline and re-splits; deleting a board or node removes its rows.
+
 ## Roles and history
 
 All edits go through the board store, which refuses them in read-only mode, and format edit paths

@@ -28,7 +28,8 @@ def _readable_graph(user, identifier):
         return None, None, None
     level = access.role_for(user, existing)
     row = CanvasBoard.objects.filter(pk=identifier).values('name', 'version', 'data', 'project_id').first()
-    return row, hidden.view_of(validate_state(row['data']), level), level
+    from .payloads import hydrate
+    return row, hidden.view_of(hydrate(identifier, validate_state(row['data'])), level), level
 
 
 def frame_summaries(graph, level):

@@ -12,7 +12,7 @@ from django.test import SimpleTestCase, TransactionTestCase, override_settings
 from apps.authentication.session import sign_session
 from apps.projects.models import Project
 from . import patch
-from .models import CanvasBoard
+from .models import BoardFormatPayload, CanvasBoard
 from .serialization import empty_state, json_length, validate_state
 from .test_activity import BOARD, PROJECT, T0, graph
 from .test_roles import make_user
@@ -37,7 +37,7 @@ class FormatSerializationTests(SimpleTestCase):
         self.assertEqual(state['nodes'], [])
 
     def test_an_oversized_html_embed_is_emptied(self):
-        node = {'id': 'a', 'type': 'format', 'format': 'html', 'x': 0, 'y': 0, 'w': 1, 'h': 1, 'html': 'x' * 50001}
+        node = {'id': 'a', 'type': 'format', 'format': 'html', 'x': 0, 'y': 0, 'w': 1, 'h': 1, 'html': 'x' * 500001}
         self.assertEqual(validate_state({'nodes': [node]})['nodes'][0]['html'], '')
 
     def test_half_an_emoji_in_format_text_becomes_a_replacement_character(self):
@@ -78,8 +78,8 @@ class FormatBoardSaveTests(TransactionTestCase):
         doc = {'id': 'd', 'type': 'format', 'format': 'doc', 'x': 0, 'y': 0, 'w': 9, 'h': 9,
                'blocks': [{'id': 'b', 'type': 'p', 'text': 'x' * 4998 + ' \ud83d'}]}
         self.send('put', {'data': graph(doc)})
-        stored = CanvasBoard.objects.get(pk=BOARD).data['nodes'][0]
+        stored = BoardFormatPayload.objects.get(board_id=BOARD, node_id='d').body
         self.assertEqual(stored['blocks'][0]['text'], 'x' * 4998 + ' \ufffd')
         edited = {**doc, 'blocks': [{'id': 'b', 'type': 'p', 'text': 'more \ud83d'}]}
         self.send('patch', {'patch': {'nodes': {'upsert': [edited]}}})
-        self.assertEqual(CanvasBoard.objects.get(pk=BOARD).data['nodes'][0]['blocks'][0]['text'], 'more \ufffd')
+        self.assertEqual(BoardFormatPayload.objects.get(board_id=BOARD, node_id='d').body['blocks'][0]['text'], 'more \ufffd')

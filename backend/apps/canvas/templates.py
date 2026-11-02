@@ -327,7 +327,8 @@ def _board_graph(user, board_id, level):
     if row is None:
         raise TemplateError('Board not found.', 404)
     access.require(user, row, level)
-    return CanvasBoard.objects.filter(pk=board_id).values_list('data', flat=True).first()
+    from .payloads import hydrate
+    return hydrate(board_id, CanvasBoard.objects.filter(pk=board_id).values_list('data', flat=True).first())
 
 
 def create_template(user, data):
@@ -619,7 +620,8 @@ def create_blueprint(user, data):
         raise TemplateError('The project has no boards to save.')
     if any(levels[str(row['id'])] < access.WRITE for row in chosen):
         raise access.AccessError('FORBIDDEN', 403)
-    graphs = dict(CanvasBoard.objects.filter(pk__in=[row['id'] for row in chosen]).values_list('id', 'data'))
+    from .payloads import hydrate
+    graphs = {key: hydrate(key, value) for key, value in CanvasBoard.objects.filter(pk__in=[row['id'] for row in chosen]).values_list('id', 'data')}
     identifier = uuid.uuid4()
     boards = [{'name': row['name'], 'graph': copy_media(snapshot(graphs.get(row['id'])), f'canvas/blueprints/{identifier}')}
               for row in chosen]

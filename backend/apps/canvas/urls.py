@@ -9,7 +9,7 @@ from .talktrack_views import (board_talktrack, board_talktrack_moment, board_tal
                               board_talktrack_view, board_talktrack_viewers, board_talktracks, my_talktracks)
 from . import api_v1
 from .views import (board_access, board_activity, board_ai_job, board_ai_jobs, board_ai_quote, board_detail, board_metadata_reads,
-                    board_upload, board_version, board_changes, shape_packs, shape_pack_detail)
+                    board_payload, board_upload, board_version, board_changes, shape_packs, shape_pack_detail)
 from .views_sidekick import board_assistant, canvas_ai
 
 from .media_views import media_detail, media_library, import_url
@@ -51,6 +51,7 @@ urlpatterns = [
     path('api/canvas-boards/<str:identifier>/frames', board_frames),
     path('api/canvas-boards/<str:identifier>/frames/<str:node_id>', board_frame),
     path('api/canvas-boards/<str:identifier>/frames/<str:node_id>/copies', frame_copies),
+    path('api/canvas-boards/<str:identifier>/payloads/<str:node_id>', board_payload),
     path('api/canvas-boards/<str:identifier>/activity', board_activity),
     path('api/canvas-boards/<str:identifier>/ai-jobs', board_ai_jobs),
     path('api/canvas-boards/<str:identifier>/ai-jobs/quote', board_ai_quote),

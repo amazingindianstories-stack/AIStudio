@@ -20,8 +20,8 @@ export const DOC_BLOCK_TYPES = ["p", "h1", "h2", "h3", "ul", "ol", "todo", "quot
 
 export const MAX_ID = 64;
 export const MAX_NAME = 120;
-export const MAX_DOC_BLOCKS = 400;
-export const MAX_BLOCK_TEXT = 5000;
+export const MAX_DOC_BLOCKS = 2000;
+export const MAX_BLOCK_TEXT = 20000;
 export const MAX_TABLE_ROWS = 20;
 export const MAX_TABLE_COLS = 8;
 export const MAX_CELL_TEXT = 500;
@@ -30,9 +30,9 @@ export const MAX_SLIDES = 100;
 export const MAX_LANES = 6;
 export const MAX_LANE_NAME = 60;
 export const MAX_NOTES = 5000;
-export const MAX_HTML = 50000;
-export const MAX_DRAWIO_XML = 100000;
-export const MAX_DRAWIO_PREVIEW = 100000;
+export const MAX_HTML = 500000;
+export const MAX_DRAWIO_XML = 500000;
+export const MAX_DRAWIO_PREVIEW = 500000;
 export const DRAWIO_PREVIEW_PREFIX = "data:image/svg+xml;base64,";
 
 export const FORMAT_DEFAULTS = {
