@@ -54,10 +54,16 @@ as a blob `<track>`, so the video never sets `crossOrigin` and CDN redirects kee
 toggle CC but cannot generate.
 
 `POST` waits up to 110 s and answers 202 with `pending: true` if the job is still running then. The quote finishes
-that run once the job ends: it stores the VTT on success. A run whose job failed, became uncertain or is still not
-done five minutes after it started (the audio job's 120 s provider timeout plus room for admission) is marked failed;
-the quote reports the reason as `failure`, the panel shows "Captions failed, try again." and offers Start again, and
-the next run takes over the row. Nothing sweeps or cancels audio jobs; the check happens when the row is read. The
-panel checks again every few seconds while the run is pending. The gateway lets the `POST`
+that run once the job ends: it stores the VTT on success. While the audio job is queued or running the run stays
+pending, however long admission takes, and Start stays hidden. A run is marked failed only when its job failed or was
+cancelled, or when its submission stayed uncertain for 32 minutes (the audio job's 120 s provider timeout plus a wide
+margin); the quote reports the reason as `failure`, the panel shows "Captions failed, try again." and offers Start
+again, and the next run takes over the row. Nothing sweeps or cancels audio jobs; the check happens when the row is
+read. The panel checks again every few seconds while the run is pending. Only media that `/api/media/` would serve
+(the shared read policy, so no unfinished uploads or exports) is captioned.
+
+Known gap: nothing in the audio path refunds or reconciles an uncertain submission. If Gemini did run an uncertain
+job, a retry after the grace period bills a second transcription. The uncertain job also keeps the editor's single
+audio slot reserved, so that editor's retry stays queued (shown as still working) until the reservation clears. The gateway lets the `POST`
 through only with the paid initial routes on, and waits 125 s for it, the same as `/api/audio/transcribe`
 (`deploy/gateway.py` `BOARD_TRANSCRIPTIONS`, which also covers the Talktrack transcript).

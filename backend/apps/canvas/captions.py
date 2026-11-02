@@ -3,8 +3,8 @@ and `generate` runs when an editor asks. It goes through the audio transcription
 guard, generation worker, Gemini), as the Talktrack transcript does, then turns the timestamped transcript into
 WebVTT. The VTT lives in its own table, outside the board JSON, and is served as same-origin text. The caption row
 is committed with its transcription job, so a run that outlives its request is finished by a later quote, never
-submitted twice. A run whose job failed, became uncertain or outlived `RUN_LIFETIME_MS` is marked failed, and only
-then can an editor start another."""
+submitted twice. A run is marked failed only once its job failed, was cancelled, or stayed uncertain past
+`UNCERTAIN_GRACE_MS`, and only then can an editor start another."""
 import base64
 import subprocess
 import tempfile
@@ -22,8 +22,8 @@ MAX_VIDEO_BYTES = 200 * 1024 * 1024
 FFMPEG_TIMEOUT_S = 60
 # The request answers within this, inside the gateway's 125 s wait; a run still going then is finished later.
 BUDGET_S = 110
-# The audio job's own 120 s provider timeout, plus room for the worker to admit it.
-RUN_LIFETIME_MS = (120 + 180) * 1000
+# The audio job's own 120 s provider timeout, plus a wide margin before an unresolved submission counts as failed.
+UNCERTAIN_GRACE_MS = (120 + 30 * 60) * 1000
 MAX_VTT_CHARS = 400_000
 
 
@@ -107,10 +107,14 @@ def _audio_reference(storage, key, deadline):
     handed over as a data URI so no extra object is stored. The video is streamed to a temporary file, never held in
     memory."""
     from apps.media.audio_inputs import MAX_AUDIO_BYTES
+    from urllib.parse import unquote
     from apps.media.errors import MediaTooLargeError
-    from apps.media.keys import is_export_key
-    if is_export_key(key):
-        raise FacilitationError('This media cannot be captioned.', 400)
+    from apps.media.keys import InvalidMediaKey
+    from apps.media.views import MediaHidden, authorize_media_key
+    try:
+        key = authorize_media_key(unquote(key))
+    except (MediaHidden, InvalidMediaKey):
+        raise FacilitationError('That video could not be found.', 404)
     with tempfile.TemporaryDirectory() as directory:
         source, target = Path(directory, 'in'), Path(directory, 'out.m4a')
         media = storage.open(key)
@@ -143,8 +147,8 @@ def _audio_reference(storage, key, deadline):
 
 def _settle(row, now, timeout=0):
     """Follow a row's transcription job for up to `timeout` seconds. The row gets its VTT once the job succeeded. It
-    is marked failed, with the reason raised, once the job failed, is gone or uncertain, or the run outlived
-    `RUN_LIFETIME_MS`. While the job still runs, the row is returned as it is."""
+    is marked failed, with the reason raised, once the job failed, was cancelled or is gone, or its submission stayed
+    uncertain past `UNCERTAIN_GRACE_MS`. While the job is queued or running, the row is returned as it is."""
     from apps.generation.models import Generation
     from apps.media.audio_wait import AudioFailed, AudioResultPending, wait_for_audio
     if row.vtt or row.error:
@@ -157,11 +161,16 @@ def _settle(row, now, timeout=0):
         try:
             saved = wait_for_audio(job, timeout=timeout)
         except AudioResultPending:
-            running = Generation.objects.filter(pk=job.pk).exclude(status__in=('failed', 'cancelled')) \
-                .exclude(provider_status='SUBMISSION_UNCERTAIN').exists()
-            if running and now - row.created_at <= RUN_LIFETIME_MS:
-                return row
-            raise FacilitationError('The caption run did not finish.', 504)
+            job = Generation.objects.filter(pk=job.pk).first()
+            if job is None:
+                raise FacilitationError('The caption run is gone.', 409)
+            if job.provider_status == 'SUBMISSION_UNCERTAIN':
+                if now - job.updated_at <= UNCERTAIN_GRACE_MS:
+                    return row
+                raise FacilitationError('The caption run could not be confirmed.', 504)
+            if job.status == 'cancelled':
+                raise FacilitationError('The caption run was cancelled.', 409)
+            return row
         except AudioFailed as error:
             raise FacilitationError(str(error), 429 if error.busy else 502)
         except RuntimeError:

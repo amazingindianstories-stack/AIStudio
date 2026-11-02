@@ -5,7 +5,7 @@ import tempfile
 from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import uuid4
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
 from apps.generation.models import Generation
 from apps.media.audio_wait import AudioFailed, AudioResultPending
 from apps.media.storage import FileSystemAdapter, StorageService
@@ -147,25 +147,37 @@ class CaptionRouteTests(FacilitationBase):
             self.assertTrue(self.generate(self.dee)['captions']['exists'])
         self.assertEqual((self.quote()['exists'], self.quote()['failure'], self.persist.call_count), (True, '', 3))
 
-    def test_a_run_past_its_lifetime_fails_and_can_be_started_again(self):
+    def pending_run(self):
         with patch('apps.media.audio_wait.wait_for_audio', side_effect=AudioResultPending('x')):
             self.generate(self.dee, 202)
-        first = BoardCaption.objects.get(board_id=BOARD).generation_id
-        BoardCaption.objects.update(created_at=self.clock - captions.RUN_LIFETIME_MS)
+        return Generation.objects.filter(pk=BoardCaption.objects.get(board_id=BOARD).generation_id)
+
+    def test_a_queued_job_never_expires_and_a_failed_one_clears_the_run(self):
+        job = self.pending_run()
+        self.tick(60 * 60 * 1000)
         self.assertEqual((self.quote()['pending'], self.quote()['failure']), (True, ''))
-        self.tick(1)
-        self.assertEqual((self.quote()['pending'], self.quote()['failure']), (False, 'The caption run did not finish.'))
+        self.assertTrue(self.generate(self.dee, 202)['captions']['pending'])
+        job.update(status='running', provider_status='SUBMITTED')
+        self.tick(60 * 60 * 1000)
+        self.assertEqual(self.quote()['pending'], True)
+        self.assertEqual(self.persist.call_count, 1)
+        job.update(status='failed', provider_status='REJECTED', error='Gemini transcription failed (400).')
+        quote = self.quote()
+        self.assertEqual(quote['pending'], False)
+        self.assertTrue(quote['failure'])
         with patch('apps.media.audio_wait.wait_for_audio', return_value=SimpleNamespace(prompt=TEXT)):
             self.assertTrue(self.generate(self.dee)['captions']['exists'])
-        row = BoardCaption.objects.get(board_id=BOARD)
-        self.assertNotEqual(row.generation_id, first)
-        self.assertEqual((row.error, self.persist.call_count), ('', 2))
+        self.assertEqual((BoardCaption.objects.get(board_id=BOARD).error, self.persist.call_count), ('', 2))
 
-    def test_an_uncertain_submission_fails_without_waiting_for_the_lifetime(self):
-        with patch('apps.media.audio_wait.wait_for_audio', side_effect=AudioResultPending('x')):
-            self.generate(self.dee, 202)
-        Generation.objects.filter(pk=BoardCaption.objects.get(board_id=BOARD).generation_id).update(provider_status='SUBMISSION_UNCERTAIN')
-        self.assertEqual((self.quote()['pending'], self.quote()['failure']), (False, 'The caption run did not finish.'))
+    def test_a_cancelled_job_clears_the_run(self):
+        self.pending_run().update(status='cancelled')
+        self.assertEqual((self.quote()['pending'], self.quote()['failure']), (False, 'The caption run was cancelled.'))
+
+    def test_an_uncertain_submission_fails_only_past_its_grace(self):
+        self.pending_run().update(provider_status='SUBMISSION_UNCERTAIN', updated_at=self.clock - captions.UNCERTAIN_GRACE_MS)
+        self.assertEqual((self.quote()['pending'], self.quote()['failure']), (True, ''))
+        self.tick(1)
+        self.assertEqual((self.quote()['pending'], self.quote()['failure']), (False, 'The caption run could not be confirmed.'))
         self.assertEqual(self.persist.call_count, 1)
 
     def test_unconfigured_provider_and_foreign_media_are_refused(self):
@@ -176,7 +188,7 @@ class CaptionRouteTests(FacilitationBase):
         self.persist.assert_not_called()
 
 
-class AudioReferenceTests(SimpleTestCase):
+class AudioReferenceTests(TestCase):
     def setUp(self):
         directory = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, directory, True)
@@ -185,6 +197,19 @@ class AudioReferenceTests(SimpleTestCase):
     def reference(self, key, data, mime):
         self.storage.primary.put(key, data, mime, 'private')
         return captions._audio_reference(self.storage, key, __import__('time').monotonic() + 60)
+
+    def test_media_the_read_policy_hides_is_not_found(self):
+        from datetime import timedelta
+        from django.utils import timezone
+        from apps.media.models import UploadSession
+        UploadSession.objects.create(actor_id=uuid4(), key='uploads/staged.mp4', purpose='canvas', content_type='video/mp4',
+                                     byte_size=3, expires_at=timezone.now() + timedelta(hours=1))
+        self.storage.primary.put('uploads/staged.mp4', b'mp4', 'video/mp4', 'private')
+        for key in ('uploads/staged.mp4', 'exports/a.zip', 'uploads/%2e%2e/clip.mp4'):
+            with patch('subprocess.run') as run, self.assertRaises(captions.FacilitationError) as raised:
+                captions._audio_reference(self.storage, key, __import__('time').monotonic() + 60)
+            self.assertEqual(raised.exception.status, 404)
+            run.assert_not_called()
 
     def test_only_video_is_extracted(self):
         for key, data, mime in (('uploads/a.mp3', b'ID3', 'audio/mpeg'), ('uploads/a.png', b'png', 'image/png')):
