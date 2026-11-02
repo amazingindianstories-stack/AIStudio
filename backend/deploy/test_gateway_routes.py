@@ -73,6 +73,20 @@ class ProductionRouteTableTests(SimpleTestCase):
                              ('GET', '/api/history')):
             self.assertEqual(gateway.upstream_wait(method, path), 25, (method, path))
 
+    def test_board_captions_and_talktrack_transcripts_are_paid_transcriptions(self):
+        board = f'/api/canvas-boards/{ID}'
+        for path in (f'{board}/captions', f'{board}/captions/', f'{board.upper()}/CAPTIONS', f'{board}/caption%73',
+                     f'{board}/talktracks/{ID}/transcript', f'{board}/talktracks/{ID}/transcript/'):
+            with self.subTest(path=path):
+                self.assertFalse(gateway.allowed('POST', path, False, True, True))
+                self.assertTrue(gateway.allowed('POST', path, **PRODUCTION))
+                self.assertEqual(gateway.upstream_wait('POST', path), gateway.upstream_wait('POST', '/api/audio/transcribe'))
+        # The quote and the VTT are reads, open without the paid routes and on the default wait.
+        for path in (f'{board}/captions', f'{board}/captions/vtt'):
+            with self.subTest(path=path):
+                self.assertTrue(gateway.allowed('GET', path))
+                self.assertEqual(gateway.upstream_wait('GET', path), 25)
+
 
 class QuietHandler(WSGIRequestHandler):
     def log_message(self, *args):

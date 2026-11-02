@@ -38,6 +38,36 @@ This slice covers miro-checklist.md lines 253-272 except the lines below.
   Animated GIFs still upload as images.
 - **Images and icons library**, Unsplash stock photo search: declined by the captain on 2026-11-01. The
   bundled recolorable icon set is built.
-- **Automatic closed captions**: deferred by the captain on 2026-11-01 to a separate on-demand
-  "Generate captions" task, which adds the video `captions` field, its WebVTT track and the generator
-  together.
+- **Automatic closed captions**: declined by the captain on 2026-11-01 in favour of the on-demand
+  "Generate captions" button described below.
+
+## On-demand video captions
+
+An editor selects a board video and chooses "Generate captions". The panel shows the model and the cost step first
+(transcription has no metered price in Veevee, so none is invented); nothing runs until "Start". The backend
+(`apps/canvas/captions.py`, `caption_views.py`) extracts the video's audio, transcribes it through the existing
+audio paid-guard path and stores WebVTT in `canvas_board_captions`, outside the board JSON. The caption row is
+committed together with its transcription job, so a second click or a second editor never submits another paid job.
+`GET /api/canvas-boards/<id>/captions?src=` quotes, `POST` generates (edit access), and `GET .../captions/vtt?src=`
+serves `text/vtt` to anyone who can view the board. The video node fetches that text through the API and attaches it
+as a blob `<track>`, so the video never sets `crossOrigin` and CDN redirects keep working. Viewers and commenters can
+toggle CC but cannot generate.
+
+`POST` waits up to 110 s and answers 202 with `pending: true` if the job is still running then. The quote finishes
+that run once the job ends: it stores the VTT on success. While the audio job is queued or running the run stays
+pending, however long admission takes, and Start stays hidden. A run is marked failed only when its job failed or was
+cancelled, or when its submission stayed uncertain for 32 minutes (the audio job's 120 s provider timeout plus a wide
+margin); the quote reports the reason as `failure`, the panel shows "Captions failed, try again." and offers Start
+again, and the next run takes over the row. Nothing sweeps or cancels audio jobs; the check happens when the row is
+read. The panel checks again every few seconds while the run is pending. Only media that `/api/media/` would serve
+(the shared read policy, so no unfinished uploads or exports) is captioned.
+
+The gateway lets the `POST` through only with the paid initial routes on, and waits 125 s for it, the same as
+`/api/audio/transcribe` (`deploy/gateway.py` `BOARD_TRANSCRIPTIONS`, which also covers the Talktrack transcript).
+
+Known gap: nothing refunds, reconciles or clears an uncertain audio submission. If Gemini did run an uncertain job, a
+retry after the grace period bills a second transcription. Audio admission (`audio_capacity_available`) also counts
+every `SUBMISSION_UNCERTAIN` row against its limits for good: one per user, two in total. So if the editor whose
+submission was uncertain retries, the new job never leaves the queue. The run stays pending, and Start stays hidden
+for every editor on that board, until an operator resolves the uncertain audio row. Two uncertain rows anywhere stop
+all audio admission the same way.
