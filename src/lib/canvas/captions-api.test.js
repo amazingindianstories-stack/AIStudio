@@ -25,6 +25,13 @@ test("generates with a POST body and surfaces the server error and status", asyn
   await assert.rejects(generateCaptions("b", "/api/media/x", fetchImpl), (e) => e.message === "No edit access." && e.status === 403);
 });
 
+test("words a transport 5xx without a server message as still working, not a raw status", async () => {
+  const dropped = { ok: false, status: 500, json: async () => { throw new SyntaxError("not JSON"); } };
+  const { fetchImpl } = recorder(dropped, fail(502, "The caption run could not be checked."));
+  await assert.rejects(generateCaptions("b", "/api/media/x", fetchImpl), (e) => e.message === "Still working on captions. Check back shortly." && e.status === 500);
+  await assert.rejects(generateCaptions("b", "/api/media/x", fetchImpl), /could not be checked/);
+});
+
 test("turns the VTT text into a same-origin blob URL", async () => {
   const { calls, fetchImpl } = recorder(ok("WEBVTT\n"));
   let blob;

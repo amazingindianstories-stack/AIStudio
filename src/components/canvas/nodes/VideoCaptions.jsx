@@ -37,6 +37,8 @@ export function useVideoCaptions(node, active) {
     const ask = () => quoteCaptions(boardId, node.src).then((q) => {
       if (cancelled) return;
       setAnswer({ scope, quote: q });
+      // A Start whose answer the transport dropped still runs on the server: once it shows, its error is stale.
+      if (q?.pending || q?.exists) setError("");
       if (q?.pending) timer = setTimeout(ask, PENDING_POLL_MS);
     }, () => {
       tries += 1;

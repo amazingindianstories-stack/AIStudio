@@ -10,7 +10,9 @@ const withSrc = (path, src) => `${path}?src=${encodeURIComponent(src)}`;
 async function readJson(response) {
   const json = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = new Error(json.error || `Request failed: ${response.status}`);
+    // A 5xx without a server message is the transport giving up (proxy or gateway timeout), not Django's answer.
+    const fallback = response.status >= 500 ? "Still working on captions. Check back shortly." : `Request failed: ${response.status}`;
+    const error = new Error(json.error || fallback);
     error.status = response.status;
     throw error;
   }

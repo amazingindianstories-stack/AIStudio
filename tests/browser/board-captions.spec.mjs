@@ -82,20 +82,26 @@ async function storedBoard(context, boardId, ready) {
 
 const ofType = (board, type) => board.data.nodes.filter((node) => node.type === type);
 
-test('Board captions: generate with the cost step, toggle CC through a same-origin track', async ({ browser, baseURL }) => {
-  test.skip(!VIDEO, 'ffmpeg is needed to build the fixture clip');
-  test.setTimeout(240000);
-  const project = await newProject(browser, baseURL);
-  const { context, page } = await signIn(browser, baseURL, project.id);
+async function boardWithVideo(context, page) {
   await openBoard(page);
   const firstSave = page.waitForResponse(isSave);
   await page.locator('input[type="file"][multiple]').setInputFiles({ name: 'clip.mp4', mimeType: 'video/mp4', buffer: VIDEO });
   const boardId = new URL((await firstSave).url()).pathname.split('/').pop();
   const board = await storedBoard(context, boardId, (b) => ofType(b, 'video').length === 1);
-  const src = ofType(board, 'video')[0].src;
   const video = page.locator('[data-media="video"] video');
   await expect(video).toHaveCount(1);
   await video.click({ force: true });
+  return { boardId, src: ofType(board, 'video')[0].src, video };
+}
+
+test('Board captions: generate with the cost step, toggle CC through a same-origin track', async ({ browser, baseURL }) => {
+  test.skip(!VIDEO, 'ffmpeg is needed to build the fixture clip');
+  test.setTimeout(240000);
+  const project = await newProject(browser, baseURL);
+  const { context, page } = await signIn(browser, baseURL, project.id);
+  const domWarnings = [];
+  page.on('console', (message) => { if (message.type() === 'error' && /Invalid DOM property/.test(message.text())) domWarnings.push(message.text()); });
+  const { boardId, src, video } = await boardWithVideo(context, page);
 
   // Nothing starts by itself: the quote shows the model and the cost first, and a run needs a click.
   const generate = page.getByRole('button', { name: 'Generate captions' });
@@ -120,8 +126,33 @@ test('Board captions: generate with the cost step, toggle CC through a same-orig
   await expect(video.locator('track')).toHaveCount(0);
   await toggle.click();
   await expect(video.locator('track')).toHaveCount(1);
+  await expect(video.locator('track')).toHaveAttribute('srclang', 'en');
+  expect(domWarnings).toEqual([]);
 
   // The board JSON stays free of caption text.
   expect(JSON.stringify((await (await context.request.get(`/api/canvas-boards/${boardId}`)).json()).data)).not.toContain('Offline caption fixture.');
+  await context.close();
+});
+
+test('Board captions: a Start whose answer the transport drops settles without a stale error', async ({ browser, baseURL }) => {
+  test.skip(!VIDEO, 'ffmpeg is needed to build the fixture clip');
+  test.setTimeout(240000);
+  const project = await newProject(browser, baseURL);
+  const { context, page } = await signIn(browser, baseURL, project.id);
+  const { video } = await boardWithVideo(context, page);
+  // The run reaches Django and finishes there, but the proxy in front gives up and answers a bare 500.
+  await page.route(/\/api\/canvas-boards\/[^/]+\/captions$/, async (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    await route.fetch();
+    return route.fulfill({ status: 500, contentType: 'text/plain', body: 'Internal Server Error' });
+  });
+  await page.getByRole('button', { name: 'Generate captions' }).click({ timeout: 20000 });
+  await page.locator('[data-captions-confirm]').getByRole('button', { name: 'Start' }).click();
+
+  const toggle = page.getByRole('button', { name: 'CC', exact: true });
+  await expect(toggle).toBeVisible({ timeout: 60000 });
+  await expect(page.locator('[data-captions-error]')).toHaveCount(0);
+  await toggle.click();
+  await expect(video.locator('track')).toHaveAttribute('src', /^blob:/, { timeout: 20000 });
   await context.close();
 });

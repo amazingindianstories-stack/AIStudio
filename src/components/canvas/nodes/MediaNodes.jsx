@@ -57,7 +57,7 @@ export function VideoNode({ node, selected }) {
           onPointerDown={selected ? stop : undefined}
           className="min-h-0 w-full flex-1 bg-black object-contain"
         >
-          {captions.on && captions.trackUrl && <track kind="captions" label="Captions" srclang="en" src={captions.trackUrl} default />}
+          {captions.on && captions.trackUrl && <track kind="captions" label="Captions" srcLang="en" src={captions.trackUrl} default />}
         </video>
       )}
       {selected && !failed && <CaptionControls captions={captions} />}
