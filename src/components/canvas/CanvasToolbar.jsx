@@ -2,6 +2,7 @@
 
 import { Fragment, useEffect, useState } from "react";
 import { motion } from "framer-motion";
+import { setAiInputs } from "@/lib/board-ai-panel";
 import {
   MousePointer2,
   Hand,
@@ -75,6 +76,7 @@ export function CanvasToolbar({
   onUrl,
   aiOpen,
   onAiClick,
+  aiInputs = true,
   /** World point at the middle of the view, where bulk stickies and stacks go. */
   viewCenter,
 }
@@ -232,6 +234,19 @@ export function CanvasToolbar({
           </button>
         );
       case "ai":
+        if (!aiInputs) {
+          return (
+            <button
+              type="button"
+              className="grid h-9 w-9 cursor-pointer place-items-center rounded-lg text-white/35 transition-colors hover:bg-white/[0.07] hover:text-white max-sm:h-8 max-sm:w-8"
+              title="Turn on AI inputs"
+              aria-label="Turn on AI inputs"
+              onClick={() => setAiInputs(true)}
+            >
+              <Sparkles className="h-4 w-4" />
+            </button>
+          );
+        }
         return (
           <button
             type="button"

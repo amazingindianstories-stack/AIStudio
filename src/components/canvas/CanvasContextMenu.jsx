@@ -19,6 +19,7 @@ import {
 import { MenuItem } from "@/components/Dropdown";
 import { LockMenuItems, UnlockAllMenuItem } from "./LockControls";
 import { ArrangeMenuItems } from "./ArrangeMenu";
+import { AiMenuItems } from "./AiMenuItems";
 
  
 
@@ -190,6 +191,8 @@ export function CanvasContextMenu({
           )}
 
           <ArrangeMenuItems onAction={onAction} />
+
+          <AiMenuItems onDone={onClose} />
 
           <div className="my-1 h-px bg-line" />
           <LockMenuItems onDone={onClose} />

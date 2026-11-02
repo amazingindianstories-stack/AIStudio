@@ -1181,7 +1181,7 @@ export const useCanvasStore = create((set, get) => ({
   /** Insert generated nodes (a "Create with AI" result) as one undo step and select them. `replaceIds` are the
    * nodes of the result this one refines: they leave in the same step (with connectors that referenced them), so
    * one undo restores the previous result. */
-  placeGeneratedNodes: (nodes, replaceIds = []) => {
+  placeGeneratedNodes: (nodes, replaceIds = [], newConnectors = []) => {
     if (!nodes.length) return;
     const replaced = new Set(replaceIds);
     mutateGraph(set, get, (present) => {
@@ -1190,9 +1190,24 @@ export const useCanvasStore = create((set, get) => ({
         .map((n) => (n.parentId && replaced.has(n.parentId) ? { ...n, parentId: null } : n));
       const connectors = present.connectors.filter((c) =>
         !("nodeId" in c.from && replaced.has(c.from.nodeId)) && !("nodeId" in c.to && replaced.has(c.to.nodeId)));
-      return { ...present, nodes: [...kept, ...placeOnLayer(present, nodes, get().activeLayerId)], connectors };
+      return { ...present, nodes: [...kept, ...placeOnLayer(present, nodes, get().activeLayerId)], connectors: [...connectors, ...newConnectors] };
     });
     set({ selection: nodes.map((node) => node.id), selectedConnectorIds: [] });
+  },
+
+  /**
+   * Apply an AI edit to the selection in place as one undo step: `compute(present)` returns the next graph and the ids
+   * it changed or added, which become the selection. A viewer or commenter changes nothing.
+   */
+  applyBoardAiEdit: (compute) => {
+    let touched = [];
+    mutateGraph(set, get, (present) => {
+      const result = compute(present);
+      touched = result.touched;
+      return result.present;
+    });
+    if (touched.length) set({ selection: touched, selectedConnectorIds: [] });
+    return touched;
   },
 
   addImageFromAsset: (a, worldPoint) => {

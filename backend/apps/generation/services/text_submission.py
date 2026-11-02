@@ -43,11 +43,11 @@ def text_cost(value, pricing, processing='basic'):
     return max(1, math.ceil(row['unitCostCents'] * estimated_tokens(value) / 1000000))
 
 
-def text_request(actor, name, turns, processing):
+def text_request(actor, name, turns, processing, prompt=None):
     """The validated stored input and estimated cost of a text job: (submission input, cost cents)."""
     from apps.agents.board import submission_input
     try:
-        enqueue.validate_prompt(turns[-1]['text'] if turns else '', actor.id)
+        enqueue.validate_prompt(prompt if prompt is not None else (turns[-1]['text'] if turns else ''), actor.id)
         value = submission_input(name, text_model(processing), turns)
         return value, text_cost(value, read_pricing(), processing)
     except enqueue.InvalidRequest as error:
@@ -56,21 +56,21 @@ def text_request(actor, name, turns, processing):
         raise Refused(400, {'error': str(error)}) from None
 
 
-def quote_text(actor, name, turns, processing='basic'):
+def quote_text(actor, name, turns, processing='basic', prompt=None):
     """Price a text job exactly as ``submit_text`` would queue it; nothing is stored or queued."""
-    value, cost = text_request(actor, name, turns, processing)
+    value, cost = text_request(actor, name, turns, processing, prompt)
     return {'kind': 'text', 'model': model_name(value['model']), 'costCents': cost}
 
 
-def submit_text(actor, name, turns, *, processing='basic', project_id=None, origin=None, admit=None):
+def submit_text(actor, name, turns, *, processing='basic', project_id=None, origin=None, admit=None, prompt=None):
     """Queue a text job for ``actor`` and return its generation row.
 
     ``admit(values)`` runs with the priced values and new ``id`` in the transaction that creates the row (the board
     creates its job row there); whatever it raises comes back as ``AdmissionRefused`` and nothing is stored.
     """
-    value, cost = text_request(actor, name, turns, processing)
+    value, cost = text_request(actor, name, turns, processing, prompt)
     identifier, now = uuid.uuid4(), now_ms()
-    item = dict(id=str(identifier), kind='text', status='queued', prompt=turns[-1]['text'], model=model_name(value['model']),
+    item = dict(id=str(identifier), kind='text', status='queued', prompt=prompt if prompt is not None else turns[-1]['text'], model=model_name(value['model']),
                 aspectRatio='', userId=str(actor.id), costCents=cost, costBasis='estimated', submissionInput=value,
                 createdAt=now, updatedAt=now)
     if project_id:

@@ -25,7 +25,11 @@ from apps.generation.services import submission, text_submission
 from apps.library.services import idempotency
 from .models import BoardAiJob
 
-ENGINES = {'stickies': 'text', 'image': 'image'}
+ENGINES = {'stickies': 'text', 'rewrite': 'text', 'cluster': 'text', 'summary': 'text', 'layout': 'text', 'diagram': 'text',
+           'image': 'image'}
+# Formats that act on the user's selection and need it as context.
+SELECTION_FORMATS = ('rewrite', 'cluster', 'summary')
+MAX_REFERENCE_IMAGES = 4
 PROCESSING = ('basic', 'advanced')
 ADVANCED_RESOLUTION = '2K'
 OPERATION = 'BOARD_AI_JOB'
@@ -62,7 +66,25 @@ def request_values(body):
         if not isinstance(parent, str) or not UUID.fullmatch(parent):
             raise JobError(400, 'Invalid parentJobId.')
         values['parentJobId'] = parent.lower()
+    if parent is None:
+        context = body.get('context')
+        if context is not None:
+            if ENGINES[name] != 'text':
+                raise JobError(400, 'Only text formats take board context.')
+            from apps.agents.board import context_text
+            try:
+                values['context'] = context_text(context)
+            except ValueError as error:
+                raise JobError(400, str(error), 'INVALID_CONTEXT') from None
+        elif name in SELECTION_FORMATS:
+            raise JobError(400, 'Select board objects first.', 'SELECTION_REQUIRED')
     if name == 'image':
+        references = body.get('referenceImages')
+        if references is not None:
+            if (not isinstance(references, list) or not 0 < len(references) <= MAX_REFERENCE_IMAGES
+                    or any(not isinstance(ref, str) or not ref.startswith('/api/media/') or len(ref) > 2048 for ref in references)):
+                raise JobError(400, 'Invalid referenceImages.')
+            values['referenceImages'] = references
         for field in ('model', 'aspectRatio'):
             value = body.get(field)
             if value is not None:
@@ -89,10 +111,15 @@ def parent_job(board, actor, values):
 def text_turns(values, parent, generation):
     from apps.agents.board import conversation
     if parent is None:
-        return conversation(values['prompt'])
+        return conversation(text_first_turn(values))
     turns = (generation.submission_input or {}).get('turns') or []
     first = turns[0]['text'] if turns and isinstance(turns[0], dict) and isinstance(turns[0].get('text'), str) else parent.prompt
     return conversation(values['prompt'], (first, generation.output))
+
+
+def text_first_turn(values):
+    from apps.agents.board import first_turn
+    return first_turn(values['prompt'], values.get('context'))
 
 
 def image_body(board, values, generation):
@@ -103,6 +130,8 @@ def image_body(board, values, generation):
     body = {'prompt': values['prompt'], 'model': model, 'aspectRatio': ratio, 'projectId': str(board.project_id)}
     if generation is not None:
         body['referenceImages'] = [generation.url]
+    elif values.get('referenceImages'):
+        body['referenceImages'] = values['referenceImages']
     if values['processing'] == 'advanced':
         resolutions = (capability(model, 'referenceResolutions', None) if generation is not None else None) or capability(model, 'resolutions', [])
         if ADVANCED_RESOLUTION in resolutions:
@@ -114,7 +143,7 @@ def quote(actor, board, body):
     values = request_values(body)
     parent, generation = parent_job(board, actor, values)
     if ENGINES[values['format']] == 'text':
-        result = text_submission.quote_text(actor, values['format'], text_turns(values, parent, generation), values['processing'])
+        result = text_submission.quote_text(actor, values['format'], text_turns(values, parent, generation), values['processing'], prompt=values['prompt'])
     else:
         result = submission.quote_generation(actor, 'image', image_body(board, values, generation))
     return {'format': values['format'], 'processing': values['processing'], 'model': result['model'], 'costCents': result['costCents']}
@@ -145,7 +174,7 @@ def submit(actor, board, body, idempotency_key):
 
         if ENGINES[values['format']] == 'text':
             text_submission.submit_text(actor, values['format'], text_turns(values, parent, generation), processing=values['processing'],
-                                        origin=ORIGIN, admit=admit)
+                                        origin=ORIGIN, admit=admit, prompt=values['prompt'])
         else:
             submission.submit_generation(actor, 'image', image_body(board, values, generation), origin=ORIGIN, admit=admit)
         return {'jobId': str(created['job'].id)}

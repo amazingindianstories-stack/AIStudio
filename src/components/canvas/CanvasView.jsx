@@ -22,6 +22,7 @@ import { BoardShareDialog } from "./BoardShareDialog";
 import { CanvasAiPanel } from "./CanvasAiPanel";
 import { BoardTemplates } from "./BoardTemplates";
 import { useBoardAi } from "@/lib/board-ai";
+import { useAiInputs, useAiPanelIntent } from "@/lib/board-ai-panel";
 import { BoardHistoryPanel } from "./BoardHistoryPanel";
 import { LayersPanel } from "./LayersPanel";
 import { WorkTools } from "./WorkTools";
@@ -66,6 +67,14 @@ export function CanvasView() {
   const [boardsReload, setBoardsReload] = useState(0);
   const [noBoards, setNoBoards] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
+  const aiInputs = useAiInputs();
+  const aiIntent = useAiPanelIntent((s) => s.nonce);
+  useEffect(() => {
+    if (aiIntent > 0) setAiOpen(true);
+  }, [aiIntent]);
+  useEffect(() => {
+    if (!aiInputs) setAiOpen(false);
+  }, [aiInputs]);
 
   const surfaceRef = useRef(null);
   const rootRef = useRef(null);
@@ -479,6 +488,7 @@ export function CanvasView() {
             onUrl={importLink}
             aiOpen={aiOpen && Boolean(boardId)}
             onAiClick={() => setAiOpen((v) => !v)}
+            aiInputs={aiInputs}
             viewCenter={viewCenter}
           />
         )}

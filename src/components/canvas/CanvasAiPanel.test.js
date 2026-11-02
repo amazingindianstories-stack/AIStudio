@@ -67,6 +67,12 @@ test("panelRequest sends only what the format needs", () => {
     { format: "image", prompt: "night", processing: "advanced", parentJobId: "p" });
 });
 
+test("a refinement sends no selection context", () => {
+  const extra = { context: [{ id: "a", text: "note" }] };
+  assert.deepEqual(panelRequest({ format: "summary", prompt: "shorter", parentJobId: "p", extra }), { format: "summary", prompt: "shorter", processing: "basic", parentJobId: "p" });
+  assert.deepEqual(panelRequest({ format: "summary", prompt: "sum", extra }).context, extra.context);
+});
+
 test("the panel shows suggestions, quotes the cost before running and submits one keyed job", async (t) => {
   setupDom(t);
   const calls = [];

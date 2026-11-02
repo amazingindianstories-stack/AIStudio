@@ -3,25 +3,16 @@
 // table, Kanban, timeline, slides) adds one entry here with its suggestions and its `nodes` builder, and one
 // on the backend; the panel, job store and placement need no other change.
 
-export const STICKY_FILLS = {
-  yellow: "#e3c56a",
-  orange: "#d99a5b",
-  pink: "#d189a7",
-  purple: "#9b86c9",
-  blue: "#6f9bd1",
-  green: "#7fae86",
-};
+import { STICKY_FILLS, applyCluster, applyRewrite, diagramGraph, layoutGraph, stickyColumns, summaryGraph } from "./ai-graph.js";
+
+export { STICKY_FILLS, stickyColumns };
+
 const STICKY_SIZE = 200;
 const STICKY_GAP = 24;
 const IMAGE_LONG_EDGE = 320;
 
 function newId() {
   return crypto.randomUUID();
-}
-
-/** Columns for `count` notes: one row up to four, then a grid a little wider than tall. */
-export function stickyColumns(count) {
-  return count <= 4 ? Math.max(count, 1) : Math.ceil(Math.sqrt(count * 1.5));
 }
 
 /** Sticky notes laid out in a grid centred on `center`, in the order the AI returned them. */
@@ -111,7 +102,73 @@ export const AI_FORMATS = {
   },
 };
 
-export const AI_FORMAT_ORDER = ["stickies", "image"];
+const countLabel = (count, noun) => `${count} ${noun}${count === 1 ? "" : "s"}`;
+
+// Formats that act on the selected objects take their context from the selection when the job is submitted
+// (ai-selection.js). A `graph` format places new objects (and connectors); an `edit` format rewrites the selection in
+// place.
+Object.assign(AI_FORMATS, {
+  layout: {
+    id: "layout",
+    label: "Board layout",
+    placeholder: "Describe the board you want, e.g. a workshop plan for a pitch deck review",
+    refinePlaceholder: "How should the layout change? e.g. add a frame for risks",
+    advancedHint: "A stronger text model, for a more considered layout",
+    suggestions: [
+      "A story map for a three-act short film",
+      "A one-day shoot plan with frames for prep, shoot and wrap",
+      "A meeting recap board with decisions, actions and open questions",
+      "A creative review board for a campaign launch",
+    ],
+    resultLabel: (result) => `board layout, ${countLabel(result?.frames?.length ?? 0, "frame")}`,
+    graph: (job, center) => layoutGraph(job.result, center),
+  },
+  diagram: {
+    id: "diagram",
+    label: "Diagram",
+    placeholder: "Describe a flowchart or mind map, e.g. the approval flow for a final cut",
+    refinePlaceholder: "How should the diagram change? e.g. add a review step before the end",
+    advancedHint: "A stronger text model, for a more considered diagram",
+    suggestions: [
+      "A flowchart of our review and approval process",
+      "A mind map of ideas for a travel documentary",
+      "How a generation request moves from prompt to finished video",
+      "An onboarding flow for a new freelance editor",
+    ],
+    resultLabel: (result) => `${result?.kind === "mindmap" ? "mind map" : "diagram"}, ${countLabel(result?.nodes?.length ?? 0, "node")}`,
+    graph: (job, center) => diagramGraph(job.result, center),
+  },
+  rewrite: {
+    id: "rewrite",
+    label: "Edit text",
+    placeholder: "How should the selected text change?",
+    advancedHint: "A stronger text model, for more careful edits",
+    suggestions: [],
+    resultLabel: (result) => `text of ${countLabel(result?.items?.length ?? 0, "object")}`,
+    edit: (job, present) => applyRewrite(present, job.result),
+  },
+  cluster: {
+    id: "cluster",
+    label: "Cluster",
+    placeholder: "How should the selected notes be grouped?",
+    advancedHint: "A stronger text model, for more considered groups",
+    suggestions: [],
+    resultLabel: (result) => countLabel(result?.groups?.length ?? 0, "group"),
+    edit: (job, present) => applyCluster(present, job.result),
+  },
+  summary: {
+    id: "summary",
+    label: "Summarize",
+    placeholder: "What should the selected content become?",
+    advancedHint: "A stronger text model, for a more considered summary",
+    suggestions: [],
+    resultLabel: () => "summary note",
+    graph: (job, center, present, selection, inPlace) => summaryGraph(job.result, present, selection, center, inPlace),
+  },
+});
+
+/** The formats the panel offers when nothing is selected; the others act on a selection. */
+export const AI_FORMAT_ORDER = ["stickies", "image", "diagram", "layout"];
 
 /** The centre of the nodes `ids` still on the board (a refinement replaces them in place), else null. */
 export function placedCenter(nodes, ids) {
