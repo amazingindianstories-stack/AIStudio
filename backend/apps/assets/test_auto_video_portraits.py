@@ -256,3 +256,15 @@ class AutoVideoPortraitTests(AutoVideoBase):
             row = self.run_worker(self.enqueue_video(self.reference_clip(data)))
         self.assertEqual(row.status, 'succeeded', row.error)
         self.assertFalse(self.sent_videos()[0].startswith('asset://'))
+
+    def test_a_clip_still_processing_at_the_time_limit_goes_as_a_url_without_a_failed_job(self):
+        data = make_clip(self.directory, 'face.mp4')
+        self.fake.asset_activation_polls = 1000
+        with patch.object(managed_pool, 'VIDEO_PROCESSING_LIMIT_MS', -1):
+            row = self.run_worker(self.enqueue_video(self.reference_clip(data)))
+        self.assertEqual(row.status, 'succeeded', row.error)
+        self.assertFalse(self.sent_videos()[0].startswith('asset://'))
+        self.assertEqual(len(self.fake.seedance_payloads), 1)
+        self.assertEqual(ReferenceFaceScan.objects.get().forced, managed_pool.REFUSED)
+        self.assertEqual(ManagedPortraitAsset.objects.get().status, 'DELETED', 'the slow clip frees its slot at once')
+        self.assertEqual([item['Status'] for item in self.fake.assets.values()], ['Deleted'])

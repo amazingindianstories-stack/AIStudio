@@ -633,7 +633,7 @@ def _poll(asset, client):
         # Only a row that is still PROCESSING is condemned, and never one a generation holds: that generation fails
         # cleanly (not charged) and releases its pin, then the next poll (janitor or upload pass) deletes the asset. A clip
         # refused here goes on as a URL for every job holding it, so its pins go and it is deleted now.
-        refused = status == 'Failed' and asset.media_kind == 'video' and asset.origin == 'reference' and refuse_as_asset(asset.content_sha256)
+        refused = asset.media_kind == 'video' and asset.origin == 'reference' and refuse_as_asset(asset.content_sha256)
         with transaction.atomic():
             _locked()
             row = ManagedPortraitAsset.objects.select_for_update().get(pk=asset.pk)
