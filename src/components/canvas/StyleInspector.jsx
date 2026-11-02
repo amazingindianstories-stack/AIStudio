@@ -133,9 +133,11 @@ export function StyleInspector({ hidden, insetLeft = 0, insetTop = 8 }) {
   const gap = 8 + (rotationTargets(present, selection).length ? ROTATE_HANDLE_REACH * viewport.zoom : 0);
   const panelHeight = 44;
   // `insetTop` keeps the panel under the board's top bar rather than over it: without room above the selection
-  // there, it goes below.
-  const flipBelow = topLeftScreen.y - panelHeight - gap < insetTop;
-  const top = flipBelow ? bottomRightScreen.y + gap : topLeftScreen.y - panelHeight - gap;
+  // there, it goes below, or stays just under the bar when below is past the canvas.
+  const above = topLeftScreen.y - panelHeight - gap;
+  const below = bottomRightScreen.y + gap;
+  const flipBelow = above < insetTop && below + panelHeight <= useCanvasStore.getState().viewportSize().h;
+  const top = flipBelow ? below : Math.max(above, insetTop);
 
   const types = new Set(selectedNodes.map((n) => n.type));
   const homogeneous = types.size <= 1;
