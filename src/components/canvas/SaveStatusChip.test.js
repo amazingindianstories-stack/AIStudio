@@ -12,7 +12,7 @@ const rect = (id) => ({ id, type: "rect", x: 0, y: 0, w: 10, h: 10, parentId: nu
 const board = { id: "board-1", projectId: "p", name: "Board", role: "edit", createdBy: null, createdAt: 1, updatedAt: 1, version: 1, data: { ...emptyCanvasState(), nodes: [rect("a")] } };
 
 /** Renders the chip from the store's save state after one save answered with `status`. */
-async function chipAfterSave(t, status) {
+async function chipAfterSave(t, status, refusal = { error: "Refused." }) {
   const dom = new JSDOM("<div id='root'></div>", { url: "http://localhost", pretendToBeVisual: true });
   const names = ["window", "document", "HTMLElement", "Node", "React", "IS_REACT_ACT_ENVIRONMENT", "localStorage"];
   const prior = Object.fromEntries(names.map((name) => [name, globalThis[name]]));
@@ -26,13 +26,13 @@ async function chipAfterSave(t, status) {
     for (const name of names) Object.defineProperty(globalThis, name, { value: prior[name], configurable: true, writable: true });
     dom.window.close();
   });
-  t.mock.method(globalThis, "fetch", async (url, init = {}) => (init.method === "PUT" || init.method === "PATCH" ? json(status, { error: "Refused." }) : json(200, board)));
+  t.mock.method(globalThis, "fetch", async (url, init = {}) => (init.method === "PUT" || init.method === "PATCH" ? json(status, refusal) : json(200, board)));
   useCanvasStore.getState().reset();
   await useCanvasStore.getState().loadBoard("board-1");
   useCanvasStore.getState().addNode(rect("big"));
   await useCanvasStore.getState().flushSave();
-  const { saveStatus, saveError } = useCanvasStore.getState();
-  await act(async () => root.render(React.createElement(SaveStatusChip, { status: saveStatus, error: saveError, onRetry: () => {} })));
+  const { saveStatus, saveError, saveLimitMessage } = useCanvasStore.getState();
+  await act(async () => root.render(React.createElement(SaveStatusChip, { status: saveStatus, error: saveError, limitMessage: saveLimitMessage, onRetry: () => {} })));
   const chip = document.querySelector("#root > div");
   return { text: chip.textContent, retry: [...chip.querySelectorAll("button")].some((button) => button.textContent === "Retry") };
 }
@@ -40,6 +40,13 @@ async function chipAfterSave(t, status) {
 test("a board refused as too large says so and offers no retry that cannot succeed", async (t) => {
   const chip = await chipAfterSave(t, 413);
   assert.equal(chip.text, "Board too large to save - remove some items and try again");
+  assert.equal(chip.retry, false);
+});
+
+test("a board refused by a plan limit shows the limit the server named", async (t) => {
+  const error = "A board holds up to 5,000 objects. Delete some objects or move them to another board.";
+  const chip = await chipAfterSave(t, 413, { error, limit: "objects" });
+  assert.equal(chip.text, error);
   assert.equal(chip.retry, false);
 });
 

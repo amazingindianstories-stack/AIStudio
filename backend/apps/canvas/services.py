@@ -121,7 +121,7 @@ def save_board(identifier, data, base_version, save_id, actor, patch=None, level
     read, is kept as stored and the hidden flags cannot change (apps.canvas.hidden). None means everything.
     Changes the actor at access `level` may not make (apps.canvas.locks) are put back; the save then makes a
     new version and returns the graph it saved as `board`, which the editor merges like someone else's save."""
-    from . import activity, extras, hidden, locks, patch as board_patch, private_mode
+    from . import activity, extras, hidden, limits, locks, patch as board_patch, private_mode
     now = now_ms()
     actor = str(actor)
     mode = private_mode.settle(identifier, now)
@@ -139,6 +139,7 @@ def save_board(identifier, data, base_version, save_id, actor, patch=None, level
                 data = private_mode.restore_hidden(stored, data, actor)
                 data, corrected = locks.enforce(stored, data, actor, level)
                 stamped, changes = activity.stamp(stored, data, actor, now)
+                limits.enforce(stored, data)
                 stamped = extras.stamp_notes(stored, stamped, actor, now)
                 stamped, claimed = private_mode.claim(stored, stamped, actor, mode)
                 if content_length(stamped) > MAX_BOARD_JSON_UNITS:

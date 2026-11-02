@@ -95,8 +95,8 @@ class Notification(models.Model):
     class Meta:
         managed = True
         db_table = 'board_comment_notifications'
-        indexes = [models.Index(fields=['user_id', '-created_at'], name='board_comment_notifications_user_idx'),
-                   models.Index(fields=['pushed_at', 'created_at'], name='board_comment_notifications_push_idx'),
+        indexes = [models.Index(fields=['user_id', '-created_at'], name='board_cmt_notif_user_idx'),
+                   models.Index(fields=['pushed_at', 'created_at'], name='board_cmt_notif_push_idx'),
                    models.Index(fields=['created_at'], name='notifications_created_idx')]
         constraints = [models.CheckConstraint(condition=models.Q(kind__in=NOTIFICATION_KINDS), name='board_comment_notifications_kind_check')]
 

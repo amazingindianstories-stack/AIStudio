@@ -520,6 +520,80 @@ class BoardAiAdmissionTests(BoardFixture):
             self.assertIsNone(admission.admit_job(image.id))
 
 
+class BoardAiAllowanceTests(BoardFixture):
+    """The monthly Create with AI allowance (admin limit boardAiMonthlyCapCents) is enforced on submit."""
+
+    def set_cap(self, value, user=False):
+        from apps.admin_dashboard.models import AppSetting, UserLimit
+        if user:
+            UserLimit.objects.create(user_id=self.actor_id, key='boardAiMonthlyCapCents', value=str(value), updated_at=1)
+        else:
+            AppSetting.objects.create(key='boardAiMonthlyCapCents', value=str(value), updated_at=1)
+
+    def board_row(self, cost, created_at=None):
+        stamp = now()
+        return Generation.objects.create(id=uuid.uuid4(), kind='text', status='succeeded', prompt='x', model='Gemini', aspect_ratio='',
+                                         user_id=self.actor_id, cost_cents=cost, created_via='board',
+                                         created_at=created_at or stamp, updated_at=stamp)
+
+    def test_no_cap_applies_until_an_admin_sets_one(self):
+        self.board_row(5000)
+        self.assertEqual(self.submit({'format': 'stickies', 'prompt': 'ideas'}).status_code, 201)
+
+    def test_a_job_over_the_remaining_allowance_is_refused_and_stores_nothing(self):
+        self.set_cap(10)
+        self.board_row(10)
+        response = self.submit({'format': 'stickies', 'prompt': 'ideas'})
+        self.assertEqual((response.status_code, response.json()['code']), (429, 'AI_ALLOWANCE_REACHED'))
+        self.assertNotIn('\u2014', response.json()['error'])
+        self.assertEqual((Generation.objects.count(), BoardAiJob.objects.count()), (1, 0))
+
+    def test_a_per_user_cap_overrides_the_global_one_and_last_months_spend_does_not_count(self):
+        from . import ai_allowance
+        self.set_cap(1)
+        self.set_cap(1000, user=True)
+        self.board_row(500, created_at=ai_allowance.month_start_ms() - 1000)
+        self.board_row(10)
+        self.assertEqual(self.submit({'format': 'stickies', 'prompt': 'ideas'}).status_code, 201)
+        self.assertEqual(ai_allowance.status(self.actor_id)['capCents'], 1000)
+
+    def test_a_replayed_request_returns_its_job_even_when_the_cap_is_now_reached(self):
+        first = self.submit({'format': 'stickies', 'prompt': 'ideas'}).json()['job']
+        self.set_cap(1)
+        again = self.submit({'format': 'stickies', 'prompt': 'ideas'})
+        self.assertEqual((again.status_code, again.json()['job']['id']), (201, first['id']))
+
+
+class BoardAiSwitchTests(BoardFixture):
+    """The admin switch boardAiEnabled turns Create with AI off for everyone or for one user."""
+
+    def set_switch(self, value, user=False):
+        from apps.admin_dashboard.models import AppSetting, UserLimit
+        if user:
+            UserLimit.objects.create(user_id=self.actor_id, key='boardAiEnabled', value=str(value), updated_at=1)
+        else:
+            AppSetting.objects.create(key='boardAiEnabled', value=str(value), updated_at=1)
+
+    def test_the_feature_is_on_until_an_admin_turns_it_off(self):
+        self.assertEqual(self.submit({'format': 'stickies', 'prompt': 'ideas'}).status_code, 201)
+
+    def test_a_global_off_refuses_the_job_and_stores_nothing(self):
+        self.set_switch(0)
+        response = self.submit({'format': 'stickies', 'prompt': 'ideas'})
+        self.assertEqual((response.status_code, response.json()['code']), (403, 'AI_DISABLED'))
+        self.assertNotIn('\u2014', response.json()['error'])
+        self.assertEqual((Generation.objects.count(), BoardAiJob.objects.count()), (0, 0))
+
+    def test_a_per_user_on_overrides_a_global_off(self):
+        self.set_switch(0)
+        self.set_switch(1, user=True)
+        self.assertEqual(self.submit({'format': 'stickies', 'prompt': 'ideas'}).status_code, 201)
+
+    def test_a_per_user_off_blocks_that_user_only(self):
+        self.set_switch(0, user=True)
+        self.assertEqual(self.submit({'format': 'stickies', 'prompt': 'ideas'}).status_code, 403)
+
+
 class BoardAiPaidGuardTests(BoardFixture):
     @contextlib.contextmanager
     def guard(self, ledger, config=UNLIMITED):

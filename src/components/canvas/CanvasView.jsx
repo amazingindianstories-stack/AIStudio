@@ -85,6 +85,7 @@ export function CanvasView() {
   const loaded = useCanvasStore((s) => s.loaded);
   const saveStatus = useCanvasStore((s) => s.saveStatus);
   const saveError = useCanvasStore((s) => s.saveError);
+  const saveLimitMessage = useCanvasStore((s) => s.saveLimitMessage);
   const readOnly = useCanvasStore(selectReadOnly);
   const touchEditMode = useCanvasStore((s) => s.touchEditMode);
   const setTouchEditMode = useCanvasStore((s) => s.setTouchEditMode);
@@ -471,7 +472,7 @@ export function CanvasView() {
               ) : touchViewOnly && (saveStatus === "idle" || saveStatus === "saved") ? (
                 <AccessChip role="view" accessLost={false} />
               ) : (
-                <SaveStatusChip status={saveStatus} error={saveError} onRetry={() => flushSave()} />
+                <SaveStatusChip status={saveStatus} error={saveError} limitMessage={saveLimitMessage} onRetry={() => flushSave()} />
               )}
             </span>
           )}
@@ -598,6 +599,7 @@ function AccessChip({ role, accessLost }) {
 export function SaveStatusChip({
   status,
   error,
+  limitMessage,
   onRetry,
 }
 
@@ -607,7 +609,7 @@ export function SaveStatusChip({
     return (
       <div role="alert" className="flex items-center gap-2 whitespace-nowrap rounded-full bg-amber-400/15 px-3 py-1.5 text-xs font-medium text-amber-200 ring-1 ring-amber-400/40">
         <AlertTriangle className="h-3.5 w-3.5" />
-        Board too large to save - remove some items and try again
+        {limitMessage || "Board too large to save - remove some items and try again"}
       </div>
     );
   }

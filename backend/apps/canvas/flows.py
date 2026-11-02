@@ -96,8 +96,7 @@ def quote_flow(actor, body):
         quote = quote_step(actor, step)
         quotes.append({'costCents': quote['costCents'], 'model': quote['model']})
     total = sum(item['costCents'] for item in quotes)
-    cap, used = sidekicks.credit_cap(actor.id), sidekicks.credits_used(actor.id)
-    return {'steps': quotes, 'costCents': total, 'credits': {'capCents': cap, 'usedCents': used, 'remainingCents': max(0, cap - used)}}
+    return {'steps': quotes, 'costCents': total, 'credits': sidekicks.quote_credits(actor.id)}
 
 
 def submit_step(actor, board, body, idempotency_key):

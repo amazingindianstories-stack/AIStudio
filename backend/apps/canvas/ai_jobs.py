@@ -23,6 +23,7 @@ from apps.generation.models import Generation
 from apps.generation.serialization import generation_item
 from apps.generation.services import submission, text_submission
 from apps.library.services import idempotency
+from . import ai_allowance, switches
 from .models import BoardAiJob
 
 ENGINES = {'stickies': 'text', 'rewrite': 'text', 'cluster': 'text', 'summary': 'text', 'layout': 'text', 'diagram': 'text',
@@ -168,8 +169,12 @@ def submit(actor, board, body, idempotency_key):
         created = {}
 
         def admit(item):
-            from .sidekicks import require_credits
-            require_credits(actor, item.get('costCents') or 0)
+            if not switches.enabled(actor.id, switches.AI):
+                raise JobError(403, 'Create with AI is turned off. Ask an admin to turn it on.', 'AI_DISABLED')
+            state = ai_allowance.exceeded(actor.id, item.get('costCents'))
+            if state:
+                raise JobError(429, 'You have used this month\'s Create with AI allowance. It resets on the first of next month, or ask an admin to raise it.',
+                               'AI_ALLOWANCE_REACHED')
             now = now_ms()
             created['job'] = BoardAiJob.objects.create(id=uuid.uuid4(), board=board, user_id=actor.id, format=values['format'],
                 prompt=values['prompt'], generation_id=item['id'], parent_job=parent, created_at=now, updated_at=now)

@@ -4,7 +4,7 @@ from django.conf import settings
 from django.http import HttpResponse
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from apps.authentication.session import lookup
-from . import access, hidden, services
+from . import access, hidden, limits, services
 from . import patch as board_patch
 from .models import CanvasBoard
 from .serialization import JS_WHITESPACE, MAX_BOARD_JSON_UNITS, content_length, js_json, validate_state
@@ -207,6 +207,8 @@ def board_detail(request, identifier):
             return reply(request, {'error': 'VERSION_CONFLICT', 'board': seen}, 409)
         except services.BoardTooLarge:
             return reply(request, {'error': 'Board is too large to save.'}, 413)
+        except limits.BoardLimitExceeded as exceeded:
+            return reply(request, {'error': exceeded.message, 'limit': exceeded.code}, 413)
         if saved is None:
             return reply(request, {'error': 'Board not found.'}, 404)
         if level is not None and 'board' in saved:

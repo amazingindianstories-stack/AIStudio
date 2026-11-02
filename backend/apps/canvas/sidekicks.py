@@ -7,13 +7,12 @@ that varies (a Sidekick's instructions and knowledge, a board summary, Flow inpu
 of the conversation, followed by a one-line model acknowledgement, the chat history and the request itself.
 
 Nothing here starts a paid job without a request that carries an Idempotency-Key; the panel always shows the quote
-first. A user's monthly AI credit cap (``boardAiMonthlyCapCents``, set by an administrator) is checked before every
-submission.
+first. A user's monthly AI credit cap (``boardAiMonthlyCapCents``) and the ``boardAiEnabled`` switch, both set by an
+administrator, are checked before every submission (apps.canvas.ai_allowance, apps.canvas.switches).
 """
 import hashlib
 import json
 import uuid
-from datetime import datetime, timezone
 
 from django.db import models
 
@@ -22,11 +21,11 @@ from apps.generation.models import Generation
 from apps.generation.services import text_submission
 from apps.generation.services.submission import AdmissionRefused
 from apps.library.services import idempotency
+from . import ai_allowance, switches
 from .ai_jobs import ORIGIN, PROCESSING, UUID, JobError, job_json, receipt_key
 from .models import BoardAiJob, BoardSidekickChat, Sidekick
 
 OWN_FORMATS = ('sidekick', 'flowstep', 'catchup', 'boardsearch')
-CREDIT_SETTING = 'boardAiMonthlyCapCents'
 CREDIT_DEFAULT_CENTS = 5000
 
 MAX_NAME = 80
@@ -91,39 +90,15 @@ def _error(message, code=None, status=400):
 
 # ---- AI credits ---------------------------------------------------------------------------------------------------
 
-def month_start(now=None):
-    moment = datetime.fromtimestamp((now_ms() if now is None else now) / 1000, timezone.utc)
-    return int(datetime(moment.year, moment.month, 1, tzinfo=timezone.utc).timestamp() * 1000)
-
-
-def credit_cap(user_id):
-    """The user's monthly AI credit cap in estimator cents: their own override, else the account setting, else 5000."""
-    from apps.admin_dashboard.models import AppSetting, UserLimit
-    from apps.admin_dashboard.views import LIMITS, parse
-    override = UserLimit.objects.filter(user_id=user_id, key=CREDIT_SETTING).values_list('value', flat=True).first()
-    raw = override if override is not None else AppSetting.objects.filter(key=CREDIT_SETTING).values_list('value', flat=True).first()
-    return parse(raw, LIMITS[CREDIT_SETTING])
-
-
-def credits_used(user_id, now=None):
-    """Estimator cents the user's board AI jobs (every format) cost this calendar month, failed and cancelled excepted."""
-    since = month_start(now)
-    rows = BoardAiJob.objects.filter(user_id=user_id, created_at__gte=since)
-    total = Generation.objects.filter(pk__in=rows.values('generation_id')).exclude(status__in=('failed', 'cancelled')) \
-        .aggregate(total=models.Sum('cost_cents'))['total']
-    return int(total or 0)
-
-
 def credits(actor):
-    cap, used = credit_cap(actor.id), credits_used(actor.id)
-    return {'capCents': cap, 'usedCents': used, 'remainingCents': max(0, cap - used), 'resetsAt': _next_month(),
-            'prices': action_prices()}
+    state = ai_allowance.status(actor.id)
+    return {'capCents': state['capCents'], 'usedCents': state['spentCents'], 'remainingCents': state['remainingCents'],
+            'resetsAt': state['resetsAt'], 'prices': action_prices()}
 
 
-def _next_month():
-    start = datetime.fromtimestamp(month_start() / 1000, timezone.utc)
-    following = datetime(start.year + (start.month == 12), start.month % 12 + 1, 1, tzinfo=timezone.utc)
-    return int(following.timestamp() * 1000)
+def quote_credits(user_id):
+    state = ai_allowance.status(user_id)
+    return {'capCents': state['capCents'], 'usedCents': state['spentCents'], 'remainingCents': state['remainingCents']}
 
 
 def action_prices():
@@ -141,8 +116,9 @@ def action_prices():
 
 
 def require_credits(actor, cost_cents):
-    cap, used = credit_cap(actor.id), credits_used(actor.id)
-    if used + cost_cents > cap:
+    if not switches.enabled(actor.id, switches.AI):
+        raise _error('Board AI is turned off. Ask an administrator to turn it on.', 'AI_DISABLED', 403)
+    if ai_allowance.exceeded(actor.id, cost_cents):
         raise _error('Your monthly AI credits are used up. Try again next month or ask an administrator to raise your limit.', 'AI_CREDITS_EXHAUSTED', 402)
 
 
@@ -488,9 +464,8 @@ def resolve_name(chat):
 
 def quote_job(actor, name, processing, turns):
     result = text_submission.quote_text(actor, name, turns, processing)
-    cap, used = credit_cap(actor.id), credits_used(actor.id)
     return {'format': name, 'processing': processing, 'model': result['model'], 'costCents': result['costCents'],
-            'credits': {'capCents': cap, 'usedCents': used, 'remainingCents': max(0, cap - used)}}
+            'credits': quote_credits(actor.id)}
 
 
 def submit_job(actor, board, name, prompt, idempotency_key, *, request, build, chat=None, operation='BOARD_SIDEKICK_JOB'):

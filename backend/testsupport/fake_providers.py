@@ -219,17 +219,12 @@ class FakeProviders:
                 self.gemini_payloads.append((gemini[1], data))
             from apps.agents.board import body_format
             board = body_format(data)
-            if board:     # a board "Create with AI" text job (any format)
-                with self.lock:
-                    self.board_payloads.append(data)
-                return 200, {'candidates': [{'content': {'role': 'model', 'parts': [{'text': json.dumps(board_reply(board, data))}]},
-                                             'finishReason': 'STOP'}], 'usageMetadata': {'promptTokenCount': 300, 'candidatesTokenCount': 90}}
-            board_name = body_format(data)
-            if board_name and board_name != 'stickies':     # a Sidekick, Flow step, Catch up or AI search text job
+            if board:     # a board AI text job: Create with AI (any format), a Sidekick, Flow step, Catch up or AI search
                 from apps.agents.sidekick import MOCK_OUTPUTS
                 with self.lock:
                     self.board_payloads.append(data)
-                return 200, {'candidates': [{'content': {'role': 'model', 'parts': [{'text': json.dumps(MOCK_OUTPUTS[board_name])}]},
+                reply = MOCK_OUTPUTS[board] if board in MOCK_OUTPUTS else board_reply(board, data)
+                return 200, {'candidates': [{'content': {'role': 'model', 'parts': [{'text': json.dumps(reply)}]},
                                              'finishReason': 'STOP'}], 'usageMetadata': {'promptTokenCount': 300, 'candidatesTokenCount': 90}}
             if 'systemInstruction' in data:     # the admin chat agent (apps/agents)
                 return 200, {'candidates': [{'content': {'role': 'model', 'parts': [{'text': AGENT_REPLY}]}, 'finishReason': 'STOP'}],

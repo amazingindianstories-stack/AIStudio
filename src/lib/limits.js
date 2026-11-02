@@ -65,13 +65,24 @@ export const LIMIT_DEFINITIONS = [
   },
   {
     key: "boardAiMonthlyCapCents",
-    label: "Board AI monthly credits",
+    label: "Board AI monthly limit",
     description:
-      "The most a user may spend on board AI (Sidekicks, Flows, Catch up, AI search and Create with AI) in a calendar month, in cents (5000 is $50.00). People see what is left on the board and can ask an administrator for more.",
+      "The most a user may spend on board AI (Sidekicks, Flows, Catch up, AI search and Create with AI) in a calendar month (UTC), in cents (500 is $5.00). The default is the maximum, which means no limit until you set one.",
     unit: "cents per month",
-    defaultValue: 5000,
+    defaultValue: 10000000,
     min: 1,
-    max: 1000000,
+    max: 10000000,
+  },
+  {
+    key: "boardAiEnabled",
+    label: "Board AI switch",
+    description:
+      "Turns all board AI (Sidekicks, Flows and Create with AI) on boards on (1) or off (0). Off blocks new board AI jobs for everyone, or for one user when set on that user. Jobs already running finish.",
+    unit: "1 on, 0 off",
+    switch: true,
+    defaultValue: 1,
+    min: 0,
+    max: 1,
   },
 ];
 

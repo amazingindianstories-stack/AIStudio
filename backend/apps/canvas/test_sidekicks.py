@@ -13,7 +13,7 @@ from apps.agents.llm import board_payload_allowed
 from apps.authentication.models import User
 from apps.generation.models import Generation
 from testsupport.fake_providers import FakeProviders
-from . import flows, sidekicks
+from . import ai_allowance, flows, sidekicks
 from .models import BoardActivity, BoardAiJob, BoardSidekickChat, FlowOutputVersion, Sidekick
 from .serialization import node
 from .test_ai_jobs import MODEL, BoardFixture, now
@@ -256,7 +256,7 @@ class SidekickChatTests(AssistantFixture):
 class AiCreditTests(AssistantFixture):
     def test_the_monthly_cap_blocks_submission_and_the_credits_report_use_and_prices(self):
         credits = self.personal('get', 'credits').json()['credits']
-        self.assertEqual((credits['capCents'], credits['usedCents']), (5000, 0))
+        self.assertEqual((credits['capCents'], credits['usedCents']), (10000000, 0))
         self.assertGreater(credits['prices']['sidekick']['advanced'], credits['prices']['sidekick']['basic'])
         chat = self.new_chat()
         path = f"sidekick-chats/{chat['id']}/turns"
@@ -271,7 +271,7 @@ class AiCreditTests(AssistantFixture):
             refused = self.board_api('post', path, {'message': 'two'}, key='credit-key-0002')
             self.assertEqual((refused.status_code, refused.json()['code']), (402, 'AI_CREDITS_EXHAUSTED'))
             old = self.submit({'format': 'stickies', 'prompt': 'ideas'}, key='credit-key-0003')
-            self.assertEqual((old.status_code, old.json()['code']), (402, 'AI_CREDITS_EXHAUSTED'))
+            self.assertEqual((old.status_code, old.json()['code']), (429, 'AI_ALLOWANCE_REACHED'))
             # A replay of the accepted key still returns the first job.
             self.assertEqual(self.board_api('post', path, {'message': 'one'}, key='credit-key-0001').json()['job']['id'], job['id'])
         self.assertEqual(Generation.objects.count(), 1)
@@ -281,10 +281,10 @@ class AiCreditTests(AssistantFixture):
         chat = self.new_chat()
         job = self.board_api('post', f"sidekick-chats/{chat['id']}/turns", {'message': 'one'}, key='credit-key-0004').json()['job']
         Generation.objects.filter(pk=job['generationId']).update(status='failed')
-        self.assertEqual(sidekicks.credits_used(self.actor_id), 0)
+        self.assertEqual(ai_allowance.spent_cents(self.actor_id), 0)
         Generation.objects.filter(pk=job['generationId']).update(status='succeeded')
-        self.assertGreater(sidekicks.credits_used(self.actor_id), 0)
-        self.assertEqual(sidekicks.credits_used(self.actor_id, now=now() + 62 * 24 * 60 * 60 * 1000), 0)
+        self.assertGreater(ai_allowance.spent_cents(self.actor_id), 0)
+        self.assertEqual(ai_allowance.spent_cents(self.actor_id, now=now() + 62 * 24 * 60 * 60 * 1000), 0)
 
     def test_usage_analytics_are_for_administrators_and_can_hide_people(self):
         self.board_api('post', f"sidekick-chats/{self.new_chat()['id']}/turns", {'message': 'one'}, key='usage-key-0001')
