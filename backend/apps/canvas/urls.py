@@ -5,6 +5,7 @@ from .template_views import (blueprint_detail, blueprint_list, blueprint_use, te
                              template_edit_board, template_for_board, template_like, template_list, template_use)
 from .facilitation_views import (board_facilitation, board_private_mode, board_timer, board_voting, board_voting_done,
                                  board_voting_session, board_voting_vote)
+from .caption_views import board_captions, board_captions_vtt
 from .talktrack_views import (board_talktrack, board_talktrack_moment, board_talktrack_moments, board_talktrack_transcript,
                               board_talktrack_view, board_talktrack_viewers, board_talktracks, my_talktracks)
 from . import api_v1
@@ -70,6 +71,8 @@ urlpatterns = [
     path('api/canvas-boards/<str:identifier>/talktracks/<str:talktrack_id>/moments', board_talktrack_moments),
     path('api/canvas-boards/<str:identifier>/talktracks/<str:talktrack_id>/moments/<str:moment_id>', board_talktrack_moment),
     path('api/canvas-boards/<str:identifier>/talktracks/<str:talktrack_id>/transcript', board_talktrack_transcript),
+    path('api/canvas-boards/<str:identifier>/captions', board_captions),
+    path('api/canvas-boards/<str:identifier>/captions/vtt', board_captions_vtt),
     path('api/my-talktracks', my_talktracks),
     path('api/canvas-boards/<str:identifier>/assistant/<path:action>', board_assistant),
     path('api/canvas-boards/<str:identifier>', board_detail),

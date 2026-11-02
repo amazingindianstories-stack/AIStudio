@@ -77,7 +77,7 @@ def inline_payloads(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
-    dependencies = [('canvas', '0017_sidekicks_flows')]
+    dependencies = [('canvas', '0018_boardcaption')]
     operations = [
         migrations.CreateModel(
             name='BoardFormatPayload',

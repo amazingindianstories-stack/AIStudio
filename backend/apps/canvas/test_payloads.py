@@ -15,8 +15,8 @@ from .serialization import empty_state, validate_state
 from .test_activity import BOARD, PROJECT, graph
 from .test_roles import make_user
 
-MIGRATION_BEFORE = ('canvas', '0017_sidekicks_flows')
-MIGRATION_AFTER = ('canvas', '0018_format_payloads')
+MIGRATION_BEFORE = ('canvas', '0018_boardcaption')
+MIGRATION_AFTER = ('canvas', '0019_format_payloads')
 
 
 def doc(identifier='d', text='one', **fields):
@@ -282,7 +282,7 @@ class PayloadLifecycleTests(TransactionTestCase):
 
 
 class PayloadMigrationTests(TransactionTestCase):
-    """The data step of canvas.0018 moves inline payloads into rows, once."""
+    """The data step of canvas.0019 moves inline payloads into rows, once."""
 
     def migrate(self, target):
         executor = MigrationExecutor(connection)
@@ -308,7 +308,7 @@ class PayloadMigrationTests(TransactionTestCase):
         self.assertEqual(services.get_board(BOARD)['data']['nodes'], legacy['nodes'])
         # Running the data step again changes nothing.
         from importlib import import_module
-        step = import_module('apps.canvas.migrations.0018_format_payloads').move_payloads
+        step = import_module('apps.canvas.migrations.0019_format_payloads').move_payloads
         snapshot = (CanvasBoard.objects.get(pk=BOARD).data, list(BoardFormatPayload.objects.order_by('node_id').values_list('node_id', 'rev', 'digest')))
         from django.apps import apps as live
         step(live, None)
