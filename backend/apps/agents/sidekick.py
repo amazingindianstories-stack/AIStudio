@@ -7,7 +7,6 @@ last user turn, never in the system prompt. Only the two web formats (``sidekick
 Gemini's ``google_search`` grounding; its fee (``Board AI web search`` in the pricing table) is in the quote, the
 monthly AI credits and the Gemini spend window. Every other format sends no tools.
 """
-import json
 import re
 
 # The named sticky colors (the frontend's STICKY_FILLS holds their fills). A color outside the list travels as a six digit
