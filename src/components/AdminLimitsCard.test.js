@@ -73,6 +73,19 @@ test("the Agents tab switch can be killed and then reset to admins only", async 
   });
 });
 
+test("only limits a user can override point to the Users tab, and the kill switch says it wins", async () => {
+  await mount(limitDefinition("agentGlobalDailyCapCents"), {}, async () => {
+    assert.doesNotMatch(document.body.textContent, /Users tab/);
+  });
+  await mount(limitDefinition("agentsEnabled"), {}, async () => {
+    assert.match(document.body.textContent, /Unless this is 0, a user's own value from the Users tab overrides it/);
+    assert.doesNotMatch(document.body.textContent, /This is the default for every user/);
+  });
+  await mount(limitDefinition("maxPromptLength"), {}, async () => {
+    assert.match(document.body.textContent, /This is the default for every user; give an individual user their own limit from the Users tab/);
+  });
+});
+
 test("a cleared ordinary switch is refused instead of saved as 0", async () => {
   await mount(limitDefinition("boardAiEnabled"), { boardAiEnabled: 1 }, async ({ posts, type, blur, reset }) => {
     assert.equal(reset(), undefined, "only unsettable limits offer a reset");

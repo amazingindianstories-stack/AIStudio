@@ -95,6 +95,7 @@ export const LIMIT_DEFINITIONS = [
     // No global row is its own state, admins only, which neither 1 nor 0 says:
     // the Limits tab shows it blank and can delete the row again.
     unsetLabel: "Unset: admins only",
+    overrideText: "Unless this is 0, a user's own value from the Users tab overrides it for that user.",
     defaultValue: 0,
     min: 0,
     max: 1,

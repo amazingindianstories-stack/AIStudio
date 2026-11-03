@@ -39,9 +39,10 @@ def account(principal):
 @register(
     name='get_account', title='Account and limits', scope='veevee.read', read_only=True,
     description=('Show who you are connected as, your spending today, your limits and the auto-approve amount.\n'
-                 'Spending is the sum of cost.bookedCents over agent-created jobs from the last 24 hours, in cents: '
-                 'every status except jobs cancelled before submission (a cancelled job whose billing is unconfirmed '
-                 'counts), a running Seedance 2.5 job at its token estimate. Jobs at or below autoApproveCents run '
+                 'Spending is, in cents over the last 24 hours, the sum of cost.bookedCents over agent-created jobs '
+                 'plus the Agents tab\'s model token cost (tokenTodayCents adds that cost only for the Agents tab '
+                 'itself). Jobs count in every status except cancelled before submission (a cancelled job whose '
+                 'billing is unconfirmed counts), a running Seedance 2.5 job at its token estimate. Jobs at or below autoApproveCents run '
                  'without a quote; jobs at or above confirmAboveCents need the user\'s approval first.'),
     input_schema=obj({}), output_schema=OUTPUT)
 async def get_account(call):
