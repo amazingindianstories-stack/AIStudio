@@ -11,7 +11,12 @@ role gets 403 and no panel.
 
 Two formats ship today:
 
-- **Sticky notes**: a batch of up to 24 notes from a text model, laid out on a grid.
+- **Sticky notes**: a batch of up to 24 notes from a text model, laid out on a grid. Each note has a `color` (one of
+  `STICKY_COLORS` in `apps/agents/sidekick.py`: the six original names plus red, teal, black, white and grey) and a
+  `fill`, a six digit hex the model sets for a colour the list has no name for. A valid hex wins over the name; an
+  unknown name falls back to yellow. The frontend (`stickyFill` and `stickyInk` in `src/lib/canvas/ai-graph.js`) turns
+  that into the note fill and picks light text on dark fills. Layout notes and Sidekick `add` and `update` actions
+  use the same two fields.
 - **Image**: an ordinary image generation, placed as an image node.
 
 ## How a job runs
@@ -147,8 +152,16 @@ not on the board. **Place again** recovers it:
 ## Formats on a selection
 
 Beyond `stickies` and `image`, the panel offers `diagram` (flowchart or mind map) and `layout` (title, frames, stickies in
-frames). The selection formats `rewrite` (edit text), `cluster` and `summary` act on selected objects and are reached
-from the panel's selection strip or the context menu's AI rows, not the format tabs.
+frames). The selection formats `rewrite` (edit text), `recolor`, `cluster` and `summary` act on selected objects and are
+reached from the panel's selection strip or the context menu's AI rows, not the format tabs. `recolor` ("Change colour"
+in the strip, with a named colour or a prompt such as "make these #ff00aa") returns `{id, color, fill}` per object and
+applies it with `colorPatch` (`src/lib/canvas/ai-graph.js`), the same colour rules a Sidekick `update` action uses; the
+parser uses `color_fields` from `apps/agents/sidekick.py`. It reaches every selected note and shape, blank ones too, and
+sets the text colour that reads on the new fill. A typed request to recolour the selection ("make these notes black",
+`isRecolorRequest` in `ai-selection.js`: it must start with the request and name the selection or what it is) runs
+`recolor` whatever format is picked, unless the person dismisses its "Change colour" chip or picks a format for that
+prompt and selection; a new prompt or selection is routed again. It is one undo step, and locked
+objects are left alone.
 
 - **Context.** The browser reads the selection from the board data (`src/lib/canvas/ai-selection.js`, never the
   DOM, so viewport culling does not matter) and sends `context: [{id, type, text}]`. The server bounds it
@@ -158,6 +171,10 @@ from the panel's selection strip or the context menu's AI rows, not the format t
   context: it reuses the first turn of the job it refines, which already holds the original selection.
 - **Image references.** `referenceImages` (up to 4 URLs under `/api/media/`) on an `image` request are validated
   by the existing enqueue path. Selected board images become references of a new image, so the original stays.
+  A board image job (and an image refinement) assembles its references with `referenceUse: 'board'`
+  (`image_execution.py`, `board_references` in `apps/generation/prompting/assembler.py`): when no reference shows a
+  person, they are context for the request rather than a subject to reproduce, so a bare "a cat" over a landscape
+  still adds the cat. A reference that shows (or may show) a person keeps the usual identity rules.
 - **Placement kinds** in `AI_FORMATS`: `nodes` (new objects), `graph` (new objects and connectors, placed with
   `placeGeneratedNodes`; a refined result replaces the result it refines) and `edit` (rewrites
   selected objects in place with `applyBoardAiEdit`, one undo step; locked objects are skipped). An `edit` format
@@ -190,9 +207,11 @@ from the panel's selection strip or the context menu's AI rows, not the format t
 - `src/lib/board-ai.test.js` (including a batch's per-slot keys, a refused, lost, timed-out or frozen second submission and its one-step
   side-by-side placement), `src/lib/config.test.js` (`reconcileGenerationSettings`), `src/lib/canvas/ai-formats.test.js`, `ai-graph.test.js`, `ai-selection.test.js` and `src/components/canvas/CanvasAiPanel.test.js`
   cover the browser side.
-- `tests/browser/board-ai.spec.mjs` and `board-ai-selection.spec.mjs` are the end-to-end flows. The first picks a non-default model, ratio and resolution for an image, checks the quote, the
-  stored row and the request the fake provider received, and refines with the pre-filled controls, then runs a 2x batch and checks both images land side by side as two jobs. Run it against the fake provider server with:
+- `tests/browser/board-ai.spec.mjs`, `board-ai-selection.spec.mjs` and `board-ai-quality.spec.mjs` (requested colours,
+  recolouring a selection, references as context) are the end-to-end flows. `board-ai.spec.mjs` picks a non-default model, ratio and
+  resolution for an image, checks the quote, the stored row and the request the fake provider received, and refines with the
+  pre-filled controls, then runs a 2x batch and checks both images land side by side as two jobs. Run them against the fake provider server with:
 
   ```
-  scripts/dev/test-db.sh PYTHON scripts/dev/browser-harness.py --fake-providers --grep "Create with AI"
+  scripts/dev/test-db.sh PYTHON scripts/dev/browser-harness.py --fake-providers --grep "board-ai"
   ```

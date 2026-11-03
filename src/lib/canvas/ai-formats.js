@@ -3,9 +3,9 @@
 // table, Kanban, timeline, slides) adds one entry here with its suggestions and its `nodes` builder, and one
 // on the backend; the panel, job store and placement need no other change.
 
-import { STICKY_FILLS, applyCluster, applyRewrite, diagramGraph, layoutGraph, stickyColumns, summaryGraph } from "./ai-graph.js";
+import { STICKY_FILLS, applyCluster, applyRecolor, applyRewrite, colorPatch, diagramGraph, layoutGraph, stickyColumns, stickyFill, stickyInk, summaryGraph } from "./ai-graph.js";
 
-export { STICKY_FILLS, stickyColumns };
+export { STICKY_FILLS, colorPatch, stickyColumns, stickyFill, stickyInk };
 
 const STICKY_SIZE = 200;
 const STICKY_GAP = 24;
@@ -30,9 +30,9 @@ export function stickyNodes(result, center) {
     w: STICKY_SIZE,
     h: STICKY_SIZE,
     text: String(note.text ?? ""),
-    fill: STICKY_FILLS[note.color] ?? STICKY_FILLS.yellow,
+    fill: stickyFill(note),
     fontSize: 16,
-    color: "#1c1a12",
+    color: stickyInk(stickyFill(note)),
     opacity: 1,
     parentId: null,
     groupId: null,
@@ -147,6 +147,15 @@ Object.assign(AI_FORMATS, {
     suggestions: [],
     resultLabel: (result) => `text of ${countLabel(result?.items?.length ?? 0, "object")}`,
     edit: (job, present) => applyRewrite(present, job.result),
+  },
+  recolor: {
+    id: "recolor",
+    label: "Change colour",
+    placeholder: "What colour should the selected notes be?",
+    advancedHint: "A stronger text model, for more considered colours",
+    suggestions: [],
+    resultLabel: (result) => `colour of ${countLabel(result?.items?.length ?? 0, "object")}`,
+    edit: (job, present) => applyRecolor(present, job.result),
   },
   cluster: {
     id: "cluster",

@@ -8,7 +8,10 @@ last user turn, never in the system prompt. No format carries tools: nothing sea
 import json
 import re
 
-STICKY_COLORS = ('yellow', 'orange', 'pink', 'purple', 'blue', 'green')
+# The named sticky colors (the frontend's STICKY_FILLS holds their fills). A color outside the list travels as a six digit
+# hex in "fill", which wins over the name; apps.agents.board shares both.
+STICKY_COLORS = ('yellow', 'orange', 'pink', 'purple', 'blue', 'green', 'red', 'teal', 'black', 'white', 'grey')
+HEX_COLOR = re.compile(r'#[0-9a-fA-F]{6}')
 ACTION_OPS = ('add', 'update', 'delete', 'connect')
 ADD_TYPES = ('sticky', 'text', 'rect', 'ellipse', 'diamond', 'frame')
 MAX_ACTIONS = 40
@@ -41,9 +44,10 @@ SIDEKICK_PROMPT = (
     f'several steps, list the steps (at most {MAX_PLAN_STEPS}) in "plan" and do them in "actions".\n\n'
     f'"actions" change the board, at most {MAX_ACTIONS}. Each has an "op": "add" creates an object (type one of '
     f'{", ".join(ADD_TYPES)}; text up to {MAX_TEXT_CHARS} characters; color one of {", ".join(STICKY_COLORS)} for '
-    'stickies; x, y, w, h in the board\'s coordinates, leaving them out places it in free space; "ref" is a short name '
-    'you give it so a later connect can point at it); "update" changes the object whose "id" is given (text, color, x, y, '
-    'w, h); "delete" removes the object whose "id" is given; "connect" draws an arrow from "from" to "to", each an id of '
+    'stickies, or "fill" as a six digit hex such as #6f9bd1 for a color the list does not have; x, y, w, h in the '
+    'board\'s coordinates, leaving them out places it in free space; "ref" is a short name you give it so a later '
+    'connect can point at it); "update" changes the object whose "id" is given (text, color or fill, x, y, w, h); '
+    '"delete" removes the object whose "id" is given; "connect" draws an arrow from "from" to "to", each an id of '
     'an existing object or the "ref" of one you add. Only use ids that appear in the board summary. Never delete or '
     'rewrite objects the user did not ask you to change. Text is plain: no markdown.')
 
@@ -52,7 +56,7 @@ SIDEKICK_ACTION_SCHEMA = {
     'properties': {
         'op': {'type': 'STRING', 'enum': list(ACTION_OPS)},
         'id': {'type': 'STRING'}, 'ref': {'type': 'STRING'}, 'type': {'type': 'STRING', 'enum': list(ADD_TYPES)},
-        'text': {'type': 'STRING'}, 'color': {'type': 'STRING', 'enum': list(STICKY_COLORS)},
+        'text': {'type': 'STRING'}, 'color': {'type': 'STRING', 'enum': list(STICKY_COLORS)}, 'fill': {'type': 'STRING'},
         'x': {'type': 'NUMBER'}, 'y': {'type': 'NUMBER'}, 'w': {'type': 'NUMBER'}, 'h': {'type': 'NUMBER'},
         'from': {'type': 'STRING'}, 'to': {'type': 'STRING'}},
     'required': ['op']}
@@ -122,6 +126,17 @@ def _number(value):
     return value if isinstance(value, (int, float)) and not isinstance(value, bool) and abs(value) <= MAX_COORDINATE else None
 
 
+def color_fields(raw):
+    """The colour an object or action asks for: a known color name and/or a six digit hex fill, nothing else."""
+    result = {}
+    if raw.get('color') in STICKY_COLORS:
+        result['color'] = raw['color']
+    fill = raw.get('fill')
+    if isinstance(fill, str) and HEX_COLOR.fullmatch(fill):
+        result['fill'] = fill.lower()
+    return result
+
+
 def _action(raw):
     if not isinstance(raw, dict) or raw.get('op') not in ACTION_OPS:
         return None
@@ -146,8 +161,7 @@ def _action(raw):
     text = _text(raw.get('text'), MAX_TEXT_CHARS)
     if text or (op == 'update' and isinstance(raw.get('text'), str)):
         action['text'] = text
-    if raw.get('color') in STICKY_COLORS:
-        action['color'] = raw['color']
+    action.update(color_fields(raw))
     for key in ('x', 'y', 'w', 'h'):
         value = _number(raw.get(key))
         if value is not None and (key in ('x', 'y') or value > 0):

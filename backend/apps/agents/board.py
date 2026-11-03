@@ -18,31 +18,49 @@ MAX_TURN_CHARS = 20000
 MAX_BODY_BYTES = 128 * 1024
 MODEL_CODE = re.compile(r'gemini-[a-z0-9.-]{1,60}')
 
-STICKY_COLORS = ('yellow', 'orange', 'pink', 'purple', 'blue', 'green')
+STICKY_COLORS = sidekick.STICKY_COLORS
 MAX_STICKIES = 24
 MAX_STICKY_CHARS = 280
+HEX_COLOR = sidekick.HEX_COLOR
+COLOR_RULES = (
+    f'Each note has a color (one of: {", ".join(STICKY_COLORS)}) and a fill. When the request names a color, every note '
+    'it covers gets that color: use the matching color name when the list has it (black is black, not purple), else set '
+    'fill to the color as a six digit hex such as #6f9bd1. Without a requested color, use the color to group related '
+    'notes and keep one color when there are no groups. Leave fill empty unless you need a hex.')
 
 STICKIES_PROMPT = (
     'You turn a request from a Veevee board user into sticky notes for their board. Veevee is a production tool for '
     'filmmakers and artists, so expect brainstorms, shot ideas, story beats, research questions and task lists.\n\n'
     f'Return between 1 and {MAX_STICKIES} sticky notes. Each note holds one idea in at most {MAX_STICKY_CHARS} '
-    'characters of plain text: no markdown, no numbering, no surrounding quotes. Use the color to group related '
-    f'notes (one of: {", ".join(STICKY_COLORS)}); keep one color when there are no groups. If the request asks for a '
-    'number of notes, return that number (up to the limit).\n\n'
+    'characters of plain text: no markdown, no numbering, no surrounding quotes. '
+    f'{COLOR_RULES} If the request asks for a number of notes, return that number (up to the limit).\n\n'
     'When the conversation already holds your earlier notes, the latest user message is a refinement: return the '
-    'complete revised set of notes, not only the changes.')
+    'complete revised set of notes, not only the changes, and when it asks to change the color, return every note '
+    'again in the new color.')
 
 STICKIES_SCHEMA = {
     'type': 'OBJECT',
     'properties': {'notes': {'type': 'ARRAY', 'items': {
         'type': 'OBJECT',
-        'properties': {'text': {'type': 'STRING'}, 'color': {'type': 'STRING', 'enum': list(STICKY_COLORS)}},
-        'required': ['text', 'color']}}},
+        'properties': {'text': {'type': 'STRING'}, 'color': {'type': 'STRING', 'enum': list(STICKY_COLORS)},
+                       'fill': {'type': 'STRING'}},
+        'required': ['text', 'color', 'fill']}}},
     'required': ['notes']}
 
 
 class UnusableResult(ValueError):
     """The model answered, but not with something the board can place."""
+
+
+def sticky_fill(value):
+    """A six digit hex the model gave as a sticky's fill, lowercased, else an empty string."""
+    return value.lower() if isinstance(value, str) and HEX_COLOR.fullmatch(value) else ''
+
+
+def sticky_note(note, text):
+    color = note.get('color')
+    return {'text': text.strip()[:MAX_STICKY_CHARS], 'color': color if color in STICKY_COLORS else STICKY_COLORS[0],
+            'fill': sticky_fill(note.get('fill'))}
 
 
 def parse_stickies(value):
@@ -54,8 +72,7 @@ def parse_stickies(value):
         text = note.get('text') if isinstance(note, dict) else None
         if not isinstance(text, str) or not text.strip():
             continue
-        color = note.get('color')
-        result.append({'text': text.strip()[:MAX_STICKY_CHARS], 'color': color if color in STICKY_COLORS else STICKY_COLORS[0]})
+        result.append(sticky_note(note, text))
     if not result:
         raise UnusableResult('The AI answer held no sticky notes.')
     return {'notes': result}
@@ -83,6 +100,20 @@ REWRITE_SCHEMA = {
     'type': 'OBJECT',
     'properties': {'items': {'type': 'ARRAY', 'items': {
         'type': 'OBJECT', 'properties': {'id': {'type': 'STRING'}, 'text': {'type': 'STRING'}}, 'required': ['id', 'text']}}},
+    'required': ['items']}
+
+RECOLOR_PROMPT = (
+    'You change the colors of objects on a Veevee board. The user message holds an instruction (for example make them '
+    'black, or color them by sentiment) and a JSON list of items, each with an id, a type and its text.\n\n'
+    f'Return every item once with the same id and its new color. {COLOR_RULES} Never add or drop items.')
+
+RECOLOR_SCHEMA = {
+    'type': 'OBJECT',
+    'properties': {'items': {'type': 'ARRAY', 'items': {
+        'type': 'OBJECT',
+        'properties': {'id': {'type': 'STRING'}, 'color': {'type': 'STRING', 'enum': list(STICKY_COLORS)},
+                       'fill': {'type': 'STRING'}},
+        'required': ['id', 'color', 'fill']}}},
     'required': ['items']}
 
 CLUSTER_PROMPT = (
@@ -116,8 +147,7 @@ LAYOUT_PROMPT = (
     'plan, a story map, a shot list or a meeting recap. Return a board title and between 1 and '
     f'{MAX_FRAMES} frames. Each frame has a short title (at most 40 characters) and up to 8 sticky notes with one idea '
     f'each (at most {MAX_STICKY_CHARS} characters, plain text, no markdown). Order frames as they should read, left to '
-    f'right. Use a sticky color (one of: {", ".join(STICKY_COLORS)}) to group related notes. Use the selected board '
-    'content as context when the user message holds it.')
+    f'right. {COLOR_RULES} Use the selected board content as context when the user message holds it.')
 
 LAYOUT_SCHEMA = {
     'type': 'OBJECT',
@@ -125,8 +155,9 @@ LAYOUT_SCHEMA = {
         'type': 'OBJECT',
         'properties': {'title': {'type': 'STRING'}, 'notes': {'type': 'ARRAY', 'items': {
             'type': 'OBJECT',
-            'properties': {'text': {'type': 'STRING'}, 'color': {'type': 'STRING', 'enum': list(STICKY_COLORS)}},
-            'required': ['text', 'color']}}},
+            'properties': {'text': {'type': 'STRING'}, 'color': {'type': 'STRING', 'enum': list(STICKY_COLORS)},
+                           'fill': {'type': 'STRING'}},
+            'required': ['text', 'color', 'fill']}}},
         'required': ['title', 'notes']}}},
     'required': ['title', 'frames']}
 
@@ -154,7 +185,6 @@ DIAGRAM_SCHEMA = {
             'required': ['from', 'to', 'label']}}},
     'required': ['kind', 'nodes', 'edges']}
 
-HEX_COLOR = re.compile(r'#[0-9a-fA-F]{6}')
 NODE_ID = re.compile(r'[A-Za-z0-9_-]{1,32}')
 
 
@@ -176,6 +206,25 @@ def parse_rewrite(value):
         result.append({'id': identifier, 'text': text.strip()[:MAX_ITEM_CHARS]})
     if not result:
         raise UnusableResult('The AI answer held no edited text.')
+    return {'items': result}
+
+
+def parse_recolor(value):
+    items = value.get('items') if isinstance(value, dict) else None
+    if not isinstance(items, list):
+        raise UnusableResult('The AI answer held no colors.')
+    result, seen = [], set()
+    for item in items[:MAX_REWRITE_ITEMS]:
+        identifier = item.get('id') if isinstance(item, dict) else None
+        if not isinstance(identifier, str) or identifier in seen:
+            continue
+        # The colour rules are the Sidekick update action's: a known name and/or a valid hex, else the item is skipped.
+        colors = sidekick.color_fields(item)
+        if colors:
+            seen.add(identifier)
+            result.append({'id': identifier, 'color': colors.get('color', ''), 'fill': colors.get('fill', '')})
+    if not result:
+        raise UnusableResult('The AI answer held no colors.')
     return {'items': result}
 
 
@@ -212,8 +261,7 @@ def sticky_list(notes):
     for note in notes[:8] if isinstance(notes, list) else []:
         text = note.get('text') if isinstance(note, dict) else None
         if isinstance(text, str) and text.strip():
-            color = note.get('color')
-            result.append({'text': text.strip()[:MAX_STICKY_CHARS], 'color': color if color in STICKY_COLORS else STICKY_COLORS[0]})
+            result.append(sticky_note(note, text))
     return result
 
 
@@ -283,6 +331,7 @@ TEXT_FORMATS = {
     'stickies': {'prompt': STICKIES_PROMPT, 'schema': STICKIES_SCHEMA, 'max_output_tokens': 8192, 'temperature': 0.7,
                  'parse': parse_stickies},
     'rewrite': {'prompt': REWRITE_PROMPT, 'schema': REWRITE_SCHEMA, 'max_output_tokens': 16384, 'temperature': 0.3, 'parse': parse_rewrite},
+    'recolor': {'prompt': RECOLOR_PROMPT, 'schema': RECOLOR_SCHEMA, 'max_output_tokens': 8192, 'temperature': 0.2, 'parse': parse_recolor},
     'cluster': {'prompt': CLUSTER_PROMPT, 'schema': CLUSTER_SCHEMA, 'max_output_tokens': 4096, 'temperature': 0.2, 'parse': parse_cluster},
     'summary': {'prompt': SUMMARY_PROMPT, 'schema': SUMMARY_SCHEMA, 'max_output_tokens': 4096, 'temperature': 0.4, 'parse': parse_summary},
     'layout': {'prompt': LAYOUT_PROMPT, 'schema': LAYOUT_SCHEMA, 'max_output_tokens': 8192, 'temperature': 0.7, 'parse': parse_layout},

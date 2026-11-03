@@ -123,7 +123,10 @@ def execute_image(item, *, signal, dependencies=None, env=None, on_task=None):
         return deps.assets if deps.assets is not None else deps.read_assets(item.project_id)
 
     def assemble(with_ratio=True):
-        result = deps.assemble(prompt, assets(), references, {'aspectRatio': ratio} if with_ratio else {},
+        options = {'aspectRatio': ratio} if with_ratio else {}
+        if getattr(item, 'created_via', None) == 'board':
+            options['referenceUse'] = 'board'
+        result = deps.assemble(prompt, assets(), references, options,
             read_image=deps.storage().read_as_base64, prep_reference=deps.prepare,
             analyze_identity=lambda mime, data, limit=3: image_prep.analyze_identity_reference(mime, data, limit, env=env, signal=signal),
             detect_role=lambda mime, data: image_prep.detect_reference_role(mime, data, env=env, signal=signal), env=env)

@@ -67,6 +67,10 @@ class SidekickFormatTests(SimpleTestCase):
             {'op': 'connect', 'from': 'a', 'to': 'b'}]})
         self.assertEqual([action['op'] for action in result['actions']], ['add', 'connect'])
         self.assertNotIn('color', result['actions'][0])
+        colored = sidekick.parse_sidekick({'reply': 'ok', 'actions': [
+            {'op': 'update', 'id': 'a', 'color': 'black'}, {'op': 'add', 'type': 'sticky', 'text': 'x', 'fill': '#FF00AA'},
+            {'op': 'add', 'type': 'sticky', 'text': 'y', 'fill': 'pink-ish'}]})['actions']
+        self.assertEqual([(action.get('color'), action.get('fill')) for action in colored], [('black', None), (None, '#ff00aa'), (None, None)])
         asking = sidekick.parse_sidekick({'reply': 'Which scene?', 'options': ['One', 'Two'], 'actions': [{'op': 'add', 'type': 'sticky', 'text': 'x'}]})
         self.assertEqual((asking['options'], asking['actions']), (['One', 'Two'], []))
         with self.assertRaises(board_formats.UnusableResult):

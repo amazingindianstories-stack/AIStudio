@@ -20,6 +20,14 @@ test("sticky notes are laid out in reading order on a grid centred on the target
   assert.deepEqual(stickyNodes(null, { x: 0, y: 0 }), []);
 });
 
+test("a requested colour is honoured: black, a name from the palette, a hex, and light text on dark notes", () => {
+  const nodes = stickyNodes({ notes: [{ text: "a", color: "black", fill: "" }, { text: "b", color: "teal" }, { text: "c", color: "yellow", fill: "#FF00AA" },
+    { text: "d", color: "white" }, { text: "e", color: "yellow", fill: "not a colour" }] }, { x: 0, y: 0 });
+  assert.deepEqual(nodes.map((node) => node.fill), ["#1a1a1a", STICKY_FILLS.teal, "#ff00aa", STICKY_FILLS.white, STICKY_FILLS.yellow]);
+  assert.deepEqual(nodes.map((node) => node.color), ["#f5f5f5", "#1c1a12", "#1c1a12", "#1c1a12", "#1c1a12"]);
+  assert.notEqual(STICKY_FILLS.black, STICKY_FILLS.purple);
+});
+
 test("generated nodes survive the board's own validation unchanged", () => {
   const nodes = [...stickyNodes(notes(3), { x: 0, y: 0 }), ...imageNodes({ url: "/api/media/generations/a/master.png", aspectRatio: "16:9" }, { x: 0, y: 0 }, "a lantern")];
   const state = validateCanvasState({ version: 1, viewport: { x: 0, y: 0, zoom: 1 }, nodes, connectors: [] });
@@ -51,7 +59,7 @@ test("every offered format has panel copy, suggestions and a node builder", () =
     assert.ok(format.suggestions.length >= 3);
     assert.equal(typeof (format.nodes ?? format.graph), "function");
   }
-  for (const id of ["rewrite", "cluster", "summary"]) {
+  for (const id of ["rewrite", "recolor", "cluster", "summary"]) {
     assert.equal(AI_FORMATS[id].id, id);
     assert.equal(typeof (AI_FORMATS[id].edit ?? AI_FORMATS[id].graph), "function");
   }

@@ -9,14 +9,15 @@ import {
 } from "@/lib/config";
 import { formatCost } from "@/lib/format-cost";
 import { ACTIVE_STATUSES, quoteBoardAi, requestFingerprint, trackPanelLayout, useBoardAi } from "@/lib/board-ai";
-import { AI_FORMATS, AI_FORMAT_ORDER } from "@/lib/canvas/ai-formats";
+import { AI_FORMATS, AI_FORMAT_ORDER, STICKY_FILLS } from "@/lib/canvas/ai-formats";
 import { Dropdown, MenuItem } from "@/components/Dropdown";
 import { Chip, ModelPicker, Segment } from "@/components/ComposerControls";
 import { useCanvasStore } from "@/lib/canvas-store";
 import { setAiInputs, useAiPanelIntent } from "@/lib/board-ai-panel";
 import { dictationSupported, startDictation } from "@/lib/canvas/dictation";
 import {
-  LANGUAGES, SELECTION_ACTIONS, SELECTION_FORMATS, TONES, actionApplies, contextFields, selectionContext, toneAction, translateAction,
+  LANGUAGES, SELECTION_ACTIONS, SELECTION_FORMATS, TONES, actionApplies, contextFields, isRecolorRequest, recolorAction, selectionContext, toneAction,
+  translateAction,
 } from "@/lib/canvas/ai-selection";
 
 const FORMAT_ICONS = { stickies: StickyNote, image: ImageIcon, diagram: Workflow, layout: LayoutDashboard };
@@ -84,6 +85,7 @@ export function CanvasAiPanel({ boardId, leftInset = 0, topInset = 0, onClose })
   const [quote, setQuote] = useState({ state: "idle" });
   const [useSelection, setUseSelection] = useState(true);
   const [action, setAction] = useState(null);
+  const [keptFormatFor, setKeptFormatFor] = useState(null);
   const [listening, setListening] = useState(false);
   const stopListening = useRef(null);
   const nodes = useCanvasStore((s) => s.history.present.nodes);
@@ -96,7 +98,10 @@ export function CanvasAiPanel({ boardId, leftInset = 0, topInset = 0, onClose })
 
   // Refining continues the result this panel last placed, in its format.
   const refining = Boolean(placed);
-  const activeFormat = refining ? placed.format : action ? action.format : format;
+  // A typed request to recolour the selected notes or shapes recolours them, whatever format is picked.
+  const recolorKey = `${prompt}\n${(selection ?? []).join(",")}`;
+  const typedRecolor = keptFormatFor !== recolorKey && !refining && context.colorable.length > 0 && isRecolorRequest(prompt);
+  const activeFormat = refining ? placed.format : typedRecolor ? "recolor" : action ? action.format : format;
   const selectionFormat = SELECTION_FORMATS.includes(activeFormat);
   const extra = useSelection || selectionFormat ? contextFields(activeFormat, context) : null;
   const spec = AI_FORMATS[activeFormat];
@@ -237,6 +242,7 @@ export function CanvasAiPanel({ boardId, leftInset = 0, topInset = 0, onClose })
     if (created.length) {
       setPrompt("");
       setAction(null);
+      setKeptFormatFor(null);
     }
   };
 
@@ -302,7 +308,7 @@ export function CanvasAiPanel({ boardId, leftInset = 0, topInset = 0, onClose })
       <div role="radiogroup" aria-label="Format" className="mt-2 flex w-fit items-center gap-1 rounded-lg bg-ink-900/60 p-0.5">
         {AI_FORMAT_ORDER.map((id) => {
           const Icon = FORMAT_ICONS[id];
-          const selected = !action && id === format;
+          const selected = !action && !typedRecolor && id === format;
           return (
             <button
               key={id}
@@ -312,6 +318,7 @@ export function CanvasAiPanel({ boardId, leftInset = 0, topInset = 0, onClose })
               onClick={() => {
                 setFormat(id);
                 setAction(null);
+                if (typedRecolor) setKeptFormatFor(recolorKey);
               }}
               className={cn(
                 "flex items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
@@ -374,6 +381,8 @@ export function CanvasAiPanel({ boardId, leftInset = 0, topInset = 0, onClose })
           context={context}
           nodes={nodes}
           action={action}
+          recoloring={typedRecolor && action?.format !== "recolor"}
+          onKeepFormat={() => setKeptFormatFor(recolorKey)}
           useSelection={useSelection}
           onUseSelection={setUseSelection}
           onPick={pickAction}
@@ -556,11 +565,12 @@ function ActionMenu({ label, items, onPick }) {
 }
 
 /** What the selection offers: use it as context, or run a one-click action on it (nothing runs until Generate). */
-function SelectionStrip({ context, nodes, action, useSelection, onUseSelection, onPick, onClear, showContextToggle }) {
+function SelectionStrip({ context, nodes, action, recoloring, onKeepFormat, useSelection, onUseSelection, onPick, onClear, showContextToggle }) {
   const applies = (item) => actionApplies(item, context, nodes);
   const presets = SELECTION_ACTIONS.filter(applies);
   const tones = TONES.map((tone) => ({ ...toneAction(tone), label: tone }));
   const languages = LANGUAGES.map((language) => ({ ...translateAction(language), label: language }));
+  const colors = Object.keys(STICKY_FILLS).map((name) => ({ ...recolorAction(name), label: name[0].toUpperCase() + name.slice(1) }));
   const text = context.items.length > 0;
   return (
     <div aria-label="Selection" className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
@@ -571,9 +581,15 @@ function SelectionStrip({ context, nodes, action, useSelection, onUseSelection, 
           Use selection as context
         </label>
       )}
-      {action && (
+      {action && !recoloring && (
         <button type="button" onClick={onClear} className="rounded-full bg-ink-600 px-2.5 py-1 font-medium text-white ring-1 ring-line" title="Clear this action">
           {action.label ?? action.prompt} <X className="inline h-3 w-3" aria-hidden />
+        </button>
+      )}
+      {recoloring && (
+        <button type="button" onClick={onKeepFormat} aria-label="Change colour: keep the picked format instead" title="Keep the picked format instead"
+          className="rounded-full bg-ink-600 px-2.5 py-1 font-medium text-white ring-1 ring-line">
+          Change colour <X className="inline h-3 w-3" aria-hidden />
         </button>
       )}
       {presets.filter((item) => item.id !== action?.id).map((item) => (
@@ -581,6 +597,7 @@ function SelectionStrip({ context, nodes, action, useSelection, onUseSelection, 
           {item.label}
         </button>
       ))}
+      {applies(colors[0]) && <ActionMenu label="Change colour" items={colors} onPick={onPick} />}
       {text && <ActionMenu label="Change tone" items={tones} onPick={onPick} />}
       {text && <ActionMenu label="Translate" items={languages} onPick={onPick} />}
     </div>

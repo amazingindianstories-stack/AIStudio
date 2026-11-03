@@ -1,7 +1,7 @@
 // What a Sidekick's answer does to the board: its "actions" (add, update, delete, connect; see
 // backend/apps/agents/sidekick.py) become one pure graph edit, so the panel applies a whole answer as a single
 // undo step. Locked objects are never changed and ids the board does not hold are ignored.
-import { STICKY_FILLS, inFreeSpace } from "./ai-formats.js";
+import { colorPatch, inFreeSpace, stickyFill, stickyInk } from "./ai-formats.js";
 import { isLocked } from "./locks.js";
 
 export const MAX_ACTIONS = 40;
@@ -27,12 +27,14 @@ export function nodeFor(action, now) {
       return { ...base, text, fontSize: 18, align: "left", color: "#e8e6df" };
     case "rect":
     case "ellipse":
-    case "diamond":
-      return { ...base, fill: STICKY_FILLS[action.color] ?? "#ffffff", stroke: "#000000", strokeWidth: 1, ...(action.type === "rect" ? { cornerRadius: 0 } : {}), ...(text ? { text } : {}) };
+    case "diamond": {
+      const fill = action.color || action.fill ? stickyFill(action) : "#ffffff";
+      return { ...base, fill, color: stickyInk(fill), stroke: "#000000", strokeWidth: 1, ...(action.type === "rect" ? { cornerRadius: 0 } : {}), ...(text ? { text } : {}) };
+    }
     case "frame":
       return { ...base, name: text || "Frame", fill: "transparent", stroke: "#000000" };
     default:
-      return { ...base, type: "sticky", text, fill: STICKY_FILLS[action.color] ?? STICKY_FILLS.yellow, fontSize: 16, color: "#1c1a12", opacity: 1 };
+      return { ...base, type: "sticky", text, fill: stickyFill(action), fontSize: 16, color: stickyInk(stickyFill(action)), opacity: 1 };
   }
 }
 
@@ -86,7 +88,7 @@ export function applyActions(present, actions, { center = { x: 0, y: 0 }, now = 
       const node = byId.get(action.id);
       const patch = {};
       if (typeof action.text === "string") patch[node.type === "frame" ? "name" : "text"] = action.text;
-      if (action.color && STICKY_FILLS[action.color] && "fill" in node && node.type !== "frame") patch.fill = STICKY_FILLS[action.color];
+      Object.assign(patch, colorPatch(node, action));
       for (const key of ["x", "y", "w", "h"]) if (Number.isFinite(action[key])) patch[key] = action[key];
       const next = { ...node, ...patch, aiEditedAt: now };
       if ("text" in patch) delete next.marks;

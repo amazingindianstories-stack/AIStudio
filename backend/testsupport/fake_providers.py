@@ -25,6 +25,9 @@ import uuid
 from urllib.parse import parse_qs, urlsplit
 from unittest.mock import patch
 
+from apps.generation.prompting.vision_templates import T as VISION_TEMPLATES
+
+IDENTITY_DETECTION = VISION_TEMPLATES['identityDetection']
 FAKE_MEDIA = 'https://fake-media.invalid/'
 MAGNIFIC_CDN = 'https://cdn-magnific.freepik.com/'
 MAGNIFIC_IMAGE_CDN = 'https://ai-statics.magnific.com/'
@@ -38,9 +41,9 @@ PRIVACY_MESSAGE = 'The request failed because the input image may contain real p
 TRANSCRIPT = '[00:00.000 - 00:01.000] Narrator: simulated transcription from the fake provider.'
 AGENT_REPLY = 'Simulated agent reply: tell me more about the scene you want to make.'
 # The board sticky notes every simulated board text job returns (apps/agents/board.py shape).
-BOARD_NOTES = [{'text': 'Simulated idea: open on the empty stage', 'color': 'yellow'},
-               {'text': 'Simulated idea: the lights fail mid-scene', 'color': 'blue'},
-               {'text': 'Simulated idea: end on a single spotlight', 'color': 'pink'}]
+BOARD_NOTES = [{'text': 'Simulated idea: open on the empty stage', 'color': 'yellow', 'fill': ''},
+               {'text': 'Simulated idea: the lights fail mid-scene', 'color': 'blue', 'fill': ''},
+               {'text': 'Simulated idea: end on a single spotlight', 'color': 'pink', 'fill': ''}]
 REQUEST_ID = '021760850000000fixture0001'     # BytePlus-style request id (fixture; never a real one)
 
 
@@ -134,6 +137,8 @@ def board_reply(name, body):
         selected = json.loads(body['contents'][0]['parts'][0]['text'].split('Selected board content (JSON):\n', 1)[1])
     if name == 'rewrite':
         return {'items': [{'id': item['id'], 'text': 'EDITED ' + item['text']} for item in selected]}
+    if name == 'recolor':
+        return {'items': [{'id': item['id'], **recolor_choice(body, last)} for item in selected]}
     if name == 'cluster':
         half = (len(selected) + 1) // 2
         return {'groups': [{'title': 'First half', 'ids': [item['id'] for item in selected[:half]]},
@@ -149,7 +154,52 @@ def board_reply(name, body):
                                                {'id': 'b', 'label': 'Decide', 'shape': 'diamond', 'color': '#6f9bd1'},
                                                {'id': 'c', 'label': 'Finish', 'shape': 'rect', 'color': ''}] + extra,
                 'edges': [{'from': 'a', 'to': 'b', 'label': ''}, {'from': 'b', 'to': 'c', 'label': 'yes'}]}
-    return {'notes': BOARD_NOTES}
+    return {'notes': sticky_reply(body, last)}
+
+
+# What a model asked for a colour does: the colour the request names, if the response schema lets it say so.
+COLOR_HEX = {'black': '#1a1a1a', 'white': '#fafafa', 'grey': '#9ca3af', 'gray': '#9ca3af', 'red': '#c97a72', 'teal': '#5fb3a8',
+             'yellow': '#e3c56a', 'orange': '#d99a5b', 'pink': '#d189a7', 'purple': '#9b86c9', 'blue': '#6f9bd1', 'green': '#7fae86',
+             'brown': '#8b5a2b', 'cyan': '#00bcd4'}
+REQUEST_HEX = re.compile(r'#[0-9a-fA-F]{6}')
+
+
+def recolor_choice(body, last):
+    """The colour a recolour request names, as the schema lets a model say it (a name from the enum, else a hex fill)."""
+    properties = body['generationConfig']['responseSchema']['properties']['items']['items']['properties']
+    named = next((name for name in COLOR_HEX if re.search(rf'\b{name}\b', last, re.I)), None)
+    hexed = REQUEST_HEX.search(last)
+    if hexed:
+        return {'color': 'yellow', 'fill': hexed[0].lower()}
+    if named in (properties['color'].get('enum') or []):
+        return {'color': named, 'fill': ''}
+    return {'color': 'purple', 'fill': ''}
+
+
+def sticky_reply(body, last):
+    """Sticky notes for a sticky-notes request. The notes carry the colour the prompt names when the response schema can
+    express it (an enum member, else a hex in a ``fill`` field); a schema that cannot gets the colour the board showed
+    for black before its schema listed it, purple."""
+    properties = body['generationConfig']['responseSchema']['properties']['notes']['items']['properties']
+    allowed, has_fill = properties['color'].get('enum') or [], 'fill' in properties
+    named = next((name for name in COLOR_HEX if re.search(rf'\b{name}\b', last, re.I)), None)
+    hexed = REQUEST_HEX.search(last)
+    result = []
+    for note in BOARD_NOTES:
+        entry = dict(note)
+        if not has_fill:
+            del entry['fill']
+        if hexed and has_fill:
+            entry['fill'] = hexed[0].lower()
+        elif named:
+            if named in allowed:
+                entry['color'] = named
+            elif has_fill:
+                entry['fill'] = COLOR_HEX[named]
+            else:
+                entry['color'] = 'purple'
+        result.append(entry)
+    return result
 
 
 class MediaFault(Exception):
@@ -166,6 +216,7 @@ class FakeProviders:
         self.calls, self.lock, self.task_counter = [], threading.RLock(), 0
         self.seedance_status = seedance_status
         self.seedance_payloads = []
+        self.person_reference = None    # what the face-detection vision call reports for any image; None answers nothing usable
         self.gemini_payloads = []       # (model code, body) for each generateContent call
         self.board_payloads = []        # bodies of board sticky-notes text jobs
         self.omni_payloads, self.omni_polls = [], {}    # Interactions create bodies; interaction id -> GETs so far
@@ -203,6 +254,20 @@ class FakeProviders:
                     return fault.get('status', 429), fault.get('payload') or {'error': {'code': 'TooManyRequests', 'message': 'injected limit'}}
         return None
 
+    def image_requests(self):
+        """Each Gemini image generation seen so far: its model, image config and prompt texts (no image bytes)."""
+        with self.lock:
+            payloads = list(self.gemini_payloads)
+        result = []
+        for model, data in payloads:
+            config = data.get('generationConfig') if isinstance(data, dict) else None
+            if not isinstance(config, dict) or 'imageConfig' not in config:
+                continue
+            parts = [part for item in data.get('contents') or [] for part in item.get('parts') or []]
+            result.append({'model': model, 'imageConfig': config['imageConfig'], 'images': sum('inlineData' in part for part in parts),
+                           'texts': [part['text'] for part in parts if 'text' in part]})
+        return result
+
     def handle(self, method, url, body=None):
         """Return (status, payload) where payload is a dict (JSON) for provider APIs."""
         parts = urlsplit(url)
@@ -231,6 +296,9 @@ class FakeProviders:
                              'usageMetadata': {'promptTokenCount': 40, 'candidatesTokenCount': 12}}
             contents = data.get('contents') if isinstance(data.get('contents'), list) else []
             parts = [part for item in contents if isinstance(item, dict) for part in item.get('parts') or [] if isinstance(part, dict)]
+            if self.person_reference is not None and any(part.get('text') == IDENTITY_DETECTION for part in parts):
+                return 200, {'candidates': [{'content': {'role': 'model', 'parts': [{'text': json.dumps({'person_reference': self.person_reference})}]},
+                                             'finishReason': 'STOP'}], 'usageMetadata': {'promptTokenCount': 120, 'candidatesTokenCount': 6}}
             if any(str((part.get('inlineData') or {}).get('mimeType', '')).startswith('audio/') for part in parts):
                 return 200, {'candidates': [{'content': {'role': 'model', 'parts': [{'text': TRANSCRIPT}]}, 'finishReason': 'STOP'}],
                              'usageMetadata': {'promptTokenCount': 120, 'candidatesTokenCount': 20}}

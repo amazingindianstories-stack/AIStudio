@@ -57,6 +57,19 @@ def text_contract(**changes):
 class BoardPayloadAllowlistTests(SimpleTestCase):
     """Board prompts go through the agents payload allowlist: one format's exact prompt, schema and config, text turns."""
 
+    def test_black_and_other_requested_colors_survive_parsing(self):
+        item = board_formats.STICKIES_SCHEMA['properties']['notes']['items']
+        self.assertEqual((item['properties']['color']['enum'], 'fill' in item['required']), (list(board_formats.STICKY_COLORS), True))
+        for name in ('black', 'white', 'grey', 'red', 'teal'):
+            self.assertIn(name, board_formats.STICKY_COLORS)
+        parsed = board_formats.parse_output('stickies', json.dumps({'notes': [
+            {'text': 'a', 'color': 'black', 'fill': ''}, {'text': 'b', 'color': 'yellow', 'fill': '#FF00AA'},
+            {'text': 'c', 'color': 'teal', 'fill': 'magenta'}, {'text': 'd', 'color': 'blue', 'fill': 7}]}))
+        self.assertEqual([(note['color'], note['fill']) for note in parsed['notes']],
+                         [('black', ''), ('yellow', '#ff00aa'), ('teal', ''), ('blue', '')])
+        self.assertEqual(board_formats.sticky_list([{'text': 'x', 'color': 'black', 'fill': '#123456'}]),
+                         [{'text': 'x', 'color': 'black', 'fill': '#123456'}])
+
     def test_only_the_exact_board_shape_is_allowed(self):
         body = stickies_body()
         self.assertTrue(board_payload_allowed(body))
@@ -139,7 +152,8 @@ class BoardPayloadAllowlistTests(SimpleTestCase):
     def test_results_are_validated_before_the_board_sees_them(self):
         parsed = board_formats.parse_output('stickies', json.dumps({'notes': [
             {'text': '  first  ', 'color': 'blue'}, {'text': '', 'color': 'blue'}, {'text': 'x' * 400, 'color': 'magenta'}, 'junk']}))
-        self.assertEqual(parsed, {'notes': [{'text': 'first', 'color': 'blue'}, {'text': 'x' * board_formats.MAX_STICKY_CHARS, 'color': 'yellow'}]})
+        self.assertEqual(parsed, {'notes': [{'text': 'first', 'color': 'blue', 'fill': ''},
+                                            {'text': 'x' * board_formats.MAX_STICKY_CHARS, 'color': 'yellow', 'fill': ''}]})
         many = board_formats.parse_output('stickies', json.dumps({'notes': [{'text': str(n), 'color': 'green'} for n in range(40)]}))
         self.assertEqual(len(many['notes']), board_formats.MAX_STICKIES)
         for text in ('not json', '[]', '{"notes": []}', '{"notes": [{"text": " "}]}', '{"ideas": ["a"]}'):
@@ -342,8 +356,9 @@ class BoardAiJobTests(BoardFixture):
         refined = self.submit({'format': 'stickies', 'prompt': 'make them shorter', 'parentJobId': job['id']}, key='board-key-refine').json()['job']
         self.assertEqual(refined['parentJobId'], job['id'])
         turns = Generation.objects.get(pk=refined['generationId']).submission_input['turns']
+        stored = [{key: note[key] for key in ('fill', 'text', 'color')} for note in BOARD_NOTES]    # jsonb's key order
         self.assertEqual(turns, [{'role': 'user', 'text': 'five ideas for a teaser'},
-                                 {'role': 'model', 'text': json.dumps({'notes': BOARD_NOTES}, ensure_ascii=False, separators=(',', ':'))},
+                                 {'role': 'model', 'text': json.dumps({'notes': stored}, ensure_ascii=False, separators=(',', ':'))},
                                  {'role': 'user', 'text': 'make them shorter'}])
         with FakeProviders() as fake:
             self.assertEqual(self.run_worker(refined['generationId'])['kind'], 'succeeded')
@@ -463,6 +478,7 @@ class BoardAiSelectionTests(BoardFixture):
     def test_each_format_runs_through_the_worker_and_returns_its_parsed_result(self):
         cases = (
             ('rewrite', {'context': self.ITEMS}, {'items': [{'id': 'n1', 'text': 'EDITED teh cat'}, {'id': 'n2', 'text': 'EDITED a dog'}]}),
+            ('recolor', {'context': self.ITEMS}, {'items': [{'id': 'n1', 'color': 'purple', 'fill': ''}, {'id': 'n2', 'color': 'purple', 'fill': ''}]}),
             ('cluster', {'context': self.ITEMS}, {'groups': [{'title': 'First half', 'ids': ['n1']}, {'title': 'Second half', 'ids': ['n2']}]}),
             ('summary', {'context': self.ITEMS}, {'title': 'Summary', 'body': 'Summary of teh cat; a dog'}),
             ('layout', {}, None),
@@ -482,6 +498,20 @@ class BoardAiSelectionTests(BoardFixture):
                 self.assertEqual('Selected board content' in first, bool(extra))
                 # The row keeps the person's own words as its prompt; the selection rides in the first turn only.
                 self.assertEqual(Generation.objects.get(pk=read['generationId']).prompt, f'do {name}')
+
+    def test_recolor_names_the_colour_asked_for_and_only_known_colours_survive(self):
+        for prompt, expected in (('Change the colour of each selected object to black.', {'color': 'black', 'fill': ''}),
+                                 ('make them #FF00AA', {'color': 'yellow', 'fill': '#ff00aa'})):
+            with self.subTest(prompt=prompt):
+                read, _ = self.run_job({'format': 'recolor', 'prompt': prompt, 'context': self.ITEMS}, f'board-key-recolor-{len(prompt)}')
+                self.assertEqual(read['result'], {'items': [{'id': 'n1', **expected}, {'id': 'n2', **expected}]})
+        parsed = board_formats.parse_output('recolor', json.dumps({'items': [
+            {'id': 'a', 'color': 'black', 'fill': ''}, {'id': 'b', 'color': 'mauve', 'fill': '#123ABC'}, {'id': 'c', 'color': 'mauve', 'fill': 'x'},
+            {'id': 'a', 'color': 'red'}, 'junk', {'id': 7, 'color': 'red'}]}))
+        self.assertEqual(parsed, {'items': [{'id': 'a', 'color': 'black', 'fill': ''}, {'id': 'b', 'color': '', 'fill': '#123abc'}]})
+        with self.assertRaises(board_formats.UnusableResult):
+            board_formats.parse_output('recolor', json.dumps({'items': [{'id': 'a', 'color': 'mauve'}]}))
+        self.assertEqual(self.submit({'format': 'recolor', 'prompt': 'make them black'}).json()['code'], 'SELECTION_REQUIRED')
 
     def test_selection_formats_need_a_selection_and_the_context_is_validated(self):
         self.assertEqual(self.submit({'format': 'rewrite', 'prompt': 'fix'}).json()['code'], 'SELECTION_REQUIRED')

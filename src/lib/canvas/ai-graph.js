@@ -1,7 +1,7 @@
 // Board nodes built from the structured results of the diagram and board layout AI formats (backend/apps/agents/board.py).
 // Pure: positions come from the result and a centre, never from the DOM.
 
-import { MAX_CONTEXT_TEXT, nodeText } from "./ai-selection.js";
+import { COLORABLE_TYPES, MAX_CONTEXT_TEXT, nodeText } from "./ai-selection.js";
 import { lockedIdSet } from "./locks.js";
 
 export const STICKY_FILLS = {
@@ -11,7 +11,40 @@ export const STICKY_FILLS = {
   purple: "#9b86c9",
   blue: "#6f9bd1",
   green: "#7fae86",
+  red: "#c97a72",
+  teal: "#5fb3a8",
+  black: "#1a1a1a",
+  white: "#fafafa",
+  grey: "#9ca3af",
 };
+const HEX = /^#[0-9a-f]{6}$/i;
+const DARK_INK = "#1c1a12";
+const LIGHT_INK = "#f5f5f5";
+
+/** Fill for an AI note or action: the hex it asked for, else its named colour, else the default yellow. */
+export function stickyFill(item) {
+  return typeof item?.fill === "string" && HEX.test(item.fill) ? item.fill.toLowerCase() : (STICKY_FILLS[item?.color] ?? STICKY_FILLS.yellow);
+}
+
+/**
+ * The fields that recolour `node` to the colour `item` (an AI note, a Sidekick action or a recolour entry) asks for: its
+ * fill, and for a note or shape the text colour that reads on it. Empty when `item` names no colour or the node has no fill.
+ */
+export function colorPatch(node, item) {
+  if (!(item?.color || item?.fill) || !("fill" in node) || node.type === "frame") return {};
+  const fill = stickyFill(item);
+  return COLORABLE_TYPES.has(node.type) ? { fill, color: stickyInk(fill) } : { fill };
+}
+
+/** Text colour that reads on `fill`: light on dark fills (black notes), the usual dark ink otherwise. */
+export function stickyInk(fill) {
+  const value = parseInt(String(fill).slice(1), 16);
+  const [r, g, b] = [value >> 16, (value >> 8) & 255, value & 255].map((channel) => {
+    const unit = channel / 255;
+    return unit <= 0.03928 ? unit / 12.92 : ((unit + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b < 0.18 ? LIGHT_INK : DARK_INK;
+}
 /** Columns for `count` notes: one row up to four, then a grid a little wider than tall. */
 export function stickyColumns(count) {
   return count <= 4 ? Math.max(count, 1) : Math.ceil(Math.sqrt(count * 1.5));
@@ -86,7 +119,7 @@ export function diagramGraph(result, center) {
         strokeWidth: 2,
         text: node.label,
         fontSize: 16,
-        color: node.color ? "#1c1a12" : "#f1f5f9",
+        color: node.color ? stickyInk(node.color) : "#f1f5f9",
         align: "center",
         opacity: 1,
         parentId: null,
@@ -143,8 +176,8 @@ export function layoutGraph(result, center) {
         id: newId(), type: "sticky",
         x: x + FRAME_PAD + (position % size.columns) * (STICKY + FRAME_PAD),
         y: top + FRAME_HEAD + FRAME_PAD + Math.floor(position / size.columns) * (STICKY + FRAME_PAD),
-        w: STICKY, h: STICKY, text: String(note.text ?? ""), fill: STICKY_FILLS[note.color] ?? STICKY_FILLS.yellow, fontSize: 16,
-        color: "#1c1a12", opacity: 1, parentId: frameId, groupId: null,
+        w: STICKY, h: STICKY, text: String(note.text ?? ""), fill: stickyFill(note), fontSize: 16,
+        color: stickyInk(stickyFill(note)), opacity: 1, parentId: frameId, groupId: null,
       });
     });
     x += size.w + FRAME_GAP;
@@ -180,6 +213,20 @@ export function applyRewrite(present, result) {
     if (node.type === "frame") return { ...node, name: text };
     const { marks: _marks, ...rest } = node;
     return { ...rest, text };
+  });
+  return { present: { ...present, nodes }, touched };
+}
+
+/** `present` with the colours the AI chose applied to the selected objects it named (locked ones are left alone). */
+export function applyRecolor(present, result, now = Date.now()) {
+  const wanted = new Map((result?.items ?? []).map((item) => [item.id, item]));
+  const locked = lockedIdSet(present);
+  const touched = [];
+  const nodes = present.nodes.map((node) => {
+    const patch = wanted.has(node.id) && !locked.has(node.id) ? colorPatch(node, wanted.get(node.id)) : {};
+    if (!("fill" in patch) || patch.fill === node.fill) return node;
+    touched.push(node.id);
+    return { ...node, ...patch, aiEditedAt: now };
   });
   return { present: { ...present, nodes }, touched };
 }

@@ -5,6 +5,11 @@ from .shot_spec import ROLE_RULE, parse_ref_roles, role_header, build_reference_
 from .vision_templates import T
 
 KIND_LABEL = {'character':'CHARACTER','outfit':'OUTFIT','location':'LOCATION','style':'STYLE','prop':'PROP','audio':'AUDIO','other':'REFERENCE'}
+# The header a board AI image's reference carries when none of its images show a person. The board attaches the
+# selected image or the image being refined without the artist naming a role, so it is context for the request, not a
+# subject to reproduce (a bare "a cat" over a landscape must still add the cat).
+BOARD_REFERENCE_HEADER = ('REFERENCE IMAGE ({count} from the board). The request below says what to make; follow it. Use the reference '
+    'only for what the request asks to keep or change, and add whatever the request names that the reference does not show:')
 ASSET_ROLE = {'character':'person','outfit':'outfit','location':'location','style':'style','prop':'prop','audio':'other','other':'other'}
 KIND_RULE = {**{kind:ROLE_RULE[role] for kind,role in ASSET_ROLE.items() if role in ROLE_RULE},
     'audio':'reproduce the audio style, voice tone or acoustic atmosphere represented here',
@@ -60,6 +65,16 @@ def assemble_prompt(prompt,assets,uploads,opts=None,*,read_image=None,prep_refer
     def non_person(tag,role,images):
         legend_entries.append({'tag':tag,'role':role,'isPerson':False})
         groups.append({'tag':tag,'header':role_header(tag,role,len(images)),'images':images,'identity':False})
+
+    def board_references(images):
+        # Reproduce a person's identity exactly only when a reference shows one (or that is not known); references that
+        # are all known to show no person are context for the request.
+        analyses = [analyze_identity(image['mimeType'],image['data']) for image in images]
+        if any(result['personReference'] is not False or result['crops'] for result in analyses):
+            subject(images,[tile for result in analyses for tile in result['crops']][:3])
+            return
+        label = 'image' if len(images) == 1 else 'images'
+        groups.append({'tag':'REFERENCE','header':BOARD_REFERENCE_HEADER.format(count=f'{len(images)} {label}'),'images':images,'identity':False})
 
     by_slug = {asset['slug'].lower():asset for asset in assets}
     for slug in asset_slugs(prompt):
@@ -120,7 +135,9 @@ def assemble_prompt(prompt,assets,uploads,opts=None,*,read_image=None,prep_refer
                     non_person(tag,role,images)
         else:
             images = read_all(uploads)
-            if not shot or not images:
+            if opts.get('referenceUse') == 'board' and images:
+                board_references(images)
+            elif not shot or not images:
                 subject(images)
             elif len(images) == 1:
                 tiles = face_crops(images)
