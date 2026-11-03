@@ -169,13 +169,18 @@ deployment's `meta.serviceManifest`.
    Verify: deployment meta shows the new start command and image; readiness; `/api/health`
    through veevee.ai; login; history; a media redirect (`private, no-store`); portraits list;
    `/api/media-resolve` returns signed URLs; no new 5xx.
-   **Release containing `canvas.0019_format_payloads`: no overlap.** The old API must stop serving
-   before the new one serves. A save by the new release takes a board's Docs, HTML and draw.io
-   payloads out of its JSON, and a save of that board by the old release would then store them
-   empty ([board-formats.md](../features/board-formats.md#payload-storage)). Set `overlapSeconds` to 0
-   in the staged `railway.json`, remove the active API deployment and confirm it has stopped (no
-   new requests in its log, draining over) before `railway up`. The API is unavailable for that
-   brief pause. Later releases use the overlap above.
+   **Release containing `canvas.0019_format_payloads`: no overlap.** No service on the old image
+   may read or write boards once a service on the new image serves. A save by the new release takes a
+   board's Docs, HTML and draw.io payloads out of its JSON, and a save of that board by the old
+   release would then store them empty ([board-formats.md](../features/board-formats.md#payload-storage)).
+   Two services write boards: the API and the MCP service (`green-django-mcp`, the same image run as
+   `python -m deploy.entrypoint mcp`, whose board tools save through the same path). In one pause:
+   remove the active API and MCP deployments and confirm both have stopped (no new requests in their
+   logs, draining over); then `railway up` the API with `overlapSeconds` 0 in the staged
+   `railway.json`, and deploy MCP from the same commit with no overlap before it serves again. The
+   API and agent tools are unavailable for that pause. Promote the frontend that reads payloads
+   lazily only after the new API serves: against the old API it would save format objects without
+   their payloads. Later releases use the overlap above.
 2. **Generation worker** (overlap 0, drain 120 s): only with no queued/running jobs. Verify the
    startup log reaches the worker loop (preflight passed) and the next real job is claimed once.
 3. **Export worker**, then **scheduler**: verify startup, then an export ZIP (filenames, MOV

@@ -16,6 +16,7 @@ import { isLocked, unlockedIds, withoutLock } from "./canvas/locks";
 import { connectorShown, hiddenNodeIds, placeCopies, placeOnLayer } from "./canvas/layers";
 import { lockLayerActions } from "./canvas/lock-layer-actions";
 import { arrangeActions } from "./canvas/arrange-actions";
+import { writeClipboardText } from "./canvas/clipboard-export";
 import { transformActions } from "./canvas/transform-actions";
 import { boardViewActions } from "./canvas/board-view-actions";
 import { useBoardUi } from "./canvas/board-ui";
@@ -700,7 +701,7 @@ async function flushSaveImpl(
       // flight — an edit mid-flight already flipped status back to "dirty"
       // and scheduled its own retry timer; overwriting it here would make
       // that timer's guard wrongly bail and silently drop the edit.
-      const settled = [get().history.present, loadedInto.get(get().history.present)].includes(synced.history.present);
+      const settled = rootGraph(get().history.present) === rootGraph(synced.history.present);
       if (get().boardId === boardId) {
         // What the server now holds, normalized the same way it normalizes saves; an image still held
         // keeps its base copy. The objects this save added or changed carry the server's stamps.
@@ -930,6 +931,7 @@ const payloadLoader = createPayloadLoader(async (boardId, nodeId) => {
 });
 /** The working graph a loaded payload was put on, mapped to the graph it replaced: a save in flight still knows its content. */
 const loadedInto = new WeakMap();
+const rootGraph = (graph) => loadedInto.get(graph) ?? graph;
 
 /**
  * Loads `node`'s payload from board `boardId`, resolving with it, and puts it on every copy of the node at that
@@ -943,7 +945,7 @@ async function loadNodePayload(set, get, boardId, node) {
   if (gestureBaseline) gestureBaseline = filled(gestureBaseline);
   const { history, serverState } = get();
   const next = filled(history);
-  if (next.present !== history.present) loadedInto.set(next.present, loadedInto.get(history.present) ?? history.present);
+  if (next.present !== history.present) loadedInto.set(next.present, rootGraph(history.present));
   set({ history: next, serverState: fill(serverState) });
   return loaded;
 }
@@ -990,7 +992,8 @@ function afterPayloads(set, get, nodes, action) {
 
 /**
  * Puts copies of `nodes` on the clipboard, which takes their payloads once those load and holds nothing when one
- * cannot. Returns the loading promise (resolving with the filled copies, or null), or null when nothing loads.
+ * cannot; the system clipboard, marked with the copy meanwhile, is then emptied too. Returns the loading promise
+ * (resolving with the filled copies, or null), or null when nothing loads.
  */
 function holdClipboard(set, get, nodes, present) {
   const copied = nodes.map((node) => ({ ...node }));
@@ -999,7 +1002,10 @@ function holdClipboard(set, get, nodes, present) {
   clipboardLoading = null;
   if (!copied.some(needsPayload)) return null;
   const loading = withPayloads(set, get, get().boardId, copied).then((filled) => {
-    if (clipboard === copied) clipboard = filled ?? [];
+    if (clipboard === copied) {
+      clipboard = filled ?? [];
+      if (!filled) void writeClipboardText("");
+    }
     if (clipboardLoading === loading) clipboardLoading = null;
     return filled;
   });
@@ -1920,9 +1926,9 @@ export const useCanvasStore = create((set, get) => ({
   },
 
   /**
-   * Copies and deletes the selected objects; returns whether anything was cut. Objects whose payloads have not
-   * loaded are deleted once those load, since a deleted object's payload may no longer be readable, and stay when
-   * one cannot load.
+   * Copies and deletes the selected objects; returns whether anything was cut or is being cut. Objects whose
+   * payloads have not loaded are deleted once those load, since a deleted object's payload may no longer be
+   * readable; when one cannot load they stay and nothing is left on either clipboard (holdClipboard).
    */
   cut: () => {
     const { selection, selectedConnectorIds, history, boardId } = get();

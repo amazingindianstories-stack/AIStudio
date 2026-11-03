@@ -1,10 +1,12 @@
 """Large format payloads (Docs blocks, HTML embeds, draw.io XML and previews) get their own rows, one per board
 and node. This is the expand step: a node with inline payload fields gets its row (an existing row with the same
 content is kept) and a reference, and keeps the inline fields, so the previous release, which drops the reference
-and reads the fields, still shows and saves every payload. A save by this release takes the fields off. The data
-step is idempotent, and the board version and update time do not change, so editors with a save in flight are
-unaffected. Unapplying puts every row back inline into a node without its fields and drops the reference before
-the table goes."""
+and reads the fields, still shows and saves the payloads of a board this release has not saved. A save by this
+release takes the fields off every referenced node of the board, and a later save of that board by the previous
+release stores those payloads empty, so the two never serve together: the release that ships this migration
+deploys with no overlap (docs/operations/release-runbook.md). The data step is idempotent, and the board version
+and update time do not change, so editors with a save in flight are unaffected. Unapplying puts every row back
+inline into a node without its fields and drops the reference before the table goes."""
 import hashlib
 import json
 import django.contrib.postgres.functions

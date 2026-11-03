@@ -117,8 +117,9 @@ node's reference, keeping the inline fields, so a board the previous release (wh
 the fields) loads or saves after the migration keeps its payloads. A node without a reference is read from its
 inline fields. A save by this release takes the fields off every referenced node of the board, and a later save
 of that board by the previous release would store those payloads empty, so the two releases must never serve
-together: the release that ships 0019 deploys the API with no overlap, the old API stopping before the new one
-serves ([release-runbook.md](../operations/release-runbook.md#order-one-service-at-a-time-verify-before-the-next)).
+together: the release that ships 0019 deploys the API and the MCP service with no overlap, both old services
+stopping before either new one serves, and promotes the frontend only after the new API serves
+([release-runbook.md](../operations/release-runbook.md#order-one-service-at-a-time-verify-before-the-next)).
 Removing the inline copies left by the migration is a later contract step. Unapplying 0019 puts every row back
 inline into a node without its fields and drops the reference before the table goes, so a rollback first unapplies
 canvas 0019 with the new image still deployed, then rolls back the image.

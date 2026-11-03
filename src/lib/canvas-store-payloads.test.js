@@ -37,6 +37,7 @@ function lazyServer(t, nodes, rows) {
       return row ? json(200, { nodeId: payload[1], kind: "doc", ...row }) : json(404, { error: "Payload not found." });
     }
     if (init.method === "PUT" || init.method === "PATCH") {
+      if (server.saveDelay) await new Promise((resolve) => setTimeout(resolve, server.saveDelay));
       const body = JSON.parse(init.body);
       const sent = init.method === "PUT" ? body.data : applyBoardPatch(server.data, body.patch);
       server.saves.push({ method: init.method, body });
@@ -90,6 +91,22 @@ test("the editor reads payloads lazily, loads one on demand and saves it only wh
   assert.equal(server.rows.d.blocks[0].text, "two");
   assert.deepEqual([node("d").payload.rev, node("d").blocks[0].text], [2, "two"]);
   assert.equal(store.getState().serverState.nodes[0].payload.rev, 2);
+  assert.equal(store.getState().saveStatus, "saved");
+});
+
+test("a payload loading while a save is in flight does not leave the board saving", async (t) => {
+  useStorage(t);
+  const server = lazyServer(t, [unloaded("d"), unloaded("e")], { d: { rev: 1, size: 40, blocks: blocks("one") }, e: { rev: 1, size: 40, blocks: blocks("two") } });
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  store.getState().editBoard(withNode("d", { x: 40 }));
+  await store.getState().loadPayload("d");
+  server.saveDelay = 20;
+  const saving = store.getState().flushSave();
+  await store.getState().loadPayload("e");
+  await saving;
+  assert.equal(server.saves.length, 1);
+  assert.deepEqual([node("d").x, node("d").blocks[0].text, node("e").blocks[0].text], [40, "one", "two"]);
   assert.equal(store.getState().saveStatus, "saved");
 });
 
@@ -173,6 +190,10 @@ test("a paste straight after a copy waits for the copied payloads", async (t) =>
 
 test("a copy whose payload cannot load copies nothing, deletes nothing on cut, and says so", async (t) => {
   useStorage(t);
+  const written = [];
+  const original = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  Object.defineProperty(globalThis, "navigator", { value: { clipboard: { writeText: async (text) => void written.push(text) } }, configurable: true });
+  t.after(() => (original ? Object.defineProperty(globalThis, "navigator", original) : delete globalThis.navigator));
   const server = lazyServer(t, [unloaded("d"), { id: "r", type: "rect", x: 0, y: 0, w: 9, h: 9, parentId: null, groupId: null }], {});
   store.getState().reset();
   await store.getState().loadBoard("board-1");
@@ -188,6 +209,7 @@ test("a copy whose payload cannot load copies nothing, deletes nothing on cut, a
   assert.deepEqual(store.getState().selection, ["d", "r"]);
   assert.equal(notice().text, "Some items could not be copied. Try again.");
   assert.ok(notice().seq > seq);
+  assert.deepEqual(written, [""]);
   store.getState().paste();
   assert.deepEqual(ids(), ["d", "r"]);
 
@@ -196,6 +218,7 @@ test("a copy whose payload cannot load copies nothing, deletes nothing on cut, a
   await settle();
   assert.deepEqual(ids(), ["d", "r"]);
   assert.equal(notice().seq, beforeCut + 1);
+  assert.deepEqual(written, ["", ""]);
   store.getState().paste();
   assert.deepEqual(ids(), ["d", "r"]);
   assert.equal(server.payloadReads, 2);
