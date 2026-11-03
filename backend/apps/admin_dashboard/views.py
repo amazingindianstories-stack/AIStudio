@@ -16,11 +16,21 @@ LIMITS = {'maxPromptLength': (30000, 1, None), 'maxConcurrentJobs': (PER_USER_DE
           # no cap applies until an admin sets one.
           'boardAiMonthlyCapCents': (10000000, 1, 10000000),
           # Board feature switches: 1 is on (the default), 0 is off. See apps.canvas.switches.
-          'boardAiEnabled': (1, 0, 1)}
-GLOBAL_ONLY = {LANE_SETTING}        # account-wide provider limits: no per-user override
+          'boardAiEnabled': (1, 0, 1),
+          # The Agents tab (apps.agents.limits): agentsEnabled is a switch whose unset state means admins only, see
+          # that module. Run caps are per user; the daily cap and total concurrent runs are account-wide.
+          'agentsEnabled': (0, 0, 1), 'agentActiveRuns': (2, 1, 8), 'agentMaxStepsPerRun': (40, 1, 200),
+          'agentMaxRunCostCents': (1000, 1, 100000), 'agentGlobalDailyCapCents': (20000, 1, 10000000),
+          'agentMaxConcurrentRuns': (8, 1, 50),
+          # Attachment limits the Agents tab reads: size and duration caps, and a 1/0 switch per media kind.
+          'agentAttachMaxMb': (20, 1, 100), 'agentAttachMaxVideoSeconds': (300, 1, 3600),
+          'agentAttachMaxAudioSeconds': (600, 1, 7200), 'agentAttachImages': (1, 0, 1), 'agentAttachDocuments': (1, 0, 1),
+          'agentAttachVideo': (1, 0, 1), 'agentAttachAudio': (1, 0, 1)}
+GLOBAL_ONLY = {LANE_SETTING, 'agentGlobalDailyCapCents', 'agentMaxConcurrentRuns'}        # account-wide provider limits: no per-user override
+UNSETTABLE = {'agentsEnabled'}      # global rows an admin may delete, because no row has a meaning of its own
 USER_LIMITS = {key: value for key, value in LIMITS.items() if key not in GLOBAL_ONLY}
 # What the composer reads back through /api/settings; agent limits are enforced by apps.mcp_auth instead.
-COMPOSER_LIMITS = {key: value for key, value in USER_LIMITS.items() if not key.startswith(('mcp', 'boardAi'))}
+COMPOSER_LIMITS = {key: value for key, value in USER_LIMITS.items() if not key.startswith(('mcp', 'boardAi', 'agent'))}
 
 def parse(raw, definition):
     fallback, minimum, maximum = definition

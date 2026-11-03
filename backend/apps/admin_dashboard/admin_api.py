@@ -15,12 +15,18 @@ from apps.canvas.serialization import JS_WHITESPACE, js_json
 from apps.generation.history_parameters import UUID_TEXT
 from apps.generation.watermark import number_value
 from .models import AppSetting, Pricing, UserLimit
-from .views import GLOBAL_ONLY, LIMITS
+from .views import GLOBAL_ONLY, LIMITS, UNSETTABLE
 
 COLORS = ['#34d399', '#60a5fa', '#f472b6', '#fbbf24', '#a78bfa', '#f87171', '#22d3ee', '#fb923c']
 LABELS = {'maxPromptLength': 'max prompt length', 'maxConcurrentJobs': 'max concurrent jobs', 'seedanceConcurrency': 'Seedance tasks per model',
-          'mcpDailyCapCents': 'agent daily limit', 'mcpActiveJobs': 'agent active jobs', 'boardAiMonthlyCapCents': 'board AI monthly limit',
-          'boardAiEnabled': 'board AI switch'}
+          'mcpDailyCapCents': 'Agent daily cap', 'mcpActiveJobs': 'agent active jobs', 'boardAiMonthlyCapCents': 'board AI monthly limit',
+          'boardAiEnabled': 'board AI switch', 'agentsEnabled': 'Agents tab switch', 'agentActiveRuns': 'agent active runs',
+          'agentMaxStepsPerRun': 'agent steps per run', 'agentMaxRunCostCents': 'agent cost per run',
+          'agentGlobalDailyCapCents': 'agent global daily cap', 'agentMaxConcurrentRuns': 'agent concurrent runs',
+          'agentAttachMaxMb': 'agent attachment size', 'agentAttachMaxVideoSeconds': 'agent video attachment length',
+          'agentAttachMaxAudioSeconds': 'agent audio attachment length', 'agentAttachImages': 'agent image attachments',
+          'agentAttachDocuments': 'agent document attachments', 'agentAttachVideo': 'agent video attachments',
+          'agentAttachAudio': 'agent audio attachments'}
 MISSING = object()
 
 
@@ -194,6 +200,9 @@ def global_limit_mutation(request):
         data = body(request)
         key = property_of(data, 'key')
         if not isinstance(key, str) or key not in LIMITS: return reply(request, {'error': 'Unknown limit.'}, 400)
+        if key in UNSETTABLE and data.get('value', MISSING) is None:
+            AppSetting.objects.filter(key=key).delete()
+            return reply(request, {'ok': True})
         value = rounded(number(data.get('value', MISSING)))
         if not allowed(value, key): return reply(request, {'error': f'Invalid {LABELS[key]}.'}, 400)
         AppSetting.objects.update_or_create(key=key, defaults={'value': text(value), 'updated_at': now_ms()})

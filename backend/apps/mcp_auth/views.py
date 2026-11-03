@@ -279,7 +279,7 @@ def access_overview(user):
     grants = (McpToken.objects.filter(tokens.live(now), user_id=user.id, kind='refresh', rotated_at__isnull=True)
               .select_related('client').order_by('-created_at'))
     return {
-        'access': {**consent_options(user), 'spentTodayCents': sum(spend.values())},
+        'access': {**consent_options(user), 'spentTodayCents': controls.spent_cents(user.id, now=now)},
         'tokens': [{'id': str(row.id), 'name': row.name, 'hint': row.hint, 'scopes': row.scopes, 'dailyCapCents': row.daily_cap_cents,
                     'autoApproveCents': row.auto_approve_cents, 'createdAt': row.created_at, 'expiresAt': row.expires_at,
                     'lastUsedAt': row.last_used_at, 'spentTodayCents': spend.get(str(row.family_id), 0)} for row in pats],
