@@ -686,6 +686,8 @@ export const CanvasSurface = forwardRef
       if (e.altKey) {
         altDuplicate = true;
         if (!selection.includes(node.id)) setSelection([...selection, node.id]);
+        // The copies need the payloads of format objects that have not loaded; the duplicate waits for them.
+        useCanvasStore.getState().prepareInPlaceDuplicate();
       } else if (e.shiftKey) {
         // C2: a shift-drag on an UNSELECTED node adds it and starts moving
         // (matches shift-click's "add" half). A shift-drag on an ALREADY
@@ -1038,7 +1040,7 @@ export const CanvasSurface = forwardRef
       if ((drag.altDuplicate || drag.fromStack) && !drag.altDuplicated && drag.moved) {
         // A stack drag does the same with the sticky it hands out.
         if (drag.fromStack) takeStickyFromStack(drag.fromStack);
-        else duplicateSelectionInPlace();
+        else if (!duplicateSelectionInPlace()) return;
         drag.altDuplicated = true;
         return;
       }

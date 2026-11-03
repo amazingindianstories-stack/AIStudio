@@ -88,9 +88,17 @@ jobs:
       - run: npm run lint
       - run: npm run build
 
-  browser:
+  # The Playwright suite runs as parallel shards, each with its own disposable
+  # database and stack. The `browser` job below is the single required check:
+  # it passes only when every shard passes.
+  browser-shard:
+    name: browser-shard (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
     env:
       MIGRATION_TEST_ISOLATED: '1'
       DJANGO_SETTINGS_MODULE: config.settings.test
@@ -135,13 +143,26 @@ jobs:
       - name: Playwright suite through Django and the Python workers
         env:
           TMPDIR: ${{ runner.temp }}
-        run: python scripts/dev/browser-harness.py
+        run: python scripts/dev/browser-harness.py --shard ${{ matrix.shard }}/4
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
-          name: browser-suite
+          name: browser-suite-shard-${{ matrix.shard }}
           path: |
             ${{ runner.temp }}/browser-qualification
             test-results
             playwright-report
           if-no-files-found: ignore
+
+  browser:
+    needs: browser-shard
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every browser shard must pass
+        run: |
+          test "${{ needs.browser-shard.result }}" = success || {
+            echo "browser shards finished: ${{ needs.browser-shard.result }}"
+            exit 1
+          }

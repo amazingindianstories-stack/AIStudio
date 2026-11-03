@@ -14,10 +14,10 @@ import uuid
 from django.db import models, transaction
 from django.db.models.expressions import RawSQL
 from apps.authentication.models import User
-from . import access, template_catalog
+from . import access, payloads, template_catalog
 from .models import (Blueprint, BoardTemplate, BoardTemplateComment, BoardTemplateLike, BoardTemplateUsage,
                      CanvasBoard, TEMPLATE_SCOPES)
-from .serialization import (JS_WHITESPACE, MAX_BOARD_JSON_UNITS, STAMP_KEYS, content_length, empty_state, utf16_length,
+from .serialization import (JS_WHITESPACE, MAX_BOARD_JSON_UNITS, STAMP_KEYS, empty_state, utf16_length,
                             validate_state)
 
 UUID_RE = re.compile(r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}')
@@ -62,7 +62,8 @@ def snapshot(raw):
     for item in [*state['nodes'], *state['connectors']]:
         for key in STAMP_KEYS:
             item.pop(key, None)
-    if content_length(state) > MAX_BOARD_JSON_UNITS:
+    # Like a board, the 2 Mi limit counts the graph without its format payloads, and each payload has its own.
+    if payloads.slim_length(state) > MAX_BOARD_JSON_UNITS or payloads.oversized(state) is not None:
         raise TemplateError('Template is too large to save.', 413)
     return state
 
@@ -327,7 +328,7 @@ def _board_graph(user, board_id, level):
     if row is None:
         raise TemplateError('Board not found.', 404)
     access.require(user, row, level)
-    return CanvasBoard.objects.filter(pk=board_id).values_list('data', flat=True).first()
+    return payloads.hydrate(board_id, CanvasBoard.objects.filter(pk=board_id).values_list('data', flat=True).first())
 
 
 def create_template(user, data):
@@ -345,7 +346,7 @@ def create_template(user, data):
         graph = snapshot(empty_state())
     elif data.get('boardId') is not None:
         board = _board_graph(user, data['boardId'], access.WRITE)
-        graph = snapshot(data.get('graph', board))
+        graph = snapshot(payloads.fill_from(data['graph'], board) if 'graph' in data else board)
     else:
         raise TemplateError('A board is required.')
     if not graph['nodes'] and data.get('fromScratch') is not True:
@@ -619,7 +620,7 @@ def create_blueprint(user, data):
         raise TemplateError('The project has no boards to save.')
     if any(levels[str(row['id'])] < access.WRITE for row in chosen):
         raise access.AccessError('FORBIDDEN', 403)
-    graphs = dict(CanvasBoard.objects.filter(pk__in=[row['id'] for row in chosen]).values_list('id', 'data'))
+    graphs = {key: payloads.hydrate(key, value) for key, value in CanvasBoard.objects.filter(pk__in=[row['id'] for row in chosen]).values_list('id', 'data')}
     identifier = uuid.uuid4()
     boards = [{'name': row['name'], 'graph': copy_media(snapshot(graphs.get(row['id'])), f'canvas/blueprints/{identifier}')}
               for row in chosen]

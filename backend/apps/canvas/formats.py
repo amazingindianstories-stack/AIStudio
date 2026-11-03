@@ -11,8 +11,8 @@ FORMAT_DEFAULT_NAMES = {'doc': 'Untitled doc', 'deck': 'Untitled slides', 'html'
 
 MAX_ID = 64
 MAX_NAME = 120
-MAX_DOC_BLOCKS = 400
-MAX_BLOCK_TEXT = 5000
+MAX_DOC_BLOCKS = 2000
+MAX_BLOCK_TEXT = 20000
 MAX_TABLE_ROWS = 20
 MAX_TABLE_COLS = 8
 MAX_CELL_TEXT = 500
@@ -21,9 +21,9 @@ MAX_SLIDES = 100
 MAX_LANES = 6
 MAX_LANE_NAME = 60
 MAX_NOTES = 5000
-MAX_HTML = 50000
-MAX_DRAWIO_XML = 100000
-MAX_DRAWIO_PREVIEW = 100000
+MAX_HTML = 500000
+MAX_DRAWIO_XML = 500000
+MAX_DRAWIO_PREVIEW = 500000
 DRAWIO_PREVIEW_PREFIX = 'data:image/svg+xml;base64,'
 MAX_SOURCE = 20000
 MERMAID_KEY = re.compile(r'[A-Za-z0-9_\u00C0-\U0010FFFF]+(?:-[A-Za-z0-9_\u00C0-\U0010FFFF]+)*')
@@ -155,18 +155,43 @@ def _lanes(raw):
     return result[:MAX_LANES]
 
 
+# The large fields of a format node; they live in their own rows (apps.canvas.payloads), and the node keeps
+# `payload` ({size, rev}), a reference to that row. A node holding the reference without these fields has not
+# loaded them, and validation must not invent empty ones for it.
+PAYLOAD_FIELDS = {'doc': ('blocks', 'suggestions'), 'html': ('html',), 'drawio': ('xml', 'preview')}
+PAYLOAD_PROBE = {'doc': 'blocks', 'html': 'html', 'drawio': 'xml'}
+
+
+def payload_ref(raw):
+    """The `{size, rev}` reference of a node, or None when it is absent or malformed."""
+    ref = raw.get('payload')
+    if not isinstance(ref, dict):
+        return None
+    # The request reader parses every JSON number as a float.
+    size, rev = (int(value) if isinstance(value, float) and value.is_integer() else value for value in (ref.get('size'), ref.get('rev')))
+    if all(isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 2 ** 31 - 1 for value in (size, rev)):
+        return {'size': size, 'rev': rev}
+    return None
+
+
 def format_node(r, base):
     """The `format` node type; None when its kind is unknown."""
     kind = r.get('format')
     if kind not in FORMAT_KINDS:
         return None
+    ref = payload_ref(r) if kind in PAYLOAD_PROBE else None
+    unloaded = ref is not None and PAYLOAD_PROBE[kind] not in r
     result = {**base, 'type': 'format', 'format': kind, 'name': limited(r.get('name'), MAX_NAME, FORMAT_DEFAULT_NAMES[kind])}
     with_format_status(result, r)
     if r.get('defaultView') is True:
         result['defaultView'] = True
         if r.get('viewLocked') is True:
             result['viewLocked'] = True
-    if kind == 'doc':
+    if ref is not None:
+        result['payload'] = ref
+    if unloaded:
+        pass
+    elif kind == 'doc':
         result['blocks'] = _blocks(r.get('blocks'))
         suggestions = _suggestions(r.get('suggestions'), {block['id'] for block in result['blocks']})
         if suggestions:
