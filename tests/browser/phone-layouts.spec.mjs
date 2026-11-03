@@ -11,13 +11,15 @@ async function login(page, context, baseURL, width, height = width === 390 ? 844
 }
 async function contained(locator) {
   await expect(locator).toBeVisible();
-  expect(await locator.evaluate(el => {
+  // Polled: the header's active-section pill is a framer-motion layout animation,
+  // and its in-flight transform briefly overflows its button while the page settles.
+  await expect.poll(() => locator.evaluate(el => {
     const r = el.getBoundingClientRect();
     return r.width > 0 && r.left >= 0 && r.right <= innerWidth && el.scrollWidth <= el.clientWidth + 1;
-  })).toBeTruthy();
+  })).toBe(true);
 }
 async function noPageOverflow(page) {
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 }
 async function separate(a, b) {
   const x = await a.boundingBox(), y = await b.boundingBox();
@@ -58,7 +60,7 @@ for (const width of [390, 1440]) {
     await expect(copy).toHaveText('Copied');
     const code = page.getByText('InputAudioSensitiveContentDetected', { exact: true }).filter({ visible: true });
     await contained(code); await separate(code, copy);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+    await noPageOverflow(page);
     await page.getByRole('button', { name: 'Show error details' }).filter({ visible: true }).click();
     await expect(page.getByText('No raw provider response was stored for this error.').filter({ visible: true })).toBeVisible();
     await page.screenshot({ path: info.outputPath('admin-errors-detail.png') });
@@ -169,7 +171,7 @@ for (const width of [390, 768, 1024, 1280]) {
     await login(page, context, baseURL, width);
     await page.screenshot({ path: info.outputPath('header.png'), clip: { x: 0, y: 0, width, height: 56 } });
     const nav = page.getByRole('navigation', { name: 'Sections' });
-    expect(await nav.evaluate(el => el.scrollWidth <= el.clientWidth)).toBeTruthy();
+    await expect.poll(() => nav.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
     await noPageOverflow(page);
     const account = page.getByRole('button', { name: width < 768 ? 'D' : /Desktop fixture/, exact: width < 768 });
     const controls = [account, ...(width < 1024 ? [page.getByRole('button', { name: 'Open assets panel', exact: true })] : [])];
