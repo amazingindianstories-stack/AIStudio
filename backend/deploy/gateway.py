@@ -25,14 +25,14 @@ ADMIN_MUTATIONS={'/api/admin/users':('POST','PATCH','DELETE'),'/api/admin/pricin
                  '/api/admin/agent-access':('POST',),'/api/admin/agent-access/revoke':('POST',)}
 # CORS preflights for the OAuth endpoints browser-based agent clients call (Django answers them).
 OAUTH_PREFLIGHT=frozenset(('/api/oauth/authorization-server','/api/oauth/protected-resource','/api/oauth/register','/api/oauth/token','/api/oauth/revoke'))
-AGENT_MESSAGES=re.compile(r'/api/agent-conversations/[0-9a-f-]{36}/messages')
+# Agent routes are matched on the decoded path, in any case, as Django resolves them.
+AGENT_MESSAGES=re.compile(r'/api/agent-conversations/[0-9a-f-]{36}/messages',re.IGNORECASE)
 # Agent runs: starting one (or messaging it) and approving a quote lead to paid work in the agent worker, so they open
 # only with the other paid initial routes, and only with well-formed ids. Events, decline and cancel are not paid.
-AGENT_RUN_PAID=re.compile(r'/api/agent-conversations/[0-9a-f-]{36}/runs(?:/[0-9a-f-]{36}/approve)?')
-AGENT_RUN_PAID_ANY=re.compile(r'/api/agent-conversations/[^/]+/runs(?:/[^/]+/approve)?/?')
+AGENT_RUN_PAID=re.compile(r'/api/agent-conversations/[0-9a-f-]{36}/runs(?:/[0-9a-f-]{36}/approve)?',re.IGNORECASE)
+AGENT_PAID_ANY=re.compile(r'/api/agent-conversations/(?:.+/messages|[^/]+/runs(?:/[^/]+/approve)?/?)',re.IGNORECASE)
 def agent_paid(method,path):
-    return method not in ('GET','HEAD') and (path.startswith('/api/agent-conversations/') and path.endswith('/messages')
-                                            or AGENT_RUN_PAID_ANY.fullmatch(path) is not None)
+    return method not in ('GET','HEAD') and AGENT_PAID_ANY.fullmatch(unquote(path)) is not None
 # Board "Create with AI" submissions queue paid generations, so they open only with the other paid initial routes.
 # Matched on the decoded path, in any case, as Django resolves it (it accepts an uppercase board id).
 BOARD_AI_JOBS=re.compile(r'/api/canvas-boards/[^/]+/ai-jobs/?',re.IGNORECASE)
@@ -59,7 +59,7 @@ def upstream_wait(method,path,mode='api'):
     if mode=='mcp':return MCP_WAIT if method=='POST' else 25
     if method!='POST':return 25
     if board_transcription(method,path):return LONG_POSTS['/api/audio/transcribe']
-    return LONG_POSTS.get(path,120 if AGENT_MESSAGES.fullmatch(path) or agent_transcription(method,path) or board_ai_submission(method,path) else 25)
+    return LONG_POSTS.get(path,120 if AGENT_MESSAGES.fullmatch(unquote(path)) or agent_transcription(method,path) or board_ai_submission(method,path) else 25)
 def allowed_mcp(method,path):
     return path=='/mcp' and method in ('POST','GET','DELETE')
 def allowed(method,path,paid_initial_routes=False,new_exports=False,magnific_upscale=False):
@@ -79,8 +79,8 @@ def allowed(method,path,paid_initial_routes=False,new_exports=False,magnific_ups
     # Audio transcription: the paid guard registers the job and claims its one Gemini call in the worker.
     if paid_initial_routes and method=='POST' and path=='/api/audio/transcribe':return True
     # Admin agent chat: its Gemini calls go through the agent transport's exact endpoint and payload allowlist.
-    if paid_initial_routes and method=='POST' and AGENT_MESSAGES.fullmatch(path):return True
-    if method=='POST' and AGENT_RUN_PAID.fullmatch(path):return paid_initial_routes
+    if paid_initial_routes and method=='POST' and AGENT_MESSAGES.fullmatch(unquote(path)):return True
+    if method=='POST' and AGENT_RUN_PAID.fullmatch(unquote(path)):return paid_initial_routes
     # Board AI, captions and transcripts: the submission is a paid initial route; quotes, reads and placement are not.
     if board_paid_submission(method,path):return paid_initial_routes
     if agent_transcription(method,path):return paid_initial_routes

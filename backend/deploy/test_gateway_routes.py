@@ -82,6 +82,20 @@ class ProductionRouteTableTests(SimpleTestCase):
             self.assertTrue(gateway.allowed(method, path), (method, path))
         self.assertFalse(gateway.allowed('POST', '/api/admin/audit/runtime', **PRODUCTION))
 
+    def test_encoded_or_uppercase_agent_paid_routes_are_still_paid_routes(self):
+        conversation, run = f'/api/agent-conversations/{ID}', f'/api/agent-conversations/{ID}/runs/{ID}'
+        for path in (f'{conversation}/%72uns', f'{conversation}/RUNS', f'{run}/%61pprove', f'{run}/APPROVE',
+                     f'{conversation}/messag%65s', f'{conversation}/MESSAGES', f'{conversation.upper()}/runs',
+                     f'/api/agent-conversations/{ID.upper()}/runs/{ID.upper()}/approve'):
+            with self.subTest(path=path):
+                self.assertFalse(gateway.allowed('POST', path, False, True, True))
+                self.assertTrue(gateway.agent_paid('POST', path), 'refused as a paid route')
+                self.assertTrue(gateway.allowed('POST', path, **PRODUCTION))
+        self.assertEqual(gateway.upstream_wait('POST', f'{conversation}/messag%65s'), 120)
+        for action in ('%64ecline', 'CANCEL'):
+            self.assertTrue(gateway.allowed('POST', f'{run}/{action}'), action)
+            self.assertFalse(gateway.agent_paid('POST', f'{run}/{action}'), action)
+
     def test_long_running_posts_wait_longer_for_response_headers(self):
         self.assertEqual(gateway.upstream_wait('POST', '/api/generate/image'), 120)
         self.assertEqual(gateway.upstream_wait('POST', '/api/generate/video'), 120)

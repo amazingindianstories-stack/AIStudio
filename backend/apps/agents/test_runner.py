@@ -110,8 +110,8 @@ class RunnerCase(StorageMixin, McpCase):
         self.addCleanup(spying.stop)
         return sent
 
-    def advance(self, run, stop=None):
-        return runner.advance(run.id, lease=HELD, stop=stop or Event())
+    def advance(self, run, stop=None, now=None):
+        return runner.advance(run.id, lease=HELD, stop=stop or Event(), **({'now': now} if now else {}))
 
     def refresh(self, run):
         return AgentRun.objects.get(pk=run.id)
@@ -243,6 +243,16 @@ class PaidToolTests(RunnerCase):
         self.assertEqual(sent[0][1]['projectId'], str(self.project.id))
         self.assertNotIn('folderId', sent[0][1])
         self.assertEqual((Generation.objects.get().project_id, Generation.objects.get().folder_id), (self.project.id, None))
+
+
+    def test_a_search_without_a_location_is_sent_unscoped(self):
+        sent = self.dispatched()
+        for folder in (self.folder.id, None):
+            with self.subTest(default_folder=folder):
+                AgentConversation.objects.filter(pk=self.conversation.id).update(default_folder_id=folder)
+                self.gemini([call('search_generations', {'text': 'fox'})], [text('Nothing found.')])
+                self.assertEqual(self.advance(self.start_run()), 'completed')
+                self.assertEqual(sent[-1][:2], ('search_generations', {'text': 'fox'}))
 
 
 class ReplayTests(RunnerCase):
@@ -463,18 +473,79 @@ class BoundaryTests(RunnerCase):
         self.assertEqual(AgentRunEvent.objects.get(run_id=run.id, kind='paused').payload,
                          {'reason': 'agentGlobalDailyCapCents', 'resumeAfter': 123_456})
 
-    def test_per_run_bounds_end_the_run(self):
+    def assert_paused_at(self, run, reason):
+        run = self.refresh(run)
+        self.assertEqual((run.status, run.pause_reason, run.resume_after, run.error), ('paused_limit', reason, None, None))
+        self.assertEqual(AgentRunEvent.objects.get(run_id=run.id, kind='paused').payload, {'reason': reason, 'resumeAfter': None})
+        self.assertNotIn(run.id, worker.runnable(), 'it waits for the artist instead of retrying into the bound')
+        return run
+
+    def test_the_step_bound_pauses_the_run_before_its_next_step(self):
+        self.assertEqual(runner.MAX_STEPS, 40)
+        bodies = self.gemini()
         run = self.start_run(step_count=runner.MAX_STEPS)
-        self.assertEqual(self.advance(run), 'failed')
-        self.assertEqual(self.refresh(run).error['code'], 'step_limit')
-        AgentRun.objects.filter(pk=run.id).delete()
-        run = self.start_run(cost_cents=runner.MAX_RUN_COST_CENTS, created_at=20)
-        self.assertEqual(self.advance(run), 'failed')
-        self.assertEqual(self.refresh(run).error['code'], 'cost_limit')
-        AgentRun.objects.filter(pk=run.id).delete()
-        run = self.start_run(started_at=1, created_at=30)
-        self.assertEqual(self.advance(run), 'failed')
-        self.assertEqual(self.refresh(run).error['code'], 'time_limit')
+        self.assertEqual(self.advance(run), 'paused')
+        self.assert_paused_at(run, 'step_limit')
+        self.assertEqual((self.steps(run), bodies), ([], []))
+
+    def test_the_cost_bound_counts_the_next_paid_calls_price_and_pauses_before_submitting(self):
+        self.assertEqual(runner.MAX_RUN_COST_CENTS, 1000)
+        sent = self.dispatched()
+        self.gemini([call('generate_image', {'prompt': 'red fox'})])
+        run = self.start_run(cost_cents=runner.MAX_RUN_COST_CENTS - 5)
+        self.assertEqual(self.advance(run), 'paused')
+        run = self.assert_paused_at(run, 'cost_limit')
+        self.assertEqual((sent, Generation.objects.count(), run.cost_cents), ([], 0, runner.MAX_RUN_COST_CENTS - 5))
+        self.assertEqual([step.kind for step in self.steps(run)], ['llm'])
+        # A message wakes it, and it pauses again without paying.
+        AgentInboxMessage.objects.create(conversation_id=self.conversation.id, run_id=run.id, user_id=self.user.id,
+                                         content='Go ahead', created_at=20)
+        AgentRun.objects.filter(pk=run.id).update(resume_after=0)
+        self.assertEqual(self.advance(run), 'paused')
+        self.assertEqual((sent, Generation.objects.count(), self.refresh(run).pause_reason), ([], 0, 'cost_limit'))
+
+    def test_after_a_job_reaches_the_cost_bound_the_next_model_turn_pauses_with_a_reason(self):
+        sent = self.dispatched()
+        bodies = self.gemini([call('generate_image', {'prompt': 'red fox'})])
+        run = self.start_run(cost_cents=runner.MAX_RUN_COST_CENTS - 6)
+        self.assertEqual(self.advance(run), 'waiting', 'a call that fits the bound exactly is submitted')
+        self.assertEqual((len(sent), self.refresh(run).cost_cents), (1, runner.MAX_RUN_COST_CENTS))
+        self.finish_jobs(run)
+        self.assertEqual(self.advance(run), 'paused')
+        self.assert_paused_at(run, 'cost_limit')
+        self.assertEqual((len(bodies), [step.kind for step in self.steps(run)]), (1, ['llm', 'tool']))
+
+    def test_waiting_for_jobs_or_approval_is_not_counted_toward_the_time_bound(self):
+        clock = [1_000_000]
+        AgentGrant.objects.filter(pk=self.grant.id).update(auto_approve_cents=0)
+        self.gemini([call('generate_image', {'prompt': 'red fox'})], [call('generate_image', {'prompt': 'grey fox'})], [text('Done.')])
+        run = self.start_run()
+        self.assertEqual(self.advance(run, now=lambda: clock[0]), 'waiting')
+        self.assertEqual(self.refresh(run).status, 'waiting_approval')
+        clock[0] += runner.MAX_ACTIVE_MS + 1
+        runner.approve_quote(run.id, self.user.id, now=clock[0])
+        self.assertEqual(self.advance(run, now=lambda: clock[0]), 'waiting')
+        self.assertEqual(self.refresh(run).status, 'waiting_jobs')
+        clock[0] += runner.MAX_ACTIVE_MS + 1
+        self.finish_jobs(run)
+        self.assertEqual(self.advance(run, now=lambda: clock[0]), 'waiting')
+        self.assertEqual(self.refresh(run).status, 'waiting_approval')
+        clock[0] += runner.MAX_ACTIVE_MS + 1
+        runner.decline_quote(run.id, 'declined', now=clock[0])
+        self.assertEqual(self.advance(run, now=lambda: clock[0]), 'completed')
+        self.assertLess(runner.active_ms(self.refresh(run)), runner.MAX_ACTIVE_MS)
+
+    def test_time_spent_in_steps_reaches_the_time_bound_and_pauses_the_run(self):
+        clock = [1_000_000]
+
+        def slow():
+            clock[0] += runner.MAX_ACTIVE_MS
+            return [call('list_models', {})]
+        self.gemini(slow)
+        run = self.start_run()
+        self.assertEqual(self.advance(run, now=lambda: clock[0]), 'paused')
+        self.assert_paused_at(run, 'time_limit')
+        self.assertEqual([step.kind for step in self.steps(run)], ['llm'])
 
     def test_a_revoked_grant_fails_the_run_with_a_clear_error(self):
         run = self.start_run()

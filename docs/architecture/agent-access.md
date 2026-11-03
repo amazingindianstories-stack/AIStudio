@@ -104,10 +104,15 @@ queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed
 - **Step boundaries.** Before each step the runner stops if its lease was lost or the worker is stopping (the run goes
   back to `queued`), honours a cancel request, re-checks the grant (`AgentGrantInvalid` fails the run), and checks the
   bounds: the global `agentsEnabled` setting (`0` pauses the run as `paused_limit`, `agents_disabled`, retried every
-  minute; unset, `1` or an unparsable value is on), the per-run bounds in `runner.py` (60 steps, 5000 estimator cents
-  of paid estimates, 2 hours from the first step; reaching one fails the run), and
+  minute; unset, `1` or an unparsable value is on), the per-run bounds in `runner.py`, and
   `step_limits.check_limits(run, step_kind)`, which allows everything today; a non-ok verdict pauses the run as
-  `paused_limit` with its `pause_reason` and `resume_after`.
+  `paused_limit` with its `pause_reason` and `resume_after`. The per-run bounds (module constants until the admin
+  limits replace them) also pause the run as `paused_limit`, with no `resume_after`, so it waits for the artist instead
+  of retrying into the bound: `step_limit` at 40 steps; `cost_limit` once paid estimates reach 1000 estimator cents, or
+  before a paid tool whose price (or approved quote) would take the run past them, so nothing is submitted; and
+  `time_limit` at 2 hours spent inside steps, where each step counts from its latest attempt to its outcome, so waiting
+  for approval, jobs or a limit is not counted. A message wakes such a run, which pauses again at the same bound;
+  stopping it keeps its jobs.
 - **Cancel.** A stop request sets `cancel_requested_at`; the run ends `cancelled` at its next step boundary, and jobs
   already queued finish normally. "Stop and cancel jobs" (`cancel_jobs`) also cancels every active linked job through
   `generation/services/cancellation.cancel_generation` (deferred, so the generation worker sends any provider cancel).

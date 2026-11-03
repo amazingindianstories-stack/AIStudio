@@ -12,8 +12,8 @@ again.
 
 At every step boundary the runner stops if its lease was lost or the worker is stopping (the run goes back to
 ``queued``), honours a cancel request, re-checks the grant, drains the inbox, and checks the bounds: the global
-``agentsEnabled`` switch, the per-run step, cost and wall-clock bounds, and ``step_limits.check_limits``. Paid tools never
-wait: after a model turn's calls the run sits in ``waiting_jobs`` until every generation it linked is terminal, or
+``agentsEnabled`` switch, the per-run step, cost and active-time bounds, and ``step_limits.check_limits``; each pauses the
+run with a reason instead of taking the step. Paid tools never wait: after a model turn's calls the run sits in ``waiting_jobs`` until every generation it linked is terminal, or
 until the artist sends a message. A
 ``quote_required`` result parks the run in ``waiting_approval``; once the artist approves (``approve_quote``), the same
 step is replayed with the quote token, plus ``confirmedByUser`` at the confirmation amount. The model can never send
@@ -28,6 +28,7 @@ import os
 from dataclasses import dataclass
 
 from django.db import transaction
+from django.db.models import F, Sum
 
 from apps.admin_dashboard.models import AppSetting
 from apps.authentication.models import User
@@ -35,8 +36,9 @@ from apps.common.leases import now_ms
 from apps.generation.models import Generation
 from apps.generation.services import cancellation
 from apps.integrations.transport import ProviderError
-from apps.mcp import server
+from apps.mcp import errors, paid, server
 from apps.mcp.registry import REGISTRY, visible
+from apps.mcp.tools.generate import PREPARE
 from . import events, grants
 from .declarations import HARNESS_FIELDS, harness_arguments
 from .design import DESIGN_TOOL, design_body, design_brief, read_prompt
@@ -48,9 +50,9 @@ from .models import (TERMINAL_RUN_STATUSES, AgentChatAsset, AgentConversation, A
 
 logger = logging.getLogger('veevee.agents')
 
-MAX_STEPS = 60                       # steps per run, LLM and tool together
-MAX_RUN_COST_CENTS = 5000            # paid tool estimates per run
-MAX_WALL_MS = 2 * 60 * 60 * 1000     # from the run's first step, waits included
+MAX_STEPS = 40                       # steps per run, LLM and tool together
+MAX_RUN_COST_CENTS = 1000            # paid tool estimates per run, the next paid call's price included
+MAX_ACTIVE_MS = 2 * 60 * 60 * 1000   # time spent in steps; waits for approval, jobs or a limit are not counted
 SWITCH = 'agentsEnabled'             # global AppSetting: '0' pauses every run at its next step boundary; unset or '1' is on
 SWITCH_RETRY_MS = 60_000
 LLM_ATTEMPTS = 3
@@ -181,7 +183,7 @@ def decline_quote(run_id, reason, *, step_index=None, now=None):
         message = ('The artist sent a new message instead of approving this cost; nothing was charged. Follow the new message.'
                    if reason == 'message' else 'The artist declined this cost; nothing was charged. Ask before trying again.')
         result = {**step.result, 'declined': {'reason': reason, 'at': now}, 'response': {'code': 'QUOTE_DECLINED', 'message': message}}
-        AgentRunStep.objects.filter(pk=step.pk).update(outcome='quote_declined', result=result, finished_at=now)
+        AgentRunStep.objects.filter(pk=step.pk).update(outcome='quote_declined', result=result)
         _set(run, now, status='queued')
         events.emit(run.id, 'quote_declined', {'stepIndex': step.step_index, 'reason': reason}, now=now)
         return run
@@ -415,7 +417,7 @@ def llm_step(run, principal, action, stop, *, now=now_ms):
     else:
         step = action.step
     body = loop_body(principal, build_contents(run, steps, step))
-    AgentRunStep.objects.filter(pk=step.pk).update(input_hash=digest(body))
+    AgentRunStep.objects.filter(pk=step.pk).update(input_hash=digest(body), started_at=now())
     key = os.environ.get('GOOGLE_API_KEY')
     if not key:
         return fail(run.id, 'llm_unconfigured', 'The Agents tab is not configured on this server.')
@@ -463,8 +465,9 @@ def complete(run, *, now):
 # Tool steps ------------------------------------------------------------------------------------------------------
 
 def with_location(conversation, name, arguments):
-    """The model's arguments, plus the chat's default folder (or project) when a tool that takes a location got none."""
-    spec = REGISTRY.get(name)
+    """The model's arguments, plus the chat's default folder (or project) when a tool that places a new job got no
+    location. Other tools that take a location (``search_generations``) keep the model's scope."""
+    spec = REGISTRY.get(name) if name in SUBMIT_TOOLS else None
     properties = spec.schema().get('properties', {}) if spec is not None else {}
     if not {'folderId', 'projectId'} <= set(properties) or arguments.get('folderId') or arguments.get('projectId'):
         return arguments
@@ -493,11 +496,19 @@ def design_step(run, step, stop, *, now=now_ms):
     return finish_tool_result(run, step, failed['code'], failed, failed['message'], now=now())
 
 
+def step_call(run, action):
+    """The call a tool action dispatches: its journaled call, or the model's call without harness fields and with the
+    chat's location."""
+    if action.step is not None:
+        return action.step.result['call']
+    conversation = AgentConversation.objects.get(pk=run.conversation_id)
+    model_arguments = {key: value for key, value in action.call['args'].items() if key not in HARNESS_FIELDS}
+    return {**action.call, 'args': with_location(conversation, action.call['name'], model_arguments)}
+
+
 def tool_step(run, principal, action, stop, *, now=now_ms):
     if action.step is None:
-        conversation = AgentConversation.objects.get(pk=run.conversation_id)
-        model_arguments = {key: value for key, value in action.call['args'].items() if key not in HARNESS_FIELDS}
-        call = {**action.call, 'args': with_location(conversation, action.call['name'], model_arguments)}
+        call = step_call(run, action)
         step = _new_step(run, 'tool', now=now(), tool_name=call['name'], result={'call': call})
     else:
         step = action.step
@@ -507,7 +518,7 @@ def tool_step(run, principal, action, stop, *, now=now_ms):
                                   quote_token=quote['token'] if approved else None,
                                   confirmed=approved and quote['costCents'] >= principal.caps.confirm_at_cents)
     AgentRunStep.objects.filter(pk=step.pk).update(input_hash=digest({'name': call['name'], 'arguments': call['args']}),
-                                                   outcome=None, status='started')
+                                                   outcome=None, status='started', started_at=now())
     if call['name'] == DESIGN_TOOL:
         return design_step(run, step, stop, now=now)
     try:
@@ -581,13 +592,39 @@ def switch_on():
     return parse(AppSetting.objects.filter(key=SWITCH).values_list('value', flat=True).first(), (-1, 0, 1)) != 0
 
 
-def bound_exceeded(run, action, now):
+def pending_cents(run, principal, action):
+    """What the tool step would spend: its approved quote, or the price of a paid call's arguments (0 when they cannot
+    be priced; the dispatch then refuses them without paying)."""
+    step = action.step
+    if step is not None and step.result.get('quote') is not None and step.result.get('approval') is not None:
+        return step.result['quote']['costCents']
+    call = step_call(run, action)
+    if call['name'] not in PREPARE:
+        return 0
+    try:
+        arguments = REGISTRY[call['name']].validate(harness_arguments(call['name'], call['args']))
+        return paid.price_of(PREPARE[call['name']], principal, arguments).cost_cents
+    except errors.ToolError:
+        return 0
+
+
+def active_ms(run):
+    """Time the run spent in its finished steps; a step's ``started_at`` is when its latest attempt began."""
+    spent = AgentRunStep.objects.filter(run_id=run.id, outcome__isnull=False) \
+        .aggregate(total=Sum(F('finished_at') - F('started_at')))['total']
+    return spent or 0
+
+
+def bound_reached(run, principal, action):
+    """The per-run bound the next step would cross: ``step_limit``, ``cost_limit`` (spent, plus a paid tool's price) or
+    ``time_limit``; None when it may run."""
     if action.step is None and run.step_count >= MAX_STEPS:
-        return 'step_limit', f'This run reached its {MAX_STEPS} step limit.'
-    if run.cost_cents >= MAX_RUN_COST_CENTS:
-        return 'cost_limit', 'This run reached its spending limit.'
-    if run.started_at is not None and now - run.started_at > MAX_WALL_MS:
-        return 'time_limit', 'This run reached its time limit.'
+        return 'step_limit'
+    if run.cost_cents >= MAX_RUN_COST_CENTS or (
+            action.kind == 'tool' and run.cost_cents + pending_cents(run, principal, action) > MAX_RUN_COST_CENTS):
+        return 'cost_limit'
+    if active_ms(run) >= MAX_ACTIVE_MS:
+        return 'time_limit'
     return None
 
 
@@ -652,9 +689,9 @@ def advance(run_id, *, lease, stop, now=now_ms):
             continue
         if not switch_on():
             return pause(run.id, 'agents_disabled', now() + SWITCH_RETRY_MS, now=now())
-        exceeded = bound_exceeded(run, action, now())
-        if exceeded is not None:
-            return fail(run.id, *exceeded, now=now())
+        bound = bound_reached(run, principal, action)
+        if bound is not None:
+            return pause(run.id, bound, None, now=now())
         verdict = check_limits(run, action.kind)
         if not verdict.ok:
             return pause(run.id, verdict.reason or 'limit', verdict.resume_after, now=now())
