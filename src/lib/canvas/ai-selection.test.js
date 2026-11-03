@@ -76,7 +76,9 @@ test("a typed request to recolour the selection is recognised, and other request
     "A set of shot ideas using a warm colour palette", "Flowchart of how to set the colour balance on set", "Ideas for how to recolour the film in post",
     "Expand these into a colour script: switch from cold to warm colours by act", "make it black and white", "make these images black and white",
     "colour these images sepia", "change the colour of these frames to black",
-    "change the colour to black and white", "change the colour to sepia", "change the colours to a warmer grade", "set the colour to match the poster"]) {
+    "change the colour to black and white", "change the colour to sepia", "change the colours to a warmer grade", "set the colour to match the poster",
+    "change the colour of these to black and white", "change the colour of these to sepia", "change the colour of these to a warmer grade",
+    "change their colour to black and white", "change their colours to match the poster"]) {
     assert.equal(isRecolorRequest(prompt), false, prompt);
   }
 });

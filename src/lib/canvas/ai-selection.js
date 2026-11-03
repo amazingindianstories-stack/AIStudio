@@ -68,7 +68,7 @@ const START = String.raw`^\s*(?:(?:can|could|would|will)\s+you\s+)?(?:please\s+)
 const COLOR_END = String.raw`(?:\s+${SHADE})*\s+${COLOR_NAME}(?:\s+please)?\s*[.!?]?\s*$`;
 const RECOLOR_REQUESTS = [
   new RegExp(String.raw`${START}(?:make|turn|paint|(?:re-?)?colou?r|change|set)\s+(?:them|these|those|it|this|that|${NOUN_REF})${COLOR_END}`, "i"),
-  new RegExp(String.raw`${START}(?:change|switch|set|update)\s+(?:(?:the\s+)?colou?rs?\s+of\s+(?:${PRONOUN_REF}|${NOUN_REF}\b)|(?:their|${NOUN_REF}'?s?)\s+colou?rs?\b|the\s+colou?rs?${COLOR_END})`, "i"),
+  new RegExp(String.raw`${START}(?:change|switch|set|update)\s+(?:(?:(?:the\s+)?colou?rs?\s+of\s+${PRONOUN_REF}|their\s+colou?rs?|the\s+colou?rs?)${COLOR_END}|(?:the\s+)?colou?rs?\s+of\s+${NOUN_REF}\b|${NOUN_REF}'?s?\s+colou?rs?\b)`, "i"),
   new RegExp(String.raw`${START}(?:re-?)?colou?r\s+(?:${PRONOUN_REF}|${NOUN_REF}\b)`, "i"),
 ];
 
