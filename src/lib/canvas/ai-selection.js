@@ -62,12 +62,13 @@ export const recolorAction = (name) => ({ id: `recolor-${name}`, format: "recolo
 
 const NOUN_REF = String.raw`(?:(?:the|this|that|these|those|each|every|all|all\s+(?:of\s+)?(?:the|these|those))\s+)?(?:selected\s+)?(?:sticky\s+)?(?:notes?|stickies|shapes?|objects?)`;
 const PRONOUN_REF = String.raw`(?:them|(?:these|those)(?=\s+(?:to|by)\b|\s*[.!?]?\s*$))`;
-const COLOR_NAME = String.raw`(?:yellow|orange|pink|purple|blue|green|red|teal|black|white|gr[ae]y|brown|navy|cyan|magenta|violet|indigo|lime|gold|silver|beige|maroon|olive|crimson|lavender|turquoise|coral|peach|mint|cream|tan|charcoal|amber|#[0-9a-f]{3}(?:[0-9a-f]{3})?)`;
+const COLOR_NAME = String.raw`(?:yellow|orange|pink|purple|blue|green|red|teal|black|white|gr[ae]y|brown|navy|cyan|magenta|violet|indigo|lime|gold|silver|beige|maroon|olive|crimson|lavender|turquoise|coral|peach|mint|cream|tan|charcoal|amber|mauve|#[0-9a-f]{3}(?:[0-9a-f]{3})?)`;
 const SHADE = String.raw`(?:to|in|dark|light|bright|pale|deep|soft)`;
 const START = String.raw`^\s*(?:(?:can|could|would|will)\s+you\s+)?(?:please\s+)?`;
+const COLOR_END = String.raw`(?:\s+${SHADE})*\s+${COLOR_NAME}(?:\s+please)?\s*[.!?]?\s*$`;
 const RECOLOR_REQUESTS = [
-  new RegExp(String.raw`${START}(?:make|turn|paint|(?:re-?)?colou?r|change|set)\s+(?:them|these|those|it|this|that|${NOUN_REF})(?:\s+${SHADE})*\s+${COLOR_NAME}(?:\s+please)?\s*[.!?]?\s*$`, "i"),
-  new RegExp(String.raw`${START}(?:change|switch|set|update)\s+(?:(?:the\s+)?colou?rs?\s+of\s+(?:${PRONOUN_REF}|${NOUN_REF}\b)|(?:their|${NOUN_REF}'?s?)\s+colou?rs?\b|the\s+colou?rs?\s+to\b)`, "i"),
+  new RegExp(String.raw`${START}(?:make|turn|paint|(?:re-?)?colou?r|change|set)\s+(?:them|these|those|it|this|that|${NOUN_REF})${COLOR_END}`, "i"),
+  new RegExp(String.raw`${START}(?:change|switch|set|update)\s+(?:(?:the\s+)?colou?rs?\s+of\s+(?:${PRONOUN_REF}|${NOUN_REF}\b)|(?:their|${NOUN_REF}'?s?)\s+colou?rs?\b|the\s+colou?rs?${COLOR_END})`, "i"),
   new RegExp(String.raw`${START}(?:re-?)?colou?r\s+(?:${PRONOUN_REF}|${NOUN_REF}\b)`, "i"),
 ];
 

@@ -67,14 +67,16 @@ test("a typed request to recolour the selection is recognised, and other request
     "change the colour of the notes to teal", "change these notes to black", "make these black", "recolour these by sentiment",
     "change the colour of these to #00ff88", "Make the selected sticky notes light grey", "change the notes colour to black",
     "change the note colors to black", "change the colour to black", "make it black", "make this black", "change it to black",
-    "Can you make these notes black?", "make these notes black please", "make them black please", "make these notes navy", "make these notes #fff"]) {
+    "Can you make these notes black?", "make these notes black please", "make them black please", "make these notes navy", "make these notes #fff",
+    "change the colour to mauve", "change the colour to dark blue"]) {
     assert.equal(isRecolorRequest(prompt), true, prompt);
   }
   for (const prompt of ["Three black sticky notes with shot ideas", "make the background black", "turn these notes into a flowchart in black",
     "a cat", "Make a diagram of colour grading steps", "Questions to ask before a location scout", "Shot ideas where the lights change colour",
     "A set of shot ideas using a warm colour palette", "Flowchart of how to set the colour balance on set", "Ideas for how to recolour the film in post",
     "Expand these into a colour script: switch from cold to warm colours by act", "make it black and white", "make these images black and white",
-    "colour these images sepia", "change the colour of these frames to black"]) {
+    "colour these images sepia", "change the colour of these frames to black",
+    "change the colour to black and white", "change the colour to sepia", "change the colours to a warmer grade", "set the colour to match the poster"]) {
     assert.equal(isRecolorRequest(prompt), false, prompt);
   }
 });
