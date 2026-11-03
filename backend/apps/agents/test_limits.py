@@ -171,6 +171,14 @@ class StepTests(LimitsCase):
         hit = limits.check_step(run, cost_cents=100, now=NOW)
         self.assertEqual((hit.kind, hit.scope, hit.resume_after_ms), ('global_daily_cap', 'global', NOW - 20 * HOUR + 24 * HOUR))
 
+    def test_a_cap_the_step_fits_always_has_a_resume_time_even_when_token_spend_rounds_up(self):
+        self.override(self.user, 'agentsEnabled', 1)
+        self.override(self.user, 'mcpDailyCapCents', 1)
+        run = self.run_for(self.user)
+        self.usage(self.user, 1_500_000, created_at=NOW - 2 * HOUR)        # 1.5 cents counts as 2: the 2 to shed is more than the row
+        hit = limits.check_step(run, cost_cents=1, now=NOW)
+        self.assertEqual((hit.kind, hit.resume_after_ms), ('daily_cap', NOW - 2 * HOUR + 24 * HOUR), 'free once the row ages out')
+
     def test_the_agents_tab_grant_cap_pauses_before_the_user_cap(self):
         self.override(self.user, 'agentsEnabled', 1)
         self.override(self.user, 'mcpDailyCapCents', 5000)
@@ -208,13 +216,18 @@ class StepTests(LimitsCase):
         self.assertEqual(limits.apply_limit_hit(run, capped, now=NOW + 2), 'failed', 'a finished run is left alone')
         self.assertEqual(AgentRun.objects.get(pk=run.pk).error['code'], 'limit')
 
-    def test_a_still_paused_run_that_hits_a_waiting_limit_again_is_paused_again(self):
+    def test_a_waiting_limit_always_pauses_and_never_fails_the_run(self):
         run = self.run_for(self.user)
         limits.apply_limit_hit(run, limits.LimitHit('daily_cap', 'Over.', NOW + HOUR), now=NOW)
         self.assertEqual(limits.apply_limit_hit(run, limits.LimitHit('daily_cap', 'Still over.', NOW + 2 * HOUR), now=NOW + 1), 'paused_limit')
         saved = AgentRun.objects.get(pk=run.pk)
         self.assertEqual((saved.pause_reason, saved.resume_after, saved.error['message'], saved.error['hits']),
-                         ('daily_cap', NOW + 2 * HOUR, 'Still over.', ['daily_cap']))
+                         ('daily_cap', NOW + 2 * HOUR, 'Still over.', []))
+        AgentRun.objects.filter(pk=run.pk).update(status='running')
+        self.assertEqual(limits.apply_limit_hit(run, limits.LimitHit('disabled', 'Off.', NOW + HOUR), now=NOW + 1), 'paused_limit')
+        AgentRun.objects.filter(pk=run.pk).update(status='running')
+        self.assertEqual(limits.apply_limit_hit(run, limits.LimitHit('disabled', 'Off again.', NOW + HOUR), now=NOW + 1), 'paused_limit',
+                         'a wait recurring after the run resumed still only pauses it')
         steps = limits.LimitHit('steps', 'At the step limit.')
         self.assertEqual(limits.apply_limit_hit(run, steps, now=NOW + 2), 'paused_limit')
         self.assertEqual(limits.apply_limit_hit(run, steps, now=NOW + 3), 'failed', 'a per-run bound is not waited out')

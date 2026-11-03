@@ -36,12 +36,13 @@ endpoints.
 - Mid-run, `check_step` returns a `LimitHit` (`disabled`, `steps`, `run_cost`, `daily_cap`, `grant_daily_cap` for
   the Agents tab grant's own `daily_cap_cents`, `global_daily_cap`).
   `apply_limit_hit` pauses the run (`paused_limit`, `pause_reason` = kind, `resume_after` from the oldest rows
-  that free enough of the trailing window, one minute later for disabled, none for step and run-cost) and records the
-  kind in `agent_runs.error.hits`; a paid call that alone costs more than a daily cap (no `resume_after`) is refused
-  to the model instead (see Step boundaries). A second refusal of the same kind ends the run `failed` with
-  `error = {code: 'limit', kind}`. Waking a paused run (an artist message or its `resume_after`) is not a refusal: a
-  run still paused that hits `disabled` or a daily cap again is paused again with a fresh `resume_after`, so a run
-  paused by the switch resumes within a minute of an admin turning agents back on. The pause records the refused step's estimate in `error.costCents`, and
+  that free enough of the trailing window, at the latest when every counted row has aged out; one minute later for
+  disabled; none for step and run-cost). The switch and the daily caps are waits, never refusals: each hit pauses the
+  run (again, with a fresh `resume_after`, however often it recurs, before or after a resume) and never fails it, so a
+  run paused by the switch resumes within a minute of an admin turning agents back on. A paid call that alone costs
+  more than a daily cap is refused to the model instead (see Step boundaries). Per-run bounds (`steps`, `run_cost`)
+  are refusals, recorded in `agent_runs.error.hits`: a second one of the same kind ends the run `failed` with
+  `error = {code: 'limit', kind}`. The pause records the refused step's estimate in `error.costCents`, and
   `resume_run` requeues only when that same step fits again.
 - Each grant (a personal access token or one connected app) has its own daily cap (default $10, never above
   the user cap) and an auto-approve amount (default 25 cents, 0 to 100). Jobs at or below the auto-approve
@@ -121,7 +122,7 @@ queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed
   active-time bound. A hit goes through `apply_limit_hit` (above). `time_limit` pauses the run at 2 hours spent inside
   steps, where each step counts from its latest attempt to its outcome, so waiting for approval, jobs or a limit is not
   counted. A message wakes a paused run and is delivered to the chat; a run still at `steps` or `run_cost` then fails
-  as a second refusal, while a run still at `disabled` or a daily cap pauses again. Stopping it keeps its jobs. A paid
+  as a second refusal, while a run at `disabled` or a daily cap only ever pauses again. Stopping it keeps its jobs. A paid
   call whose price (or approved quote) would alone take the run past `agentMaxRunCostCents` is never sent and not
   retried: it is journaled as its own tool step with outcome `COST_LIMIT` and a `COST_LIMIT` function response
   (nothing was charged; suggest a cheaper option or ask the artist), and the model's next turn can explain or offer a

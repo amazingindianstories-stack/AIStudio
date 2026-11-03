@@ -3,7 +3,7 @@
     enabled = agents_enabled(user)                        # the switch, with the global kill
     hit = check_run_admission(user)                       # API run creation, inside transaction.atomic()
     hit = check_step(run, cost_cents=estimate)            # worker, before every LLM or paid tool step
-    if hit: status = apply_limit_hit(run, hit)            # pause once per kind, fail on the second refusal
+    if hit: status = apply_limit_hit(run, hit)            # pause; a second refusal of a per-run bound fails
     hit = check_budget(user_id, grant_id)                 # a paid Gemini call outside a step: voice, PDF, view_media
     ok, hit = resume_run(run_id)                          # the Resume action, only when capacity is back
 
@@ -12,13 +12,13 @@ both parse against ``admin_dashboard.views.LIMITS``. ``agentsEnabled`` resolves 
 Global-only keys (``agentGlobalDailyCapCents``, ``agentMaxConcurrentRuns``) ignore per-user rows. The worker's claim
 enforces ``agentMaxConcurrentRuns`` through its global slot leases (``apps.agents.worker.claim``).
 
-A limit is never retried into: the first refusal of a kind pauses the run (``paused_limit``), the second refusal of the
-same kind in the same run ends it ``failed`` with ``error = {'code': 'limit', 'kind': ...}``. Waking a paused run (an
-artist message or its ``resume_after``) is not a refusal: a run still paused that hits the switch or a daily cap again
-is paused again with a fresh ``resume_after``. A run paused by the switch is retried every ``SWITCH_RETRY_MS``, so it
-resumes once an admin turns agents back on. Pauses are recorded in
-``agent_runs.error`` as ``{'code': 'limit_paused', 'kind', 'hits': [kinds], 'costCents', ...}``, where ``costCents`` is the
-refused step's estimate that Resume re-checks; no schema change is needed.
+A limit is never retried into. The switch and the daily caps (``WAIT_KINDS``) are waits, never refusals: each hit
+pauses the run (``paused_limit``) with a fresh ``resume_after``, however often it recurs, and never fails it. A run
+paused by the switch is retried every ``SWITCH_RETRY_MS``, so it resumes once an admin turns agents back on. A per-run
+bound (steps, run cost) is a refusal: the first pauses the run, the second of the same kind in the same run ends it
+``failed`` with ``error = {'code': 'limit', 'kind': ...}``. Pauses are recorded in ``agent_runs.error`` as
+``{'code': 'limit_paused', 'kind', 'hits': [refusal kinds], 'costCents', ...}``, where ``costCents`` is the refused
+step's estimate that Resume re-checks; no schema change is needed.
 """
 from dataclasses import dataclass
 from typing import Optional
@@ -143,8 +143,8 @@ def _dollars(cents):
 
 
 def _window_resume(excess_cents, *, user_id=None, grant_id=None, now):
-    """Earliest epoch ms at which the trailing window has shed ``excess_cents``, from the oldest counted rows; None when
-    it never will (the excess is more than everything in the window)."""
+    """Earliest epoch ms at which the trailing window has shed ``excess_cents``, from the oldest counted rows, and at the
+    latest once every row has aged out; None when the window holds no rows."""
     from apps.generation.models import Generation
     from apps.mcp_auth import controls, policy
     rows = Generation.objects.filter(created_via__in=policy.AGENT_ORIGINS, created_at__gt=now - policy.DAY_MS)
@@ -162,7 +162,7 @@ def _window_resume(excess_cents, *, user_id=None, grant_id=None, now):
         freed += cents
         if freed >= excess_cents:
             return created + policy.DAY_MS
-    return None
+    return max(created for created, _ in events) + policy.DAY_MS if events else None
 
 
 _CAP_NAMES = {DAILY_CAP: 'your daily agent limit', GRANT_DAILY_CAP: 'the Agents tab\'s own daily limit',
@@ -245,11 +245,10 @@ def check_budget(user_id, grant_id=None, *, now=None):
 def apply_limit_hit(run, hit, *, now=None):
     """Record a refusal on the run and return its new status.
 
-    The first refusal of a kind pauses the run (``paused_limit``, ``pause_reason`` = the kind, ``resume_after`` from the
-    hit); a second refusal of the same kind ends it ``failed`` with ``error = {'code': 'limit', 'kind': ...}``. A run still
-    ``paused_limit`` (woken by a message or its ``resume_after``) that hits a ``WAIT_KINDS`` limit is paused again with
-    the hit's ``resume_after`` instead. A run that is already finished is left alone. The caller must stop stepping
-    either way and never retry the refused step.
+    A hit pauses the run (``paused_limit``, ``pause_reason`` = the kind, ``resume_after`` from the hit). A ``WAIT_KINDS``
+    hit always pauses and is not recorded in ``hits``; a second hit of the same per-run bound ends the run ``failed`` with
+    ``error = {'code': 'limit', 'kind': ...}``. A run that is already finished is left alone. The caller must stop
+    stepping either way and never retry the refused step.
     """
     now = now_ms() if now is None else now
     with transaction.atomic():
@@ -257,13 +256,13 @@ def apply_limit_hit(run, hit, *, now=None):
         if locked is None or locked.status in ('completed', 'failed', 'cancelled'):
             return locked.status if locked else None
         hits = list((locked.error or {}).get('hits', []))
-        if hit.kind in hits and not (locked.status == PAUSED and hit.kind in WAIT_KINDS):
+        if hit.kind in hits:
             locked.status, locked.pause_reason, locked.resume_after, locked.finished_at = 'failed', None, None, now
             locked.error = {'code': 'limit', 'kind': hit.kind, 'message': hit.message, 'scope': hit.scope, 'hits': hits}
         else:
             locked.status, locked.pause_reason, locked.resume_after = PAUSED, hit.kind, hit.resume_after_ms
             locked.error = {'code': 'limit_paused', 'kind': hit.kind, 'message': hit.message, 'scope': hit.scope,
-                            'hits': hits if hit.kind in hits else hits + [hit.kind], 'costCents': hit.cost_cents}
+                            'hits': hits if hit.kind in WAIT_KINDS else hits + [hit.kind], 'costCents': hit.cost_cents}
         locked.updated_at = now
         locked.save(update_fields=['status', 'pause_reason', 'resume_after', 'finished_at', 'error', 'updated_at'])
     for field in ('status', 'pause_reason', 'resume_after', 'finished_at', 'error', 'updated_at'):
@@ -276,7 +275,7 @@ def resume_run(run_id, *, now=None):
     refused step's recorded cost.
 
     Returns ``(True, None)`` once requeued, else ``(False, hit)`` with the limit still in the way (or ``(False, None)``
-    when the run is not paused on a limit). The refused kind stays in ``error['hits']``, so refusing again fails the run.
+    when the run is not paused on a limit). A refused per-run bound stays in ``error['hits']``, so refusing it again fails the run.
     """
     now = now_ms() if now is None else now
     with transaction.atomic():

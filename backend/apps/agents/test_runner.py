@@ -528,7 +528,8 @@ class BoundaryTests(RunnerCase):
         run = self.refresh(run)
         self.assertEqual((run.status, run.pause_reason, run.resume_after), ('paused_limit', reason, resume_after))
         if reason != 'time_limit':
-            self.assertEqual((run.error['code'], run.error['kind'], run.error['hits']), ('limit_paused', reason, [reason]))
+            hits = [] if reason in limits.WAIT_KINDS else [reason]
+            self.assertEqual((run.error['code'], run.error['kind'], run.error['hits']), ('limit_paused', reason, hits))
         self.assertEqual(AgentRunEvent.objects.get(run_id=run.id, kind='paused').payload, {'reason': reason, 'resumeAfter': resume_after})
         if resume_after is None:
             self.assertNotIn(run.id, worker.runnable(), 'it waits for the artist instead of retrying into the bound')
@@ -552,7 +553,7 @@ class BoundaryTests(RunnerCase):
         self.assertEqual(worker.runnable(now=clock), [run.id], 'the switch is re-checked every minute')
         self.assertEqual(self.advance(run, now=lambda: clock), 'paused', 'still off: waking is not a second refusal')
         run = self.refresh(run)
-        self.assertEqual((run.status, run.resume_after, run.error['hits']), ('paused_limit', clock + limits.SWITCH_RETRY_MS, ['disabled']))
+        self.assertEqual((run.status, run.resume_after, run.error['hits']), ('paused_limit', clock + limits.SWITCH_RETRY_MS, []))
         self.assertEqual(self.kinds(run), ['paused'])
         self.setting('agentsEnabled', 1)
         clock += limits.SWITCH_RETRY_MS
@@ -571,7 +572,7 @@ class BoundaryTests(RunnerCase):
         self.assertEqual(self.advance(run), 'paused', 'a message is not a second refusal')
         run = self.refresh(run)
         self.assertEqual((run.status, run.pause_reason, run.error['code'], run.error['hits']),
-                         ('paused_limit', 'daily_cap', 'limit_paused', ['daily_cap']))
+                         ('paused_limit', 'daily_cap', 'limit_paused', []))
         self.assertGreater(run.resume_after, limits.now_ms(), 'the message wake refreshed resume_after')
         self.assertEqual(AgentConversation.objects.get(pk=self.conversation.id).status, 'paused_limit')
         self.assertEqual(AgentConversationMessage.objects.get(conversation_id=self.conversation.id, content='ok, wait').role, 'user')
@@ -592,20 +593,41 @@ class BoundaryTests(RunnerCase):
         self.assertEqual(self.advance(run, now=lambda: wake), 'paused', 'spend after the pause keeps the cap spent')
         run = self.refresh(run)
         self.assertEqual((run.status, run.pause_reason, run.resume_after, run.error['hits']),
-                         ('paused_limit', 'global_daily_cap', clock + 1000 + policy.DAY_MS, ['global_daily_cap']))
+                         ('paused_limit', 'global_daily_cap', clock + 1000 + policy.DAY_MS, []))
         self.assertEqual((self.kinds(run), bodies), (['paused'], []))
 
-    def test_a_run_that_resumed_and_hits_the_same_daily_cap_again_fails(self):
-        bodies = self.gemini()
+    def test_a_run_that_resumed_from_the_switch_is_paused_again_when_agents_are_switched_off_again(self):
+        clock = limits.now_ms()
+        bodies = self.gemini(lambda: (self.setting('agentsEnabled', 0), [call('list_models', {})])[1], [text('Done.')])
         run = self.start_run()
-        limits.apply_limit_hit(run, limits.LimitHit(limits.DAILY_CAP, 'Spent.', None), now=5)
-        AgentRun.objects.filter(pk=run.id).update(status='running')
-        self.usage(2, limits.now_ms())
+        self.setting('agentsEnabled', 0)
+        self.assertEqual(self.advance(run, now=lambda: clock), 'paused')
+        self.setting('agentsEnabled', 1)
+        clock += limits.SWITCH_RETRY_MS
+        self.assertEqual(self.advance(run, now=lambda: clock), 'paused', 'switched off again mid-run: a wait, not a second refusal')
+        run = self.refresh(run)
+        self.assertEqual((run.status, run.pause_reason, run.resume_after, run.error['hits']),
+                         ('paused_limit', 'disabled', clock + limits.SWITCH_RETRY_MS, []))
+        self.assertEqual(AgentConversation.objects.get(pk=self.conversation.id).status, 'paused_limit')
+        self.setting('agentsEnabled', 1)
+        clock += limits.SWITCH_RETRY_MS
+        self.assertEqual(self.advance(run, now=lambda: clock), 'completed')
+        self.assertEqual((len(bodies), self.kinds(run).count('paused'), 'failed' in self.kinds(run)), (2, 2, False))
+
+    def test_a_run_that_resumed_from_a_daily_cap_is_paused_again_when_it_hits_the_cap_again(self):
+        clock = limits.now_ms()
+        wake = clock + policy.DAY_MS + 1
+        bodies = self.gemini(lambda: (self.usage(2, wake), [call('list_models', {})])[1], [text('Done.')])
+        self.usage(2, clock)
         UserLimit.objects.create(user_id=self.user.id, key='mcpDailyCapCents', value='1', updated_at=1)
-        self.assertEqual(self.advance(run), 'failed', 'a refusal after the run resumed is the second one')
-        self.assertEqual((self.refresh(run).error['code'], bodies), ('limit', []))
-        self.assertEqual(AgentConversation.objects.get(pk=self.conversation.id).status, 'failed')
-        self.assertEqual(AgentRunEvent.objects.get(run_id=run.id, kind='failed').payload['code'], 'limit')
+        run = self.start_run()
+        self.assertEqual(self.advance(run, now=lambda: clock), 'paused')
+        self.assertEqual(self.refresh(run).resume_after, clock + policy.DAY_MS)
+        self.assertEqual(self.advance(run, now=lambda: wake), 'paused', 'spent again after resuming: a wait, not a second refusal')
+        run = self.refresh(run)
+        self.assertEqual((run.status, run.pause_reason, run.error['code'], run.error['hits']), ('paused_limit', 'daily_cap', 'limit_paused', []))
+        self.assertGreater(run.resume_after, wake)
+        self.assertEqual((len(bodies), self.kinds(run).count('paused'), 'failed' in self.kinds(run)), (1, 2, False))
 
     def test_the_switch_follows_the_per_user_override_and_the_global_kill(self):
         clock = limits.now_ms()

@@ -14,8 +14,8 @@ At every step boundary the runner stops if its lease was lost or the worker is s
 ``queued``), honours a cancel request, re-checks the grant, drains the inbox, and checks the limits: ``limits.check_step``
 (the global ``agentsEnabled`` switch, ``agentMaxStepsPerRun``, ``agentMaxRunCostCents`` with model token spend, and the
 user, grant and global daily caps, all read at call time) and the active-time bound. A hit goes through
-``limits.apply_limit_hit``: the first of a kind pauses the run, a second ends it, and a run woken while still paused
-on the switch or a daily cap is paused again. A paid call whose price would take the run past its cost bound is not
+``limits.apply_limit_hit``: the switch or a daily cap always pauses the run, while a per-run bound pauses it the first
+time and ends it the second. A paid call whose price would take the run past its cost bound is not
 sent: it is journaled with a ``COST_LIMIT`` response, and a second such call after the model was told ends the run. A
 paid call that alone costs more than a daily cap, so no wait would ever fit it, is refused the same way with
 ``BUDGET_EXCEEDED``; the run pauses only for a daily cap the trailing window frees.
@@ -621,10 +621,10 @@ def active_ms(run):
 
 
 def limit_stop(run, hit, *, now):
-    """Record a refused step through ``limits.apply_limit_hit``: the first refusal of a kind pauses the run, the second
-    ends it ``failed`` with ``error.code`` ``limit``. The status and its event are written together, and the feed shows
-    each pause once (a run paused again for the same reason only moves ``resume_after``). Returns the outcome
-    ``advance`` yields."""
+    """Record a refused step through ``limits.apply_limit_hit``: the switch or a daily cap pauses the run, a per-run
+    bound pauses it the first time and ends it ``failed`` with ``error.code`` ``limit`` the second. The status and its
+    event are written together, and the feed shows each pause once (a run paused again for the same reason only moves
+    ``resume_after``). Returns the outcome ``advance`` yields."""
     with transaction.atomic():
         before = _locked(run.id)
         if before.status in TERMINAL_RUN_STATUSES:
