@@ -77,7 +77,8 @@ export function stepInputs(state, stepId, outputs = {}) {
 
 /** A short stable fingerprint of what a step would send: an unchanged step is not run (or paid for) again. */
 export function inputHash(task, webSearch, inputs) {
-  const text = JSON.stringify([task, webSearch === true, inputs.map((i) => i.text)]);
+  const texts = inputs.map((i) => i.text);
+  const text = JSON.stringify(webSearch === true ? [task, true, texts] : [task, texts]);
   let a = 0x811c9dc5;
   let b = 0x01000193;
   for (let i = 0; i < text.length; i += 1) {

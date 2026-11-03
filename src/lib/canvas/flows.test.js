@@ -49,6 +49,7 @@ test("the hash depends on task, web search and every input", () => {
   assert.notEqual(base, inputHash("t", false, [{ text: "a" }, { text: "" }]));
   assert.equal(base, inputHash("t", false, [{ text: "a" }]));
   assert.equal(base, inputHash("t", undefined, [{ text: "a" }]));
+  assert.equal(base, "0a93f54ada2ee0d6");
   assert.equal(base.length, 16);
 });
 
