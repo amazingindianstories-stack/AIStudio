@@ -435,6 +435,40 @@ class CancelTests(RunnerCase):
         self.assertEqual(AgentRunEvent.objects.get(run_id=run.id, kind='cancelled').payload['jobs'],
                          [{'generationId': str(job.id), 'status': 'cancelled', 'message': None}])
 
+    def assert_message_kept(self, run, end):
+        run = self.refresh(run)
+        inbox = AgentInboxMessage.objects.get(run_id=run.id)
+        self.assertIsNotNone(inbox.delivered_at)
+        self.assertEqual(inbox.delivered_step, run.step_count)
+        message = AgentConversationMessage.objects.get(conversation_id=self.conversation.id, content='Also make it blue')
+        self.assertEqual((message.role, message.tool_trace), ('user', {'runId': str(run.id), 'deliveredStep': run.step_count}))
+        kinds = self.kinds(run)
+        self.assertEqual(kinds[-2:], ['message_delivered', end])
+        self.assertEqual(list(AgentRun.objects.filter(conversation_id=self.conversation.id).values_list('id', flat=True)), [run.id],
+                         'no new run starts for the message')
+
+    def artist_writes_mid_step(self, run, then):
+        def act():
+            AgentInboxMessage.objects.create(conversation_id=self.conversation.id, run_id=run.id, user_id=self.user.id,
+                                             content='Also make it blue', created_at=20)
+            then()
+            return [call('list_models', {})]
+        return act
+
+    def test_a_message_posted_mid_step_is_kept_in_the_chat_when_the_run_is_cancelled(self):
+        run = self.start_run()
+        self.gemini(self.artist_writes_mid_step(run, lambda: runs.request_cancel(run.id, cancel_jobs=False, now=21)))
+        self.assertEqual(self.advance(run), 'cancelled')
+        self.assertEqual([step.kind for step in self.steps(run)], ['llm'])
+        self.assert_message_kept(run, 'cancelled')
+
+    def test_a_message_posted_mid_step_is_kept_in_the_chat_when_the_grant_ends(self):
+        run = self.start_run()
+        self.gemini(self.artist_writes_mid_step(run, lambda: grants.revoke_grant(self.user.id)))
+        self.assertEqual(self.advance(run), 'failed')
+        self.assertEqual(self.refresh(run).error['code'], 'grant_invalid')
+        self.assert_message_kept(run, 'failed')
+
     def test_a_job_with_no_provider_task_is_cancelled_by_the_shared_service(self):
         run = self.waiting_run()
         AgentRun.objects.filter(pk=run.id).update(cancel_requested_at=99, cancel_jobs=True)

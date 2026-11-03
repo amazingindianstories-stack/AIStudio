@@ -104,6 +104,7 @@ def _finish(run_id, status, kind, payload, *, now, **fields):
         run = _locked(run_id)
         if run.status in TERMINAL_RUN_STATUSES:
             return run
+        drain_inbox(run, run.step_count, now=now)
         _set(run, now, status=status, finished_at=now, pause_reason=None, resume_after=None, **fields)
         events.emit(run.id, kind, payload, now=now)
         return run

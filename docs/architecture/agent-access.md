@@ -85,8 +85,10 @@ queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed
   `wait=false`. Each job they create gets `generations.agent_run_id`, `created_via='agent'` and an `agent_chat_assets`
   output row; the run then sits in `waiting_jobs` until every linked job is terminal (rechecked each worker tick) or
   the artist sends a message, and the model is told how the jobs finished.
-- **Location.** A tool that takes a folder or project and got neither lands in the chat's `default_folder_id`, else
-  its `default_project_id`. A folder the model names (from `list_folders`) is kept.
+- **Location.** A job-creating tool (`generate_image`, `generate_video`, `upscale_media`, `finalize_draft`) that got
+  neither a folder nor a project lands in the chat's `default_folder_id`, else its `default_project_id`. A folder the
+  model names (from `list_folders`) is kept. Other tools that take a location, such as `search_generations`, keep the
+  model's scope.
 - **Prompt design.** `design_prompt` is the harness's own tool, declared after the registry tools and accepted by the
   loop allowlist only with its exact declaration. It is a tool step that never reaches the dispatcher: one prompt-design
   sub-call through the same transport (usage purpose `design_prompt`) with the old orchestrator's prompt craft and three
@@ -101,8 +103,10 @@ queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed
 - **Inbox.** A message posted while a run is active goes to `agent_inbox`. At every step boundary, before any bound or
   limit check, the runner delivers undelivered rows in `created_at`/id order as user turns before the next model call,
   setting `delivered_at` and `delivered_step`, adding the message to the chat and emitting `message_delivered`, so a
-  message reaches the chat history even when the run then pauses. A message wakes a run waiting on jobs or paused at a
-  limit, and a run does not complete while a delivered message is newer than the model's last turn.
+  message reaches the chat history even when the run then pauses. A run that ends `cancelled` or `failed` delivers any
+  message still waiting the same way, so it stays in the chat; no new run starts for it. A message wakes a run waiting
+  on jobs or paused at a limit, and a run does not complete while a delivered message is newer than the model's last
+  turn.
 - **Step boundaries.** Before each step the runner stops if its lease was lost or the worker is stopping (the run goes
   back to `queued`), honours a cancel request, re-checks the grant (`AgentGrantInvalid` fails the run), delivers the
   inbox, and checks the
