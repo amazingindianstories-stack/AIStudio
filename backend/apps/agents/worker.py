@@ -4,9 +4,9 @@ pool thread with ``apps.agents.runner.advance``.
     run_worker(interval=1, concurrency=4, stop=stop)
 
 A run is advanced only while this process holds two leases (``apps.common.leases``): the run's own
-(``lease:agent:run:<id>``) and one of ``GLOBAL_SLOTS`` global slots (``lease:agent:slot:<n>``), so every agent worker
-replica together advances at most ``GLOBAL_SLOTS`` runs. The loop renews both every ``HEARTBEAT_MS`` and stamps the
-run's ``last_heartbeat_at``; a lease that could not be renewed is lost, and the runner stops at its next step boundary.
+(``lease:agent:run:<id>``) and one of the global slots (``lease:agent:slot:<n>``), so every agent worker replica together
+advances at most the admin's ``agentMaxConcurrentRuns`` runs, and never more than ``GLOBAL_SLOTS``. The loop renews
+both every ``HEARTBEAT_MS`` and stamps the run's ``last_heartbeat_at``; a lease that could not be renewed is lost, and the runner stops at its next step boundary.
 The agent worker runs as the API role without a lease prefix, so the scheduler, which has one, never reads these
 leases: it re-queues a ``running`` run whose heartbeat is older than ``STALE_MS`` (``reconcile_stale_runs``), and the
 run's lease has expired by then.
@@ -78,13 +78,12 @@ class RunLease:
 
 
 def claim(run_id, *, now=None, owner=None):
-    """A ``RunLease`` for the run, or None when another worker holds it, every global slot is taken, or
-    ``agentMaxConcurrentRuns`` runs are already running (the run stays queued)."""
+    """A ``RunLease`` for the run, or None when another worker holds it or every global slot is taken (the run stays as
+    it is). Only the first ``agentMaxConcurrentRuns`` slots, read at each claim, are claimed."""
     now = leases.now_ms() if now is None else now
     owner = owner or 'agent-worker:' + str(uuid.uuid4())
-    if limits.check_global_concurrency() is not None and not AgentRun.objects.filter(pk=run_id, status='running').exists():
-        return None
-    slot = next((slot_key(index) for index in range(GLOBAL_SLOTS)
+    slots = min(GLOBAL_SLOTS, limits.global_limits()['agentMaxConcurrentRuns'])
+    slot = next((slot_key(index) for index in range(slots)
                  if leases.claim(slot_key(index), owner, now=now, ttl_ms=LEASE_MS)), None)
     if slot is None:
         return None

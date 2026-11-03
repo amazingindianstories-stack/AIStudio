@@ -2,7 +2,6 @@
 
     enabled = agents_enabled(user)                        # the switch, with the global kill
     hit = check_run_admission(user)                       # API run creation, inside transaction.atomic()
-    hit = check_global_concurrency()                      # worker claim: leave the run queued while this is a hit
     hit = check_step(run, cost_cents=estimate)            # worker, before every LLM or paid tool step
     if hit: status = apply_limit_hit(run, hit)            # pause once per kind, fail on the second refusal
     hit = check_budget(user_id, grant_id)                 # a paid Gemini call outside a step: voice, PDF, view_media
@@ -10,10 +9,14 @@
 
 Limit values follow the other admin limits: a per-user ``UserLimit`` row overrides the global ``AppSetting`` row, and
 both parse against ``admin_dashboard.views.LIMITS``. ``agentsEnabled`` resolves differently, see ``agents_enabled``.
-Global-only keys (``agentGlobalDailyCapCents``, ``agentMaxConcurrentRuns``) ignore per-user rows.
+Global-only keys (``agentGlobalDailyCapCents``, ``agentMaxConcurrentRuns``) ignore per-user rows. The worker's claim
+enforces ``agentMaxConcurrentRuns`` through its global slot leases (``apps.agents.worker.claim``).
 
 A limit is never retried into: the first refusal of a kind pauses the run (``paused_limit``), the second refusal of the
-same kind in the same run ends it ``failed`` with ``error = {'code': 'limit', 'kind': ...}``. Pauses are recorded in
+same kind in the same run ends it ``failed`` with ``error = {'code': 'limit', 'kind': ...}``. Waking a paused run (an
+artist message or its ``resume_after``) is not a refusal: a run still paused that hits the switch or a daily cap again
+is paused again with a fresh ``resume_after``. A run paused by the switch is retried every ``SWITCH_RETRY_MS``, so it
+resumes once an admin turns agents back on. Pauses are recorded in
 ``agent_runs.error`` as ``{'code': 'limit_paused', 'kind', 'hits': [kinds], 'costCents', ...}``, where ``costCents`` is the
 refused step's estimate that Resume re-checks; no schema change is needed.
 """
@@ -34,17 +37,19 @@ ATTACH_KEYS = {'maxMb': 'agentAttachMaxMb', 'maxVideoSeconds': 'agentAttachMaxVi
 ATTACH_SWITCHES = ('images', 'documents', 'video', 'audio')
 MICROCENTS_PER_CENT = 1_000_000
 PAUSED = 'paused_limit'
+SWITCH_RETRY_MS = 60_000
 
 # LimitHit.kind values
 DISABLED, ACTIVE_RUNS, STEPS, RUN_COST = 'disabled', 'active_runs', 'steps', 'run_cost'
-DAILY_CAP, GRANT_DAILY_CAP, GLOBAL_DAILY_CAP, GLOBAL_CONCURRENCY = 'daily_cap', 'grant_daily_cap', 'global_daily_cap', 'global_concurrency'
+DAILY_CAP, GRANT_DAILY_CAP, GLOBAL_DAILY_CAP = 'daily_cap', 'grant_daily_cap', 'global_daily_cap'
+WAIT_KINDS = frozenset((DISABLED, DAILY_CAP, GRANT_DAILY_CAP, GLOBAL_DAILY_CAP))   # lifted by time or an admin, not by the run
 
 
 @dataclass(frozen=True)
 class LimitHit:
     kind: str
     message: str
-    resume_after_ms: Optional[int] = None      # earliest epoch ms the trailing window frees capacity; None for a cap only an admin lifts
+    resume_after_ms: Optional[int] = None      # earliest epoch ms to try again; None for a cap only an admin or the artist lifts
     scope: str = 'user'                        # 'user' or 'global'
     cost_cents: int = 0                        # the refused step's estimated cost, which Resume checks again
 
@@ -171,15 +176,6 @@ def _cap_hit(kind, scope, spent, upcoming, cap, *, user_id=None, grant_id=None, 
                     resume, scope, upcoming)
 
 
-def check_global_concurrency():
-    """A hit when ``agentMaxConcurrentRuns`` runs are already running across everyone, else None."""
-    cap = global_limits()['agentMaxConcurrentRuns']
-    running = AgentRun.objects.filter(status='running').count()
-    if running >= cap:
-        return LimitHit(GLOBAL_CONCURRENCY, f'{running} agent runs are running (limit {cap}). Try again shortly.', None, 'global')
-    return None
-
-
 def check_run_admission(user):
     """Before creating a run: the switch and the user's active-run cap, or None.
 
@@ -199,19 +195,20 @@ def check_run_admission(user):
     return None
 
 
-def check_step(run, *, cost_cents=0, now=None):
+def check_step(run, *, cost_cents=0, count_step=True, now=None):
     """Evaluated before each LLM or paid tool step: None, or the first ``LimitHit`` that refuses it.
 
-    ``cost_cents`` is the step's estimated cost (0 for a free tool). Order: switch, steps, run cost, user daily cap,
-    the grant's own daily cap, global daily cap. Reads are unlocked; ``controls.admit_paid_submission`` is the atomic
-    check for paid jobs. The global daily cap is enforced here only, never in MCP admission.
+    ``cost_cents`` is the step's estimated cost (0 for a free tool). Order: switch, steps (skipped with ``count_step``
+    False, for a step already journaled that is replayed), run cost, user daily cap, the grant's own daily cap, global
+    daily cap. Reads are unlocked; ``controls.admit_paid_submission`` is the atomic check for paid jobs. The global daily
+    cap is enforced here only, never in MCP admission.
     """
     from apps.mcp_auth import controls, policy
     now = now_ms() if now is None else now
     if not agents_enabled(run.user_id):
-        return LimitHit(DISABLED, 'Agents were turned off by an admin.', None, 'user', cost_cents)
+        return LimitHit(DISABLED, 'Agents were turned off by an admin.', now + SWITCH_RETRY_MS, 'user', cost_cents)
     limits = run_limits(run.user_id)
-    if run.step_count >= limits['agentMaxStepsPerRun']:
+    if count_step and run.step_count >= limits['agentMaxStepsPerRun']:
         return LimitHit(STEPS, f'This run reached its limit of {limits["agentMaxStepsPerRun"]} steps.', None, 'user', cost_cents)
     run_spent = run.cost_cents + _run_llm_cents(run.id)
     if run_spent + cost_cents > limits['agentMaxRunCostCents']:
@@ -248,8 +245,10 @@ def apply_limit_hit(run, hit, *, now=None):
     """Record a refusal on the run and return its new status.
 
     The first refusal of a kind pauses the run (``paused_limit``, ``pause_reason`` = the kind, ``resume_after`` from the
-    hit); a second refusal of the same kind ends it ``failed`` with ``error = {'code': 'limit', 'kind': ...}``. A run
-    that is already finished is left alone. The caller must stop stepping either way and never retry the refused step.
+    hit); a second refusal of the same kind ends it ``failed`` with ``error = {'code': 'limit', 'kind': ...}``. A run still
+    ``paused_limit`` (woken by a message or its ``resume_after``) that hits a ``WAIT_KINDS`` limit is paused again with
+    the hit's ``resume_after`` instead. A run that is already finished is left alone. The caller must stop stepping
+    either way and never retry the refused step.
     """
     now = now_ms() if now is None else now
     with transaction.atomic():
@@ -257,13 +256,13 @@ def apply_limit_hit(run, hit, *, now=None):
         if locked is None or locked.status in ('completed', 'failed', 'cancelled'):
             return locked.status if locked else None
         hits = list((locked.error or {}).get('hits', []))
-        if hit.kind in hits:
+        if hit.kind in hits and not (locked.status == PAUSED and hit.kind in WAIT_KINDS):
             locked.status, locked.pause_reason, locked.resume_after, locked.finished_at = 'failed', None, None, now
             locked.error = {'code': 'limit', 'kind': hit.kind, 'message': hit.message, 'scope': hit.scope, 'hits': hits}
         else:
             locked.status, locked.pause_reason, locked.resume_after = PAUSED, hit.kind, hit.resume_after_ms
-            locked.error = {'code': 'limit_paused', 'kind': hit.kind, 'message': hit.message, 'scope': hit.scope, 'hits': hits + [hit.kind],
-                            'costCents': hit.cost_cents}
+            locked.error = {'code': 'limit_paused', 'kind': hit.kind, 'message': hit.message, 'scope': hit.scope,
+                            'hits': hits if hit.kind in hits else hits + [hit.kind], 'costCents': hit.cost_cents}
         locked.updated_at = now
         locked.save(update_fields=['status', 'pause_reason', 'resume_after', 'finished_at', 'error', 'updated_at'])
     for field in ('status', 'pause_reason', 'resume_after', 'finished_at', 'error', 'updated_at'):

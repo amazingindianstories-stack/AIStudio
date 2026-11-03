@@ -141,6 +141,7 @@ class StepTests(LimitsCase):
         self.setting('agentMaxStepsPerRun', 5)
         run.step_count = 5
         self.assertEqual(limits.check_step(run, now=NOW).kind, 'steps')
+        self.assertIsNone(limits.check_step(run, count_step=False, now=NOW), 'a replayed step is not counted again')
         run.step_count = 4
         self.setting('agentMaxRunCostCents', 100)
         run.cost_cents = 60
@@ -150,7 +151,8 @@ class StepTests(LimitsCase):
         self.assertEqual((hit.kind, hit.resume_after_ms, hit.scope), ('run_cost', None, 'user'))
         self.setting('agentMaxRunCostCents', 100000)
         self.setting('agentsEnabled', 0)
-        self.assertEqual(limits.check_step(run, now=NOW).kind, 'disabled')
+        hit = limits.check_step(run, now=NOW)
+        self.assertEqual((hit.kind, hit.resume_after_ms), ('disabled', NOW + limits.SWITCH_RETRY_MS), 'retried until switched back on')
 
     def test_daily_caps_report_when_the_window_frees_capacity(self):
         self.override(self.user, 'agentsEnabled', 1)
@@ -205,6 +207,17 @@ class StepTests(LimitsCase):
                          ('failed', 'limit', 'steps', NOW + 1, None))
         self.assertEqual(limits.apply_limit_hit(run, capped, now=NOW + 2), 'failed', 'a finished run is left alone')
         self.assertEqual(AgentRun.objects.get(pk=run.pk).error['code'], 'limit')
+
+    def test_a_still_paused_run_that_hits_a_waiting_limit_again_is_paused_again(self):
+        run = self.run_for(self.user)
+        limits.apply_limit_hit(run, limits.LimitHit('daily_cap', 'Over.', NOW + HOUR), now=NOW)
+        self.assertEqual(limits.apply_limit_hit(run, limits.LimitHit('daily_cap', 'Still over.', NOW + 2 * HOUR), now=NOW + 1), 'paused_limit')
+        saved = AgentRun.objects.get(pk=run.pk)
+        self.assertEqual((saved.pause_reason, saved.resume_after, saved.error['message'], saved.error['hits']),
+                         ('daily_cap', NOW + 2 * HOUR, 'Still over.', ['daily_cap']))
+        steps = limits.LimitHit('steps', 'At the step limit.')
+        self.assertEqual(limits.apply_limit_hit(run, steps, now=NOW + 2), 'paused_limit')
+        self.assertEqual(limits.apply_limit_hit(run, steps, now=NOW + 3), 'failed', 'a per-run bound is not waited out')
 
     def test_resume_only_when_capacity_is_back(self):
         self.override(self.user, 'agentsEnabled', 1)
@@ -285,7 +298,3 @@ class AdmissionTests(LimitsCase):
         self.run_for(self.admin)
         with transaction.atomic():
             self.assertIsNone(limits.check_run_admission(self.admin), 'a busy account still creates the run, queued')
-        hit = limits.check_global_concurrency()
-        self.assertEqual((hit.kind, hit.scope), ('global_concurrency', 'global'))
-        AgentRun.objects.filter(user_id=self.admin.id).update(status='completed')
-        self.assertIsNone(limits.check_global_concurrency())

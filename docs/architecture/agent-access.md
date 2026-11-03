@@ -25,7 +25,8 @@ endpoints.
   `agentAttachMaxAudioSeconds` plus 1/0 switches `agentAttachImages`, `agentAttachDocuments`, `agentAttachVideo`,
   `agentAttachAudio`. A per-user row overrides the global value. They are not composer settings.
 - Run creation (`check_run_admission`) checks only `agentsEnabled` and `agentActiveRuns`; a run is created queued
-  even when `agentMaxConcurrentRuns` runs are running, and `check_global_concurrency` is the worker claim's check.
+  even when `agentMaxConcurrentRuns` runs are running. The worker claim enforces that cap atomically: it claims only
+  the first `agentMaxConcurrentRuns` global slot leases (at most 8), read at each claim.
 - `agentsEnabled` (1/0): a global 0 is a kill switch, off for everyone including admins and per-user overrides.
   Otherwise a per-user row decides, then a global 1 (on for all), and with nothing set it is on for admins only.
   The dashboard omits the key while no global row exists, and `POST /api/admin/limits` with `value: null` deletes
@@ -33,9 +34,11 @@ endpoints.
 - Mid-run, `check_step` returns a `LimitHit` (`disabled`, `steps`, `run_cost`, `daily_cap`, `grant_daily_cap` for
   the Agents tab grant's own `daily_cap_cents`, `global_daily_cap`).
   `apply_limit_hit` pauses the run (`paused_limit`, `pause_reason` = kind, `resume_after` from the oldest rows
-  that free enough of the trailing window, none for step, run-cost and disabled) and records the kind in
-  `agent_runs.error.hits`; a second refusal of the same kind ends the run `failed` with
-  `error = {code: 'limit', kind}`. The pause records the refused step's estimate in `error.costCents`, and
+  that free enough of the trailing window, one minute later for disabled, none for step and run-cost) and records the
+  kind in `agent_runs.error.hits`; a second refusal of the same kind ends the run `failed` with
+  `error = {code: 'limit', kind}`. Waking a paused run (an artist message or its `resume_after`) is not a refusal: a
+  run still paused that hits `disabled` or a daily cap again is paused again with a fresh `resume_after`, so a run
+  paused by the switch resumes within a minute of an admin turning agents back on. The pause records the refused step's estimate in `error.costCents`, and
   `resume_run` requeues only when that same step fits again.
 - Each grant (a personal access token or one connected app) has its own daily cap (default $10, never above
   the user cap) and an auto-approve amount (default 25 cents, 0 to 100). Jobs at or below the auto-approve
@@ -109,22 +112,20 @@ queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed
   turn.
 - **Step boundaries.** Before each step the runner stops if its lease was lost or the worker is stopping (the run goes
   back to `queued`), honours a cancel request, re-checks the grant (`AgentGrantInvalid` fails the run), delivers the
-  inbox, and checks the
-  bounds: the global `agentsEnabled` setting (`0` pauses the run as `paused_limit`, `agents_disabled`, retried every
-  minute; unset, `1` or an unparsable value is on; the runner does not observe the maintenance write freeze yet, so
-  setting `agentsEnabled` to `0` is how to stop runs during a freeze), the per-run bounds in `runner.py`, and
-  `step_limits.check_limits(run, step_kind)`, which allows everything today; a non-ok verdict pauses the run as
-  `paused_limit` with its `pause_reason` and `resume_after`. The per-run bounds (module constants until the admin
-  limits replace them) also pause the run as `paused_limit`, with no `resume_after`, so it waits for the artist instead
-  of retrying into the bound: `step_limit` at 40 steps; `cost_limit` once spent paid estimates reach 1000 estimator
-  cents; and `time_limit` at 2 hours spent inside steps, where each step counts from its latest attempt to its outcome,
-  so waiting for approval, jobs or a limit is not counted. A message wakes such a run, which delivers it and pauses
-  again at the same bound; stopping it keeps its jobs. A paid call whose price (or approved quote) would take the run
-  past 1000 cents is never sent and not retried: it is journaled as its own tool step with outcome `COST_LIMIT` and a
-  `COST_LIMIT` function response (nothing was charged; suggest a cheaper option or ask the artist), and the model's
-  next turn can explain or offer a cheaper option. Every over-bound call in one model turn is refused this way; one in
-  a later turn, after the model was told, fails the run with error code `limit` (`kind` `cost`). A step already sent
-  is replayed with its key rather than refused, so a job it submitted is never lost.
+  inbox, and checks the limits with `limits.check_step`, read at call time (the `agentsEnabled` switch, which is how to
+  stop runs during a maintenance write freeze since the runner does not observe it yet; `agentMaxStepsPerRun`;
+  `agentMaxRunCostCents` with the run's model token spend; and the user, grant and global daily caps), then the
+  active-time bound. A hit goes through `apply_limit_hit` (above). `time_limit` pauses the run at 2 hours spent inside
+  steps, where each step counts from its latest attempt to its outcome, so waiting for approval, jobs or a limit is not
+  counted. A message wakes a paused run and is delivered to the chat; a run still at `steps` or `run_cost` then fails
+  as a second refusal, while a run still at `disabled` or a daily cap pauses again. Stopping it keeps its jobs. A paid
+  call whose price (or approved quote) would alone take the run past `agentMaxRunCostCents` is never sent and not
+  retried: it is journaled as its own tool step with outcome `COST_LIMIT` and a `COST_LIMIT` function response
+  (nothing was charged; suggest a cheaper option or ask the artist), and the model's next turn can explain or offer a
+  cheaper option. Every over-bound call in one model turn is refused this way; one in a later turn, after the model
+  was told, fails the run with error code `limit` (`kind` `cost`). A step already sent is replayed with its key rather
+  than refused, so a job it submitted is never lost; a replay adds no step to the step limit, and every other limit
+  still applies to it.
 - **Cancel.** A stop request sets `cancel_requested_at`; the run ends `cancelled` at its next step boundary, and jobs
   already queued finish normally. "Stop and cancel jobs" (`cancel_jobs`) also cancels every active linked job through
   `generation/services/cancellation.cancel_generation` (deferred, so the generation worker sends any provider cancel).
@@ -151,7 +152,8 @@ The worker is its own Railway component, `python -m deploy.entrypoint agent`, wh
 database role and API-style configuration (`deploy/legacy_config.py` `_agent`) with `GOOGLE_API_KEY` as its only
 provider key (`AGENT_KEYS`; no BytePlus, Kling or Magnific keys, portrait or Web Push settings, ingress secret or
 port), plus its own `MCP_QUOTE_SECRET` (32+ characters), because it signs and checks quotes in-process. It advances a
-run only while it holds the run's lease and one of 8 global slot leases (`apps.common.leases`), renewed every 15 s
+run only while it holds the run's lease and one of the first `agentMaxConcurrentRuns` (at most 8) global slot leases
+(`apps.common.leases`), renewed every 15 s
 with the run's `last_heartbeat_at`. The scheduler's `agent_runs` pass re-queues a `running` run whose heartbeat is
 older than 60 s, and the next worker resumes it from its journal. The worker never blocks on a provider.
 

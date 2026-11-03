@@ -18,6 +18,7 @@ from apps.generation.models import Generation
 from apps.integrations.transport import HttpResult, HttpTransport
 from apps.library.models import Folder
 from apps.mcp import server
+from apps.mcp_auth import policy
 from apps.mcp.tests.support import McpCase
 from apps.mcp.tests.test_paid_tools import mid_minute
 from apps.mcp.tests.test_results import StorageMixin
@@ -400,6 +401,26 @@ class ApprovalTests(RunnerCase):
     def test_at_a_dollar_or_more_the_replay_carries_the_users_confirmation(self):
         self.assertIs(self.approve_and_replay(100)['confirmedByUser'], True)
 
+    def test_an_approved_quote_at_the_step_limit_is_still_held_to_the_daily_caps(self):
+        self.price(10)
+        sent = self.dispatched()
+        self.gemini([call('generate_image', {'prompt': 'red fox'})])
+        run = self.start_run()
+        self.assertEqual(self.advance(run), 'waiting')
+        self.assertEqual(self.refresh(run).step_count, 2)
+        for key, value in (('agentMaxStepsPerRun', 2), ('agentGlobalDailyCapCents', 5)):
+            AppSetting.objects.update_or_create(key=key, defaults={'value': str(value), 'updated_at': 1})
+        runner.approve_quote(run.id, self.user.id)
+        self.assertEqual(self.advance(run), 'paused', 'the replay adds no step, but its price is checked against every cap')
+        run = self.refresh(run)
+        self.assertEqual((run.pause_reason, run.error['costCents'], len(sent), Generation.objects.count()),
+                         ('global_daily_cap', 10, 1, 0))
+        AppSetting.objects.filter(key='agentGlobalDailyCapCents').update(value='20000')
+        AgentRun.objects.filter(pk=run.id).update(resume_after=20)
+        self.assertEqual(self.advance(run), 'waiting', 'once the cap is raised the same step is replayed, still past the step limit')
+        run = self.refresh(run)
+        self.assertEqual((run.status, run.step_count, len(sent), Generation.objects.get().cost_cents), ('waiting_jobs', 2, 2, 10))
+
 
 class CancelTests(RunnerCase):
     def waiting_run(self, **fields):
@@ -495,23 +516,87 @@ class BoundaryTests(RunnerCase):
             self.assertNotIn(run.id, worker.runnable(), 'it waits for the artist instead of retrying into the bound')
         return run
 
-    def test_the_agents_switch_off_pauses_at_the_next_step_boundary(self):
-        self.gemini([call('list_models', {})], [text('Done.')])
+    def usage(self, cents, created_at):
+        AgentLlmUsage.objects.create(user_id=self.user.id, grant_id=self.grant.id, model='m', purpose='step', prompt_tokens=1,
+                                     cached_tokens=0, output_tokens=1, thoughts_tokens=0, tool_prompt_tokens=0, total_tokens=2,
+                                     cost_microcents=cents * 1_000_000, created_at=created_at)
+
+    def test_the_agents_switch_off_pauses_and_the_run_resumes_once_it_is_back_on(self):
+        clock = limits.now_ms()
+        bodies = self.gemini([text('Done.')])
         run = self.start_run()
         self.setting('agentsEnabled', 0)
-        self.assertEqual(self.advance(run), 'paused')
-        run = self.assert_paused_at(run, 'disabled')
+        self.assertEqual(self.advance(run, now=lambda: clock), 'paused')
+        run = self.assert_paused_at(run, 'disabled', clock + limits.SWITCH_RETRY_MS)
         self.assertEqual(self.steps(run), [])
-        self.assertEqual(self.advance(run), 'failed', 'the same refusal twice ends the run instead of retrying into it')
-        self.assertEqual(self.refresh(run).error['code'], 'limit')
+        self.assertNotIn(run.id, worker.runnable(now=clock + limits.SWITCH_RETRY_MS - 1))
+        clock += limits.SWITCH_RETRY_MS
+        self.assertEqual(worker.runnable(now=clock), [run.id], 'the switch is re-checked every minute')
+        self.assertEqual(self.advance(run, now=lambda: clock), 'paused', 'still off: waking is not a second refusal')
+        run = self.refresh(run)
+        self.assertEqual((run.status, run.resume_after, run.error['hits']), ('paused_limit', clock + limits.SWITCH_RETRY_MS, ['disabled']))
+        self.assertEqual(self.kinds(run), ['paused'])
+        self.setting('agentsEnabled', 1)
+        clock += limits.SWITCH_RETRY_MS
+        self.assertEqual(worker.runnable(now=clock), [run.id])
+        self.assertEqual(self.advance(run, now=lambda: clock), 'completed', 'back on: the next re-check resumes the run')
+        self.assertEqual((len(bodies), self.kinds(run)[:2]), (1, ['paused', 'run_started']))
+
+    def test_a_message_to_a_run_paused_at_a_daily_cap_pauses_it_again_and_lands_in_the_chat(self):
+        bodies = self.gemini()
+        self.usage(2, limits.now_ms())
+        UserLimit.objects.create(user_id=self.user.id, key='mcpDailyCapCents', value='1', updated_at=1)
+        run = self.start_run()
+        self.assertEqual(self.advance(run), 'paused')
+        self.assertEqual(self.refresh(run).pause_reason, 'daily_cap')
+        runs.deliver(self.refresh(run), self.user, 'ok, wait', now=20)
+        self.assertEqual(self.advance(run), 'paused', 'a message is not a second refusal')
+        run = self.refresh(run)
+        self.assertEqual((run.status, run.pause_reason, run.error['code'], run.error['hits']),
+                         ('paused_limit', 'daily_cap', 'limit_paused', ['daily_cap']))
+        self.assertGreater(run.resume_after, limits.now_ms(), 'the message wake refreshed resume_after')
+        self.assertEqual(AgentConversation.objects.get(pk=self.conversation.id).status, 'paused_limit')
+        self.assertEqual(AgentConversationMessage.objects.get(conversation_id=self.conversation.id, content='ok, wait').role, 'user')
+        self.assertEqual(self.kinds(run), ['paused', 'message_queued', 'message_delivered'])
+        self.assertEqual(bodies, [])
+
+    def test_a_timed_wake_at_a_still_spent_global_cap_pauses_the_run_again(self):
+        bodies = self.gemini()
+        clock = limits.now_ms()
+        self.usage(2, clock)
+        self.setting('agentGlobalDailyCapCents', 1)
+        run = self.start_run()
+        self.assertEqual(self.advance(run, now=lambda: clock), 'paused')
+        self.assertEqual(self.refresh(run).resume_after, clock + policy.DAY_MS)
+        self.usage(2, clock + 1000)
+        wake = clock + policy.DAY_MS + 1
+        self.assertEqual(worker.runnable(now=wake), [run.id])
+        self.assertEqual(self.advance(run, now=lambda: wake), 'paused', 'spend after the pause keeps the cap spent')
+        run = self.refresh(run)
+        self.assertEqual((run.status, run.pause_reason, run.resume_after, run.error['hits']),
+                         ('paused_limit', 'global_daily_cap', clock + 1000 + policy.DAY_MS, ['global_daily_cap']))
+        self.assertEqual((self.kinds(run), bodies), (['paused'], []))
+
+    def test_a_run_that_resumed_and_hits_the_same_daily_cap_again_fails(self):
+        bodies = self.gemini()
+        run = self.start_run()
+        limits.apply_limit_hit(run, limits.LimitHit(limits.DAILY_CAP, 'Spent.', None), now=5)
+        AgentRun.objects.filter(pk=run.id).update(status='running')
+        self.usage(2, limits.now_ms())
+        UserLimit.objects.create(user_id=self.user.id, key='mcpDailyCapCents', value='1', updated_at=1)
+        self.assertEqual(self.advance(run), 'failed', 'a refusal after the run resumed is the second one')
+        self.assertEqual((self.refresh(run).error['code'], bodies), ('limit', []))
+        self.assertEqual(AgentConversation.objects.get(pk=self.conversation.id).status, 'failed')
+        self.assertEqual(AgentRunEvent.objects.get(run_id=run.id, kind='failed').payload['code'], 'limit')
 
     def test_the_switch_follows_the_per_user_override_and_the_global_kill(self):
+        clock = limits.now_ms()
         self.gemini([text('Done.')], [text('Done.')], [text('Done.')])
         self.assertEqual(self.advance(self.start_run()), 'completed')
         UserLimit.objects.create(user_id=self.user.id, key='agentsEnabled', value='0', updated_at=1)
         run = self.start_run()
-        self.assertEqual(self.advance(run), 'paused')
-        self.assert_paused_at(run, 'disabled')
+        self.assertEqual(self.advance(run, now=lambda: clock), 'paused')
+        self.assert_paused_at(run, 'disabled', clock + limits.SWITCH_RETRY_MS)
         AgentRun.objects.filter(pk=run.id).update(status='cancelled')
         UserLimit.objects.filter(user_id=self.user.id).update(value='1')
         self.setting('agentsEnabled', 0)

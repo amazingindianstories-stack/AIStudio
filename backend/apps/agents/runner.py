@@ -14,9 +14,9 @@ At every step boundary the runner stops if its lease was lost or the worker is s
 ``queued``), honours a cancel request, re-checks the grant, drains the inbox, and checks the limits: ``limits.check_step``
 (the global ``agentsEnabled`` switch, ``agentMaxStepsPerRun``, ``agentMaxRunCostCents`` with model token spend, and the
 user, grant and global daily caps, all read at call time) and the active-time bound. A hit goes through
-``limits.apply_limit_hit``: the first of a kind pauses the run, a second ends it. A paid call whose price would take the
-run past its cost bound is not sent: it is journaled with a ``COST_LIMIT`` response, and a second such call after the
-model was told ends the run.
+``limits.apply_limit_hit``: the first of a kind pauses the run, a second ends it, and a run woken while still paused
+on the switch or a daily cap is paused again. A paid call whose price would take the run past its cost bound is not
+sent: it is journaled with a ``COST_LIMIT`` response, and a second such call after the model was told ends the run.
 Paid tools never wait: after a model turn's calls the run sits in ``waiting_jobs`` until every generation it linked is
 terminal, or until the artist sends a message. A
 ``quote_required`` result parks the run in ``waiting_approval``; once the artist approves (``approve_quote``), the same
@@ -618,29 +618,33 @@ def active_ms(run):
 
 def limit_stop(run, hit, *, now):
     """Record a refused step through ``limits.apply_limit_hit``: the first refusal of a kind pauses the run, the second
-    ends it ``failed`` with ``error.code`` ``limit``. Returns the outcome ``advance`` yields."""
-    status = limits.apply_limit_hit(run, hit, now=now)
-    if status == limits.PAUSED:
-        events.emit(run.id, 'paused', {'reason': run.pause_reason, 'resumeAfter': run.resume_after}, now=now)
+    ends it ``failed`` with ``error.code`` ``limit``. The status and its event are written together, and the feed shows
+    each pause once (a run paused again for the same reason only moves ``resume_after``). Returns the outcome
+    ``advance`` yields."""
+    with transaction.atomic():
+        before = _locked(run.id)
+        if before.status in TERMINAL_RUN_STATUSES:
+            return 'finished'
+        status = limits.apply_limit_hit(run, hit, now=now)
+        AgentConversation.objects.filter(pk=run.conversation_id).update(status=status)
+        if status == 'failed':
+            events.emit(run.id, 'failed', run.error, now=now)
+            return 'failed'
+        if (before.status, before.pause_reason) != (status, run.pause_reason):
+            events.emit(run.id, 'paused', {'reason': run.pause_reason, 'resumeAfter': run.resume_after}, now=now)
         return 'paused'
-    if status == 'failed':
-        events.emit(run.id, 'failed', run.error, now=now)
-        return 'failed'
-    return 'finished'
 
 
-def step_verdict(run, principal, action):
+def step_verdict(run, principal, action, *, now):
     """``(hit, refuse)`` for the next step, read from the admin limits at call time. ``hit`` is the ``LimitHit`` that stops
     the run, else None. ``refuse`` is True when a paid call not yet sent would alone pass the run cost bound: the model is
     then told (``COST_LIMIT``) instead of the run pausing. A step already sent is replayed with its key so a job it
-    submitted is never lost, and a replay adds no step to the step limit."""
+    submitted is never lost, and a replay adds no step to the step limit; every other limit still applies to it."""
     replay = action.step is not None
     cost = 0 if action.kind != 'tool' or (replay and action.step.outcome is None) else pending_cents(run, principal, action)
-    hit = limits.check_step(run, cost_cents=cost)
-    if hit is not None and hit.kind == limits.STEPS and replay:
-        hit = None
+    hit = limits.check_step(run, cost_cents=cost, count_step=not replay, now=now)
     if hit is not None and hit.kind == limits.RUN_COST and cost > 0:
-        hit = limits.check_step(run)
+        hit = limits.check_step(run, count_step=not replay, now=now)
         return hit, hit is None
     return hit, False
 
@@ -717,7 +721,7 @@ def advance(run_id, *, lease, stop, now=now_ms):
                 return outcome
             continue
         drain_inbox(run, run.step_count, now=now())
-        hit, refuse = step_verdict(run, principal, action)
+        hit, refuse = step_verdict(run, principal, action, now=now())
         if hit is not None:
             return limit_stop(run, hit, now=now())
         if active_ms(run) >= MAX_ACTIVE_MS:
