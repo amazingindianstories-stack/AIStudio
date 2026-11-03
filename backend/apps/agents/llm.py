@@ -99,7 +99,7 @@ class GeminiAgentClient:
         self.transport = transport or AgentTransport(self.env)
         self.mock = (self.env.get('MOCK_GENERATION') == '1' and transport is None) if mock is None else mock
 
-    def raw(self, *, system_prompt, contents, tools=None, model=None):
+    def raw(self, *, system_prompt, contents, tools=None, model=None, signal=None):
         if self.mock:
             return {'parts': [{'text': 'I can help you develop a prompt for your scene.'}], 'finishReason': 'STOP'}
         key = self.env.get('GOOGLE_API_KEY')
@@ -110,7 +110,7 @@ class GeminiAgentClient:
             body['tools'] = [{'functionDeclarations': tools}]
         chosen = model or agent_model(self.env)
         response = self.transport.request('POST', agent_endpoint(chosen),
-            headers={'Content-Type': 'application/json', 'x-goog-api-key': key}, body=body)
+            headers={'Content-Type': 'application/json', 'x-goog-api-key': key}, body=body, signal=signal)
         if not response.ok:
             raise ValueError(f'Agent LLM error ({response.status}): {response.text[:400]}')
         payload = response.json()

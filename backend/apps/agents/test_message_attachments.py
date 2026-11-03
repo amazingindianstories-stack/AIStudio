@@ -1,6 +1,6 @@
 """POST /api/agent-conversations/<id>/messages with ``attachments``: the artist's own document uploads, recorded as chat
-assets, reach the chat turn and every later turn as untrusted text; PDFs through 'media' sub-calls made at once under
-one deadline. Refusals store no message."""
+assets, reach the chat turn and later turns (within one history budget) as untrusted text; PDFs through 'media'
+sub-calls made at once, and the chat turn after them, under one request deadline. Refusals store no message."""
 import base64
 import contextlib
 import json
@@ -21,6 +21,7 @@ from apps.mcp.tests.test_results import StorageMixin, png_bytes
 from apps.media.models import UploadSession
 from . import media, services, views
 from .loop_llm import FILES_UPLOAD, media_body
+from .prompts import DESIGN_PROMPT
 from .models import AgentChatAsset, AgentConversationMessage, AgentLlmUsage
 from .test_media import DOCX, FILE, PDF, UPLOAD, docx, file_state, provider, started, uploaded
 
@@ -29,6 +30,8 @@ FLASH = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flas
 HEADERS = {'Content-Type': 'application/json', 'x-goog-api-key': 'fixture-key'}
 USAGE = {'promptTokenCount': 1_000, 'candidatesTokenCount': 200, 'thoughtsTokenCount': 100, 'totalTokenCount': 1_300}
 MALFORMED = 'attachments must be a list of at most 10 upload ids.'
+LATE_ATTACHMENTS = 'Veevee could not read the attachments in time. Nothing was sent; try fewer or shorter PDFs.'
+LATE_TURN = 'The agent did not answer in time. Your message is saved; try again in a moment.'
 
 
 def answer(text, status=200):
@@ -189,6 +192,38 @@ class MessageAttachmentTests(StorageMixin, TransactionTestCase):
         patched = self.client.patch(f'/api/agent-conversations/{self.conversation}/messages/{user_message.id}',
                                     {'generatedItemId': 'g'}, content_type='application/json')
         self.assertEqual(patched.status_code, 404)
+        detail = self.client.get(f'/api/agent-conversations/{self.conversation}').json()['messages']
+        self.assertEqual([message['toolTrace'] for message in detail], [None] * 4)
+        self.assertNotIn('Shot list', json.dumps(detail))                                    # document text stays on the server
+
+    def test_rebuilt_history_keeps_the_newest_documents_in_full_within_one_budget_and_notes_older_ones(self):
+        texts, ids = [], []
+        for message in range(3):
+            pair = []
+            for index in range(2):
+                text = f'Document {message}.{index} ' + 'x' * 40_000
+                texts.append(text)
+                pair.append(self.upload('text/plain', text.encode()))
+            ids += pair
+            response, sent = self.post({'content': f'Read set {message}', 'attachments': pair}, [answer(f'Read set {message}.')])
+            self.assertEqual(response.status_code, 200)
+        response, sent = self.post({'content': 'Compare them'}, [answer('Compared.')])
+        self.assertEqual(response.status_code, 200)
+        chat = next(body for method, url, headers, body, raw in sent if url == CHAT)
+        users = [turn['parts'] for turn in chat['contents'] if turn['role'] == 'user']
+
+        def note(identifier):
+            return {'text': f'Attached document {identifier} was attached earlier in this chat; its text is no longer shown.'}
+
+        def full(identifier, text):
+            return [{'text': f'Attached document {identifier}:'}, {'text': media.untrusted(text)}]
+        self.assertEqual(users, [
+            [{'text': 'Read set 0'}, note(ids[0]), note(ids[1])],
+            [{'text': 'Read set 1'}, note(ids[2]), note(ids[3])],
+            [{'text': 'Read set 2'}, *full(ids[4], texts[4]), *full(ids[5], texts[5])],
+            [{'text': 'Compare them'}]])
+        shown = sum(len(part['text']) for parts in users for part in parts if part['text'].startswith(media.UNTRUSTED_OPEN))
+        self.assertLessEqual(shown, views.HISTORY_DOCUMENT_CHARS)
 
     def test_up_to_three_pdfs_are_described_at_once_in_message_order_and_a_fourth_is_refused(self):
         labels = ('one', 'two', 'three')
@@ -231,13 +266,47 @@ class MessageAttachmentTests(StorageMixin, TransactionTestCase):
             if method == 'DELETE':
                 return HttpResult(200, b'{}')
             raise ProviderError('Provider request deadline exceeded.', code='request_deadline')
-        with patch.object(views, 'DOCUMENT_SECONDS', 30), routed(route, sent):
+        with routed(route, sent):
             response = self.client.post(f'/api/agent-conversations/{self.conversation}/messages',
                                         {'content': 'Read the brief', 'attachments': [large]}, content_type='application/json')
         self.assertEqual(response.status_code, 504)
-        self.assertEqual(response.json(), {'error': 'Veevee could not read the attached PDFs within 30 seconds. Nothing was sent; '
-                                                    'try fewer or shorter PDFs.'})
+        self.assertEqual(response.json(), {'error': LATE_ATTACHMENTS})
         self.assertEqual([(method, url) for method, url, body in sent],
                          [('POST', FILES_UPLOAD), ('POST', UPLOAD), ('GET', FILE), ('DELETE', FILE)])  # no media or chat call
         self.assertNothingStored()
         self.assertFalse(AgentLlmUsage.objects.exists())
+
+    def test_a_request_that_ran_out_while_reading_pdfs_stores_nothing_and_makes_no_chat_call(self):
+        brief, sent = self.upload('application/pdf', PDF), []
+
+        def route(method, url, body, signal):
+            signal.until = 0                                       # the describe answers just as the request runs out
+            return answer('A fox brief.')
+        with routed(route, sent):
+            response = self.client.post(f'/api/agent-conversations/{self.conversation}/messages',
+                                        {'content': 'Read the brief', 'attachments': [brief]}, content_type='application/json')
+        self.assertEqual((response.status_code, response.json()), (504, {'error': LATE_ATTACHMENTS}))
+        self.assertEqual([url for method, url, body in sent], [FLASH])
+        self.assertNothingStored()
+
+    def test_every_chat_and_design_prompt_call_shares_the_request_deadline_and_running_out_is_a_definite_error(self):
+        notes, sent, signals = self.upload('text/plain', b'Shot list: fox.'), [], set()
+        design = {'candidates': [{'content': {'role': 'model', 'parts': [{'functionCall': {'name': 'design_prompt', 'args': {'idea': 'A fox'}}}]},
+                                  'finishReason': 'STOP'}], 'usageMetadata': USAGE}
+
+        def route(method, url, body, signal):
+            signals.add(id(signal))
+            if len(sent) == 1:
+                return HttpResult(200, json.dumps(design).encode())
+            signal.until = 0                                       # the design_prompt sub-call runs out of time
+            raise ProviderError('Provider request deadline exceeded.', code='request_deadline')
+        with routed(route, sent):
+            response = self.client.post(f'/api/agent-conversations/{self.conversation}/messages',
+                                        {'content': 'Design it', 'attachments': [notes]}, content_type='application/json')
+        self.assertEqual(response.status_code, 504)
+        self.assertEqual(response.json()['error'], LATE_TURN)
+        self.assertEqual(response.json()['userMessage']['content'], 'Design it')
+        self.assertEqual([url for method, url, body in sent], [CHAT, CHAT])                   # no call after the deadline
+        self.assertEqual(sent[1][2]['systemInstruction'], {'parts': [{'text': DESIGN_PROMPT}]})
+        self.assertEqual(len(signals), 1)
+        self.assertEqual(list(AgentConversationMessage.objects.values_list('role', flat=True)), ['user'])

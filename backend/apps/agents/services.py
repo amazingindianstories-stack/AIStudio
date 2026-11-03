@@ -14,7 +14,7 @@ def conversation_json(row):
 def message_json(row):
     return {'id': str(row.id), 'conversationId': str(row.conversation_id),
         'role': 'assistant' if row.role == 'assistant' else 'user', 'content': row.content,
-        'toolTrace': row.tool_trace, 'createdAt': row.created_at}
+        'toolTrace': row.tool_trace if row.role == 'assistant' else None, 'createdAt': row.created_at}
 
 
 def list_conversations(project_id, kind):
@@ -47,6 +47,15 @@ def delete_conversation(identifier):
 
 def list_messages(identifier):
     return [message_json(row) for row in AgentConversationMessage.objects.filter(conversation_id=identifier).order_by('created_at')]
+
+
+def list_turns(identifier):
+    """The chat so far for its next turn, oldest first: each message's role and content, and the documents ``{id, text}``
+    a user message was sent with, which only the server sees."""
+    rows = AgentConversationMessage.objects.filter(conversation_id=identifier).order_by('created_at')
+    return [{'role': 'assistant' if row.role == 'assistant' else 'user', 'content': row.content,
+             'documents': row.tool_trace.get('documents', []) if row.role == 'user' and isinstance(row.tool_trace, dict) else []}
+            for row in rows]
 
 
 @transaction.atomic

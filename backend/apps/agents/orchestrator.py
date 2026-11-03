@@ -17,22 +17,23 @@ def tools_for_kind(kind):
         'parameters': {'type': 'object', 'properties': {'prompt': {'type': 'string', 'description': 'The final prompt to generate, self-contained.'}}, 'required': ['prompt']}}]
 
 
-def design_prompt(idea, references, images, client):
+def design_prompt(idea, references, images, client, signal=None):
     pieces = [idea, 'Reference usage: ' + references if references else None,
         f'{len(images)} reference image(s) are attached to this message.' if images else 'No reference images are attached.']
-    result = client.raw(system_prompt=DESIGN_PROMPT, contents=[{'role': 'user', 'parts': [{'text': '\n\n'.join(piece for piece in pieces if piece)}, *images]}])
+    result = client.raw(system_prompt=DESIGN_PROMPT, contents=[{'role': 'user', 'parts': [{'text': '\n\n'.join(piece for piece in pieces if piece)}, *images]}],
+                        signal=signal)
     text = next((part['text'] for part in result['parts'] if isinstance(part.get('text'), str)), None)
     if not text:
         raise ValueError(f'design_prompt subagent returned no text ({result.get("finishReason") or "no candidates"}).')
     return {'prompt': text.strip(WHITESPACE)}
 
 
-def dispatch_tool(name, args, images, client):
+def dispatch_tool(name, args, images, client, signal=None):
     args = args if isinstance(args, dict) else {}
     if name == 'design_prompt':
         idea = args.get('idea') if isinstance(args.get('idea'), str) else ''
         references = args.get('references') if isinstance(args.get('references'), str) else None
-        result = design_prompt(idea, references, images, client)
+        result = design_prompt(idea, references, images, client, signal)
         return {'response': {'prompt': result['prompt']}, 'trace': {'tool': name, 'args': args, 'result': result}}
     if name in ('generate_image', 'generate_video'):
         prompt = args.get('prompt').strip(WHITESPACE) if isinstance(args.get('prompt'), str) else ''
@@ -44,9 +45,10 @@ def dispatch_tool(name, args, images, client):
     raise ValueError('Unknown tool: ' + str(name))
 
 
-def run_turn(history, message, images=None, kind='image', client=None, documents=None):
+def run_turn(history, message, images=None, kind='image', client=None, documents=None, signal=None):
     """``documents`` are text parts (attached files as untrusted data) the current user turn carries after its message;
-    a history item's own ``documents`` follow its content the same way."""
+    a history item's own ``documents`` follow its content the same way. Every model call, design_prompt's too, stays
+    within ``signal`` (a deadline) when given."""
     client = client or GeminiAgentClient()
     images = images or []
     contents = [{'role': 'model' if item['role'] == 'assistant' else 'user', 'parts': [{'text': item['content']}, *item.get('documents', ())]}
@@ -54,13 +56,13 @@ def run_turn(history, message, images=None, kind='image', client=None, documents
     contents.append({'role': 'user', 'parts': [{'text': message}, *(documents or []), *images]})
     trace = None
     for _ in range(4):
-        result = client.raw(system_prompt=system_prompt(kind), contents=contents, tools=tools_for_kind(kind))
+        result = client.raw(system_prompt=system_prompt(kind), contents=contents, tools=tools_for_kind(kind), signal=signal)
         function = next((part for part in result['parts'] if part.get('functionCall')), None)
         if function:
             call = function['functionCall']
             contents.append({'role': 'model', 'parts': [deepcopy(function)]})
             try:
-                dispatched = dispatch_tool(call.get('name'), call.get('args'), images, client)
+                dispatched = dispatch_tool(call.get('name'), call.get('args'), images, client, signal)
                 response, trace = dispatched['response'], dispatched['trace']
             except Exception:
                 # Tool failures may contain signing URLs or credentials. They
