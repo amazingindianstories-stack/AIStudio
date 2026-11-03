@@ -53,16 +53,31 @@ class ProductionRouteTableTests(SimpleTestCase):
             ('PUT', f'/api/agent-conversations/{ID}/messages', False), ('DELETE', f'/api/agent-conversations/{ID}/messages', False),
             ('POST', '/api/agent-conversations/not-a-conversation-id/messages', False),
             ('POST', f'/api/agent-conversations/{ID}/messages/extra', True),  # attach-style path: Django answers 405 for POST
+            # Agent runs: start/message, the event feed, quote answers and cancel.
+            ('POST', f'/api/agent-conversations/{ID}/runs', True), ('GET', f'/api/agent-conversations/{ID}/runs', True),
+            ('GET', f'/api/agent-conversations/{ID}/runs/{ID}/events', True),
+            ('POST', f'/api/agent-conversations/{ID}/runs/{ID}/approve', True),
+            ('POST', f'/api/agent-conversations/{ID}/runs/{ID}/decline', True),
+            ('POST', f'/api/agent-conversations/{ID}/runs/{ID}/cancel', True),
+            ('PUT', f'/api/agent-conversations/{ID}/runs', False), ('DELETE', f'/api/agent-conversations/{ID}/runs/{ID}/approve', False),
+            ('POST', '/api/agent-conversations/not-a-conversation-id/runs', False),
+            ('POST', f'/api/agent-conversations/{ID}/runs/not-a-run-id/approve', False),
+            ('POST', f'/api/agent-conversations/{ID}/runs/', False),
         ]
         for method, path, expected in table:
             self.assertIs(gateway.allowed(method, path, **PRODUCTION), expected, (method, path))
 
     def test_provider_routes_need_paid_routes_but_admin_routes_do_not(self):
         for path in ('/api/audio/transcribe', f'/api/agent-conversations/{ID}/messages', f'/api/agent-conversations/{ID}/transcribe',
-                     f'/api/agent-conversations/{ID}/transcrib%65'):
+                     f'/api/agent-conversations/{ID}/transcrib%65', f'/api/agent-conversations/{ID}/runs',
+                     f'/api/agent-conversations/{ID}/runs/{ID}/approve'):
             self.assertFalse(gateway.allowed('POST', path, False, True, True), path)
         # The voice caps are a read: open without paid routes.
         self.assertTrue(gateway.allowed('GET', f'/api/agent-conversations/{ID}/transcribe', False, True, True))
+        # Reading a run, declining a quote and stopping a run never pay.
+        self.assertTrue(gateway.allowed('GET', f'/api/agent-conversations/{ID}/runs/{ID}/events'))
+        for action in ('decline', 'cancel'):
+            self.assertTrue(gateway.allowed('POST', f'/api/agent-conversations/{ID}/runs/{ID}/{action}'), action)
         for method, path in (('POST', '/api/admin/users'), ('POST', '/api/admin/limits'), ('GET', '/api/admin/status')):
             self.assertTrue(gateway.allowed(method, path), (method, path))
         self.assertFalse(gateway.allowed('POST', '/api/admin/audit/runtime', **PRODUCTION))

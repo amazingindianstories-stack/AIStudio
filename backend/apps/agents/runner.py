@@ -165,6 +165,26 @@ def approve_quote(run_id, user_id, *, step_index=None, now=None):
         return run
 
 
+def decline_quote(run_id, reason, *, step_index=None, now=None):
+    """The artist declined the waiting quote (``reason`` 'declined'), or sent a new message instead ('message'): the
+    step ends without paying, the model is told so, and the run is queued. Returns the run, or None when nothing is
+    waiting for approval (or ``step_index`` differs)."""
+    now = now_ms() if now is None else now
+    with transaction.atomic():
+        run = _locked(run_id)
+        step = AgentRunStep.objects.filter(run_id=run.id, kind='tool', outcome='quote_required').order_by('-step_index').first()
+        if (run.status != 'waiting_approval' or step is None or step.result.get('approval')
+                or (step_index is not None and step.step_index != step_index)):
+            return None
+        message = ('The artist sent a new message instead of approving this cost; nothing was charged. Follow the new message.'
+                   if reason == 'message' else 'The artist declined this cost; nothing was charged. Ask before trying again.')
+        result = {**step.result, 'declined': {'reason': reason, 'at': now}, 'response': {'code': 'QUOTE_DECLINED', 'message': message}}
+        AgentRunStep.objects.filter(pk=step.pk).update(outcome='quote_declined', result=result, finished_at=now)
+        _set(run, now, status='queued')
+        events.emit(run.id, 'quote_declined', {'stepIndex': step.step_index, 'reason': reason}, now=now)
+        return run
+
+
 # The journal -----------------------------------------------------------------------------------------------------
 
 def journal(run_id):
