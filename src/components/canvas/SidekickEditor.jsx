@@ -117,7 +117,7 @@ export function SidekickEditor({ sidekick, onDone }) {
       <div className="flex items-center gap-2 border-t border-line p-3">
         {editing && <button type="button" onClick={() => void remove()} className="rounded-md px-2 py-1 text-xs text-red-300 hover:bg-red-500/10">Delete</button>}
         <button type="button" onClick={onDone} className="ml-auto rounded-md px-2.5 py-1 text-xs text-white/70 hover:bg-white/[0.07]">Cancel</button>
-        <button type="submit" disabled={saving || !name.trim()} className="rounded-md bg-brand px-3 py-1 text-xs font-medium text-white disabled:opacity-40">{saving ? "Saving…" : "Save"}</button>
+        <button type="submit" disabled={saving || !name.trim()} className="rounded-md bg-brand px-3 py-1 text-xs font-medium text-ink-900 disabled:opacity-40">{saving ? "Saving…" : "Save"}</button>
       </div>
     </form>
   );

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Bot, Check, ChevronDown, Loader2, MessageSquarePlus, Plus, Send, Trash2, X } from "lucide-react";
+import { Bot, Check, ChevronDown, Globe, Loader2, MessageSquarePlus, Plus, Send, Trash2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatCost } from "@/lib/format-cost";
 import { MAX_SOURCES, useSidekick, slashMatches } from "@/lib/sidekick";
@@ -106,6 +106,7 @@ function ChatTab({ boardId, projectId }) {
   const sending = useSidekick((s) => s.sending);
   const credits = useSidekick((s) => s.credits);
   const [draft, setDraft] = useState("");
+  const [web, setWeb] = useState(false);
   const [processing, setProcessing] = useState(null);
   const [editing, setEditing] = useState(null);
   const [showChats, setShowChats] = useState(false);
@@ -116,8 +117,9 @@ function ChatTab({ boardId, projectId }) {
   const current = sidekicks.find((item) => item.id === sidekickId) ?? sidekicks[0];
   const selectionCount = useCanvasStore((s) => s.selection.length);
   const options = useMemo(() => ({
+    webSearch: web,
     processing: processing ?? current?.processing ?? "basic",
-  }), [processing, current]);
+  }), [web, processing, current]);
   const lastStatus = turns[turns.length - 1]?.status;
   const busy = sending || turns.some((turn) => ["queued", "running"].includes(turn.status));
   const matches = slashMatches(draft, catalogue?.skills);
@@ -236,6 +238,9 @@ function ChatTab({ boardId, projectId }) {
           className="w-full resize-none rounded-lg border border-line bg-ink-900/60 px-2.5 py-2 text-sm text-white/90 placeholder:text-white/35"
         />
         <div className="mt-2 flex items-center gap-2 text-xs">
+          <button type="button" aria-pressed={web} title="Let the Sidekick search the web" onClick={() => setWeb(!web)} className={cn("flex items-center gap-1 rounded-md px-1.5 py-1 hover:bg-white/[0.07]", web ? "bg-white/[0.07] text-white" : "text-white/55")}>
+            <Globe className="h-3.5 w-3.5" aria-hidden />Web
+          </button>
           <select aria-label="Processing" value={options.processing} onChange={(event) => setProcessing(event.target.value)} className="rounded-md border border-line bg-ink-900/60 px-1.5 py-1 text-white/70">
             <option value="basic">Basic</option>
             <option value="advanced">Advanced</option>
@@ -250,7 +255,7 @@ function ChatTab({ boardId, projectId }) {
             Sources{sources.length ? ` (${sources.length})` : ""}
           </button>
           <span className="ml-auto text-white/55" data-testid="sidekick-cost">{exhausted ? "Out of AI credits" : quote ? `~${formatCost(quote.costCents)}` : ""}</span>
-          <button type="button" onClick={() => void send()} disabled={busy || !draft.trim() || exhausted} className="flex items-center gap-1 rounded-md bg-brand px-2.5 py-1 font-medium text-white disabled:opacity-40">
+          <button type="button" onClick={() => void send()} disabled={busy || !draft.trim() || exhausted} className="flex items-center gap-1 rounded-md bg-brand px-2.5 py-1 font-medium text-ink-900 disabled:opacity-40">
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Send className="h-3.5 w-3.5" aria-hidden />}Send
           </button>
         </div>
@@ -297,7 +302,7 @@ function SourcePicker({ boardId, projectId, onClose }) {
             onClick={() => useSidekick.getState().toggleSource({ kind: item.kind, id: item.id })}
             className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-white/80 hover:bg-white/[0.07] disabled:opacity-40"
           >
-            <span className={cn("grid h-3.5 w-3.5 shrink-0 place-items-center rounded border", chosen ? "border-brand bg-brand text-white" : "border-line")}>{chosen && <Check className="h-3 w-3" aria-hidden />}</span>
+            <span className={cn("grid h-3.5 w-3.5 shrink-0 place-items-center rounded border", chosen ? "border-brand bg-brand text-ink-900" : "border-line")}>{chosen && <Check className="h-3 w-3" aria-hidden />}</span>
             <span className="truncate">{item.label}</span>
           </button>
         );

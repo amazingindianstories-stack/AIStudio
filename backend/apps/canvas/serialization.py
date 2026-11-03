@@ -169,6 +169,8 @@ def with_ai(result, raw):
         step = {'block': flow['block'], 'task': string(flow.get('task'), '')[:MAX_FLOW_TASK]}
         if isinstance(flow.get('inputHash'), str) and len(flow['inputHash']) <= 64:
             step['inputHash'] = flow['inputHash']
+        if flow.get('webSearch') is True:
+            step['webSearch'] = True
         result['flow'] = step
     return result
 

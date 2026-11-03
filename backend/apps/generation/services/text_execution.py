@@ -88,4 +88,14 @@ def execute_text(item, *, signal, env=None, transport=None, on_task=None):
         failure.terminal = True
         raise failure from None
     signal.check()
-    return {'status': 'succeeded', 'output': output, 'updated_at': now_ms()}
+    result = {'status': 'succeeded', 'output': output, 'updated_at': now_ms()}
+    if 'costWithoutSearchCents' in value and not ran_search(candidate):
+        result['cost_cents'] = value['costWithoutSearchCents']
+    return result
+
+
+def ran_search(candidate):
+    """Whether Gemini reports it ran a Google Search for this answer."""
+    metadata = candidate.get('groundingMetadata') if isinstance(candidate, dict) else None
+    queries = metadata.get('webSearchQueries') if isinstance(metadata, dict) else None
+    return isinstance(queries, list) and any(isinstance(query, str) and query.strip() for query in queries)

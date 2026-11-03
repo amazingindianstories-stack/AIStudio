@@ -33,3 +33,29 @@ test("sources are sent as board ids or the library, at most three, and toggled i
   store.toggleSource({ kind: "library" });
   assert.deepEqual(useSidekick.getState().sources, [{ kind: "board", id: "a" }, { kind: "board", id: "c" }, { kind: "library" }]);
 });
+
+test("the web search choice travels with the quote and the turn it prices", async () => {
+  const { useSidekick } = await import("./sidekick.js");
+  const previous = useSidekick.getState();
+  const fetchBefore = globalThis.fetch;
+  const calls = [];
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url: String(url), body: JSON.parse(options.body) });
+    if (String(url).endsWith("/quote")) return Response.json({ quote: { format: "sidekick-web", costCents: 3 } });
+    if (String(url).endsWith("/turns")) return Response.json({ job: { id: "j1", status: "queued" } });
+    return Response.json({ credits: null });
+  };
+  useSidekick.setState({ boardId: "b1", chatId: "c1", sidekickId: "s1", sources: [], catalogue: null, sending: false, pendingKey: null, turns: [], follow: async () => {} });
+  try {
+    await useSidekick.getState().estimate("Who won?", { webSearch: true, processing: "basic" });
+    assert.equal(useSidekick.getState().quote.format, "sidekick-web");
+    await useSidekick.getState().send("Who won?", { webSearch: true, processing: "basic" });
+    const quote = calls.find((call) => call.url.endsWith("/sidekick-chats/c1/quote"));
+    const turn = calls.find((call) => call.url.endsWith("/sidekick-chats/c1/turns"));
+    assert.equal(quote.body.webSearch, true);
+    assert.deepEqual({ ...turn.body }, { ...quote.body });
+  } finally {
+    globalThis.fetch = fetchBefore;
+    useSidekick.setState(previous, true);
+  }
+});

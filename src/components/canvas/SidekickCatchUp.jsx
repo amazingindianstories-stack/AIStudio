@@ -90,7 +90,7 @@ export function CatchUpTab({ boardId }) {
       {info && <p data-testid="catchup-info">{info.changes === 0 ? `Nothing has changed since ${when(info.since)}.` : `${info.changes} change${info.changes === 1 ? "" : "s"} since ${when(info.since)}.`}</p>}
       {error && <p role="alert" className="rounded-md bg-red-500/10 px-2.5 py-1.5 text-red-300">{error}</p>}
       {info?.changes > 0 && !summary && (
-        <button type="button" onClick={() => void run()} disabled={busy || !quote || exhausted} className="flex items-center gap-1.5 rounded-md bg-brand px-3 py-1.5 font-medium text-white disabled:opacity-40">
+        <button type="button" onClick={() => void run()} disabled={busy || !quote || exhausted} className="flex items-center gap-1.5 rounded-md bg-brand px-3 py-1.5 font-medium text-ink-900 disabled:opacity-40">
           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Sparkles className="h-3.5 w-3.5" aria-hidden />}
           Summarize{quote ? ` (~${formatCost(quote.costCents)})` : ""}
         </button>
