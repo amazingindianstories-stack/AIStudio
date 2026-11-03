@@ -92,7 +92,12 @@ test('Create with AI honours the colour asked for: black, a named colour and a h
     await panel.getByRole('button', { name: 'New prompt', exact: true }).click();
     await panel.getByRole('radio', { name: 'Image' }).click();
     await panel.getByRole('textbox', { name: 'Prompt' }).fill(prompt);
-    await panel.getByRole('radio', { name: '16:9' }).click();
+    const settings = panel.getByRole('button', { name: 'Generation settings' });
+    await settings.click();
+    await page.getByRole('button', { name: '16:9', exact: true }).click();
+    await page.keyboard.press('Escape');
+    await expect(settings).toContainText('16:9');
+    await expect(settings).toContainText('2K');
     await expect(panel.getByText(/Estimated cost ≈\$\d+\.\d\d/)).toBeVisible();
     await generate.click();
     await expect.poll(async () => (await nodes()).filter(node => node.type === 'image').length, { timeout: 90000 }).toBe(1);
@@ -107,9 +112,8 @@ test('Create with AI honours the colour asked for: black, a named colour and a h
     expect(board.texts).toEqual(library.texts);
     expect(board.model).toBe(library.model);
     expect(board.images).toBe(library.images);
-    // Basic processing asks for the model's default resolution (1K); the library's default is 2K, which Advanced matches. The
-    // aspect ratio, and everything the model reads, are the same.
-    expect(board.imageConfig).toEqual({ ...library.imageConfig, imageSize: '1K' });
+    // The board uses the library generator's controls, so the aspect ratio and resolution (2K) are the same too.
+    expect(board.imageConfig).toEqual(library.imageConfig);
     await db`DELETE FROM generations WHERE id = ${libraryId}`;
   } finally {
     if (boardId) {
