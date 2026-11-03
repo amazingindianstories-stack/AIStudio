@@ -180,7 +180,7 @@ def history_turns(turns):
     return history[::-1]
 
 
-ATTACHMENT_STATUS = {errors.NOT_FOUND: 404, errors.INVALID_INPUT: 400, errors.MODEL_UNAVAILABLE: 503, DOCUMENT_DEADLINE: 504}
+ATTACHMENT_STATUS = {errors.BUDGET_EXCEEDED: 429, errors.NOT_FOUND: 404, errors.INVALID_INPUT: 400, errors.MODEL_UNAVAILABLE: 503, DOCUMENT_DEADLINE: 504}
 
 
 @api_view(['POST'])
@@ -316,7 +316,10 @@ def transcribe(request, id):
     if not key:
         return Response({'error': 'Voice input is not configured: GOOGLE_API_KEY is not set. Ask a Veevee admin.'}, status=503)
     usage = UsageContext(user_id=user.id, conversation_id=uuid.UUID(id), purpose='transcribe')
-    transcript = media.transcribe(mime, audio, api_key=key, usage=usage)
+    try:
+        transcript = media.transcribe(mime, audio, api_key=key, usage=usage)
+    except errors.ToolError as error:
+        return renew_session(request, Response({'error': error.message}, status=429))
     if transcript is None:
         return renew_session(request, Response({'error': 'Veevee could not transcribe the voice note. Try again.'}, status=502))
     return renew_session(request, Response({'transcript': transcript}))
@@ -341,6 +344,8 @@ def agent_runs(request, id):
         outcome = runs.post_message(conversation, user, parsed['content'], model=body.get('model'))
     except runs.AgentsDisabled:
         return Response({'error': 'Agents are turned off.', 'code': 'AGENTS_DISABLED'}, status=403)
+    except runs.RunLimitReached as error:
+        return Response({'error': error.hit.message, 'code': 'AGENT_LIMIT', 'kind': error.hit.kind}, status=429)
     except AgentGrantInvalid as error:
         return Response({'error': str(error), 'code': 'AGENT_GRANT_INVALID'}, status=403)
     return renew_session(request, Response(outcome, status=201 if outcome['delivery'] == 'run' else 202))

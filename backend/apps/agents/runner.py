@@ -11,10 +11,12 @@ a ``tool`` step without an outcome is replayed with the same key, which returns 
 again.
 
 At every step boundary the runner stops if its lease was lost or the worker is stopping (the run goes back to
-``queued``), honours a cancel request, re-checks the grant, drains the inbox, and checks the bounds: the global
-``agentsEnabled`` switch, the per-run step, cost and active-time bounds, and ``step_limits.check_limits``; each pauses the
-run with a reason instead of taking the step. A paid call whose price would take the run past its cost bound is not
-sent: it is journaled with a ``COST_LIMIT`` response, and a second such call after the model was told ends the run.
+``queued``), honours a cancel request, re-checks the grant, drains the inbox, and checks the limits: ``limits.check_step``
+(the global ``agentsEnabled`` switch, ``agentMaxStepsPerRun``, ``agentMaxRunCostCents`` with model token spend, and the
+user, grant and global daily caps, all read at call time) and the active-time bound. A hit goes through
+``limits.apply_limit_hit``: the first of a kind pauses the run, a second ends it. A paid call whose price would take the
+run past its cost bound is not sent: it is journaled with a ``COST_LIMIT`` response, and a second such call after the
+model was told ends the run.
 Paid tools never wait: after a model turn's calls the run sits in ``waiting_jobs`` until every generation it linked is
 terminal, or until the artist sends a message. A
 ``quote_required`` result parks the run in ``waiting_approval``; once the artist approves (``approve_quote``), the same
@@ -32,7 +34,6 @@ from dataclasses import dataclass
 from django.db import transaction
 from django.db.models import F, Q, Sum
 
-from apps.admin_dashboard.models import AppSetting
 from apps.authentication.models import User
 from apps.common.leases import now_ms
 from apps.generation.models import Generation
@@ -41,10 +42,9 @@ from apps.integrations.transport import ProviderError
 from apps.mcp import errors, paid, server
 from apps.mcp.registry import REGISTRY, visible
 from apps.mcp.tools.generate import PREPARE
-from . import events, grants
+from . import events, grants, limits
 from .declarations import HARNESS_FIELDS, harness_arguments
 from .design import DESIGN_TOOL, design_body, design_brief, read_prompt
-from .step_limits import check_limits
 from .llm import PART_METADATA
 from .loop_llm import AgentLoopTransport, UsageContext, loop_body
 from .models import (TERMINAL_RUN_STATUSES, AgentChatAsset, AgentConversation, AgentConversationMessage, AgentInboxMessage,
@@ -52,11 +52,7 @@ from .models import (TERMINAL_RUN_STATUSES, AgentChatAsset, AgentConversation, A
 
 logger = logging.getLogger('veevee.agents')
 
-MAX_STEPS = 40                       # steps per run, LLM and tool together
-MAX_RUN_COST_CENTS = 1000            # paid tool estimates per run, the next paid call's price included
 MAX_ACTIVE_MS = 2 * 60 * 60 * 1000   # time spent in steps; waits for approval, jobs or a limit are not counted
-SWITCH = 'agentsEnabled'             # global AppSetting: '0' pauses every run at its next step boundary; unset or '1' is on
-SWITCH_RETRY_MS = 60_000
 COST_LIMIT = {'code': 'COST_LIMIT', 'message': 'Nothing was charged: this call would take the run past its spending bound. '
                                                'Suggest a cheaper option or ask the artist.'}
 LLM_ATTEMPTS = 3
@@ -597,13 +593,6 @@ def link_job(run, generation_id, *, now):
 
 # The loop --------------------------------------------------------------------------------------------------------
 
-def switch_on():
-    """Whether the global ``agentsEnabled`` switch allows runs. It is parsed like the admin limits: only ``0`` is off;
-    unset, ``1`` or an unparsable value is on."""
-    from apps.admin_dashboard.views import parse
-    return parse(AppSetting.objects.filter(key=SWITCH).values_list('value', flat=True).first(), (-1, 0, 1)) != 0
-
-
 def pending_cents(run, principal, action):
     """What the tool step would spend: its approved quote, or the price of a paid call's arguments (0 when they cannot
     be priced; the dispatch then refuses them without paying)."""
@@ -627,24 +616,33 @@ def active_ms(run):
     return spent or 0
 
 
-def bound_reached(run, action):
-    """The per-run bound the run has reached: ``step_limit``, ``cost_limit`` (spent) or ``time_limit``; None when the
-    next step may run."""
-    if action.step is None and run.step_count >= MAX_STEPS:
-        return 'step_limit'
-    if run.cost_cents >= MAX_RUN_COST_CENTS:
-        return 'cost_limit'
-    if active_ms(run) >= MAX_ACTIVE_MS:
-        return 'time_limit'
-    return None
+def limit_stop(run, hit, *, now):
+    """Record a refused step through ``limits.apply_limit_hit``: the first refusal of a kind pauses the run, the second
+    ends it ``failed`` with ``error.code`` ``limit``. Returns the outcome ``advance`` yields."""
+    status = limits.apply_limit_hit(run, hit, now=now)
+    if status == limits.PAUSED:
+        events.emit(run.id, 'paused', {'reason': run.pause_reason, 'resumeAfter': run.resume_after}, now=now)
+        return 'paused'
+    if status == 'failed':
+        events.emit(run.id, 'failed', run.error, now=now)
+        return 'failed'
+    return 'finished'
 
 
-def over_cost_bound(run, principal, action):
-    """Whether a paid call not yet sent (a new call, or an approved quote) would take the run past its cost bound. A
-    step already sent is replayed with its key instead, so a job it submitted is never lost."""
-    if action.step is not None and action.step.outcome is None:
-        return False
-    return run.cost_cents + pending_cents(run, principal, action) > MAX_RUN_COST_CENTS
+def step_verdict(run, principal, action):
+    """``(hit, refuse)`` for the next step, read from the admin limits at call time. ``hit`` is the ``LimitHit`` that stops
+    the run, else None. ``refuse`` is True when a paid call not yet sent would alone pass the run cost bound: the model is
+    then told (``COST_LIMIT``) instead of the run pausing. A step already sent is replayed with its key so a job it
+    submitted is never lost, and a replay adds no step to the step limit."""
+    replay = action.step is not None
+    cost = 0 if action.kind != 'tool' or (replay and action.step.outcome is None) else pending_cents(run, principal, action)
+    hit = limits.check_step(run, cost_cents=cost)
+    if hit is not None and hit.kind == limits.STEPS and replay:
+        hit = None
+    if hit is not None and hit.kind == limits.RUN_COST and cost > 0:
+        hit = limits.check_step(run)
+        return hit, hit is None
+    return hit, False
 
 
 def refuse_over_bound(run, action, *, now=now_ms):
@@ -719,20 +717,17 @@ def advance(run_id, *, lease, stop, now=now_ms):
                 return outcome
             continue
         drain_inbox(run, run.step_count, now=now())
-        if not switch_on():
-            return pause(run.id, 'agents_disabled', now() + SWITCH_RETRY_MS, now=now())
-        bound = bound_reached(run, action)
-        if bound is not None:
-            return pause(run.id, bound, None, now=now())
-        verdict = check_limits(run, action.kind)
-        if not verdict.ok:
-            return pause(run.id, verdict.reason or 'limit', verdict.resume_after, now=now())
+        hit, refuse = step_verdict(run, principal, action)
+        if hit is not None:
+            return limit_stop(run, hit, now=now())
+        if active_ms(run) >= MAX_ACTIVE_MS:
+            return pause(run.id, 'time_limit', None, now=now())
         run = start(run, now())
         if run is None:
             return 'finished'
         if action.kind == 'llm':
             outcome = llm_step(run, principal, action, stop, now=now)
-        elif over_cost_bound(run, principal, action):
+        elif refuse:
             outcome = refuse_over_bound(run, action, now=now)
         else:
             outcome = tool_step(run, principal, action, stop, now=now)

@@ -243,6 +243,31 @@ class StepTests(LimitsCase):
         self.assertEqual(limits.resume_run(run.id, now=NOW + 2), (True, None))
 
 
+class BudgetTests(LimitsCase):
+    def test_check_budget_refuses_once_a_daily_cap_has_no_cent_left_counting_model_tokens(self):
+        grant = ensure_grant(self.user.id)
+        self.assertIsNone(limits.check_budget(self.user.id, grant.id, now=NOW))
+        self.usage(self.user, 2_000_000, created_at=NOW, grant=grant.id)
+        self.setting('agentGlobalDailyCapCents', 3)
+        self.assertIsNone(limits.check_budget(self.user.id, grant.id, now=NOW), 'two of three cents are spent')
+        self.setting('agentGlobalDailyCapCents', 2)
+        hit = limits.check_budget(self.user.id, grant.id, now=NOW)
+        self.assertEqual((hit.kind, hit.scope, hit.resume_after_ms), (limits.GLOBAL_DAILY_CAP, 'global', NOW + 24 * HOUR))
+        self.assertIsNone(limits.check_budget(self.user.id, grant.id, now=NOW + 24 * HOUR + 1), 'the window rolled')
+
+    def test_check_budget_reads_the_user_then_the_grant_cap_at_call_time(self):
+        grant = ensure_grant(self.user.id)
+        self.usage(self.user, 2_000_000, created_at=NOW, grant=grant.id)
+        AgentGrant.objects.filter(pk=grant.id).update(daily_cap_cents=2)
+        self.assertEqual(limits.check_budget(self.user.id, grant.id, now=NOW).kind, limits.GRANT_DAILY_CAP)
+        self.assertIsNone(limits.check_budget(self.user.id, None, now=NOW), 'no grant, no grant cap')
+        self.override(self.user, 'mcpDailyCapCents', 2)
+        self.assertEqual(limits.check_budget(self.user.id, grant.id, now=NOW).kind, limits.DAILY_CAP)
+        self.override(self.user, 'mcpDailyCapCents', 50)
+        AgentGrant.objects.filter(pk=grant.id).update(daily_cap_cents=50)
+        self.assertIsNone(limits.check_budget(self.user.id, grant.id, now=NOW))
+
+
 class AdmissionTests(LimitsCase):
     def test_admission_checks_switch_and_active_runs_and_leaves_global_concurrency_to_the_claim(self):
         with transaction.atomic():

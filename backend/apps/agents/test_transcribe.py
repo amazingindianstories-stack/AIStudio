@@ -9,7 +9,9 @@ from unittest.mock import patch
 
 from django.test import TestCase
 
+from apps.admin_dashboard.models import AppSetting
 from apps.authentication.session import sign_session
+from apps.common.leases import now_ms
 from apps.canvas.test_roles import make_user
 from apps.integrations.transport import HttpResult, ProviderError
 from apps.media.models import UploadSession
@@ -80,6 +82,15 @@ class TranscribeTests(TestCase):
         logged = '\n'.join(logs.output)
         self.assertNotIn('नमस्ते', logged)
         self.assertNotIn(base64.b64encode(NOTE[:300]).decode()[:40], logged)
+
+    def test_a_spent_daily_budget_refuses_the_voice_note_before_any_call(self):
+        AppSetting.objects.create(key='agentGlobalDailyCapCents', value='1', updated_at=1)
+        AgentLlmUsage.objects.create(user_id=self.admin.id, model='m', purpose='step', prompt_tokens=1, cached_tokens=0, output_tokens=1,
+                                     thoughts_tokens=0, tool_prompt_tokens=0, total_tokens=2, cost_microcents=2_000_000, created_at=now_ms())
+        response, sent = self.post(responses=[answer(WORDS)])
+        self.assertEqual((response.status_code, sent), (429, []))
+        self.assertIn('daily limit', response.json()['error'])
+        self.assertEqual(AgentLlmUsage.objects.count(), 1)
 
     def test_safari_and_alias_mime_types_are_sent_as_their_canonical_type(self):
         for sent_as, canonical in (('audio/mp4', 'audio/mp4'), ('audio/x-wav', 'audio/wav'), ('audio/ogg; codecs=opus', 'audio/ogg')):

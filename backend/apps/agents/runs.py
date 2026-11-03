@@ -13,7 +13,7 @@ import uuid
 from django.db import transaction
 
 from apps.common.leases import now_ms
-from . import events, grants, runner
+from . import events, grants, limits, runner
 from .loop_llm import LOOP_MODEL, LOOP_MODELS
 from .models import ACTIVE_RUN_STATUSES, AgentConversation, AgentConversationMessage, AgentInboxMessage, AgentRun
 from .services import message_json
@@ -22,7 +22,15 @@ RECENT_RUNS = 20
 
 
 class AgentsDisabled(Exception):
-    """The global ``agentsEnabled`` switch is off: no new run starts."""
+    """Agents are off for the user (the global switch or their own override): no new run starts."""
+
+
+class RunLimitReached(Exception):
+    """An admin limit refuses a new run (``agentActiveRuns``); ``hit`` is the ``limits.LimitHit``."""
+
+    def __init__(self, hit):
+        super().__init__(hit.message)
+        self.hit = hit
 
 
 def identifier(value):
@@ -71,7 +79,7 @@ def event_json(row):
 
 def post_message(conversation, user, content, *, model=None, now=None):
     """Start a run with ``content`` as its first message, or put it in the active run's inbox. Raises
-    ``AgentsDisabled`` or ``grants.AgentGrantInvalid`` when no run may start."""
+    ``AgentsDisabled``, ``RunLimitReached`` or ``grants.AgentGrantInvalid`` when no run may start."""
     now = now_ms() if now is None else now
     with transaction.atomic():
         # The conversation row lock serialises posts, so two messages cannot both start a run.
@@ -79,8 +87,9 @@ def post_message(conversation, user, content, *, model=None, now=None):
         active = AgentRun.objects.select_for_update().filter(conversation_id=locked.id, status__in=ACTIVE_RUN_STATUSES).first()
         if active is not None:
             return deliver(active, user, content, now=now)
-        if not runner.switch_on():
-            raise AgentsDisabled()
+        hit = limits.check_run_admission(user)
+        if hit is not None:
+            raise AgentsDisabled() if hit.kind == limits.DISABLED else RunLimitReached(hit)
         grant = grants.ensure_grant(user.id, now=now)
         message = AgentConversationMessage.objects.create(conversation_id=locked.id, role='user', content=content, created_at=now)
         run = AgentRun.objects.create(conversation_id=locked.id, user_id=user.id, grant_id=grant.id,

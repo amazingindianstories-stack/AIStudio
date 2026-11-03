@@ -13,7 +13,7 @@ from unittest.mock import Mock, patch
 
 from django.db import connection
 
-from apps.admin_dashboard.models import AppSetting, Pricing
+from apps.admin_dashboard.models import AppSetting, Pricing, UserLimit
 from apps.generation.models import Generation
 from apps.integrations.transport import HttpResult, HttpTransport
 from apps.library.models import Folder
@@ -23,8 +23,7 @@ from apps.mcp.tests.test_paid_tools import mid_minute
 from apps.mcp.tests.test_results import StorageMixin
 from apps.projects.models import Project
 from apps.workers import scheduler
-from . import design, events, grants, runner, runs, worker
-from .step_limits import LimitVerdict
+from . import design, events, grants, limits, runner, runs, worker
 from .models import (AgentChatAsset, AgentConversation, AgentConversationMessage, AgentGrant, AgentInboxMessage, AgentLlmUsage,
                      AgentRun, AgentRunEvent, AgentRunStep)
 
@@ -61,6 +60,7 @@ class RunnerCase(StorageMixin, McpCase):
         backoff = patch.object(runner, 'LLM_RETRY_SECONDS', (0, 0))
         backoff.start()
         self.addCleanup(backoff.stop)
+        AppSetting.objects.create(key='agentsEnabled', value='1', updated_at=1)
         self.price(6)
         self.project = Project.objects.create(name='Winter', created_at=1, updated_at=1)
         self.folder = Folder.objects.create(project=self.project, name='Hero shots', created_at=1)
@@ -478,92 +478,87 @@ class CancelTests(RunnerCase):
         self.assertEqual(payload['jobs'][0]['generationId'], str(Generation.objects.get().id))
 
 
+COST_BOUND = 1000
+
+
 class BoundaryTests(RunnerCase):
-    def test_the_agents_switch_off_pauses_at_the_next_step_boundary(self):
-        def switch_off():
-            AppSetting.objects.create(key=runner.SWITCH, value='0', updated_at=1)
-            return [call('list_models', {})]
-        self.gemini(switch_off, [text('Done.')])
-        run = self.start_run()
-        self.assertEqual(self.advance(run), 'paused')
-        run = self.refresh(run)
-        self.assertEqual((run.status, run.pause_reason, len(self.steps(run))), ('paused_limit', 'agents_disabled', 1))
-        self.assertGreater(run.resume_after, mid_minute() - runner.SWITCH_RETRY_MS)
-        self.assertEqual(worker.runnable(now=run.resume_after - 1), [])
-        self.assertEqual(worker.runnable(now=run.resume_after), [run.id])
-        self.assertEqual(self.advance(run), 'paused', 'still off')
-        self.assertEqual(self.kinds(run).count('paused'), 1)
-        AppSetting.objects.filter(key=runner.SWITCH).update(value='1')
-        self.assertEqual(self.advance(run), 'completed')
-        run = self.refresh(run)
-        self.assertEqual((run.pause_reason, run.resume_after), (None, None))
+    def setting(self, key, value):
+        AppSetting.objects.update_or_create(key=key, defaults={'value': str(value), 'updated_at': 1})
 
-    def test_only_a_global_agents_switch_of_0_pauses(self):
-        values = (None, '1', 'false', 'garbage')
-        self.gemini(*[[text('Done.')] for _ in values])
-        for value in values:
-            with self.subTest(value=value):
-                AppSetting.objects.filter(key=runner.SWITCH).delete()
-                if value is not None:
-                    AppSetting.objects.create(key=runner.SWITCH, value=value, updated_at=1)
-                self.assertTrue(runner.switch_on())
-                run = self.start_run()
-                self.assertEqual(self.advance(run), 'completed')
-                self.assertEqual(self.refresh(run).pause_reason, None)
-        AppSetting.objects.filter(key=runner.SWITCH).update(value='0')
-        self.assertFalse(runner.switch_on())
-
-    def test_a_non_ok_limit_verdict_pauses_the_run_with_its_reason(self):
-        verdict = LimitVerdict(ok=False, reason='agentGlobalDailyCapCents', resume_after=123_456)
-        run = self.start_run()
-        with patch.object(runner, 'check_limits', return_value=verdict) as check:
-            self.assertEqual(self.advance(run), 'paused')
-        self.assertEqual(check.call_args.args[1], 'llm')
+    def assert_paused_at(self, run, reason, resume_after=None):
         run = self.refresh(run)
-        self.assertEqual((run.status, run.pause_reason, run.resume_after, run.step_count), ('paused_limit', 'agentGlobalDailyCapCents', 123_456, 0))
-        self.assertEqual(AgentRunEvent.objects.get(run_id=run.id, kind='paused').payload,
-                         {'reason': 'agentGlobalDailyCapCents', 'resumeAfter': 123_456})
-
-    def assert_paused_at(self, run, reason):
-        run = self.refresh(run)
-        self.assertEqual((run.status, run.pause_reason, run.resume_after, run.error), ('paused_limit', reason, None, None))
-        self.assertEqual(AgentRunEvent.objects.get(run_id=run.id, kind='paused').payload, {'reason': reason, 'resumeAfter': None})
-        self.assertNotIn(run.id, worker.runnable(), 'it waits for the artist instead of retrying into the bound')
+        self.assertEqual((run.status, run.pause_reason, run.resume_after), ('paused_limit', reason, resume_after))
+        if reason != 'time_limit':
+            self.assertEqual((run.error['code'], run.error['kind'], run.error['hits']), ('limit_paused', reason, [reason]))
+        self.assertEqual(AgentRunEvent.objects.get(run_id=run.id, kind='paused').payload, {'reason': reason, 'resumeAfter': resume_after})
+        if resume_after is None:
+            self.assertNotIn(run.id, worker.runnable(), 'it waits for the artist instead of retrying into the bound')
         return run
 
-    def test_the_step_bound_pauses_the_run_before_its_next_step(self):
-        self.assertEqual(runner.MAX_STEPS, 40)
-        bodies = self.gemini()
-        run = self.start_run(step_count=runner.MAX_STEPS)
+    def test_the_agents_switch_off_pauses_at_the_next_step_boundary(self):
+        self.gemini([call('list_models', {})], [text('Done.')])
+        run = self.start_run()
+        self.setting('agentsEnabled', 0)
         self.assertEqual(self.advance(run), 'paused')
-        self.assert_paused_at(run, 'step_limit')
-        self.assertEqual((self.steps(run), bodies), ([], []))
+        run = self.assert_paused_at(run, 'disabled')
+        self.assertEqual(self.steps(run), [])
+        self.assertEqual(self.advance(run), 'failed', 'the same refusal twice ends the run instead of retrying into it')
+        self.assertEqual(self.refresh(run).error['code'], 'limit')
 
-    def test_a_message_to_a_bound_paused_run_lands_in_the_chat_history(self):
-        bodies = self.gemini()
-        run = self.start_run(step_count=runner.MAX_STEPS)
+    def test_the_switch_follows_the_per_user_override_and_the_global_kill(self):
+        self.gemini([text('Done.')], [text('Done.')], [text('Done.')])
+        self.assertEqual(self.advance(self.start_run()), 'completed')
+        UserLimit.objects.create(user_id=self.user.id, key='agentsEnabled', value='0', updated_at=1)
+        run = self.start_run()
         self.assertEqual(self.advance(run), 'paused')
-        sent = runs.deliver(self.refresh(run), self.user, 'Keep going', now=20)
-        self.assertEqual(sent['run']['resumeAfter'], 20)
-        self.assertEqual(self.advance(run), 'paused', 'it pauses again at the same bound')
-        self.assert_paused_at(run, 'step_limit')
+        self.assert_paused_at(run, 'disabled')
+        AgentRun.objects.filter(pk=run.id).update(status='cancelled')
+        UserLimit.objects.filter(user_id=self.user.id).update(value='1')
+        self.setting('agentsEnabled', 0)
+        run = self.start_run()
+        self.assertEqual(self.advance(run), 'paused', 'the global 0 is a kill switch even over a per-user 1')
+
+    def test_a_limit_hit_pauses_the_run_with_its_reason_and_resume_after(self):
+        hit = limits.LimitHit(limits.GLOBAL_DAILY_CAP, 'Spent.', 123_456, 'global')
+        run = self.start_run()
+        with patch.object(limits, 'check_step', return_value=hit) as check:
+            self.assertEqual(self.advance(run), 'paused')
+        self.assertEqual(check.call_args.kwargs['cost_cents'], 0)
+        run = self.assert_paused_at(run, 'global_daily_cap', 123_456)
+        self.assertEqual(run.step_count, 0)
+
+    def test_the_step_limit_is_an_admin_value_read_at_the_next_step(self):
+        bodies = self.gemini([text('Done.')])
+        run = self.start_run(step_count=5)
+        self.setting('agentMaxStepsPerRun', 5)
+        self.assertEqual(self.advance(run), 'paused')
+        self.assert_paused_at(run, 'steps')
+        self.assertEqual((self.steps(run), bodies), ([], []))
+        self.assertEqual(runs.deliver(self.refresh(run), self.user, 'Keep going', now=20)['run']['resumeAfter'], 20)
+        self.setting('agentMaxStepsPerRun', 50)
+        self.assertEqual(self.advance(run), 'completed', 'the raised limit applies at once')
+        self.assertEqual(len(bodies), 1)
+
+    def test_a_message_to_a_limit_paused_run_lands_in_the_chat_history(self):
+        run = self.start_run(step_count=5)
+        self.setting('agentMaxStepsPerRun', 5)
+        self.assertEqual(self.advance(run), 'paused')
+        runs.deliver(self.refresh(run), self.user, 'Keep going', now=20)
+        self.assertEqual(self.advance(run), 'failed', 'still at the limit: a second refusal ends the run')
         inbox = AgentInboxMessage.objects.get(run_id=run.id)
         self.assertIsNotNone(inbox.delivered_at)
-        self.assertEqual(inbox.delivered_step, runner.MAX_STEPS)
         message = AgentConversationMessage.objects.get(conversation_id=self.conversation.id, content='Keep going')
-        self.assertEqual((message.role, message.tool_trace), ('user', {'runId': str(run.id), 'deliveredStep': runner.MAX_STEPS}))
-        self.assertEqual(self.kinds(run), ['paused', 'message_queued', 'message_delivered'])
-        self.assertEqual((self.steps(run), bodies), ([], []))
+        self.assertEqual(message.role, 'user')
+        self.assertEqual(self.kinds(run), ['paused', 'message_queued', 'message_delivered', 'failed'])
 
     def test_a_paid_call_past_the_cost_bound_is_refused_with_cost_limit_and_never_sent(self):
-        self.assertEqual(runner.MAX_RUN_COST_CENTS, 1000)
         sent = self.dispatched()
         answer = 'That would go past what this run may spend. Shall I try a smaller size?'
         bodies = self.gemini([call('generate_image', {'prompt': 'red fox'}, 'c1')], [text(answer)])
-        run = self.start_run(cost_cents=runner.MAX_RUN_COST_CENTS - 5)
+        run = self.start_run(cost_cents=COST_BOUND - 5)
         self.assertEqual(self.advance(run), 'completed')
         run = self.refresh(run)
-        self.assertEqual((sent, Generation.objects.count(), run.cost_cents, run.error), ([], 0, runner.MAX_RUN_COST_CENTS - 5, None))
+        self.assertEqual((sent, Generation.objects.count(), run.cost_cents, run.error), ([], 0, COST_BOUND - 5, None))
         steps = self.steps(run)
         self.assertEqual([(step.kind, step.tool_name, step.outcome, step.cost_cents) for step in steps],
                          [('llm', None, 'calls', 0), ('tool', 'generate_image', 'COST_LIMIT', 0), ('llm', None, 'final', 0)])
@@ -576,32 +571,51 @@ class BoundaryTests(RunnerCase):
         self.assertEqual(message.content, answer)
         self.assertNotIn('paused', self.kinds(run))
 
+    def test_the_run_cost_limit_is_an_admin_value_read_at_the_next_step(self):
+        sent = self.dispatched()
+        self.gemini([call('generate_image', {'prompt': 'red fox'})])
+        run = self.start_run(cost_cents=COST_BOUND - 5)
+        self.setting('agentMaxRunCostCents', COST_BOUND + 10)
+        self.assertEqual(self.advance(run), 'waiting', 'raised first: the same call now fits and is submitted')
+        self.assertEqual((len(sent), Generation.objects.count()), (1, 1))
+
     def test_a_paid_call_past_the_cost_bound_after_the_model_was_told_fails_the_run(self):
         sent = self.dispatched()
         bodies = self.gemini([call('generate_image', {'prompt': 'red fox'}), call('generate_image', {'prompt': 'grey fox'})],
                              [call('generate_image', {'prompt': 'tiny fox'})])
-        run = self.start_run(cost_cents=runner.MAX_RUN_COST_CENTS - 5)
+        run = self.start_run(cost_cents=COST_BOUND - 5)
         self.assertEqual(self.advance(run), 'failed')
         run = self.refresh(run)
         error = {'code': 'limit', 'kind': 'cost',
                  'message': 'The run stopped: the model asked again for a paid call past its spending bound.'}
-        self.assertEqual((run.status, run.error, run.cost_cents), ('failed', error, runner.MAX_RUN_COST_CENTS - 5))
+        self.assertEqual((run.status, run.error, run.cost_cents), ('failed', error, COST_BOUND - 5))
         self.assertEqual(AgentRunEvent.objects.get(run_id=run.id, kind='failed').payload, error)
         self.assertEqual((sent, Generation.objects.count(), len(bodies)), ([], 0, 2))
         self.assertEqual([(step.kind, step.outcome) for step in self.steps(run)],
                          [('llm', 'calls'), ('tool', 'COST_LIMIT'), ('tool', 'COST_LIMIT'), ('llm', 'calls')],
                          'both calls of the turn are refused; the next turn asks again and the run ends')
 
-    def test_after_a_job_reaches_the_cost_bound_the_next_model_turn_pauses_with_a_reason(self):
-        sent = self.dispatched()
-        bodies = self.gemini([call('generate_image', {'prompt': 'red fox'})])
-        run = self.start_run(cost_cents=runner.MAX_RUN_COST_CENTS - 6)
-        self.assertEqual(self.advance(run), 'waiting', 'a call that fits the bound exactly is submitted')
-        self.assertEqual((len(sent), self.refresh(run).cost_cents), (1, runner.MAX_RUN_COST_CENTS))
-        self.finish_jobs(run)
+    def test_model_token_spend_counts_toward_the_run_cost_limit(self):
+        bodies = self.gemini()
+        run = self.start_run()
+        AgentLlmUsage.objects.create(user_id=self.user.id, grant_id=self.grant.id, run_id=run.id, model='m', purpose='step', prompt_tokens=1,
+                                     cached_tokens=0, output_tokens=1, thoughts_tokens=0, tool_prompt_tokens=0, total_tokens=2,
+                                     cost_microcents=(COST_BOUND + 1) * 1_000_000, created_at=1)
         self.assertEqual(self.advance(run), 'paused')
-        self.assert_paused_at(run, 'cost_limit')
-        self.assertEqual((len(bodies), [step.kind for step in self.steps(run)]), (1, ['llm', 'tool']))
+        self.assert_paused_at(run, 'run_cost')
+        self.assertEqual((self.steps(run), bodies), ([], []))
+
+    def test_the_global_daily_cap_pauses_with_a_resume_time(self):
+        bodies = self.gemini()
+        run = self.start_run()
+        AgentLlmUsage.objects.create(user_id=self.user.id, grant_id=self.grant.id, model='m', purpose='step', prompt_tokens=1, cached_tokens=0,
+                                     output_tokens=1, thoughts_tokens=0, tool_prompt_tokens=0, total_tokens=2, cost_microcents=2_000_000,
+                                     created_at=limits.now_ms())
+        self.setting('agentGlobalDailyCapCents', 1)
+        self.assertEqual(self.advance(run), 'paused')
+        run = self.refresh(run)
+        self.assertEqual((run.pause_reason, bodies), ('global_daily_cap', []))
+        self.assertGreater(run.resume_after, limits.now_ms())
 
     def test_waiting_for_jobs_or_approval_is_not_counted_toward_the_time_bound(self):
         clock = [1_000_000]

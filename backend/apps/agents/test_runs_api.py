@@ -6,7 +6,7 @@ import uuid
 from django.db import IntegrityError, transaction
 from django.test import Client
 
-from apps.admin_dashboard.models import AppSetting
+from apps.admin_dashboard.models import AppSetting, UserLimit
 from apps.authentication.models import User
 from apps.authentication.session import sign_session
 from apps.generation.models import Generation
@@ -117,7 +117,7 @@ class StartAndMessageTests(RunsApiCase):
 
     def test_with_agents_off_no_run_starts_but_an_active_run_still_gets_messages(self):
         run = self.started()
-        AppSetting.objects.create(key='agentsEnabled', value='0', updated_at=1)
+        AppSetting.objects.update_or_create(key='agentsEnabled', defaults={'value': '0', 'updated_at': 1})
         self.assertEqual(self.post(self.base, {'content': 'And a wolf'}).status_code, 202)
         AgentRun.objects.filter(pk=run.id).update(status='completed')
         refused = self.post(self.base, {'content': 'Another'})
@@ -125,18 +125,30 @@ class StartAndMessageTests(RunsApiCase):
         self.assertEqual(AgentRun.objects.count(), 1)
         self.assertEqual(AgentConversationMessage.objects.filter(content='Another').count(), 0)
 
-    def test_only_an_agents_switch_of_0_refuses_a_new_run(self):
-        for value in (None, '1', 'false', 'garbage'):
-            with self.subTest(value=value):
-                AppSetting.objects.filter(key='agentsEnabled').delete()
-                if value is not None:
-                    AppSetting.objects.create(key='agentsEnabled', value=value, updated_at=1)
+    def test_the_per_user_switch_and_the_active_run_cap_refuse_a_new_run(self):
+        UserLimit.objects.create(user_id=self.user.id, key='agentsEnabled', value='0', updated_at=1)
+        refused = self.post(self.base, {'content': 'x'})
+        self.assertEqual((refused.status_code, refused.json()['code']), (403, 'AGENTS_DISABLED'))
+        UserLimit.objects.filter(user_id=self.user.id).delete()
+        AppSetting.objects.update_or_create(key='agentActiveRuns', defaults={'value': '1', 'updated_at': 1})
+        other = AgentConversation.objects.create(project_id=self.conversation.project_id, name='Other', kind='chat', agent_kind='image',
+                                                 user_id=self.user.id, created_by=self.user.id, created_at=1, updated_at=1)
+        self.started()
+        refused = self.post(f'/api/agent-conversations/{other.id}/runs', {'content': 'x'})
+        body = refused.json()
+        self.assertEqual((refused.status_code, body['code'], body['kind']), (429, 'AGENT_LIMIT', 'active_runs'))
+        self.assertEqual(AgentRun.objects.count(), 1)
+        self.assertEqual(AgentConversationMessage.objects.filter(conversation_id=other.id).count(), 0)
+
+    def test_only_a_global_agents_switch_of_0_refuses_a_new_run(self):
+        for attempt in range(3):
+            with self.subTest(attempt=attempt):
                 run = self.started()
                 AgentRun.objects.filter(pk=run.id).update(status='completed')
         AppSetting.objects.filter(key='agentsEnabled').update(value='0')
         refused = self.post(self.base, {'content': 'Another'})
         self.assertEqual((refused.status_code, refused.json()['code']), (403, 'AGENTS_DISABLED'))
-        self.assertEqual(AgentRun.objects.count(), 4)
+        self.assertEqual(AgentRun.objects.count(), 3)
 
     def test_an_inactive_account_cannot_start_a_run(self):
         AgentGrant.objects.all().delete()

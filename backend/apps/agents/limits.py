@@ -5,6 +5,7 @@
     hit = check_global_concurrency()                      # worker claim: leave the run queued while this is a hit
     hit = check_step(run, cost_cents=estimate)            # worker, before every LLM or paid tool step
     if hit: status = apply_limit_hit(run, hit)            # pause once per kind, fail on the second refusal
+    hit = check_budget(user_id, grant_id)                 # a paid Gemini call outside a step: voice, PDF, view_media
     ok, hit = resume_run(run_id)                          # the Resume action, only when capacity is back
 
 Limit values follow the other admin limits: a per-user ``UserLimit`` row overrides the global ``AppSetting`` row, and
@@ -222,6 +223,24 @@ def check_step(run, *, cost_cents=0, now=None):
            or _cap_hit(GRANT_DAILY_CAP, 'user', controls.spent_cents(run.user_id, token_id=run.grant_id, now=now), cost_cents,
                        grant_cap, grant_id=run.grant_id, now=now))
     return hit or _cap_hit(GLOBAL_DAILY_CAP, 'global', controls.global_spent_cents(now=now), cost_cents,
+                           global_limits()['agentGlobalDailyCapCents'], now=now)
+
+
+def check_budget(user_id, grant_id=None, *, now=None):
+    """Before a paid Gemini call outside a run step (voice note, PDF read, view_media, read_document): the first daily cap
+    already spent, or None. Checks the user's cap, the grant's own cap when ``grant_id`` is given, then the global cap,
+    all counting model token spend; the call itself is not estimated, so it is refused only once a cap has no cent left.
+    """
+    from apps.mcp_auth import controls, policy
+    now = now_ms() if now is None else now
+    hit = _cap_hit(DAILY_CAP, 'user', controls.spent_cents(user_id, now=now), 1, policy.user_limits(user_id)['dailyCapCents'],
+                   user_id=user_id, now=now)
+    if hit is None and grant_id is not None:
+        grant_cap = AgentGrant.objects.values_list('daily_cap_cents', flat=True).filter(pk=grant_id).first()
+        if grant_cap is not None:
+            hit = _cap_hit(GRANT_DAILY_CAP, 'user', controls.spent_cents(user_id, token_id=grant_id, now=now), 1, grant_cap,
+                           grant_id=grant_id, now=now)
+    return hit or _cap_hit(GLOBAL_DAILY_CAP, 'global', controls.global_spent_cents(now=now), 1,
                            global_limits()['agentGlobalDailyCapCents'], now=now)
 
 

@@ -36,6 +36,22 @@ class ClaimTests(TestCase):
         self.assertFalse(AppSetting.objects.exists())
         self.assertIsNotNone(worker.claim(run.id, now=3000, owner='b'))
 
+    def test_a_run_over_the_global_concurrency_cap_stays_queued_and_is_never_failed(self):
+        AppSetting.objects.create(key='agentMaxConcurrentRuns', value='2', updated_at=1)
+        make_run(status='running'), make_run(status='running')
+        waiting = make_run()
+        self.assertIsNone(worker.claim(waiting.id, now=1000, owner='a'))
+        self.assertIsNone(leases.read(worker.run_key(waiting.id)))
+        self.assertIsNone(leases.read(worker.slot_key(0)), 'nothing is held for a refused claim')
+        self.assertEqual(AgentRun.objects.get(pk=waiting.id).status, 'queued')
+        AppSetting.objects.filter(key='agentMaxConcurrentRuns').update(value='3')
+        self.assertIsNotNone(worker.claim(waiting.id, now=1000, owner='a'), 'an admin raising the cap applies at the next claim')
+
+    def test_a_running_run_is_reclaimed_even_at_the_cap(self):
+        AppSetting.objects.create(key='agentMaxConcurrentRuns', value='1', updated_at=1)
+        run = make_run(status='running')
+        self.assertIsNotNone(worker.claim(run.id, now=1000, owner='a'))
+
     def test_every_replica_together_advances_at_most_the_global_slots(self):
         runs = [make_run() for _ in range(worker.GLOBAL_SLOTS + 1)]
         held = [worker.claim(run.id, now=1000, owner=f'w{index}') for index, run in enumerate(runs[:-1])]

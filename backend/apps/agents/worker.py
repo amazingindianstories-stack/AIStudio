@@ -26,6 +26,7 @@ from django.db.models import Q
 
 from apps.common import leases
 from apps.common.resilience import recover
+from . import limits
 from .models import AgentRun
 
 logger = logging.getLogger('veevee.agents')
@@ -77,9 +78,12 @@ class RunLease:
 
 
 def claim(run_id, *, now=None, owner=None):
-    """A ``RunLease`` for the run, or None when another worker holds it or every global slot is taken."""
+    """A ``RunLease`` for the run, or None when another worker holds it, every global slot is taken, or
+    ``agentMaxConcurrentRuns`` runs are already running (the run stays queued)."""
     now = leases.now_ms() if now is None else now
     owner = owner or 'agent-worker:' + str(uuid.uuid4())
+    if limits.check_global_concurrency() is not None and not AgentRun.objects.filter(pk=run_id, status='running').exists():
+        return None
     slot = next((slot_key(index) for index in range(GLOBAL_SLOTS)
                  if leases.claim(slot_key(index), owner, now=now, ttl_ms=LEASE_MS)), None)
     if slot is None:

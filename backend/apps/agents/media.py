@@ -37,6 +37,7 @@ from apps.media.storage import MediaNotFoundError, get_storage
 from apps.mcp import errors
 from .loop_llm import (FILE_URI, FILES_DISPLAY_NAME, FILES_UPLOAD, LOOP_MODEL, MEDIA_MIME, AgentLoopTransport, GeminiFilesTransport,
                        media_body, transcribe_body)
+from . import limits
 from .models import AgentChatAsset
 
 logger = logging.getLogger(__name__)
@@ -330,11 +331,19 @@ def answer_text(response):
     return text.strip() or None
 
 
+def require_budget(usage):
+    """Refuse a paid Gemini call, before anything is uploaded or sent, once the shared agent daily budget is spent."""
+    hit = limits.check_budget(usage.user_id, usage.grant_id)
+    if hit is not None:
+        raise errors.ToolError(errors.BUDGET_EXCEEDED, hit.message)
+
+
 def describe(asset, question=None, *, api_key, usage, transport=None, files_transport=None, signal=None):
     """One media sub-call about an image, video, audio or PDF ``asset``: ``MEDIA_PROMPT``, the file and the question
     quoted as data, on ``LOOP_MODEL`` under ``usage`` (purpose 'media'), within ``signal`` (a ``Deadline``) when given.
     The answer comes back ``untrusted`` and cut to ``ANSWER_CHARS``; the Files API upload, if any, is deleted whatever
-    happened."""
+    happened. Raises BUDGET_EXCEEDED, calling nothing, when the agent daily budget is spent."""
+    require_budget(usage)
     files, transport = Files(api_key, files_transport), transport or AgentLoopTransport(LOOP_MODEL, usage)
     try:
         part, _ = asset_part(asset, files, signal=signal)
@@ -355,7 +364,9 @@ def describe(asset, question=None, *, api_key, usage, transport=None, files_tran
 
 def transcribe(mime, data, *, api_key, usage, transport=None):
     """A voice note's words: ``TRANSCRIBE_PROMPT`` and the inline audio on ``LOOP_MODEL`` under ``usage`` (purpose
-    'transcribe'); '' when Gemini hears no speech. Neither the audio nor the transcript is stored or logged."""
+    'transcribe'); '' when Gemini hears no speech. Neither the audio nor the transcript is stored or logged. Raises
+    BUDGET_EXCEEDED, calling nothing, when the agent daily budget is spent."""
+    require_budget(usage)
     transport = transport or AgentLoopTransport(LOOP_MODEL, usage)
     try:
         response = transport.request('POST', transport.endpoint, headers={'Content-Type': 'application/json', 'x-goog-api-key': api_key},
