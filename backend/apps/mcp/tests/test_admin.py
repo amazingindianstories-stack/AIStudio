@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from apps.admin_dashboard import status
 from apps.admin_dashboard.models import AppSetting
+from apps.agents.grants import AgentGrantInvalid, agent_principal, ensure_grant, recheck, revoke_grant
 from apps.common.leases import now_ms
 from apps.common.models import ActivityLog
 from apps.generation.availability import availability
@@ -213,6 +214,30 @@ class AdminToolTests(McpCase):
         self.assertEqual(tool.STATUS_CHECKS, ('postgres', 'generation-indexes', 'stuck-generations', 'storage',
                                               'ffmpeg-runtime', 'media-delivery'))
         self.assertTrue(set(tool.STATUS_CHECKS) <= {identifier for identifier, _, _ in status.CHECKS})
+
+    def test_revoke_by_an_agents_tab_grant_id_ends_that_grant(self):
+        stale = ensure_grant(self.user.id)
+        revoke_grant(self.user.id)
+        grant = ensure_grant(self.user.id)
+        principal = agent_principal(grant.id)
+        for era in ERAS:
+            result = self.call(self.raw, 'admin_revoke_mcp_tokens', {'tokenId': str(grant.id)}, era)
+            self.assert_structured(result, tool.REVOKE_RESULT)
+            self.assertEqual(result.structured_content, {'target': 'token', 'userId': str(self.user.id),
+                                                         'tokenFamilyId': str(grant.id),
+                                                         'revokedTokens': 1 if era == ERAS[0] else 0})
+        grant.refresh_from_db()
+        self.assertEqual(grant.revoked_by, self.admin.id)
+        with self.assertRaises(AgentGrantInvalid):
+            recheck(principal)
+        renewed = ensure_grant(self.user.id)
+        self.assertEqual(self.call(self.raw, 'admin_revoke_mcp_tokens', {'tokenId': str(stale.id)}).structured_content,
+                         {'target': 'token', 'userId': str(self.user.id), 'tokenFamilyId': str(stale.id), 'revokedTokens': 0})
+        self.assertEqual(recheck(agent_principal(renewed.id)).token_id, renewed.id)    # a stale id never ends the new grant
+        self.assertEqual(ActivityLog.objects.filter(user_id=self.admin.id, action='admin_mcp_tokens_revoked').count(),
+                         len(ERAS) + 1)
+        missing = self.call(self.raw, 'admin_revoke_mcp_tokens', {'tokenId': str(uuid.uuid4())})
+        self.assert_tool_error(missing, errors.NOT_FOUND)
 
     def test_revoke_stops_one_user_or_one_grant_and_is_audited(self):
         artist = self.token(self.user, name='Artist laptop')

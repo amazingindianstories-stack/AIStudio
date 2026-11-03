@@ -3,14 +3,16 @@ from apps.mcp_auth import controls
 from apps.mcp_auth.models import McpToken
 
 from ..registry import ToolResult, obj, register
+from ..results import nullable
 from ..runtime import db
 from ..shapes import dollars, iso
 
 INTEGER = {'type': 'integer'}
 OUTPUT = obj({
     'user': obj({'id': {'type': 'string'}, 'name': {'type': 'string'}, 'role': {'type': 'string'}}, ('id', 'name', 'role')),
-    'token': obj({'name': {'type': 'string'}, 'kind': {'enum': ['pat', 'oauth']}, 'client': {'type': 'string'},
-                  'scopes': {'type': 'array', 'items': {'type': 'string'}}, 'expiresAt': {'type': 'string'}},
+    'token': obj({'name': {'type': 'string'}, 'kind': {'enum': ['pat', 'oauth', 'agent']}, 'client': {'type': 'string'},
+                  'scopes': {'type': 'array', 'items': {'type': 'string'}},
+                  'expiresAt': {**nullable({'type': 'string'}), 'description': 'null for the Agents tab grant, which does not expire.'}},
                  ('name', 'kind', 'client', 'scopes', 'expiresAt')),
     'spend': obj({'todayCents': INTEGER, 'dailyCapCents': INTEGER, 'tokenTodayCents': INTEGER, 'tokenCapCents': INTEGER},
                  ('todayCents', 'dailyCapCents', 'tokenTodayCents', 'tokenCapCents')),
@@ -20,7 +22,8 @@ OUTPUT = obj({
 
 def account(principal):
     user, caps = principal.user, principal.caps
-    row = McpToken.objects.filter(pk=principal.token_row_id).values('name', 'expires_at').first() or {}
+    # An Agents tab grant (kind 'agent') is not an McpToken row: it has no name of its own and no expiry.
+    row = {} if principal.kind == 'agent' else McpToken.objects.filter(pk=principal.token_row_id).values('name', 'expires_at').first() or {}
     return {
         'user': {'id': str(user.id), 'name': user.name or user.email, 'role': user.role},
         'token': {'name': row.get('name') or principal.client_name, 'kind': principal.kind, 'client': principal.client_name,

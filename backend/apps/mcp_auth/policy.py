@@ -29,6 +29,9 @@ TOKEN_DAILY_CAP_DEFAULT = 1000
 AUTO_APPROVE_DEFAULT, AUTO_APPROVE_MAX = 25, 100
 CONFIRM_AT_CENTS = 100
 
+# Generation.created_via values that spend the agent budget: MCP grants and the in-app Agents tab share one budget.
+AGENT_ORIGINS = ('mcp', 'agent')
+
 # Per-user limits, stored like every other user limit (admin_dashboard UserLimit / AppSetting rows). The two
 # numeric ones are registered, with their defaults, in admin_dashboard.views.LIMITS; the opt-in is per user only.
 ENABLED_LIMIT = 'mcpEnabled'

@@ -11,6 +11,7 @@ from apps.authentication.models import User
 from apps.generation.model_registry import model_definition
 from apps.generation.models import Generation as GenerationRow
 from apps.mcp_auth.controls import ACTIVE_STATUSES, counted_cents
+from apps.mcp_auth.policy import AGENT_ORIGINS
 from apps.projects.models import Project
 from . import links
 from .shapes import dollars, iso
@@ -77,7 +78,7 @@ GENERATION_SCHEMA = obj({
     'outputs': {'type': 'array', 'items': OUTPUT_SCHEMA},
     'related': obj({'draftId': nullable(STRING), 'finalIds': {'type': 'array', 'items': STRING},
                     'upscaleSourceId': nullable(STRING)}),
-    'resourceUri': STRING, 'createdVia': {'enum': ['web', 'mcp']},
+    'resourceUri': STRING, 'createdVia': {'enum': ['web', 'mcp', 'agent']},
 }, ('id', 'name', 'kind', 'model', 'modelName', 'status', 'progress', 'queue', 'prompt', 'params', 'location', 'favorite',
     'createdBy', 'createdAt', 'completedAt', 'cost', 'canCancel', 'error', 'outputs', 'related', 'resourceUri', 'createdVia'))
 QUOTE_SCHEMA = obj({'token': STRING, 'costCents': INTEGER, 'display': STRING, 'expiresAt': STRING, 'summary': STRING,
@@ -187,11 +188,11 @@ def cost_of(item, definition, via):
     """The stored cost, plus ``bookedCents``: what the job counts against the agent caps now (``get_account``'s rule)."""
     cents = item.get('costCents') or 0
     booked = counted_cents(item['model'], item['status'], item['costBasis'], cents, item.get('duration'),
-                           item.get('resolution'), item.get('referenceVideos')) if via == 'mcp' else 0
+                           item.get('resolution'), item.get('referenceVideos')) if via in AGENT_ORIGINS else 0
     cost = {'cents': cents, 'display': dollars(cents), 'basis': item['costBasis'], 'bookedCents': booked}
     if definition.get('usageCost') and item['costBasis'] == 'estimated' and item['status'] in ACTIVE_STATUSES:
         cost['note'] = (f'Billed from provider tokens when it finishes; counted at {dollars(booked)} until then.'
-                        if via == 'mcp' else 'Billed from provider tokens when it finishes.')
+                        if via in AGENT_ORIGINS else 'Billed from provider tokens when it finishes.')
     return cost
 
 
@@ -230,7 +231,7 @@ def generation_of(item, found, resolved, *, detail):
                     'upscaleSourceId': upscaled or next((ref['generationId'] for ref in references if ref['generationId']), None)
                     if item['model'].startswith('Magnific ') else None},
         'resourceUri': resource_uri(item['id']),
-        'createdVia': 'mcp' if found['via'].get(item['id']) == 'mcp' else 'web',
+        'createdVia': found['via'].get(item['id']) if found['via'].get(item['id']) in AGENT_ORIGINS else 'web',
     }
     if detail == 'full':
         result['references'] = references

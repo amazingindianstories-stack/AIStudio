@@ -87,9 +87,9 @@ class McpPrincipal:
     scopes: frozenset
     token_id: object               # the grant (family) id: stable across refresh rotation; caps and spend use it
     token_row_id: object           # the presented secret's own row
-    client_id: object              # McpClient.id for OAuth grants, None for personal access tokens
+    client_id: object              # McpClient.id for OAuth grants, None for personal access tokens and agent grants
     client_name: str
-    kind: str                      # 'pat' or 'oauth'
+    kind: str                      # 'pat', 'oauth', or 'agent' for the in-app Agents tab (apps.agents.grants)
     caps: McpCaps
 
     def has_scope(self, scope):
@@ -101,8 +101,9 @@ class McpPrincipal:
         return self
 
     def origin_fields(self):
-        """Keyword arguments that mark a generation row as agent-created by this grant."""
-        return {'created_via': 'mcp', 'mcp_token_id': self.token_id, 'mcp_client_id': self.client_id}
+        """Keyword arguments that mark a generation row as agent-created by this grant (one of policy.AGENT_ORIGINS)."""
+        return {'created_via': 'agent' if self.kind == 'agent' else 'mcp', 'mcp_token_id': self.token_id,
+                'mcp_client_id': self.client_id}
 
 
 def bearer_value(raw):

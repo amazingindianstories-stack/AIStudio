@@ -221,13 +221,17 @@ class Probe:
         response = await self.raw(self.gateway_url, {'jsonrpc': '2.0', 'id': 1, 'method': 'tools/list'},
                                   {'authorization': f'Bearer {self.fixture["token"]}'})
         self.check('gateway without the ingress header: 403', response.status_code == 403, response.status_code)
+        # The fixture is an admin holding every scope, so it is offered every registered tool.
+        from apps.mcp import tools  # noqa: F401  importing tools registers them
+        from apps.mcp.registry import REGISTRY
         for mode in ERAS:
             for label, url, headers in (('direct', self.mcp_url, None), ('gateway', self.gateway_url, {'x-veevee-g4-ingress': self.ingress})):
                 http, client = self.session(mode, url=url, headers=headers)
                 async with http, client:
                     names = {tool.name for tool in (await client.list_tools()).tools}
                     account = await self.tool(client, 'get_account')
-                self.check(f'{mode} era via {label}: all 24 tools listed', len(names) == 24, sorted(names))
+                self.check(f'{mode} era via {label}: all {len(REGISTRY)} registered tools listed', names == set(REGISTRY),
+                           sorted(names ^ set(REGISTRY)))
                 self.check(f'{mode} era via {label}: get_account', bool(account) and account['user']['id'] == USER_ID, account)
 
     async def reads(self, client):

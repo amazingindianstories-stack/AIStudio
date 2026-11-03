@@ -50,7 +50,10 @@ def revoke_family(family_id, *, now=None):
 
 
 def revoke_all_for_user(user_id, *, now=None):
-    """Revoke every personal access token and OAuth grant a user holds (password, role or status change, admin)."""
+    """Revoke every personal access token and OAuth grant a user holds (password, role or status change, admin), and
+    the user's Agents tab grant. Returns the number of tokens revoked."""
+    from apps.agents.grants import revoke_grant
     now = now_ms() if now is None else now
     with transaction.atomic():
+        revoke_grant(user_id, now=now)
         return McpToken.objects.filter(user_id=user_id, revoked_at__isnull=True).update(revoked_at=now)

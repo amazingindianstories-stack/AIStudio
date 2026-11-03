@@ -264,7 +264,7 @@ def authorize_decision(request):
 
 def spend_by_grant(user_id, now):
     from apps.generation.models import Generation
-    rows = (Generation.objects.filter(user_id=user_id, created_via='mcp', created_at__gt=now - policy.DAY_MS)
+    rows = (Generation.objects.filter(user_id=user_id, created_via__in=policy.AGENT_ORIGINS, created_at__gt=now - policy.DAY_MS)
             .exclude(cost_basis=controls.FREE_COST_BASIS).values('mcp_token_id').annotate(total=Sum('cost_cents')))
     return {str(row['mcp_token_id']): row['total'] or 0 for row in rows}
 
