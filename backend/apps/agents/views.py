@@ -8,6 +8,7 @@ from apps.authentication.session import lookup
 from apps.common.responses import renew_session
 from apps.generation.watermark import WHITESPACE
 from apps.library.views import body_or_empty
+from apps.mcp import errors
 from . import media, services
 from .images import parse_message_body, images_to_parts
 from .loop_llm import VOICE_MIME, UsageContext
@@ -15,6 +16,9 @@ from .models import AgentConversation
 from .orchestrator import run_turn
 
 logger = logging.getLogger(__name__)
+
+MAX_ATTACHMENTS = 10                    # the composer's MAX_DOCUMENTS (src/lib/agent-attachments.js)
+ATTACHMENT_ID_CHARS = 64
 
 
 def admin(request):
@@ -87,26 +91,77 @@ def detail(request, id):
     return renew_session(request, Response({'conversation': conversation, 'messages': services.list_messages(id)}))
 
 
+def parse_attachments(body):
+    """The message's ``attachments`` upload ids, trimmed and deduplicated in order; None when malformed."""
+    value = body.get('attachments', [])
+    if not isinstance(value, list) or len(value) > MAX_ATTACHMENTS:
+        return None
+    ids = [item.strip(WHITESPACE) if isinstance(item, str) else '' for item in value]
+    return list(dict.fromkeys(ids)) if all(0 < len(item) <= ATTACHMENT_ID_CHARS for item in ids) else None
+
+
+def attached_document(user_id, asset_id):
+    """The user's ready document upload ``asset_id`` through ``media.load``; another user's and an unknown id are the
+    same refusal."""
+    try:
+        asset = media.load(user_id, asset_id)
+    except errors.ToolError as error:
+        if error.code == errors.NOT_FOUND:
+            raise errors.ToolError(errors.NOT_FOUND, f'Attachment {asset_id} is not in your library. Remove it and attach the file again.') from None
+        raise
+    if asset.kind != 'document':
+        raise media.invalid(f'Attachment {asset.id} is {asset.mime}; attach images as reference images.')
+    return asset
+
+
+def document_parts(user_id, conversation_id, asset_ids):
+    """``(assets, parts)`` for one message's attached documents: each one's text as ``media.untrusted`` data after a
+    line naming it. Plain text, markdown and docx give their own text; a PDF one ``media.describe`` sub-call (usage
+    purpose 'media'). Raises ``errors.ToolError``; a PDF without GOOGLE_API_KEY is an explicit refusal, not a skip."""
+    assets = [attached_document(user_id, asset_id) for asset_id in asset_ids]
+    texts = [media.document_text(asset) for asset in assets]
+    key = os.environ.get('GOOGLE_API_KEY')
+    if None in texts and not key:
+        raise errors.ToolError(errors.MODEL_UNAVAILABLE, 'Veevee cannot read PDF attachments: GOOGLE_API_KEY is not set. Ask a Veevee admin.')
+    usage = UsageContext(user_id=user_id, conversation_id=uuid.UUID(str(conversation_id)), purpose='media')
+    texts = [media.describe(asset, api_key=key, usage=usage) if text is None else text for asset, text in zip(assets, texts)]
+    return assets, [part for asset, text in zip(assets, texts) for part in ({'text': f'Attached document {asset.id}:'}, {'text': text})]
+
+
+ATTACHMENT_STATUS = {errors.NOT_FOUND: 404, errors.INVALID_INPUT: 400, errors.MODEL_UNAVAILABLE: 503}
+
+
 @api_view(['POST'])
 @authentication_classes([])
 @permission_classes([])
 def messages(request, id):
-    if admin(request) is None:
+    user = admin(request)
+    if user is None:
         return forbidden()
     conversation = services.get_conversation(id)
     if not conversation:
         return Response({'error': 'Conversation not found.'}, status=404)
-    parsed = parse_message_body(body_or_empty(request))
+    body = body_or_empty(request)
+    parsed = parse_message_body(body)
     if 'error' in parsed:
         return Response(parsed, status=400)
+    attachments = parse_attachments(body)
+    if attachments is None:
+        return Response({'error': f'attachments must be a list of at most {MAX_ATTACHMENTS} upload ids.'}, status=400)
     try:
         parts = images_to_parts(parsed['images'])
     except Exception:
         return Response({'error': 'Invalid reference image.'}, status=400)
+    try:
+        assets, documents = document_parts(user.id, conversation['id'], attachments)
+    except errors.ToolError as error:
+        return renew_session(request, Response({'error': error.message}, status=ATTACHMENT_STATUS.get(error.code, 502)))
+    for asset in assets:
+        media.record_attachment(conversation['id'], asset)
     history = [{'role': row['role'], 'content': row['content']} for row in services.list_messages(id)]
     user_message = services.append_message(id, 'user', parsed['content'])
     try:
-        result = run_turn(history, parsed['content'], parts, conversation['agentKind'])
+        result = run_turn(history, parsed['content'], parts, conversation['agentKind'], documents=documents)
         assistant = services.append_message(id, 'assistant', result['reply'], result.get('toolTrace'))
         return renew_session(request, Response({'userMessage': user_message, 'assistantMessage': assistant}))
     except Exception as error:

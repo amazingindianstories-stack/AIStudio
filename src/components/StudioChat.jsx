@@ -94,8 +94,8 @@ export function StudioChat({ conversationId }) {
   const [liveMessageIds, setLiveMessageIds] = useState({});
   const [dragging, setDragging] = useState(false);
   const [extractingFrames, setExtractingFrames] = useState(0);
-  // Documents staged for the next message, sent as `attachments` upload ids for the agent worker loop to read
-  // through apps.agents.media.attachment_parts; the synchronous orchestrator behind /messages ignores them.
+  // Documents staged for the next message, sent as `attachments` upload ids. /messages reads each one into the turn
+  // as untrusted text (a PDF through one media sub-call) and records it on the conversation.
   const [documents, setDocuments] = useState([]);
   const documentsRef = useRef(documents);
   documentsRef.current = documents;
