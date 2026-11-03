@@ -11,7 +11,7 @@ from apps.common.responses import renew_session
 from apps.generation.watermark import WHITESPACE
 from apps.library.views import body_or_empty
 from apps.mcp import errors
-from . import media, runner, runs, services
+from . import limits, media, runner, runs, services
 from .events import PAGE_SIZE
 from .grants import AgentGrantInvalid
 from .images import parse_message_body, images_to_parts
@@ -39,6 +39,10 @@ def admin(request):
 
 def forbidden():
     return Response({'error': 'FORBIDDEN'}, status=403)
+
+
+def agents_disabled():
+    return Response({'error': 'Agents are turned off.', 'code': 'AGENTS_DISABLED'}, status=403)
 
 
 def first(request, key):
@@ -190,6 +194,8 @@ def messages(request, id):
     user = admin(request)
     if user is None:
         return forbidden()
+    if not limits.agents_enabled(user):
+        return agents_disabled()
     deadline = media.Deadline(REQUEST_SECONDS)
     conversation = services.get_conversation(id)
     if not conversation:
@@ -292,6 +298,8 @@ def transcribe(request, id):
     max_seconds, max_bytes = media.limit(user.id, 'agentVoiceMaxSeconds'), media.limit(user.id, 'agentVoiceMaxBytes')
     if request.method == 'GET':
         return renew_session(request, Response({'maxSeconds': max_seconds, 'maxBytes': max_bytes}))
+    if not limits.agents_enabled(user):
+        return agents_disabled()
     mime = media.normalize(request.headers.get('Content-Type'))
     if mime not in VOICE_MIME:
         return Response({'error': 'Send the voice note as WebM, MP4, Ogg, MP3 or WAV audio.'}, status=415)
@@ -343,7 +351,7 @@ def agent_runs(request, id):
     try:
         outcome = runs.post_message(conversation, user, parsed['content'], model=body.get('model'))
     except runs.AgentsDisabled:
-        return Response({'error': 'Agents are turned off.', 'code': 'AGENTS_DISABLED'}, status=403)
+        return agents_disabled()
     except runs.RunLimitReached as error:
         return Response({'error': error.hit.message, 'code': 'AGENT_LIMIT', 'kind': error.hit.kind}, status=429)
     except AgentGrantInvalid as error:

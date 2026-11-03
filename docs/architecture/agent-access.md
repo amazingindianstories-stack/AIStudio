@@ -30,12 +30,15 @@ endpoints.
 - `agentsEnabled` (1/0): a global 0 is a kill switch, off for everyone including admins and per-user overrides.
   Otherwise a per-user row decides, then a global 1 (on for all), and with nothing set it is on for admins only.
   The dashboard omits the key while no global row exists, and `POST /api/admin/limits` with `value: null` deletes
-  the global row to return to admins only (the Limits tab's "Reset to default").
+  the global row to return to admins only (the Limits tab's "Reset to default"). The same switch gates the direct
+  Gemini endpoints: `POST .../messages` and `POST .../transcribe` answer `403 AGENTS_DISABLED` before any PDF read,
+  transcription or chat turn.
 - Mid-run, `check_step` returns a `LimitHit` (`disabled`, `steps`, `run_cost`, `daily_cap`, `grant_daily_cap` for
   the Agents tab grant's own `daily_cap_cents`, `global_daily_cap`).
   `apply_limit_hit` pauses the run (`paused_limit`, `pause_reason` = kind, `resume_after` from the oldest rows
   that free enough of the trailing window, one minute later for disabled, none for step and run-cost) and records the
-  kind in `agent_runs.error.hits`; a second refusal of the same kind ends the run `failed` with
+  kind in `agent_runs.error.hits`; a paid call that alone costs more than a daily cap (no `resume_after`) is refused
+  to the model instead (see Step boundaries). A second refusal of the same kind ends the run `failed` with
   `error = {code: 'limit', kind}`. Waking a paused run (an artist message or its `resume_after`) is not a refusal: a
   run still paused that hits `disabled` or a daily cap again is paused again with a fresh `resume_after`, so a run
   paused by the switch resumes within a minute of an admin turning agents back on. The pause records the refused step's estimate in `error.costCents`, and
@@ -123,7 +126,10 @@ queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed
   retried: it is journaled as its own tool step with outcome `COST_LIMIT` and a `COST_LIMIT` function response
   (nothing was charged; suggest a cheaper option or ask the artist), and the model's next turn can explain or offer a
   cheaper option. Every over-bound call in one model turn is refused this way; one in a later turn, after the model
-  was told, fails the run with error code `limit` (`kind` `cost`). A step already sent is replayed with its key rather
+  was told, fails the run with error code `limit` (`kind` `cost`). A paid call (or approved quote) that alone costs
+  more than the user, grant or global daily cap, so no wait in the trailing window frees it, is refused the same way
+  with outcome and response code `BUDGET_EXCEEDED`; asking again after being told fails the run with `limit` and the
+  cap's kind. The run pauses only for a daily cap the window frees. A step already sent is replayed with its key rather
   than refused, so a job it submitted is never lost; a replay adds no step to the step limit, and every other limit
   still applies to it.
 - **Cancel.** A stop request sets `cancel_requested_at`; the run ends `cancelled` at its next step boundary, and jobs

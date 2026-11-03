@@ -16,7 +16,9 @@ At every step boundary the runner stops if its lease was lost or the worker is s
 user, grant and global daily caps, all read at call time) and the active-time bound. A hit goes through
 ``limits.apply_limit_hit``: the first of a kind pauses the run, a second ends it, and a run woken while still paused
 on the switch or a daily cap is paused again. A paid call whose price would take the run past its cost bound is not
-sent: it is journaled with a ``COST_LIMIT`` response, and a second such call after the model was told ends the run.
+sent: it is journaled with a ``COST_LIMIT`` response, and a second such call after the model was told ends the run. A
+paid call that alone costs more than a daily cap, so no wait would ever fit it, is refused the same way with
+``BUDGET_EXCEEDED``; the run pauses only for a daily cap the trailing window frees.
 Paid tools never wait: after a model turn's calls the run sits in ``waiting_jobs`` until every generation it linked is
 terminal, or until the artist sends a message. A
 ``quote_required`` result parks the run in ``waiting_approval``; once the artist approves (``approve_quote``), the same
@@ -55,6 +57,8 @@ logger = logging.getLogger('veevee.agents')
 MAX_ACTIVE_MS = 2 * 60 * 60 * 1000   # time spent in steps; waits for approval, jobs or a limit are not counted
 COST_LIMIT = {'code': 'COST_LIMIT', 'message': 'Nothing was charged: this call would take the run past its spending bound. '
                                                'Suggest a cheaper option or ask the artist.'}
+OVER_DAILY_CAP = {'code': errors.BUDGET_EXCEEDED, 'message': 'Nothing was charged: this call alone costs more than a daily '
+                                                             'spending limit allows. Suggest a cheaper option or ask the artist.'}
 LLM_ATTEMPTS = 3
 LLM_RETRY_SECONDS = (2, 10)
 RETRYABLE_STATUS = frozenset((408, 429, 500, 502, 503, 504))
@@ -636,29 +640,33 @@ def limit_stop(run, hit, *, now):
 
 
 def step_verdict(run, principal, action, *, now):
-    """``(hit, refuse)`` for the next step, read from the admin limits at call time. ``hit`` is the ``LimitHit`` that stops
-    the run, else None. ``refuse`` is True when a paid call not yet sent would alone pass the run cost bound: the model is
-    then told (``COST_LIMIT``) instead of the run pausing. A step already sent is replayed with its key so a job it
-    submitted is never lost, and a replay adds no step to the step limit; every other limit still applies to it."""
+    """``(hit, refused)`` for the next step, read from the admin limits at call time. ``hit`` is the ``LimitHit`` that stops
+    the run, else None. ``refused`` is the ``LimitHit`` of a paid call not yet sent that alone would pass the run cost
+    bound, or a daily cap no wait frees: the model is then told instead of the run pausing. A step already sent is
+    replayed with its key so a job it submitted is never lost, and a replay adds no step to the step limit; every other
+    limit still applies to it."""
     replay = action.step is not None
     cost = 0 if action.kind != 'tool' or (replay and action.step.outcome is None) else pending_cents(run, principal, action)
     hit = limits.check_step(run, cost_cents=cost, count_step=not replay, now=now)
-    if hit is not None and hit.kind == limits.RUN_COST and cost > 0:
-        hit = limits.check_step(run, count_step=not replay, now=now)
-        return hit, hit is None
-    return hit, False
+    if hit is not None and cost > 0 and (hit.kind == limits.RUN_COST or hit.kind in limits.DAILY_CAPS and hit.resume_after_ms is None):
+        refused, hit = hit, limits.check_step(run, count_step=not replay, now=now)
+        return hit, refused if hit is None else None
+    return hit, None
 
 
-def refuse_over_bound(run, action, *, now=now_ms):
+def refuse_over_bound(run, action, refused, *, now=now_ms):
     """Journal the over-bound call as a tool step the model is told about, without dispatching it. A model that was
     told once and asks again ends the run."""
+    over_run = refused.kind == limits.RUN_COST
+    response = COST_LIMIT if over_run else OVER_DAILY_CAP
     steps = journal(run.id)
     model_turn = next(step for step in reversed(steps) if step.kind == 'llm')
-    if any(step.outcome == COST_LIMIT['code'] and step.step_index < model_turn.step_index for step in steps):
-        return fail(run.id, 'limit', 'The run stopped: the model asked again for a paid call past its spending bound.',
-                    kind='cost', now=now())
+    if any(step.outcome == response['code'] and step.step_index < model_turn.step_index for step in steps):
+        bound = 'its spending bound' if over_run else 'a daily spending limit'
+        return fail(run.id, 'limit', f'The run stopped: the model asked again for a paid call past {bound}.',
+                    kind='cost' if over_run else refused.kind, now=now())
     step = action.step or _new_step(run, 'tool', now=now(), tool_name=action.call['name'], result={'call': step_call(run, action)})
-    return finish_tool_result(run, step, COST_LIMIT['code'], COST_LIMIT, COST_LIMIT['message'], now=now())
+    return finish_tool_result(run, step, response['code'], response, response['message'], now=now())
 
 
 def start(run, now):
@@ -721,7 +729,7 @@ def advance(run_id, *, lease, stop, now=now_ms):
                 return outcome
             continue
         drain_inbox(run, run.step_count, now=now())
-        hit, refuse = step_verdict(run, principal, action, now=now())
+        hit, refused = step_verdict(run, principal, action, now=now())
         if hit is not None:
             return limit_stop(run, hit, now=now())
         if active_ms(run) >= MAX_ACTIVE_MS:
@@ -731,8 +739,8 @@ def advance(run_id, *, lease, stop, now=now_ms):
             return 'finished'
         if action.kind == 'llm':
             outcome = llm_step(run, principal, action, stop, now=now)
-        elif refuse:
-            outcome = refuse_over_bound(run, action, now=now)
+        elif refused is not None:
+            outcome = refuse_over_bound(run, action, refused, now=now)
         else:
             outcome = tool_step(run, principal, action, stop, now=now)
         if outcome is not None:

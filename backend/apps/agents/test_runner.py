@@ -408,18 +408,36 @@ class ApprovalTests(RunnerCase):
         run = self.start_run()
         self.assertEqual(self.advance(run), 'waiting')
         self.assertEqual(self.refresh(run).step_count, 2)
-        for key, value in (('agentMaxStepsPerRun', 2), ('agentGlobalDailyCapCents', 5)):
+        AgentLlmUsage.objects.create(user_id=self.user.id, grant_id=self.grant.id, model='m', purpose='step', prompt_tokens=1, cached_tokens=0,
+                                     output_tokens=1, thoughts_tokens=0, tool_prompt_tokens=0, total_tokens=2, cost_microcents=10_000_000,
+                                     created_at=limits.now_ms())
+        for key, value in (('agentMaxStepsPerRun', 2), ('agentGlobalDailyCapCents', 15)):
             AppSetting.objects.update_or_create(key=key, defaults={'value': str(value), 'updated_at': 1})
         runner.approve_quote(run.id, self.user.id)
         self.assertEqual(self.advance(run), 'paused', 'the replay adds no step, but its price is checked against every cap')
         run = self.refresh(run)
         self.assertEqual((run.pause_reason, run.error['costCents'], len(sent), Generation.objects.count()),
                          ('global_daily_cap', 10, 1, 0))
+        self.assertIsNotNone(run.resume_after, 'the window frees the spend that is in the way')
         AppSetting.objects.filter(key='agentGlobalDailyCapCents').update(value='20000')
         AgentRun.objects.filter(pk=run.id).update(resume_after=20)
         self.assertEqual(self.advance(run), 'waiting', 'once the cap is raised the same step is replayed, still past the step limit')
         run = self.refresh(run)
         self.assertEqual((run.status, run.step_count, len(sent), Generation.objects.get().cost_cents), ('waiting_jobs', 2, 2, 10))
+
+    def test_an_approved_quote_priced_past_a_daily_cap_on_its_own_is_refused_to_the_model(self):
+        self.price(10)
+        sent = self.dispatched()
+        bodies = self.gemini([call('generate_image', {'prompt': 'red fox'})], [text('That is more than today allows.')])
+        run = self.start_run()
+        self.assertEqual(self.advance(run), 'waiting')
+        AppSetting.objects.update_or_create(key='agentGlobalDailyCapCents', defaults={'value': '5', 'updated_at': 1})
+        runner.approve_quote(run.id, self.user.id)
+        self.assertEqual(self.advance(run), 'completed', 'the approval cannot fit a 10 cent call under a 5 cent cap')
+        step = self.steps(run)[1]
+        self.assertEqual((step.outcome, step.result['response']['code'], len(sent), Generation.objects.count(), len(bodies)),
+                         ('BUDGET_EXCEEDED', 'BUDGET_EXCEEDED', 1, 0, 2))
+        self.assertNotIn('paused', self.kinds(run))
 
 
 class CancelTests(RunnerCase):
@@ -654,6 +672,43 @@ class BoundaryTests(RunnerCase):
             'name': 'generate_image', 'response': steps[1].result['response'], 'id': 'c1'}}]})
         message = AgentConversationMessage.objects.get(conversation_id=self.conversation.id, role='assistant')
         self.assertEqual(message.content, answer)
+        self.assertNotIn('paused', self.kinds(run))
+
+    def test_a_paid_call_past_a_daily_cap_on_its_own_is_refused_with_budget_exceeded_and_never_sent(self):
+        sent = self.dispatched()
+        answer = 'That costs more than your daily limit. Shall I try something cheaper?'
+        bodies = self.gemini([call('generate_image', {'prompt': 'red fox'}, 'c1')], [text(answer)])
+        UserLimit.objects.create(user_id=self.user.id, key='mcpDailyCapCents', value='5', updated_at=1)
+        run = self.start_run()
+        self.assertEqual(self.advance(run), 'completed', 'no wait would ever fit a 6 cent call under a 5 cent cap')
+        run = self.refresh(run)
+        self.assertEqual((sent, Generation.objects.count(), run.cost_cents, run.error, run.pause_reason), ([], 0, 0, None, None))
+        steps = self.steps(run)
+        self.assertEqual([(step.kind, step.tool_name, step.outcome, step.cost_cents) for step in steps],
+                         [('llm', None, 'calls', 0), ('tool', 'generate_image', 'BUDGET_EXCEEDED', 0), ('llm', None, 'final', 0)])
+        self.assertEqual(steps[1].result['response'], {
+            'code': 'BUDGET_EXCEEDED',
+            'message': 'Nothing was charged: this call alone costs more than a daily spending limit allows. '
+                       'Suggest a cheaper option or ask the artist.'})
+        self.assertEqual(bodies[1]['contents'][-1], {'role': 'user', 'parts': [{'functionResponse': {
+            'name': 'generate_image', 'response': steps[1].result['response'], 'id': 'c1'}}]})
+        self.assertEqual(AgentConversationMessage.objects.get(conversation_id=self.conversation.id, role='assistant').content, answer)
+        self.assertNotIn('paused', self.kinds(run))
+
+    def test_a_paid_call_past_a_daily_cap_on_its_own_after_the_model_was_told_fails_the_run(self):
+        sent = self.dispatched()
+        bodies = self.gemini([call('generate_image', {'prompt': 'red fox'})], [call('generate_image', {'prompt': 'tiny fox'})])
+        self.setting('agentGlobalDailyCapCents', 5)
+        run = self.start_run()
+        self.assertEqual(self.advance(run), 'failed')
+        run = self.refresh(run)
+        error = {'code': 'limit', 'kind': 'global_daily_cap',
+                 'message': 'The run stopped: the model asked again for a paid call past a daily spending limit.'}
+        self.assertEqual((run.status, run.error, run.cost_cents), ('failed', error, 0))
+        self.assertEqual(AgentRunEvent.objects.get(run_id=run.id, kind='failed').payload, error)
+        self.assertEqual((sent, Generation.objects.count(), len(bodies)), ([], 0, 2))
+        self.assertEqual([(step.kind, step.outcome) for step in self.steps(run)],
+                         [('llm', 'calls'), ('tool', 'BUDGET_EXCEEDED'), ('llm', 'calls')])
         self.assertNotIn('paused', self.kinds(run))
 
     def test_the_run_cost_limit_is_an_admin_value_read_at_the_next_step(self):

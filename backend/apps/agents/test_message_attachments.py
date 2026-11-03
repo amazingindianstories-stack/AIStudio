@@ -13,7 +13,7 @@ from unittest.mock import patch
 from django.test import TransactionTestCase
 from django.utils import timezone
 
-from apps.admin_dashboard.models import AppSetting
+from apps.admin_dashboard.models import AppSetting, UserLimit
 from apps.authentication.session import sign_session
 from apps.common.leases import now_ms
 from apps.canvas.test_roles import make_user
@@ -164,6 +164,22 @@ class MessageAttachmentTests(StorageMixin, TransactionTestCase):
         self.assertIn('daily limit', response.json()['error'])
         self.assertEqual(AgentLlmUsage.objects.count(), 1)
         self.assertNothingStored()
+
+    def test_agents_turned_off_globally_or_for_the_user_refuse_before_any_pdf_read_or_turn_and_store_nothing(self):
+        pdf = self.upload('application/pdf', PDF)
+        cases = ((lambda: AppSetting.objects.create(key='agentsEnabled', value='0', updated_at=1), AppSetting),
+                 (lambda: UserLimit.objects.create(user_id=self.admin.id, key='agentsEnabled', value='0', updated_at=1), UserLimit))
+        for switch_off, model in cases:
+            with self.subTest(switch=model.__name__):
+                switch_off()
+                response, sent = self.post({'content': 'Read the brief', 'attachments': [pdf]}, [answer('never'), answer('never')])
+                self.assertEqual((response.status_code, response.json(), sent),
+                                 (403, {'error': 'Agents are turned off.', 'code': 'AGENTS_DISABLED'}, []))
+                self.assertFalse(AgentLlmUsage.objects.exists())
+                self.assertNothingStored()
+                model.objects.filter(key='agentsEnabled').delete()
+        response, sent = self.post({'content': 'Read the brief', 'attachments': [pdf]}, [answer('A shot list.'), answer('Read it.')])
+        self.assertEqual((response.status_code, len(sent)), (200, 2))
 
     def test_another_users_and_unknown_ids_are_the_same_refusal_and_no_message_is_stored(self):
         mine, theirs, unknown = self.upload('text/plain', b'notes'), self.upload('text/plain', b'theirs', user=self.other), str(uuid.uuid4())

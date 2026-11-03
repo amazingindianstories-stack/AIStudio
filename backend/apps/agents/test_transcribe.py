@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from django.test import TestCase
 
-from apps.admin_dashboard.models import AppSetting
+from apps.admin_dashboard.models import AppSetting, UserLimit
 from apps.authentication.session import sign_session
 from apps.common.leases import now_ms
 from apps.canvas.test_roles import make_user
@@ -91,6 +91,20 @@ class TranscribeTests(TestCase):
         self.assertEqual((response.status_code, sent), (429, []))
         self.assertIn('daily limit', response.json()['error'])
         self.assertEqual(AgentLlmUsage.objects.count(), 1)
+
+    def test_agents_turned_off_globally_or_for_the_user_refuse_the_voice_note_before_any_call(self):
+        cases = ((lambda: AppSetting.objects.create(key='agentsEnabled', value='0', updated_at=1), AppSetting),
+                 (lambda: UserLimit.objects.create(user_id=self.admin.id, key='agentsEnabled', value='0', updated_at=1), UserLimit))
+        for switch_off, model in cases:
+            with self.subTest(switch=model.__name__):
+                switch_off()
+                response, sent = self.post(responses=[answer(WORDS)])
+                self.assertEqual((response.status_code, response.json(), sent),
+                                 (403, {'error': 'Agents are turned off.', 'code': 'AGENTS_DISABLED'}, []))
+                self.assertFalse(AgentLlmUsage.objects.exists())
+                model.objects.filter(key='agentsEnabled').delete()
+        response, _ = self.post(responses=[answer(WORDS)])
+        self.assertEqual((response.status_code, response.json()), (200, {'transcript': WORDS}))
 
     def test_safari_and_alias_mime_types_are_sent_as_their_canonical_type(self):
         for sent_as, canonical in (('audio/mp4', 'audio/mp4'), ('audio/x-wav', 'audio/wav'), ('audio/ogg; codecs=opus', 'audio/ogg')):

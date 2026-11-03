@@ -42,7 +42,8 @@ SWITCH_RETRY_MS = 60_000
 # LimitHit.kind values
 DISABLED, ACTIVE_RUNS, STEPS, RUN_COST = 'disabled', 'active_runs', 'steps', 'run_cost'
 DAILY_CAP, GRANT_DAILY_CAP, GLOBAL_DAILY_CAP = 'daily_cap', 'grant_daily_cap', 'global_daily_cap'
-WAIT_KINDS = frozenset((DISABLED, DAILY_CAP, GRANT_DAILY_CAP, GLOBAL_DAILY_CAP))   # lifted by time or an admin, not by the run
+DAILY_CAPS = frozenset((DAILY_CAP, GRANT_DAILY_CAP, GLOBAL_DAILY_CAP))
+WAIT_KINDS = DAILY_CAPS | {DISABLED}   # lifted by time or an admin, not by the run
 
 
 @dataclass(frozen=True)
