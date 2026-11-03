@@ -306,7 +306,7 @@ test('Two sessions editing one board merge each other\'s work, undo only their o
   }
 });
 
-test('Agent browser chat stores Django messages and restores them after reload', async ({ page, context, baseURL }) => {
+test('Agent browser chat starts a durable run, queues a follow-up and resumes it after reload', async ({ page, context, baseURL }) => {
   await authenticate(context, baseURL);
   await freshProject(context, page, 'Agent browser chat');
   await ready(page);
@@ -327,15 +327,34 @@ test('Agent browser chat stores Django messages and restores them after reload',
   await expect(page.getByText('Loading chat…', { exact: true })).not.toBeVisible();
   const input = page.getByPlaceholder(/Talk through your/);
   await expect(input).toBeEnabled();
+  // No agent worker runs in this harness, so the run stays queued: the composer starts it, then queues a follow-up.
   await input.fill('Design a close-up with soft side light.');
-  await expect(input).toHaveValue('Design a close-up with soft side light.');
+  const started = page.waitForResponse(response => response.url().endsWith('/runs') && response.request().method() === 'POST');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
-  const reply = 'I can help you develop a prompt for your scene.';
-  await expect(page.getByText(reply, { exact: true })).toBeVisible();
+  const start = await started;
+  expect(start.status()).toBe(201);
+  expect((await start.json()).delivery).toBe('run');
+  const feed = page.getByTestId('studio-chat-feed');
+  const run = feed.getByTestId('agent-run');
+  await expect(feed.getByText('Design a close-up with soft side light.', { exact: true })).toBeVisible();
+  await expect(run.getByRole('status')).toHaveText('Starting…');
+  await input.fill('Make the light warmer.');
+  const queued = page.waitForResponse(response => response.url().endsWith('/runs') && response.request().method() === 'POST');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  expect((await queued).status()).toBe(202);
+  await expect(page.getByTestId('agent-queued-message')).toContainText('Make the light warmer.');
+  await expect(page.getByTestId('agent-queued-message')).toContainText('Queued');
   await page.reload();
   await expect(page.getByRole('button', { name: /Desktop fixture/ })).toBeVisible();
   await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Agents', exact: true }).click();
-  await expect(page.getByText(reply, { exact: true })).toBeVisible();
+  await expect(feed.getByText('Design a close-up with soft side light.', { exact: true })).toBeVisible();
+  await expect(page.getByTestId('agent-queued-message')).toContainText('Make the light warmer.');
+  await expect(run.getByRole('status')).toHaveText('Starting…');
+  const stop = page.waitForResponse(response => response.url().endsWith('/cancel'));
+  await run.getByRole('button', { name: 'Stop', exact: true }).click();
+  expect((await stop).status()).toBe(202);
+  await expect(run.getByRole('status')).toHaveText('Stopping…');
+  await expect(run.getByRole('button', { name: 'Stop and cancel jobs', exact: true })).toHaveCount(0);
 });
 
 test('Portrait upload and full preview feed a character plus motion clip into Seedance Generate and Edit', async ({ page, context, baseURL }) => {

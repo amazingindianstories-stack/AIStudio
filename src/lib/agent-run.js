@@ -66,6 +66,11 @@ export function applyPage(state, page) {
   return { ...state, run: newer(state.run, page.run), events, cursor, more, pending, inbox, reach: Math.max(state.reach, reach) };
 }
 
+/** Takes a newer run JSON (from approve, decline or cancel) without touching the feed. */
+export function withRun(state, run) {
+  return { ...state, run: newer(state.run, run) };
+}
+
 /** Remembers a message the composer queued (the 202 `inbox` row) so the thread can show it before the next poll. */
 export function addQueuedMessage(state, inbox, run) {
   if (!inbox?.id) return state;
@@ -111,7 +116,8 @@ function toolStatus(outcome) {
  * - `timeline`: model text, tool steps, quotes and delivered messages in feed order;
  * - `jobs`: every job the run queued, with its final status once it finished; `waitingOn` lists the ids it waits for;
  * - `quote`: the quote waiting for approval, or null; `paused`, `stopping` and `outcome` describe the run's state;
- * - `queued`: messages sent while the run was busy that it has not read yet.
+ * - `queued`: messages sent while the run was busy that it has not read yet;
+ * - `startMessageId`: the persisted user message that started the run, where the thread shows its activity.
  */
 export function runView(state) {
   const timeline = [];
@@ -124,6 +130,7 @@ export function runView(state) {
   let stopping = null;
   let outcome = null;
   let finalText = null;
+  let startMessageId = null;
   const step = (index, fields) => {
     if (!steps[index]) {
       steps[index] = { type: "tool", stepIndex: index, status: "running", ...fields };
@@ -133,6 +140,9 @@ export function runView(state) {
   };
   for (const { seq, kind, payload = {}, createdAt } of sorted(state.events)) {
     switch (kind) {
+      case "run_queued":
+        startMessageId = payload.messageId ?? null;
+        break;
       case "run_started":
       case "resumed":
         paused = null;
@@ -225,7 +235,7 @@ export function runView(state) {
   return {
     runId: run.id || null, status: run.status || null, active: isActiveStatus(run.status), settled: isSettled(state),
     costCents: run.costCents ?? 0, timeline, jobs: Object.values(jobs).sort((left, right) => (left.seq ?? 0) - (right.seq ?? 0)),
-    waitingOn: run.status === "waiting_jobs" ? waitingOn : [], quote, paused, stopping, outcome, finalText, queued,
+    waitingOn: run.status === "waiting_jobs" ? waitingOn : [], quote, paused, stopping, outcome, finalText, queued, startMessageId,
   };
 }
 
@@ -290,6 +300,28 @@ export function outcomeText(outcome) {
     return count ? `Stopped and cancelled ${count} job${count === 1 ? "" : "s"}.` : "Stopped. No jobs were still running.";
   }
   return "";
+}
+
+const ACTION_ERRORS = {
+  NO_PENDING_QUOTE: "This quote is no longer waiting for approval.",
+  RUN_FINISHED: "This run has already finished.",
+};
+
+/**
+ * POSTs one run action ('approve', 'decline' or 'cancel') and resolves to `{ ok, run, code, error }`. A 409 that only
+ * says the run moved on (NO_PENDING_QUOTE, RUN_FINISHED) comes back as `ok: false` with a plain message, never a throw.
+ */
+export async function runAction(conversationId, runId, action, body, fetchImpl = fetch) {
+  try {
+    const response = await fetchImpl(`/api/agent-conversations/${conversationId}/runs/${runId}/${action}`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (response.ok && data.run) return { ok: true, run: data.run, code: null, error: null };
+    return { ok: false, run: null, code: data.code || null, error: ACTION_ERRORS[data.code] || data.error || "That did not work. Try again." };
+  } catch {
+    return { ok: false, run: null, code: null, error: "Veevee could not be reached. Try again." };
+  }
 }
 
 function storageOrNull(storage) {

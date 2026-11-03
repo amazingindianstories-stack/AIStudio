@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   addQueuedMessage, applyPage, drainFeed, forgetRunState, isSettled, needsSecondConfirmation, outcomeText, pauseReasonText,
-  pollDelay, quoteCardStep, quoteCost, restoreRunState, resumeText, runState, runView, saveRunState,
+  pollDelay, quoteCardStep, quoteCost, restoreRunState, resumeText, runAction, runState, runView, saveRunState, withRun,
 } from "./agent-run.js";
 
 const RUN = { id: "run-1", conversationId: "c-1", status: "running", costCents: 0, stepCount: 0, cancelRequestedAt: null, cancelJobs: false,
@@ -63,6 +63,7 @@ test("every event kind folds into the timeline, jobs and outcome", () => {
   assert.equal(view.paused, null);
   assert.equal(view.stopping, null);
   assert.equal(outcomeText(view.outcome), "");
+  assert.equal(view.startMessageId, "m-1", "the thread places the run after the message that started it");
 });
 
 test("a tool error shows as an error step with its summary", () => {
@@ -318,4 +319,48 @@ test("a damaged or missing save reads the feed from 0 again, which is idempotent
 
   const once = applyPage(runState(run()), page(FULL));
   assert.deepEqual(runView(applyPage(once, page(FULL))), runView(once));
+});
+
+test("withRun takes a newer run from approve, decline or cancel without touching the feed", () => {
+  const state = applyPage(runState(run()), page(FULL.slice(0, 8), { run: run({ status: "waiting_approval", updatedAt: 20 }) }));
+  const approved = withRun(state, run({ status: "running", updatedAt: 30 }));
+  assert.equal(approved.run.status, "running");
+  assert.equal(approved.cursor, state.cursor);
+  assert.equal(approved.events, state.events);
+  assert.equal(withRun(state, run({ status: "running", updatedAt: 5 })).run.status, "waiting_approval", "an older run JSON loses");
+  assert.equal(withRun(state, run({ id: "run-2", updatedAt: 99 })).run.id, "run-1", "another run's JSON is ignored");
+});
+
+function fakeFetch(status, data) {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push({ url, method: init.method, body: JSON.parse(init.body) });
+    return { ok: status >= 200 && status < 300, status, json: async () => data };
+  };
+  return { calls, fetchImpl };
+}
+
+test("runAction posts exactly the body each action takes", async () => {
+  const approve = fakeFetch(200, { run: run({ status: "running", updatedAt: 30 }) });
+  const result = await runAction("c-1", "run-1", "approve", { stepIndex: 2 }, approve.fetchImpl);
+  assert.deepEqual(approve.calls, [{ url: "/api/agent-conversations/c-1/runs/run-1/approve", method: "POST", body: { stepIndex: 2 } }]);
+  assert.deepEqual(result, { ok: true, run: run({ status: "running", updatedAt: 30 }), code: null, error: null });
+
+  const stop = fakeFetch(202, { run: run({ cancelRequestedAt: 40, cancelJobs: true, updatedAt: 40 }) });
+  assert.equal((await runAction("c-1", "run-1", "cancel", { cancelJobs: true }, stop.fetchImpl)).ok, true);
+  assert.deepEqual(stop.calls[0].body, { cancelJobs: true });
+  assert.equal(stop.calls[0].url, "/api/agent-conversations/c-1/runs/run-1/cancel");
+});
+
+test("runAction turns a quote or run that moved on into a plain message", async () => {
+  const gone = fakeFetch(409, { error: "No quote is waiting for approval at this step.", code: "NO_PENDING_QUOTE" });
+  assert.deepEqual(await runAction("c-1", "run-1", "decline", { stepIndex: 2 }, gone.fetchImpl),
+    { ok: false, run: null, code: "NO_PENDING_QUOTE", error: "This quote is no longer waiting for approval." });
+  const finished = fakeFetch(409, { error: "This run has already finished.", code: "RUN_FINISHED" });
+  assert.deepEqual(await runAction("c-1", "run-1", "cancel", { cancelJobs: false }, finished.fetchImpl),
+    { ok: false, run: null, code: "RUN_FINISHED", error: "This run has already finished." });
+  const disabled = fakeFetch(403, { error: "Agents are turned off for your account.", code: "AGENTS_DISABLED" });
+  assert.equal((await runAction("c-1", "run-1", "approve", { stepIndex: 2 }, disabled.fetchImpl)).error, "Agents are turned off for your account.");
+  const offline = await runAction("c-1", "run-1", "approve", { stepIndex: 2 }, async () => { throw new TypeError("offline"); });
+  assert.deepEqual(offline, { ok: false, run: null, code: null, error: "Veevee could not be reached. Try again." });
 });
