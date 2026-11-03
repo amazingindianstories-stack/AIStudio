@@ -92,7 +92,6 @@ export const AI_FORMATS = {
     label: "Image",
     placeholder: "Describe the image, e.g. a lighthouse at dusk in heavy fog",
     refinePlaceholder: "How should the image change? e.g. make it night, add rain",
-    advancedHint: "Renders at 2K where the model offers it",
     suggestions: [
       "A moody storyboard frame of a detective in a neon alley",
       "A clean product shot of a ceramic mug on linen",
@@ -206,6 +205,25 @@ function boundsOf(nodes) {
 
 function overlaps(a, b, margin) {
   return a.x < b.x + b.w + margin && b.x < a.x + a.w + margin && a.y < b.y + b.h + margin && b.y < a.y + a.h + margin;
+}
+
+/**
+ * `groups` of nodes, each built around the same centre, laid out in one row from left to right with a margin between
+ * them, the row centred where they were built. An empty group stays empty.
+ */
+export function sideBySide(groups) {
+  const filled = groups.filter((nodes) => nodes.length);
+  if (filled.length < 2) return groups;
+  const boxes = filled.map(boundsOf);
+  const width = boxes.reduce((sum, box) => sum + box.w, 0) + FREE_MARGIN * (boxes.length - 1);
+  let left = boxes[0].x + boxes[0].w / 2 - width / 2;
+  return groups.map((nodes) => {
+    if (!nodes.length) return nodes;
+    const box = boundsOf(nodes);
+    const dx = left - box.x;
+    left += box.w + FREE_MARGIN;
+    return nodes.map((node) => ({ ...node, x: node.x + dx }));
+  });
 }
 
 /**

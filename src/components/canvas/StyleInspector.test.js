@@ -25,7 +25,7 @@ const json = (body) => new Response(JSON.stringify(body), { status: 200, headers
 const sticky = (id, extra = {}) => ({ id, type: "sticky", x: 0, y: 0, w: 200, h: 200, text: id, fill: "#e3c56a", fontSize: 16,
   color: "#1c1a12", opacity: 1, parentId: null, groupId: null, ...extra });
 
-async function openLocked(t, role, nodes) {
+async function openInspector(t, role, nodes, props = {}) {
   const restoreDom = withDom();
   const data = { ...emptyCanvasState(), nodes };
   t.mock.method(globalThis, "fetch", async () => json({ id: "board-1", name: "Board", data, updatedAt: 1, role }));
@@ -34,7 +34,7 @@ async function openLocked(t, role, nodes) {
   await useCanvasStore.getState().loadBoard("board-1");
   useCanvasStore.getState().setSelection(nodes.map((n) => n.id));
   const root = createRoot(document.querySelector("#root"));
-  await act(async () => root.render(React.createElement(StyleInspector, {})));
+  await act(async () => root.render(React.createElement(StyleInspector, props)));
   t.after(async () => {
     await act(async () => root.unmount());
     useCanvasStore.getState().reset();
@@ -53,7 +53,7 @@ const vote = () => act(async () => {
 const thumbs = () => [...document.querySelectorAll("[data-reaction-picker] button")].find((b) => b.textContent === "👍");
 
 test("a locked selection of stickies still takes a first vote, skipping a protected lock someone else holds", async (t) => {
-  await openLocked(t, "edit", [sticky("plain", { locked: true }), sticky("theirs", { locked: true, lockedBy: "u2", lockProtected: true })]);
+  await openInspector(t, "edit", [sticky("plain", { locked: true }), sticky("theirs", { locked: true, lockedBy: "u2", lockProtected: true })]);
   assert.ok(document.querySelector("[data-locked-toolbar]"), "the locked bar shows");
   await openPicker();
   assert.equal(thumbs().getAttribute("aria-pressed"), "false");
@@ -62,7 +62,7 @@ test("a locked selection of stickies still takes a first vote, skipping a protec
 });
 
 test("the picker shows this person's vote as given when only a held sticky lacks it, and takes it back", async (t) => {
-  await openLocked(t, "edit", [sticky("plain", { locked: true, reactions: { "👍": ["u1"] } }),
+  await openInspector(t, "edit", [sticky("plain", { locked: true, reactions: { "👍": ["u1"] } }),
     sticky("theirs", { locked: true, lockedBy: "u2", lockProtected: true })]);
   await openPicker();
   assert.equal(thumbs().getAttribute("aria-pressed"), "true");
@@ -71,7 +71,38 @@ test("the picker shows this person's vote as given when only a held sticky lacks
 });
 
 test("no vote control shows when every selected sticky is under a protected lock someone else holds", async (t) => {
-  await openLocked(t, "edit", [sticky("theirs", { locked: true, lockedBy: "u2", lockProtected: true })]);
+  await openInspector(t, "edit", [sticky("theirs", { locked: true, lockedBy: "u2", lockProtected: true })]);
   assert.ok(document.querySelector("[data-locked-toolbar]"));
   assert.equal(document.querySelector("[aria-label='React']"), null);
+});
+
+test("with room under the board's top bar, the panel sits above the selection", async (t) => {
+  useCanvasStore.getState().setViewportSize(1600, 900);
+  await openInspector(t, "edit", [sticky("high", { y: 400 })], { insetTop: 180 });
+  const top = parseFloat(document.querySelector("[data-center-x]").style.top);
+  assert.ok(top >= 180 && top + 44 <= 400, `above the selection, under the bar: ${top}`);
+});
+
+test("a selection just under the top bar puts the panel below it, not over the bar", async (t) => {
+  useCanvasStore.getState().setViewportSize(1600, 900);
+  await openInspector(t, "edit", [sticky("near", { y: 150 })], { insetTop: 180 });
+  assert.ok(parseFloat(document.querySelector("[data-center-x]").style.top) >= 350, "below the selection");
+});
+
+test("a tall selection under the top bar keeps the panel on the canvas, just under the bar", async (t) => {
+  useCanvasStore.getState().setViewportSize(1600, 900);
+  await openInspector(t, "edit", [sticky("tall", { y: 150, h: 800 })], { insetTop: 180 });
+  assert.equal(parseFloat(document.querySelector("[data-center-x]").style.top), 180);
+});
+
+test("below a lone diagram the panel clears the diagram's own controls", async (t) => {
+  useCanvasStore.getState().setViewportSize(1600, 900);
+  await openInspector(t, "edit", [{ ...sticky("flow", { y: 150, h: 100 }), type: "diagram", layers: [] }], { insetTop: 180 });
+  assert.ok(parseFloat(document.querySelector("[data-center-x]").style.top) >= 250 + 46, "under the Copies strip");
+});
+
+test("a lone object whose below would reach the object actions bar keeps the panel just under the top bar", async (t) => {
+  useCanvasStore.getState().setViewportSize(390, 600);
+  await openInspector(t, "edit", [sticky("low", { y: 150, h: 200 })], { insetTop: 180 });
+  assert.equal(parseFloat(document.querySelector("[data-center-x]").style.top), 180);
 });

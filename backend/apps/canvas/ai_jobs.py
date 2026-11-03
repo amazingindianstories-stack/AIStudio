@@ -5,9 +5,11 @@ later) queues a text job whose prompt shape lives in ``apps.agents.board``; the 
 image generation in the board's project. Both run on the generation worker under its admission, per-user limit,
 Gemini spend window and paid guard; this module never calls a provider.
 
-Processing is ``basic`` (the default) or ``advanced``. Advanced text runs on the stronger Gemini model
-(``AGENT_LLM_MODEL_ADVANCED``) at its own estimator rate; an advanced image renders at 2K where the model offers it,
-priced by the model's own resolution pricing.
+Processing is ``basic`` (the default) or ``advanced`` for the text formats: advanced text runs on the stronger Gemini
+model (``AGENT_LLM_MODEL_ADVANCED``) at its own estimator rate. An image takes the library generator's own settings
+(``model``, ``aspectRatio`` and ``resolution``) and submits them through ``submission.submit_generation`` unchanged, so
+the library's validation, pricing, paid guard and admission apply as they do there. A request that still sends only
+``processing`` for an image behaves as it always did: advanced renders at 2K where the model offers it.
 
 A submission needs an Idempotency-Key. The key's receipt, the generation row and the job row commit in one
 transaction, so a double click, a retried request or a second tab with the same key returns the first job and never
@@ -49,7 +51,8 @@ class JobError(Exception):
 
 
 def request_values(body):
-    """The validated job request: format, prompt, processing, optional parent job, and the image's model and aspect ratio."""
+    """The validated job request: format, prompt, processing, optional parent job, and the image's model, aspect ratio
+    and resolution."""
     if not isinstance(body, dict):
         raise JobError(400, 'Invalid request.')
     name = body.get('format')
@@ -86,7 +89,7 @@ def request_values(body):
                     or any(not isinstance(ref, str) or not ref.startswith('/api/media/') or len(ref) > 2048 for ref in references)):
                 raise JobError(400, 'Invalid referenceImages.')
             values['referenceImages'] = references
-        for field in ('model', 'aspectRatio'):
+        for field in ('model', 'aspectRatio', 'resolution'):
             value = body.get(field)
             if value is not None:
                 if not isinstance(value, str) or not value:
@@ -125,7 +128,8 @@ def text_first_turn(values):
 
 def image_body(board, values, generation):
     """The image generation request. A refinement edits the previous image: it is the reference the new prompt describes
-    changes to, and the new image keeps its model and aspect ratio unless the request names others."""
+    changes to, and the new image keeps its model and aspect ratio unless the request names others. An explicit
+    ``resolution`` is sent as the library sends it; without one, ``advanced`` still asks for 2K where the model offers it."""
     model = values.get('model') or (generation.model if generation is not None else None)
     ratio = values.get('aspectRatio') or (generation.aspect_ratio if generation is not None else None) or '1:1'
     body = {'prompt': values['prompt'], 'model': model, 'aspectRatio': ratio, 'projectId': str(board.project_id)}
@@ -133,7 +137,9 @@ def image_body(board, values, generation):
         body['referenceImages'] = [generation.url]
     elif values.get('referenceImages'):
         body['referenceImages'] = values['referenceImages']
-    if values['processing'] == 'advanced':
+    if values.get('resolution'):
+        body['resolution'] = values['resolution']
+    elif values['processing'] == 'advanced':
         resolutions = (capability(model, 'referenceResolutions', None) if generation is not None else None) or capability(model, 'resolutions', [])
         if ADVANCED_RESOLUTION in resolutions:
             body['resolution'] = ADVANCED_RESOLUTION
@@ -256,6 +262,8 @@ def job_json(job, generation=None):
     for field in ('error', 'progressMessage'):
         if item.get(field):
             result[field] = item[field]
+    if job.format == 'image':
+        result['aspectRatio'], result['resolution'] = generation.aspect_ratio, generation.resolution
     if generation.status == 'queued':
         from apps.generation.services.admission import queue_position
         position = queue_position(generation.id) or {}

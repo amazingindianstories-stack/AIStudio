@@ -52,6 +52,11 @@ test('Create with AI quotes, runs once, places sticky notes and an image on the 
       return Boolean(boardId);
     }).toBeTruthy();
     const nodes = async () => (await (await context.request.get(`/api/canvas-boards/${boardId}`)).json()).data.nodes;
+    // Placed results stay clear of the board's top chips (Inbox, Cards and work, Saved): the bar the work tools'
+    // buttons are portaled into.
+    const chipsBottom = () => page.getByRole('button', { name: 'Cards and work', exact: true })
+      .evaluate(element => element.parentElement.parentElement.getBoundingClientRect().bottom);
+    const top = async node => (await page.locator(`[data-node-id="${node.id}"]`).boundingBox()).y;
 
     await page.getByRole('button', { name: 'Create with AI', exact: true }).click();
     const panel = page.getByRole('region', { name: 'Create with AI' });
@@ -116,26 +121,111 @@ test('Create with AI quotes, runs once, places sticky notes and an image on the 
     }, { timeout: 60000 }).toBeTruthy();
     if (FAKE) expect((await fakeState()).board_jobs - boardJobsBefore).toBe(2);
 
-    // An image result becomes one image node from the library.
+    // An image has the library generator's controls (model, aspect ratio, resolution), not Basic or Advanced.
     await panel.getByRole('button', { name: 'New prompt', exact: true }).click();
     await panel.getByRole('radio', { name: 'Image' }).click();
+    await expect(panel.getByRole('radiogroup', { name: 'Processing' })).toHaveCount(0);
     await panel.getByRole('textbox', { name: 'Prompt' }).fill('A lighthouse at dusk in heavy fog');
-    await panel.getByRole('radio', { name: '16:9' }).click();
+    const settings = panel.getByRole('button', { name: 'Generation settings' });
+    await expect(panel.getByRole('button', { name: 'Model: Nano Banana Pro' })).toBeVisible();
+    await expect(settings).toContainText('21:9');       // the library generator's defaults
+    await expect(settings).toContainText('2K');
+    // The quote for the finished choice, awaited from before the first click so it cannot be missed.
+    const quoted = page.waitForResponse(response => response.url().endsWith(`/api/canvas-boards/${boardId}/ai-jobs/quote`) && response.request().method() === 'POST'
+      && response.request().postDataJSON().resolution === '4K');
+    // Pick a non-default model, aspect ratio (4:5 is Nano Banana 2.1's, not Nano Banana Pro's) and resolution.
+    await panel.getByRole('button', { name: 'Model: Nano Banana Pro' }).click();
+    await page.getByRole('menuitem', { name: /Nano Banana 2\.1/ }).click();
+    await settings.click();
+    await page.getByRole('button', { name: '4:5', exact: true }).click();
+    await page.getByRole('button', { name: '4K', exact: true }).click();
+    await page.keyboard.press('Escape');
+    await expect(settings).toContainText('4:5');
+    await expect(settings).toContainText('4K');
     await expect(panel.getByText(/Estimated cost ≈\$\d+\.\d\d/)).toBeVisible();
+    expect((await quoted).request().postDataJSON()).toEqual({ format: 'image', prompt: 'A lighthouse at dusk in heavy fog',
+      model: 'Nano Banana 2.1', aspectRatio: '4:5', resolution: '4K' });
+    const imagesBefore = FAKE ? (await fakeState()).gemini_images.length : 0;
     const imageSubmitted = page.waitForResponse(response => response.url().endsWith(`/api/canvas-boards/${boardId}/ai-jobs`) && response.request().method() === 'POST');
     await panel.getByRole('button', { name: 'Generate', exact: true }).click();
     const imageJob = (await (await imageSubmitted).json()).job;
+    expect([imageJob.model, imageJob.aspectRatio, imageJob.resolution]).toEqual(['Nano Banana 2.1', '4:5', '4K']);
+    // The saved row keeps the chosen model and resolution (its aspect ratio becomes the saved image's once it finishes).
+    const [{ model, resolution, cost_cents: cost }] = await db`SELECT model, resolution, cost_cents FROM generations WHERE id = ${imageJob.generationId}`;
+    expect([model, resolution]).toEqual(['Nano Banana 2.1', '4K']);
+    expect(cost).toBeGreaterThan(0);
     await expect.poll(async () => (await nodes()).filter(node => node.type === 'image').length, { timeout: 90000 }).toBe(1);
     const [image] = (await nodes()).filter(node => node.type === 'image');
     expect(image.src).toMatch(/^\/api\/media\//);
-    // The node takes the saved image's shape. MOCK_GENERATION renders the requested 16:9; the fake provider server
+    if (FAKE) {
+      // The fake provider saw the chosen settings on the wire: the 4K image size and the 4:5 ratio.
+      const sent = (await fakeState()).gemini_images.slice(imagesBefore);
+      expect(sent).toEqual([{ model: 'gemini-nano-banana-2.1', imageConfig: { aspectRatio: '4:5', imageSize: '4K' } }]);
+    }
+    // The node takes the saved image's shape. MOCK_GENERATION renders the requested 4:5; the fake provider server
     // always returns its fixed 64x48 PNG, which the worker records as 4:3.
     const [{ aspect_ratio: savedRatio }] = await db`SELECT aspect_ratio FROM generations WHERE id = ${imageJob.generationId}`;
-    expect(savedRatio).toBe(FAKE ? '4:3' : '16:9');
-    expect([image.w, image.h]).toEqual(FAKE ? [320, 240] : [320, 180]);
+    expect(savedRatio).toBe(FAKE ? '4:3' : '4:5');
+    expect([image.w, image.h]).toEqual(FAKE ? [320, 240] : [256, 320]);
+    expect(await top(image)).toBeGreaterThanOrEqual(await chipsBottom());
+    await page.screenshot({ path: test.info().outputPath('board-ai-image-below-chips.png') });
+
+    // Refining the image pre-fills the controls from it, and they can be changed.
+    await expect(panel.getByRole('textbox', { name: 'Refinement' })).toBeVisible();
+    await expect(panel.getByRole('button', { name: 'Model: Nano Banana 2.1' })).toBeVisible();
+    await expect(settings).toContainText(savedRatio);
+    await expect(settings).toContainText('4K');
+    await panel.getByRole('textbox', { name: 'Refinement' }).fill('make it night');
+    await settings.click();
+    await page.getByRole('button', { name: '1K', exact: true }).click();
+    await page.keyboard.press('Escape');
+    const refinedSubmitted = page.waitForResponse(response => response.url().endsWith(`/api/canvas-boards/${boardId}/ai-jobs`) && response.request().method() === 'POST');
+    await panel.getByRole('button', { name: 'Refine', exact: true }).click();
+    const refinedJob = (await (await refinedSubmitted).json()).job;
+    expect([refinedJob.model, refinedJob.aspectRatio, refinedJob.resolution]).toEqual(['Nano Banana 2.1', savedRatio, '1K']);
+    expect(refinedJob.parentJobId).toBe(imageJob.id);
+    await expect.poll(async () => {
+      const current = (await nodes()).filter(node => node.type === 'image');
+      return current.some(node => node.id !== image.id);
+    }, { timeout: 90000 }).toBeTruthy();
+    const [{ resolution: refinedResolution }] = await db`SELECT resolution FROM generations WHERE id = ${refinedJob.generationId}`;
+    expect(refinedResolution).toBe('1K');
     // It went to free space next to the notes, not on top of them.
     const notes = (await nodes()).filter(node => node.type === 'sticky');
     expect(notes.some(node => node.x < image.x + image.w && image.x < node.x + node.w && node.y < image.y + image.h && image.y < node.y + node.h)).toBe(false);
+
+    // A 2x batch queues two independent jobs for one click and places both images side by side.
+    await panel.getByRole('button', { name: 'New prompt', exact: true }).click();
+    await panel.getByRole('textbox', { name: 'Prompt' }).fill('A harbour at dawn');
+    await settings.click();
+    await page.getByRole('button', { name: '2×', exact: true }).click();
+    await page.keyboard.press('Escape');
+    await expect(settings).toContainText('2×');
+    await expect(panel.getByText(/Estimated cost ≈\$\d+\.\d\d · 2 images/)).toBeVisible();
+    const imagesBeforeBatch = (await nodes()).filter(node => node.type === 'image');
+    const batchImagesBefore = FAKE ? (await fakeState()).gemini_images.length : 0;
+    const batchPosts = [];
+    const collect = response => {
+      if (response.url().endsWith(`/api/canvas-boards/${boardId}/ai-jobs`) && response.request().method() === 'POST') batchPosts.push(response);
+    };
+    page.on('response', collect);
+    await panel.getByRole('button', { name: 'Generate', exact: true }).click();
+    await expect.poll(() => batchPosts.length).toBe(2);
+    page.off('response', collect);
+    const batchJobs = await Promise.all(batchPosts.map(async response => (await response.json()).job));
+    const keys = batchPosts.map(response => response.request().headers()['idempotency-key']);
+    expect(keys[0].replace(/-0$/, '-1')).toBe(keys[1]);
+    expect(new Set(batchJobs.map(item => item.generationId)).size).toBe(2);
+    const batchRows = await db`SELECT prompt, created_via FROM generations WHERE id IN ${db(batchJobs.map(item => item.generationId))}`;
+    expect(batchRows.map(row => [row.prompt, row.created_via])).toEqual([['A harbour at dawn', 'board'], ['A harbour at dawn', 'board']]);
+    await expect.poll(async () => (await nodes()).filter(node => node.type === 'image').length, { timeout: 90000 }).toBe(imagesBeforeBatch.length + 2);
+    const [left, right] = (await nodes()).filter(node => node.type === 'image' && !imagesBeforeBatch.some(old => old.id === node.id))
+      .sort((a, b) => a.x - b.x);
+    expect(left.y).toBe(right.y);
+    expect(left.x + left.w).toBeLessThan(right.x);
+    for (const placedImage of [left, right]) expect(await top(placedImage)).toBeGreaterThanOrEqual(await chipsBottom());
+    await page.screenshot({ path: test.info().outputPath('board-ai-batch-below-chips.png') });
+    if (FAKE) expect((await fakeState()).gemini_images.length - batchImagesBefore).toBe(2);
 
     // A reload resumes nothing: every result was placed exactly once.
     const count = (await nodes()).length;

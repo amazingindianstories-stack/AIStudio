@@ -249,6 +249,48 @@ class BoardAiJobTests(BoardFixture):
         picture = self.submit({**image, 'processing': 'advanced'}, key='board-key-advanced-image').json()['job']
         self.assertEqual(Generation.objects.get(pk=picture['generationId']).resolution, '2K')
 
+    def test_an_image_takes_the_library_settings_and_prices_and_stores_them_like_the_library(self):
+        image = {'format': 'image', 'prompt': 'a lantern', 'model': 'Nano Banana Pro', 'aspectRatio': '16:9'}
+        costs = {resolution: self.quote({**image, 'resolution': resolution}).json()['quote']['costCents']
+                 for resolution in ('1K', '2K', '4K')}
+        self.assertLess(costs['1K'], costs['2K'])
+        self.assertLess(costs['2K'], costs['4K'])
+        job = self.submit({**image, 'resolution': '4K'}).json()['job']
+        row = Generation.objects.get(pk=job['generationId'])
+        self.assertEqual((row.model, row.aspect_ratio, row.resolution, row.cost_cents), ('Nano Banana Pro', '16:9', '4K', costs['4K']))
+        self.assertEqual((job['model'], job['aspectRatio'], job['resolution']), ('Nano Banana Pro', '16:9', '4K'))
+        # The same request with another resolution is another job, not a replay of the first.
+        other = self.submit({**image, 'resolution': '1K'}, key='board-key-1k')
+        self.assertEqual(other.status_code, 201, other.content)
+        self.assertNotEqual(other.json()['job']['id'], job['id'])
+        self.assertEqual(Generation.objects.get(pk=other.json()['job']['generationId']).resolution, '1K')
+        # An explicit resolution wins over the legacy processing choice, and bad values are refused before anything is stored.
+        both = self.submit({**image, 'resolution': '1K', 'processing': 'advanced'}, key='board-key-both').json()['job']
+        self.assertEqual(Generation.objects.get(pk=both['generationId']).resolution, '1K')
+        count = Generation.objects.count()
+        for bad in ({'resolution': 2}, {'resolution': ''}, {'aspectRatio': 7}, {'model': ['Nano Banana Pro']}):
+            with self.subTest(bad=bad):
+                self.assertEqual(self.quote({**image, **bad}).status_code, 400)
+                self.assertEqual(self.submit({**image, **bad}, key='board-key-bad').status_code, 400)
+        self.assertEqual(Generation.objects.count(), count)
+
+    def test_a_refinement_pre_fills_from_the_image_and_takes_any_setting_the_request_changes(self):
+        job = self.submit({'format': 'image', 'prompt': 'a lantern', 'model': 'Nano Banana 2.1', 'aspectRatio': '16:9',
+                           'resolution': '2K'}).json()['job']
+        row = Generation.objects.get(pk=job['generationId'])
+        url = self.storage.upload_buffer(b'png-bytes', f'generations/{row.id}/master.png', 'png')
+        Generation.objects.filter(pk=row.id).update(status='succeeded', url=url, completed_at=now(), updated_at=now())
+        sent = {'format': 'image', 'prompt': 'make it night', 'parentJobId': job['id'], 'model': 'Nano Banana 2.1', 'aspectRatio': '16:9',
+                'resolution': '1K'}
+        edit = Generation.objects.get(pk=self.submit(sent, key='board-key-refine-1k').json()['job']['generationId'])
+        self.assertEqual((edit.model, edit.aspect_ratio, edit.resolution, len(edit.reference_images or [])), ('Nano Banana 2.1', '16:9', '1K', 1))
+        quoted = self.quote(sent).json()['quote']
+        self.assertEqual((quoted['model'], quoted['costCents']), ('Nano Banana 2.1', edit.cost_cents))
+        # A request that names no settings still inherits the model and ratio.
+        bare = Generation.objects.get(pk=self.submit({'format': 'image', 'prompt': 'again', 'parentJobId': job['id']},
+                                                      key='board-key-refine-bare').json()['job']['generationId'])
+        self.assertEqual((bare.model, bare.aspect_ratio), ('Nano Banana 2.1', '16:9'))
+
     def test_a_submission_queues_one_text_job_and_a_replayed_key_returns_it(self):
         first = self.submit({'format': 'stickies', 'prompt': 'five ideas for a teaser'})
         self.assertEqual(first.status_code, 201, first.content)
@@ -685,7 +727,7 @@ class BoardAiJobMigrationTests(TransactionTestCase):
             executor = MigrationExecutor(connection)
             self.assertEqual([(m.app_label, m.name) for m, backward in executor.migration_plan(final)],
                              [('canvas', '0006_boardaijob'), ('canvas', '0007_canvasboardsave_changes'), ('canvas', '0008_customshapepack'),
-                              ('canvas', '0009_work_records'), ('canvas', '0010_work_permissions'), ('canvas', '0011_work_relation_kinds'), ('canvas', '0012_boardmedia'), ('canvas', '0013_board_templates'), ('canvas', '0014_collaboration'), ('canvas', '0015_facilitation'), ('canvas', '0016_talktrack'), ('canvas', '0017_sidekicks_flows')])
+                              ('canvas', '0009_work_records'), ('canvas', '0010_work_permissions'), ('canvas', '0011_work_relation_kinds'), ('canvas', '0012_boardmedia'), ('canvas', '0013_board_templates'), ('canvas', '0014_collaboration'), ('canvas', '0015_facilitation'), ('canvas', '0016_talktrack'), ('canvas', '0017_sidekicks_flows'), ('canvas', '0018_boardcaption')])
             executor.migrate(final)
             board = CanvasBoard.objects.get(pk=identifier)
             self.assertEqual((board.name, board.data, board.updated_at), ('Kept', {'version': 1, 'nodes': []}, 2))

@@ -1,6 +1,6 @@
 """Full Playwright UI suite against Django + independent Python workers.
 
-Run through scripts/dev/test-db.sh (locally) or the CI browser job, which supply
+Run through scripts/dev/test-db.sh (locally) or the CI browser-shard jobs, which supply
 a disposable loopback database and an allowlisted environment. Next receives no
 database, cloud, provider or session-signing credentials.
 
@@ -101,6 +101,7 @@ def main():
     parser.add_argument('--install-browser', action='store_true')
     parser.add_argument('--grep')
     parser.add_argument('--list', action='store_true')
+    parser.add_argument('--shard', help='run one Playwright shard of the suite, as CURRENT/TOTAL (for example 2/4)')
     parser.add_argument('--trace', choices=['on', 'retain-on-failure'], default='retain-on-failure')
     parser.add_argument('--fake-providers', action='store_true',
                         help='run provider jobs through the fake provider server instead of MOCK_GENERATION placeholders')
@@ -132,10 +133,15 @@ class OfflineAudioTranscriber:
     def transcribe(self, data, mime, model, *, signal=None):
         if signal: signal.check()
         raw = base64.b64decode(data, validate=True)
+        if mime == 'audio/mp4' and raw[4:8] == b'ftyp':
+            # The audio track the caption route extracts from a board video.
+            return '[00:00.000 - 00:01.000] Speech: Offline caption fixture.'
         if mime != 'audio/wav' or raw[:4] != b'RIFF' or raw[8:12] != b'WAVE':
             raise ValueError('Invalid offline audio fixture.')
         return '[00:00.000 - 00:00.100] Sound: Offline audio fixture.'
 VEEVEE_AUDIO_TRANSCRIBER = OfflineAudioTranscriber
+# Board captions only check that transcription is configured; the offline transcriber above answers, no key is used.
+GOOGLE_API_KEY = 'offline-transcriber-placeholder'
 # Production runs automatic portraits; the gallery and its scheduler janitor need the flag.
 VEEVEE_MANAGED_PORTRAITS = True
 # The model switches as production set them on 2026-10-20; the pickers show only switched-on models.
@@ -187,6 +193,8 @@ VEEVEE_KLING = False
         env['PLAYWRIGHT_HTML_OUTPUT_DIR'] = str(artifact / 'playwright-report')
         if args.grep:
             command.extend(['--grep', args.grep])
+        if args.shard:
+            command.extend(['--shard', args.shard])
         if args.list:
             command.append('--list')
         browser_process = subprocess.Popen(command, cwd=ROOT, env=env, start_new_session=True)
