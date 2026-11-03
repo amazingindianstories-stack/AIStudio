@@ -4,6 +4,7 @@ import json
 import time
 import re
 import base64
+import codecs
 from uuid import uuid4
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -19,6 +20,9 @@ PURPOSES = {
     'canvas': ('uploads/canvas', r'(image/(jpeg|png|webp|tiff|gif|heic|heif|avif|bmp|svg\+xml|vnd\.adobe\.photoshop|x-photoshop)|video/(mp4|quicktime|webm)|audio/(mpeg|wav|ogg|mp4|webm)|application/pdf)$'),
     # Talktrack recordings: the MediaRecorder video and its audio-only twin used for transcription.
     'talktrack': ('uploads/talktrack', r'(video/(webm|mp4)|audio/(webm|mp4|ogg))$'),
+    # Agents tab attachments the agent reads (apps.agents.media); never a generation reference.
+    'document-reference': ('uploads/document-reference',
+        r'(application/pdf|text/plain|text/markdown|application/vnd\.openxmlformats-officedocument\.wordprocessingml\.document)$'),
 }
 
 
@@ -75,7 +79,7 @@ CHUNK_BYTES = 8 * 1024 * 1024
 LIMITS = {'image-reference': 256*1024*1024, 'portrait': 256*1024*1024,
           'material': 256*1024*1024, 'canvas': 256*1024*1024,
           'audio-reference': 512*1024*1024, 'video-reference': 2*1024**3,
-          'depth-input': 2*1024**3, 'talktrack': 2*1024**3}
+          'depth-input': 2*1024**3, 'talktrack': 2*1024**3, 'document-reference': 50*1024*1024}
 
 
 class UploadError(ValueError):
@@ -235,6 +239,14 @@ def _sniff(data, mime):
     if mime == 'image/bmp': return data.startswith(b'BM')
     if mime in ('image/vnd.adobe.photoshop', 'image/x-photoshop'): return data.startswith(b'8BPS')
     if mime == 'application/pdf': return data.startswith(b'%PDF-')
+    if mime == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+        return data.startswith(b'PK\x03\x04')
+    if mime in ('text/plain', 'text/markdown'):  # No signature: UTF-8 without NULs (a cut trailing character is fine).
+        try:
+            codecs.getincrementaldecoder('utf-8')().decode(data)
+        except UnicodeDecodeError:
+            return False
+        return bool(data) and b'\x00' not in data
     if mime == 'image/svg+xml':  # Text: the board media worker parses and sanitizes the whole document.
         return data.lstrip(b'\xef\xbb\xbf \t\r\n').startswith((b'<svg', b'<?xml', b'<!'))
     if mime in ('image/heic', 'image/heif', 'image/avif'):
