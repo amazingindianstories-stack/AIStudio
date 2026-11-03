@@ -7,8 +7,9 @@ import { apiFetch } from "../api";
 import { MAX_TAGS } from "./tags";
 import { STAMP_KEYS } from "./serialization";
 import { unstamped } from "./stamps";
+import { slimLength } from "./formats/payloads";
 
-/** A board's data may not exceed 2 Mi UTF-16 units of JSON (backend MAX_BOARD_JSON_UNITS). */
+/** A board's data may not exceed 2 Mi UTF-16 units of JSON (backend MAX_BOARD_JSON_UNITS), not counting format payloads. */
 export const MAX_BOARD_UNITS = 2 * 1024 * 1024;
 /** Clearing a selection blanks these (a blank template, which only blanks stickies, is made on the server). */
 export const CLEAR_TYPES = ["sticky", "text", "shape"];
@@ -82,6 +83,7 @@ export function templateInsertion(present, graph, center, newId = () => crypto.r
   }
   const nodes = source.map((node) => {
     const copy = { ...unstamped(node), id: ids.get(node.id), x: node.x + dx, y: node.y + dy };
+    delete copy.payload;
     copy.parentId = node.parentId ? ids.get(node.parentId) ?? null : null;
     if (node.groupId) {
       if (!groups.has(node.groupId)) groups.set(node.groupId, newId());
@@ -114,7 +116,7 @@ export function insertTemplate(present, graph, center, newId) {
     connectors: [...present.connectors, ...added.connectors],
     ...(added.tags.length ? { tags: added.tags } : {}),
   };
-  return { next, ids: added.ids, tooLarge: JSON.stringify(next).length > MAX_BOARD_UNITS };
+  return { next, ids: added.ids, tooLarge: slimLength(next) > MAX_BOARD_UNITS };
 }
 
 /**

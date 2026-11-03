@@ -281,3 +281,29 @@ for (const width of [1440, 1024, 390]) {
     await pixelClean(page, page.getByRole('main'));
   });
 }
+
+test('Agent access: opening the token form never pulls focus back from a field already being filled', async ({ page, context, baseURL }) => {
+  await resetAgentAccess();
+  await signIn(page, context, baseURL, 1440);
+  const db = fixtureDatabase(process.env.E2E_DATABASE_URL);
+  await db`INSERT INTO user_limits (user_id, key, value, updated_at) VALUES (${USER_ID}, ${'mcpEnabled'}, ${'true'}, ${1})`;
+  const dialog = await openAgentTab(page);
+  // A busy page can run the form's opening focus late, after the person has already moved on. Hold the focus
+  // frame callbacks (not framer-motion's) until we say so, then release them where a starved frame would.
+  await page.evaluate(() => {
+    const held = [];
+    const frame = window.requestAnimationFrame.bind(window);
+    window.requestAnimationFrame = (callback) => (/focus/.test(String(callback)) ? (held.push(callback), 0) : frame(callback));
+    window.__releaseHeldFocusFrames = () => held.splice(0).forEach((callback) => callback(performance.now()));
+  });
+  await dialog.getByRole('button', { name: 'New token' }).click();
+  const create = dialog.getByRole('form', { name: 'New personal access token' });
+  const name = create.getByRole('textbox', { name: 'Name', exact: true });
+  const limit = create.getByRole('textbox', { name: 'Daily limit', exact: true });
+  await name.fill('Claude Code on the studio Mac');
+  await limit.fill('7.5');
+  await page.evaluate(() => window.__releaseHeldFocusFrames());
+  await expect(limit).toBeFocused();
+  await expect(name).toHaveValue('Claude Code on the studio Mac');
+  await expect(limit).toHaveValue('7.5');
+});

@@ -326,6 +326,26 @@ class BoardMedia(models.Model):
 TEMPLATE_SCOPES = ('personal', 'project', 'everyone')
 
 
+class BoardFormatPayload(models.Model):
+    """The large fields of one format node (Docs blocks, HTML, draw.io XML and preview), outside the board JSON
+    (apps.canvas.payloads). `rev` counts content changes; `digest` tells an unchanged payload from a changed one."""
+    id = models.UUIDField(primary_key=True, db_default=RandomUUID())
+    board = models.ForeignKey(CanvasBoard, on_delete=models.CASCADE, db_index=False)
+    node_id = models.TextField()
+    kind = models.TextField()
+    body = models.JSONField()
+    digest = models.TextField()
+    size = models.IntegerField()
+    rev = models.IntegerField()
+    updated_by = models.TextField(null=True)
+    updated_at = models.BigIntegerField()
+
+    class Meta:
+        db_table = 'canvas_board_format_payloads'
+        constraints = [models.UniqueConstraint(fields=['board', 'node_id'], name='canvas_format_payload_node_uniq'),
+                       models.CheckConstraint(condition=models.Q(kind__in=('doc', 'html', 'drawio')), name='canvas_format_payload_kind_check')]
+
+
 class BoardTemplate(models.Model):
     """A custom board template: a board v1 graph kept apart from the board it came from. Soft deleted
     (``deleted_at``) so the delete toast can undo. ``board_id`` is the ordinary board a template is edited in."""

@@ -1,5 +1,6 @@
 """The board REST API (`/api/v1/boards`): bearer tokens, scopes, board roles, item CRUD, credits and the change feed."""
 import json
+from unittest import mock
 from uuid import uuid4
 
 from django.test import TransactionTestCase, override_settings
@@ -9,6 +10,7 @@ from apps.mcp_auth import controls, policy, tokens
 from apps.mcp_auth.models import McpRateWindow
 from apps.mcp_auth.principal import authenticate_bearer
 from apps.projects.models import Project
+from . import payloads
 from .models import BoardMember, BoardPrivateMode, CanvasBoard
 from .serialization import empty_state
 
@@ -116,6 +118,15 @@ class BoardApiTests(TransactionTestCase):
         self.assertEqual(self.call('post', f'/api/v1/boards/{BOARD}/items', raw, {}).status_code, 400)
         duplicate = self.call('post', f'/api/v1/boards/{BOARD}/items', raw, {'items': [{**STICKY, 'id': 'same'}, {**STICKY, 'id': 'same'}]})
         self.assertEqual(duplicate.status_code, 409)
+
+    def test_an_item_whose_payload_is_over_its_limit_is_refused_with_413(self):
+        raw = self.token()
+        doc = {'type': 'format', 'format': 'doc', 'x': 0, 'y': 0, 'w': 90, 'h': 90, 'blocks': [{'id': 'b', 'type': 'p', 'text': 'x' * 200}]}
+        with mock.patch.object(payloads, 'MAX_PAYLOAD_UNITS', 100):
+            refused = self.call('post', f'/api/v1/boards/{BOARD}/items', raw, {'item': doc})
+        self.assertEqual((refused.status_code, refused.json()['error']), (413, 'PAYLOAD_TOO_LARGE'))
+        self.assertEqual(CanvasBoard.objects.get(pk=BOARD).data['nodes'], [])
+        self.assertEqual(self.create(raw, doc)['blocks'][0]['text'], 'x' * 200)
 
     def test_pages_and_type_filter(self):
         raw = self.token()

@@ -149,10 +149,11 @@ export function CanvasView() {
       }
     };
     const onBeforeUnload = (e) => {
-      useCanvasStore.getState().persistPendingDraft();
+      const kept = useCanvasStore.getState().persistPendingDraft();
       flushSave({ keepalive: true });
       const status = useCanvasStore.getState().saveStatus;
-      if (status === "dirty" || status === "error") {
+      // A save still in flight without a draft on this device (storage full) is not yet safe either.
+      if (status === "dirty" || status === "error" || (status === "saving" && !kept)) {
         e.preventDefault();
         e.returnValue = "";
       }

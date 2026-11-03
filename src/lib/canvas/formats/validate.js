@@ -25,6 +25,7 @@ import {
   DRAWIO_PREVIEW_PREFIX,
 } from "./model";
 import { validateMarks } from "../rich-text";
+import { PAYLOAD_PROBE } from "./payloads";
 
 const SUGGESTION_KINDS = ["replace", "delete"];
 const SOURCE_MAX = 20000;
@@ -166,9 +167,19 @@ function validateLanes(raw) {
   return out.slice(0, MAX_LANES);
 }
 
+/** The `{ size, rev }` reference to a node's stored payload, or null when absent or malformed. */
+export function payloadRef(r) {
+  const ref = r.payload;
+  if (!ref || typeof ref !== "object") return null;
+  const ok = (v) => Number.isInteger(v) && v >= 0 && v <= 2 ** 31 - 1;
+  return ok(ref.size) && ok(ref.rev) ? { size: ref.size, rev: ref.rev } : null;
+}
+
 /** The `format` node type; null when its kind is unknown. */
 export function validateFormatNode(r, base) {
   if (!FORMAT_KINDS.includes(r.format)) return null;
+  const ref = PAYLOAD_PROBE[r.format] ? payloadRef(r) : null;
+  const unloaded = ref !== null && !(PAYLOAD_PROBE[r.format] in r);
   const node = {
     ...base,
     type: "format",
@@ -180,7 +191,10 @@ export function validateFormatNode(r, base) {
     node.defaultView = true;
     if (r.viewLocked === true) node.viewLocked = true;
   }
-  if (r.format === "doc") {
+  if (ref) node.payload = ref;
+  if (unloaded) {
+    // The large fields live in their own rows and load on demand; none is invented for a node that has not loaded them.
+  } else if (r.format === "doc") {
     node.blocks = validateBlocks(r.blocks);
     const suggestions = validateSuggestions(r.suggestions, new Set(node.blocks.map((b) => b.id)));
     if (suggestions.length) node.suggestions = suggestions;

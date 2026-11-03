@@ -260,7 +260,7 @@ test('Board touch: a phone opens the board view-only, pans and zooms by touch, a
   await centreNode(touch, sticky, box);
   const start = await sticky.boundingBox();
   const centre = at(start.x - box.x + start.width / 2, start.y - box.y + start.height / 2);
-  const saved = phone.page.waitForResponse((response) => response.url().endsWith(boardPath) && ['PUT', 'PATCH'].includes(response.request().method()));
+  const saved = phone.page.waitForResponse((response) => new URL(response.url()).pathname === boardPath && ['PUT', 'PATCH'].includes(response.request().method()));
   await touch.drag(centre, { x: centre.x - 80, y: centre.y + 50 });
   expect((await saved).status()).toBe(200);
   const moved = await sticky.boundingBox();
@@ -360,7 +360,7 @@ test('Board touch: a tablet lays out every control and a view-role teammate neve
     if (request.url().includes('/api/canvas-boards/') && !request.url().includes('/pulse') && request.method() !== 'GET') writes.push(request.url());
   });
   await viewer.page.goto('/');
-  const loaded = viewer.page.waitForResponse((response) => response.url().endsWith(boardPath) && response.request().method() === 'GET');
+  const loaded = viewer.page.waitForResponse((response) => new URL(response.url()).pathname === boardPath && response.request().method() === 'GET');
   await viewer.page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Board', exact: true }).click();
   const viewerCanvas = viewer.page.getByRole('application', { name: 'Board canvas' });
   await expect(viewerCanvas).toBeVisible();
