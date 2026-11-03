@@ -4,8 +4,8 @@ Each entry is a ``apps.agents.board.TEXT_FORMATS`` entry: a fixed system prompt,
 generation config, so the agent payload allowlist and the paid guard keep requiring one exact request body. What varies
 between calls (a Sidekick's instructions and knowledge, the board summary, a Flow step's task and inputs) travels in the
 last user turn, never in the system prompt. Only the two web formats (``sidekick-web``, ``flowstep-web``) carry a tool,
-Gemini's ``google_search`` grounding; it is billed per search it runs (``Board AI web search`` in the pricing table), so
-the quote, the monthly AI credits and the Gemini spend window all count it. Every other format sends no tools.
+Gemini's ``google_search`` grounding; its fee (``Board AI web search`` in the pricing table) is in the quote, the
+monthly AI credits and the Gemini spend window. Every other format sends no tools.
 """
 import json
 import re

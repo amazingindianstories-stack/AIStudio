@@ -89,27 +89,13 @@ def execute_text(item, *, signal, env=None, transport=None, on_task=None):
         raise failure from None
     signal.check()
     result = {'status': 'succeeded', 'output': output, 'updated_at': now_ms()}
-    cost = searched_cost(item, value, candidate, env)
-    if cost is not None:
-        result['cost_cents'] = cost
+    if 'costWithoutSearchCents' in value and not ran_search(candidate):
+        result['cost_cents'] = value['costWithoutSearchCents']
     return result
 
 
-def search_count(candidate):
-    """How many Google Searches Gemini reports it ran for this answer."""
+def ran_search(candidate):
+    """Whether Gemini reports it ran a Google Search for this answer."""
     metadata = candidate.get('groundingMetadata') if isinstance(candidate, dict) else None
     queries = metadata.get('webSearchQueries') if isinstance(metadata, dict) else None
-    return sum(1 for query in queries if isinstance(query, str) and query.strip()) if isinstance(queries, list) else 0
-
-
-def searched_cost(item, value, candidate, env):
-    """The cost of a web-format job at the searches its answer reports (the quote estimated one), else None: grounding is
-    billed per search that actually ran."""
-    from apps.agents.board import is_web_format
-    from apps.agents.llm import advanced_agent_model, agent_model
-    from .pricing import read_pricing
-    from .text_submission import text_cost
-    if not is_web_format(value['format']):
-        return None
-    processing = 'advanced' if value['model'] == advanced_agent_model(env) and value['model'] != agent_model(env) else 'basic'
-    return text_cost(value, read_pricing(), processing, searches=search_count(candidate))
+    return isinstance(queries, list) and any(isinstance(query, str) and query.strip() for query in queries)

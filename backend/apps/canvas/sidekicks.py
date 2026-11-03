@@ -427,7 +427,7 @@ def turn_request(body):
 
 
 def turn_format(request):
-    """The text format of a chat turn: ``sidekick-web`` (Google Search grounding, priced per search) or ``sidekick``."""
+    """The text format of a chat turn: ``sidekick-web`` (Google Search grounding) or ``sidekick``."""
     return 'sidekick-web' if request['webSearch'] else 'sidekick'
 
 
@@ -474,12 +474,8 @@ def resolve_name(chat):
 def quote_job(actor, name, processing, turns):
     require_enabled(actor)
     result = text_submission.quote_text(actor, name, turns, processing)
-    quote = {'format': name, 'processing': processing, 'model': result['model'], 'costCents': result['costCents'],
-             'credits': quote_credits(actor.id)}
-    if 'groundingCents' in result:
-        # costCents already includes the Google Search grounding fee; it is shown on its own so the person sees it.
-        quote.update(webSearch=True, groundingCents=result['groundingCents'], groundingBasis=result['groundingBasis'])
-    return quote
+    return {'format': name, 'processing': processing, 'model': result['model'], 'costCents': result['costCents'],
+            'credits': quote_credits(actor.id)}
 
 
 def submit_job(actor, board, name, prompt, idempotency_key, *, request, build, chat=None, operation='BOARD_SIDEKICK_JOB'):

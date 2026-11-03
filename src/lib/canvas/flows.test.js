@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { downstreamOf, inputHash, inputIds, newStep, planRun, runOrder, stepInputs, templateGraph } from "./flows.js";
+import { downstreamOf, inputHash, inputIds, newStep, planRun, runOrder, stepBody, stepInputs, templateGraph } from "./flows.js";
 import { validateCanvasState } from "./serialization.js";
 
 const note = (id, text) => ({ id, type: "sticky", x: 0, y: 0, w: 200, h: 200, text, fill: "#e3c56a", fontSize: 16, color: "#1c1a12", opacity: 1, parentId: null, groupId: null });
@@ -42,19 +42,34 @@ test("a current step is skipped unless an input changed or the run is forced", (
   assert.deepEqual(planRun(edited, ["s1", "s2"]).steps.map((p) => p.skip), [false, false]);
 });
 
-test("the hash depends on task and every input", () => {
-  const base = inputHash("t", [{ text: "a" }]);
-  assert.notEqual(base, inputHash("u", [{ text: "a" }]));
-  assert.notEqual(base, inputHash("t", [{ text: "a" }, { text: "" }]));
-  assert.equal(base, inputHash("t", [{ text: "a" }]));
+test("the hash depends on task, web search and every input", () => {
+  const base = inputHash("t", false, [{ text: "a" }]);
+  assert.notEqual(base, inputHash("u", false, [{ text: "a" }]));
+  assert.notEqual(base, inputHash("t", true, [{ text: "a" }]));
+  assert.notEqual(base, inputHash("t", false, [{ text: "a" }, { text: "" }]));
+  assert.equal(base, inputHash("t", false, [{ text: "a" }]));
+  assert.equal(base, inputHash("t", undefined, [{ text: "a" }]));
   assert.equal(base.length, 16);
 });
 
+test("turning web search on makes a current step run again and sends it", () => {
+  const s = chain();
+  const first = planRun(s, ["s1"]);
+  const ran = state(s.nodes.map((n) => (n.id === "s1" ? { ...n, text: "out", flow: { ...n.flow, inputHash: first.steps[0].hash } } : n)), s.connectors);
+  assert.equal(planRun(ran, ["s1"]).steps[0].skip, true);
+  assert.equal("webSearch" in planRun(ran, ["s1"]).steps[0].body, false);
+  const web = state(ran.nodes.map((n) => (n.id === "s1" ? { ...n, flow: { ...n.flow, webSearch: true } } : n)), ran.connectors);
+  const plan = planRun(web, ["s1"]);
+  assert.equal(plan.steps[0].skip, false);
+  assert.deepEqual(plan.steps[0].body, { task: "Summarize", processing: "basic", inputs: [{ text: "alpha" }, { text: "beta" }], webSearch: true });
+  assert.deepEqual(stepBody(newStep({ task: "t", webSearch: true }), [], "advanced"), { task: "t", processing: "advanced", inputs: [], webSearch: true });
+});
+
 test("a template becomes chained steps the server keeps whole", () => {
-  const graph = templateGraph({ steps: [{ task: "One" }, { task: "Two" }] }, { x: 10, y: 20 });
+  const graph = templateGraph({ steps: [{ task: "One", webSearch: true }, { task: "Two" }] }, { x: 10, y: 20 });
   assert.equal(graph.nodes.length, 2);
   assert.equal(graph.connectors.length, 1);
   const parsed = validateCanvasState(state(graph.nodes, graph.connectors));
-  assert.deepEqual(parsed.nodes.map((n) => n.flow), [{ block: "instruction", task: "One" }, { block: "instruction", task: "Two" }]);
+  assert.deepEqual(parsed.nodes.map((n) => n.flow), [{ block: "instruction", task: "One", webSearch: true }, { block: "instruction", task: "Two" }]);
   assert.equal(parsed.nodes[0].aiCreated, true);
 });

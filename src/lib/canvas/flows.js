@@ -76,8 +76,8 @@ export function stepInputs(state, stepId, outputs = {}) {
 }
 
 /** A short stable fingerprint of what a step would send: an unchanged step is not run (or paid for) again. */
-export function inputHash(task, inputs) {
-  const text = JSON.stringify([task, inputs.map((i) => i.text)]);
+export function inputHash(task, webSearch, inputs) {
+  const text = JSON.stringify([task, webSearch === true, inputs.map((i) => i.text)]);
   let a = 0x811c9dc5;
   let b = 0x01000193;
   for (let i = 0; i < text.length; i += 1) {
@@ -90,7 +90,7 @@ export function inputHash(task, inputs) {
 
 /** The request body for one step. */
 export function stepBody(step, inputs, processing = "basic") {
-  return { task: step.flow.task, processing, inputs };
+  return { task: step.flow.task, processing, inputs, ...(step.flow.webSearch ? { webSearch: true } : {}) };
 }
 
 /**
@@ -105,7 +105,7 @@ export function planRun(state, stepIds, { force = false, processing = "basic", o
   const steps = order.map((id) => {
     const step = byId.get(id);
     const inputs = stepInputs(state, id, outputs);
-    const hash = inputHash(step.flow.task, inputs);
+    const hash = inputHash(step.flow.task, step.flow.webSearch, inputs);
     const upstreamStale = inputIds(state, id).some((from) => stale.has(from));
     const skip = !force && !upstreamStale && step.flow.inputHash === hash && nodeText(step) !== "";
     if (!skip) stale.add(id);
@@ -115,17 +115,17 @@ export function planRun(state, stepIds, { force = false, processing = "basic", o
 }
 
 /** One new Flow step as an unplaced sticky (the caller positions it). */
-export function newStep({ task, block = "instruction", id = crypto.randomUUID(), x = 0, y = 0 }) {
+export function newStep({ task, webSearch = false, block = "instruction", id = crypto.randomUUID(), x = 0, y = 0 }) {
   return {
     id, type: "sticky", x, y, w: 240, h: 200, text: "", fill: "#6f9bd1", fontSize: 16, color: "#1c1a12", opacity: 1,
     parentId: null, groupId: null, aiCreated: true,
-    flow: { block, task },
+    flow: { block, task, ...(webSearch ? { webSearch: true } : {}) },
   };
 }
 
-/** A starter from the server's template list (`{ steps: [{ task }] }`, run in order) as nodes and arrows. */
+/** A starter from the server's template list (`{ steps: [{ task, webSearch? }] }`, run in order) as nodes and arrows. */
 export function templateGraph(template, origin) {
-  const nodes = template.steps.map((s, i) => newStep({ task: s.task, x: origin.x + i * 300, y: origin.y }));
+  const nodes = template.steps.map((s, i) => newStep({ task: s.task, webSearch: s.webSearch === true, x: origin.x + i * 300, y: origin.y }));
   const connectors = nodes.slice(1).map((node, i) => ({
     id: crypto.randomUUID(), from: { nodeId: nodes[i].id, anchor: "auto" }, to: { nodeId: node.id, anchor: "auto" }, kind: "arrow", stroke: "#000000", strokeWidth: 2,
   }));
