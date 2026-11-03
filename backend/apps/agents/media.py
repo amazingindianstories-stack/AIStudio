@@ -12,6 +12,9 @@ NOT_FOUND. Images, video, audio and PDFs go inline up to ``INLINE_BYTES`` (``INL
 body stays under ``loop_llm.MAX_BODY_BYTES``), else through the Files API, and ``release`` deletes those files
 whatever happened. Plain text, markdown and docx become text parts. Every text from a file is ``untrusted``: a fixed
 delimiter block, cut to a character budget. Size and duration caps are admin limit keys read at call time.
+
+``describe`` is the view_media/read_document sub-call (``apps.mcp.tools.media``): one media call about one file, its
+answer ``untrusted`` too.
 """
 import base64
 import io
@@ -29,9 +32,11 @@ from apps.generation.models import Generation
 from apps.media.audio_duration import audio_seconds
 from apps.media.keys import is_protected_key, media_key_from_ref
 from apps.media.models import UploadSession
+from apps.integrations.transport import ProviderError
 from apps.media.storage import MediaNotFoundError, get_storage
 from apps.mcp import errors
-from .loop_llm import FILE_URI, FILES_DISPLAY_NAME, FILES_UPLOAD, MEDIA_MIME, GeminiFilesTransport
+from .loop_llm import (FILE_URI, FILES_DISPLAY_NAME, FILES_UPLOAD, LOOP_MODEL, MEDIA_MIME, AgentLoopTransport, GeminiFilesTransport,
+                       media_body)
 from .models import AgentChatAsset
 
 logger = logging.getLogger(__name__)
@@ -44,6 +49,7 @@ DEFAULTS = {'agentAttachmentMaxBytes': 50 * MB, 'agentAttachmentMaxSeconds': 600
 INLINE_BYTES = 4 * MB                   # one file inline at most; larger files go through the Files API
 INLINE_TOTAL = 9 * MB                   # all inline files of one call: 12 MB as base64, under MAX_BODY_BYTES with the turns
 TEXT_CHARS = 50_000                     # characters of one file's text the agent sees
+ANSWER_CHARS = 20_000                   # characters of one media sub-call's answer the agent sees
 FILE_POLLS, FILE_POLL_SECONDS = 30, 2   # a Files API upload must be ACTIVE within about a minute
 DOCX_MEMBERS = 1000
 DOCX_TOTAL_BYTES = 100 * MB             # declared uncompressed size of every member
@@ -258,12 +264,18 @@ class Files:
                 logger.warning('agent_file_delete_failed file=%s error_type=%s', uri.rsplit('/', 1)[-1], type(error).__name__)
 
 
+def document_text(asset):
+    """A plain text, markdown or docx file's text as ``untrusted``; None for every other type."""
+    if asset.mime in TEXT_MIME:
+        return untrusted(asset.data.decode('utf-8', errors='replace'))
+    return untrusted(docx_text(asset.data)) if asset.mime == DOCX else None
+
+
 def asset_part(asset, files, inline_total=0):
     """``(part, inline bytes used)``: text for plain text, markdown and docx; inline or a Files API upload otherwise."""
-    if asset.mime in TEXT_MIME:
-        return {'text': untrusted(asset.data.decode('utf-8', errors='replace'))}, inline_total
-    if asset.mime == DOCX:
-        return {'text': untrusted(docx_text(asset.data))}, inline_total
+    text = document_text(asset)
+    if text is not None:
+        return {'text': text}, inline_total
     if len(asset.data) <= INLINE_BYTES and inline_total + len(asset.data) <= INLINE_TOTAL:
         part = {'inlineData': {'mimeType': asset.mime, 'data': base64.b64encode(asset.data).decode()}}
         return part, inline_total + len(asset.data)
@@ -283,6 +295,38 @@ def attachment_parts(user_id, asset_ids, *, api_key, storage=None, transport=Non
         files.release()
         raise
     return parts, files.release
+
+
+def answer_text(response):
+    """The answer's text parts joined, without thoughts; None when it has none."""
+    try:
+        parts = response.json()['candidates'][0]['content']['parts']
+        text = ''.join(part['text'] for part in parts if isinstance(part.get('text'), str) and not part.get('thought'))
+    except (ValueError, KeyError, IndexError, TypeError, AttributeError):
+        return None
+    return text.strip() or None
+
+
+def describe(asset, question=None, *, api_key, usage, transport=None, files_transport=None):
+    """One media sub-call about an image, video, audio or PDF ``asset``: ``MEDIA_PROMPT``, the file and the question
+    quoted as data, on ``LOOP_MODEL`` under ``usage`` (purpose 'media'). The answer comes back ``untrusted`` and cut to
+    ``ANSWER_CHARS``; the Files API upload, if any, is deleted whatever happened."""
+    files, transport = Files(api_key, files_transport), transport or AgentLoopTransport(LOOP_MODEL, usage)
+    try:
+        part, _ = asset_part(asset, files)
+        response = transport.request('POST', transport.endpoint, headers={'Content-Type': 'application/json', 'x-goog-api-key': api_key},
+                                     body=media_body([part], question))
+    except ProviderError as error:
+        response = None
+        logger.warning('agent_media_call_failed code=%s', error.code)
+    finally:
+        files.release()
+    text = answer_text(response) if response is not None and response.ok else None
+    if text is None:
+        if response is not None:
+            logger.warning('agent_media_call_failed status=%s', response.status)
+        raise errors.ToolError(errors.INTERNAL_ERROR, f'Veevee could not read file {asset.id} for the agent. Try again in a minute.')
+    return untrusted(text, ANSWER_CHARS)
 
 
 def record_attachment(conversation_id, asset, *, run_id=None, now=None):
