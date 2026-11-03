@@ -111,7 +111,7 @@ export function FlowsTab({ boardId }) {
           {running ? (
             <button type="button" onClick={() => useFlowRun.getState().cancel()} className="flex items-center gap-1 rounded-md px-2.5 py-1 font-medium text-white ring-1 ring-line"><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />Stop after this step</button>
           ) : (
-            <button type="button" disabled={!toRun || exhausted} onClick={() => void useFlowRun.getState().run(ids, { force })} className="flex items-center gap-1 rounded-md bg-brand px-2.5 py-1 font-medium text-white disabled:opacity-40"><Play className="h-3.5 w-3.5" aria-hidden />Run</button>
+            <button type="button" disabled={!toRun || exhausted} onClick={() => void useFlowRun.getState().run(ids, { force })} className="flex items-center gap-1 rounded-md bg-brand px-2.5 py-1 font-medium text-ink-900 disabled:opacity-40"><Play className="h-3.5 w-3.5" aria-hidden />Run</button>
           )}
         </div>
       )}

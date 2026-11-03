@@ -255,7 +255,7 @@ function ChatTab({ boardId, projectId }) {
             Sources{sources.length ? ` (${sources.length})` : ""}
           </button>
           <span className="ml-auto text-white/55" data-testid="sidekick-cost">{exhausted ? "Out of AI credits" : quote ? `~${formatCost(quote.costCents)}` : ""}</span>
-          <button type="button" onClick={() => void send()} disabled={busy || !draft.trim() || exhausted} className="flex items-center gap-1 rounded-md bg-brand px-2.5 py-1 font-medium text-white disabled:opacity-40">
+          <button type="button" onClick={() => void send()} disabled={busy || !draft.trim() || exhausted} className="flex items-center gap-1 rounded-md bg-brand px-2.5 py-1 font-medium text-ink-900 disabled:opacity-40">
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden /> : <Send className="h-3.5 w-3.5" aria-hidden />}Send
           </button>
         </div>
@@ -302,7 +302,7 @@ function SourcePicker({ boardId, projectId, onClose }) {
             onClick={() => useSidekick.getState().toggleSource({ kind: item.kind, id: item.id })}
             className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-white/80 hover:bg-white/[0.07] disabled:opacity-40"
           >
-            <span className={cn("grid h-3.5 w-3.5 shrink-0 place-items-center rounded border", chosen ? "border-brand bg-brand text-white" : "border-line")}>{chosen && <Check className="h-3 w-3" aria-hidden />}</span>
+            <span className={cn("grid h-3.5 w-3.5 shrink-0 place-items-center rounded border", chosen ? "border-brand bg-brand text-ink-900" : "border-line")}>{chosen && <Check className="h-3 w-3" aria-hidden />}</span>
             <span className="truncate">{item.label}</span>
           </button>
         );
