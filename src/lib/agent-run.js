@@ -307,6 +307,85 @@ export function outcomeText(outcome) {
   return "";
 }
 
+/** "some_tool", "someKey" or "SOME_CODE" in sentence case: "Some tool", "Some key", "Some code". */
+export function sentenceCase(name) {
+  const words = String(name ?? "").replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").trim().toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** The line under an active run: what it is doing, and whether that is work (a spinner), a pause or a wait on the artist. */
+export function statusLine(view) {
+  if (view.stopping) return { label: "Stopping…", icon: "spin" };
+  if (view.status === "waiting_approval") return { label: "Waiting for your approval", icon: "clock" };
+  if (view.status === "paused_limit") return { label: "Paused", icon: "pause" };
+  if (view.status === "waiting_jobs") {
+    const count = view.waitingOn?.length || 0;
+    return { label: `Waiting for ${count || "its"} job${count === 1 ? "" : "s"} to finish`, icon: "spin" };
+  }
+  return { label: view.status === "queued" ? "Starting…" : "Working…", icon: "spin" };
+}
+
+const STEP_STATUS = { running: "Running", done: "Done", error: "Failed", declined: "Declined", quote: "Waiting for approval" };
+
+const STEP_OUTCOMES = {
+  INVALID_INPUT: "the request was not valid",
+  MODEL_UNAVAILABLE: "the model is not available",
+  NOT_FOUND: "not found",
+  BUDGET_EXCEEDED: "refused by a limit",
+  RATE_LIMITED: "refused by a limit",
+  CONCURRENCY_LIMIT: "refused by a limit",
+  PAID_BUDGET_HOLD: "refused by a limit",
+  COST_LIMIT: "refused by a limit",
+  MAINTENANCE: "Veevee is being updated",
+  MCP_DISABLED: "agent changes are switched off",
+  IDEMPOTENCY_CONFLICT: "it conflicted with an earlier call",
+  VERSION_CONFLICT: "it changed in the meantime",
+  INSUFFICIENT_SCOPE: "not allowed",
+  FORBIDDEN: "not allowed",
+  UNKNOWN_TOOL: "this tool cannot be used here",
+  DESIGN_FAILED: "the prompt could not be designed",
+  INTERNAL_ERROR: "something went wrong in Veevee",
+};
+
+/** A tool step's status in plain words: "Done", "Failed", or "Failed: refused by a limit" for a specific outcome. */
+export function stepStatusText(step) {
+  if (step.status !== "error") return STEP_STATUS[step.status] || "Running";
+  const outcome = step.outcome;
+  if (!outcome || outcome === "error") return "Failed";
+  return `Failed: ${STEP_OUTCOMES[outcome] || sentenceCase(outcome).toLowerCase()}`;
+}
+
+const ARGUMENT_LABELS = {
+  model: "Model",
+  aspectRatio: "Aspect ratio",
+  resolution: "Resolution",
+  duration: "Duration",
+  durationSeconds: "Duration",
+  count: "Count",
+  outputs: "Count",
+  seed: "Seed",
+  mode: "Mode",
+  generateAudio: "Audio",
+  draft: "Draft",
+  bitrateMode: "Bitrate",
+  quality: "Quality",
+};
+// Call plumbing the model may pass that says nothing about what the artist pays for.
+const HIDDEN_ARGUMENTS = new Set(["prompt", "wait", "maxWaitSeconds", "includePreview", "quoteToken", "idempotencyKey", "confirmedByUser"]);
+
+function argumentValue(key, value) {
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (key === "duration" || key === "durationSeconds") return `${value}s`;
+  return String(value);
+}
+
+/** The quote card's argument rows: human labels and values with units, without the prompt or call plumbing. */
+export function quoteDetails(args) {
+  return Object.entries(args || {})
+    .filter(([key, value]) => !HIDDEN_ARGUMENTS.has(key) && value !== null && value !== undefined && typeof value !== "object")
+    .map(([key, value]) => ({ key, label: ARGUMENT_LABELS[key] || sentenceCase(key), value: argumentValue(key, value) }));
+}
+
 const ACTION_ERRORS = {
   NO_PENDING_QUOTE: "This quote is no longer waiting for approval.",
   RUN_FINISHED: "This run has already finished.",

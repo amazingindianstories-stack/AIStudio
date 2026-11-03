@@ -81,6 +81,7 @@ test('Agents runs: the feed renders model text, tool steps, jobs and a delivered
   const feed = page.getByTestId('studio-chat-feed');
   const panel = feed.getByTestId('agent-run');
   await expect(panel.getByTestId('agent-run-status')).toHaveText('Starting…');
+  await expect(panel.getByTestId('agent-run-status')).toHaveAttribute('data-icon', 'spin');
   const queued = await send(page, 'Use a warmer palette.', 202);
   await expect(page.getByTestId('agent-queued-message')).toContainText('Use a warmer palette.');
 
@@ -111,7 +112,7 @@ test('Agents runs: the feed renders model text, tool steps, jobs and a delivered
     await expect(steps.nth(0)).toContainText('Generate image');
     await expect(steps.nth(0)).toContainText('Queued one image.');
     await expect(steps.nth(1)).toHaveAttribute('data-status', 'error');
-    await expect(steps.nth(1)).toContainText('Failed (COST_LIMIT)');
+    await expect(steps.nth(1)).toContainText('Failed: refused by a limit');
     await expect(steps.nth(1)).toContainText('That video would pass the run cost limit.');
   };
   await expectLiveRun();
@@ -164,9 +165,9 @@ test('Agents runs: a quote of $1.00 or more needs a second confirmation, and a d
   await expect(card).toContainText('Generate video costs $1.50');
   await expect(card).toContainText('One 5 second video.');
   await expect(card).toContainText(prompt);
-  await expect(card).toContainText('Duration');
-  await expect(card).toContainText('16:9');
+  await expect(card.locator('dl')).toHaveText('Duration5sAspect ratio16:9');
   await expect(panel.getByTestId('agent-run-status')).toHaveText('Waiting for your approval');
+  await expect(panel.getByTestId('agent-run-status')).toHaveAttribute('data-icon', 'clock');
 
   const approvals = [];
   page.on('request', (request) => { if (request.url().endsWith('/approve')) approvals.push(request.postDataJSON()); });
@@ -236,6 +237,8 @@ test('Agents runs: a paused run shows why and when it continues, and Stop and ca
   await expect(paused).toContainText('You reached your daily agent spending cap.');
   await expect(paused).toContainText(/It tries again in 1[01] minutes\./);
   await expect(panel.getByTestId('agent-run-status')).toHaveText('Paused');
+  await expect(panel.getByTestId('agent-run-status')).toHaveAttribute('data-icon', 'pause');
+  await expect(panel.getByTestId('agent-run-status').locator('.animate-spin')).toHaveCount(0);
 
   const stopped = page.waitForResponse((response) => response.url().endsWith('/cancel'));
   await panel.getByRole('button', { name: 'Stop and cancel jobs', exact: true }).click();

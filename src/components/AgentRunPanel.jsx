@@ -1,7 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
 import { AlertCircle, Ban, Check, Clock, Loader2, PauseCircle, Wrench, X } from "lucide-react";
-import { needsSecondConfirmation, outcomeText, pauseReasonText, quoteCardStep, quoteCost, resumeText } from "@/lib/agent-run";
+import {
+  needsSecondConfirmation, outcomeText, pauseReasonText, quoteCardStep, quoteCost, quoteDetails, resumeText, sentenceCase, statusLine, stepStatusText,
+} from "@/lib/agent-run";
 import { MediaCard } from "./MediaCard";
 import { GenerationStatus } from "./GenerationStatus";
 import { cn } from "@/lib/utils";
@@ -9,17 +11,8 @@ import { cn } from "@/lib/utils";
 const BUBBLE = "max-w-[85%] whitespace-pre-wrap rounded-xl px-3 py-2 text-sm leading-relaxed";
 
 function toolLabel(tool) {
-  const words = String(tool || "tool").replace(/_/g, " ");
-  return words.charAt(0).toUpperCase() + words.slice(1);
+  return sentenceCase(tool || "tool");
 }
-
-const STEP_STATUS = {
-  running: "Running",
-  done: "Done",
-  error: "Failed",
-  declined: "Declined",
-  quote: "Waiting for approval",
-};
 
 function StepIcon({ status }) {
   if (status === "running") return <Loader2 className="h-3.5 w-3.5 animate-spin text-brand" />;
@@ -42,7 +35,7 @@ function JobResult({ job, item }) {
 
 function ToolStep({ step, jobs, findItem }) {
   const quote = step.quote;
-  const status = step.status === "error" && step.outcome ? `Failed (${step.outcome})` : STEP_STATUS[step.status] || "Running";
+  const status = stepStatusText(step);
   return (
     <div data-testid="agent-run-step" data-status={step.status} className="flex max-w-[85%] flex-col gap-1.5">
       <div className="flex items-start gap-2 rounded-lg border border-line bg-ink-800/70 px-2.5 py-1.5 text-xs text-white/70">
@@ -82,7 +75,7 @@ function QuoteCard({ quote, onDecide }) {
       setPhase("idle");
     }
   };
-  const details = Object.entries(quote.arguments || {}).filter(([key, value]) => key !== "prompt" && value !== null && typeof value !== "object");
+  const details = quoteDetails(quote.arguments);
   return (
     <section aria-label="Quote waiting for approval" className="flex max-w-[85%] flex-col gap-2 rounded-xl border border-amber-300/30 bg-amber-300/5 px-3 py-2.5 text-xs text-white/75">
       <p className="text-sm font-medium text-white">{toolLabel(quote.tool)} costs {cost}</p>
@@ -90,8 +83,8 @@ function QuoteCard({ quote, onDecide }) {
       {quote.prompt && <p className="whitespace-pre-wrap break-words rounded-lg bg-ink-800/80 px-2 py-1.5 text-white/80">{quote.prompt}</p>}
       {details.length > 0 && (
         <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5 text-white/60">
-          {details.map(([key, value]) => (
-            <div key={key} className="contents"><dt>{toolLabel(key)}</dt><dd className="truncate text-white/80">{String(value)}</dd></div>
+          {details.map(({ key, label, value }) => (
+            <div key={key} className="contents"><dt>{label}</dt><dd className="truncate text-white/80">{value}</dd></div>
           ))}
         </dl>
       )}
@@ -125,10 +118,8 @@ function QuoteCard({ quote, onDecide }) {
 function StatusLine({ view, onStop }) {
   const [stopping, setStopping] = useState(false);
   const [error, setError] = useState(null);
-  const label = view.stopping ? "Stopping…"
-    : view.status === "waiting_approval" ? "Waiting for your approval"
-      : view.status === "waiting_jobs" ? `Waiting for ${view.waitingOn.length || "its"} job${view.waitingOn.length === 1 ? "" : "s"} to finish`
-        : view.status === "paused_limit" ? "Paused" : view.status === "queued" ? "Starting…" : "Working…";
+  const { label, icon } = statusLine(view);
+  const Icon = icon === "pause" ? PauseCircle : icon === "clock" ? Clock : Loader2;
   const stop = async (cancelJobs) => {
     setStopping(true);
     setError(null);
@@ -138,7 +129,9 @@ function StatusLine({ view, onStop }) {
   };
   return (
     <div className="flex flex-wrap items-center gap-2 text-xs text-white/50">
-      <span role="status" data-testid="agent-run-status" className="flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" /> {label}</span>
+      <span role="status" data-testid="agent-run-status" data-icon={icon} className="flex items-center gap-1.5">
+        <Icon aria-hidden="true" className={cn("h-3.5 w-3.5", icon === "spin" && "animate-spin")} /> {label}
+      </span>
       {!view.stopping && (
         <>
           <button type="button" disabled={stopping} onClick={() => stop(false)} className="rounded-full border border-line px-2.5 py-0.5 text-white/70 transition hover:text-white disabled:opacity-50">

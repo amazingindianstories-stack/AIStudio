@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   addQueuedMessage, applyPage, drainFeed, forgetRunState, isSettled, needsSecondConfirmation, outcomeText, pauseReasonText,
-  pollDelay, quoteCardStep, quoteCost, restoreRunState, resumeText, runAction, runState, runView, saveRunState, withRun,
+  pollDelay, quoteCardStep, quoteCost, quoteDetails, restoreRunState, resumeText, runAction, runState, runView, saveRunState,
+  sentenceCase, statusLine, stepStatusText, withRun,
 } from "./agent-run.js";
 
 const RUN = { id: "run-1", conversationId: "c-1", status: "running", costCents: 0, stepCount: 0, cancelRequestedAt: null, cancelJobs: false,
@@ -372,4 +373,49 @@ test("runAction turns a quote or run that moved on into a plain message", async 
   assert.equal((await runAction("c-1", "run-1", "approve", { stepIndex: 2 }, disabled.fetchImpl)).error, "Agents are turned off for your account.");
   const offline = await runAction("c-1", "run-1", "approve", { stepIndex: 2 }, async () => { throw new TypeError("offline"); });
   assert.deepEqual(offline, { ok: false, run: null, code: null, error: "Veevee could not be reached. Try again." });
+});
+
+test("statusLine spins only while the run works; a pause and a wait on the artist hold still", () => {
+  const line = (status, fields = {}) => statusLine({ status, waitingOn: [], stopping: null, ...fields });
+  for (const status of ["queued", "running", "waiting_jobs"]) assert.equal(line(status).icon, "spin", status);
+  assert.deepEqual(line("queued"), { label: "Starting…", icon: "spin" });
+  assert.deepEqual(line("running"), { label: "Working…", icon: "spin" });
+  assert.deepEqual(line("waiting_jobs", { waitingOn: ["g-1"] }), { label: "Waiting for 1 job to finish", icon: "spin" });
+  assert.equal(line("waiting_jobs", { waitingOn: ["g-1", "g-2"] }).label, "Waiting for 2 jobs to finish");
+  assert.equal(line("waiting_jobs").label, "Waiting for its jobs to finish");
+  assert.deepEqual(line("paused_limit"), { label: "Paused", icon: "pause" });
+  assert.deepEqual(line("waiting_approval"), { label: "Waiting for your approval", icon: "clock" });
+  assert.deepEqual(line("waiting_approval", { stopping: { cancelJobs: false } }), { label: "Stopping…", icon: "spin" });
+});
+
+test("stepStatusText says Failed for a generic error and names a specific outcome in plain words", () => {
+  assert.equal(stepStatusText({ status: "error", outcome: "error" }), "Failed");
+  assert.equal(stepStatusText({ status: "error" }), "Failed");
+  assert.equal(stepStatusText({ status: "error", outcome: "COST_LIMIT" }), "Failed: refused by a limit");
+  assert.equal(stepStatusText({ status: "error", outcome: "RATE_LIMITED" }), "Failed: refused by a limit");
+  assert.equal(stepStatusText({ status: "error", outcome: "INVALID_INPUT" }), "Failed: the request was not valid");
+  assert.equal(stepStatusText({ status: "error", outcome: "SOMETHING_NEW" }), "Failed: something new");
+  assert.equal(stepStatusText({ status: "done", outcome: "ok" }), "Done");
+  assert.equal(stepStatusText({ status: "quote" }), "Waiting for approval");
+  assert.equal(stepStatusText({ status: "declined" }), "Declined");
+  assert.equal(stepStatusText({ status: "running" }), "Running");
+});
+
+test("quoteDetails labels arguments as the composer does and leaves out the prompt and call plumbing", () => {
+  assert.deepEqual(quoteDetails({
+    prompt: "A fox", model: "seedance-2.5", aspectRatio: "16:9", durationSeconds: 5, resolution: "1080p", count: 2,
+    generateAudio: false, someKey: "x", wait: false, quoteToken: "t", referenceImageIds: ["a"], seed: null,
+  }), [
+    { key: "model", label: "Model", value: "seedance-2.5" },
+    { key: "aspectRatio", label: "Aspect ratio", value: "16:9" },
+    { key: "durationSeconds", label: "Duration", value: "5s" },
+    { key: "resolution", label: "Resolution", value: "1080p" },
+    { key: "count", label: "Count", value: "2" },
+    { key: "generateAudio", label: "Audio", value: "No" },
+    { key: "someKey", label: "Some key", value: "x" },
+  ]);
+  assert.deepEqual(quoteDetails({ duration: 10 }), [{ key: "duration", label: "Duration", value: "10s" }]);
+  assert.deepEqual(quoteDetails(undefined), []);
+  assert.equal(sentenceCase("generate_video"), "Generate video");
+  assert.equal(sentenceCase("AspectRatio"), "Aspect ratio");
 });
