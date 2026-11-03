@@ -69,7 +69,7 @@ An Agents tab chat turn can run as a durable run (`agent_runs`) that the `agent`
 so a turn survives a closed tab, a deploy or a worker crash. The old synchronous path (`POST .../messages`, one short
 tool loop inside the request) still serves the current UI; the run endpoints below are for the new tab. Code lives in
 `apps/agents`: `runs.py` (the services the views adapt), `runner.py` (the state machine), `worker.py` (claim,
-heartbeat and the scheduler's resume pass), `events.py`, `limits.py` and `design.py`.
+heartbeat and the scheduler's resume pass), `events.py`, `step_limits.py` and `design.py`.
 
 ```
 queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed | failed | cancelled
@@ -105,7 +105,7 @@ queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed
   back to `queued`), honours a cancel request, re-checks the grant (`AgentGrantInvalid` fails the run), and checks the
   bounds: the `agentsEnabled` setting (off pauses the run as `paused_limit`, `agents_disabled`, retried every minute),
   the per-run bounds in `runner.py` (60 steps, 5000 estimator cents of paid estimates, 2 hours from the first step;
-  reaching one fails the run), and `limits.check_limits(run, step_kind)`, which allows everything today; a non-ok
+  reaching one fails the run), and `step_limits.check_limits(run, step_kind)`, which allows everything today; a non-ok
   verdict pauses the run as `paused_limit` with its `pause_reason` and `resume_after`.
 - **Cancel.** A stop request sets `cancel_requested_at`; the run ends `cancelled` at its next step boundary, and jobs
   already queued finish normally. "Stop and cancel jobs" (`cancel_jobs`) also cancels every active linked job through
