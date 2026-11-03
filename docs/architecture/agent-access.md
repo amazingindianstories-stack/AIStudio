@@ -107,7 +107,8 @@ queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed
   back to `queued`), honours a cancel request, re-checks the grant (`AgentGrantInvalid` fails the run), delivers the
   inbox, and checks the
   bounds: the global `agentsEnabled` setting (`0` pauses the run as `paused_limit`, `agents_disabled`, retried every
-  minute; unset, `1` or an unparsable value is on), the per-run bounds in `runner.py`, and
+  minute; unset, `1` or an unparsable value is on; the runner does not observe the maintenance write freeze yet, so
+  setting `agentsEnabled` to `0` is how to stop runs during a freeze), the per-run bounds in `runner.py`, and
   `step_limits.check_limits(run, step_kind)`, which allows everything today; a non-ok verdict pauses the run as
   `paused_limit` with its `pause_reason` and `resume_after`. The per-run bounds (module constants until the admin
   limits replace them) also pause the run as `paused_limit`, with no `resume_after`, so it waits for the artist instead
