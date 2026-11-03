@@ -36,7 +36,12 @@ class ApiAdmissionTests(TransactionTestCase):
             self.assertEqual(other.exception.args[0], 'EXPORT_NOT_FOUND')
 
     def test_the_mcp_service_admits_the_exports_it_creates_like_the_api(self):
-        with override_settings(**{**API, 'VEEVEE_RUNTIME_COMPONENT': 'mcp'}):
+        for component in ('mcp', 'agent'):
+            with self.subTest(component=component):
+                self.admits_like_the_api(component)
+
+    def admits_like_the_api(self, component):
+        with override_settings(**{**API, 'VEEVEE_RUNTIME_COMPONENT': component}):
             self.assertTrue(admission.api_enabled())
             actor = uuid.uuid4()
             created = services.create_export(actor, now=1000)

@@ -79,7 +79,8 @@ class ComponentDeploymentParityTests(SimpleTestCase):
     def test_worker_commands_and_arguments(self):
         self.assertEqual(entrypoint.WORKER_COMMANDS, {
             'generation': ['generation_worker', '--interval', '2'],
-            'export': ['media_export_worker', '--interval', '2'], 'scheduler': ['run_scheduler']})
+            'export': ['media_export_worker', '--interval', '2'], 'scheduler': ['run_scheduler'],
+            'agent': ['agent_worker', '--interval', '1']})
         for args in ([], ['entrypoint'], ['entrypoint', 'unknown']):
             with self.assertRaisesRegex(SystemExit, 'usage: python -m deploy.entrypoint'):
                 entrypoint.main(args)

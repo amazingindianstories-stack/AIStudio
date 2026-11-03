@@ -51,6 +51,14 @@ MCP_DENIED = PROVIDER_KEYS | BYTEPLUS_KEYS | {'MAGNIFIC_API_KEY', 'KLING_API'}
 MCP_KEYS = ('VEEVEE_MCP', 'MCP_QUOTE_SECRET', 'MCP_MAX_HOLD_SECONDS')
 # Board notification Web Push (apps.canvas.push): the API offers subscriptions and the scheduler sends the pushes.
 WEB_PUSH_KEYS = ('VEEVEE_WEB_PUSH_PUBLIC_KEY', 'VEEVEE_WEB_PUSH_PRIVATE_KEY', 'VEEVEE_WEB_PUSH_SUBJECT')
+# The agent worker (apps.agents.worker) runs like the MCP service, as the API role with the API's storage, flags and
+# paid-guard policy, and calls the same tools in-process. Its own LLM calls need Gemini, so GOOGLE_API_KEY is the one
+# provider credential it receives (AGENT_KEYS); every other provider key, the portrait lifecycle and pool, Web Push and
+# the ingress secret (it serves no HTTP) stay out. It signs and checks its quotes with its own MCP_QUOTE_SECRET variable.
+AGENT_KEYS = frozenset({'GOOGLE_API_KEY'})
+AGENT_DENIED = (MCP_DENIED - AGENT_KEYS) | set(WEB_PUSH_KEYS) | {'VEEVEE_PORTRAIT_LIFECYCLE', 'VEEVEE_MANAGED_PORTRAITS',
+                                                                 'VEEVEE_INGRESS_SECRET', 'PORT'}
+AGENT_SERVICE_KEYS = ('MCP_QUOTE_SECRET', 'VEEVEE_AGENT_WORKER_SLOTS')
 # KLING_API_HOST may only name a Kling API origin (the key is sent there); see apps.generation.providers.kling.
 KLING_HOST = re.compile(r'https://(?:[a-z0-9-]+\.)+klingai\.com/?')
 
@@ -173,10 +181,20 @@ def _mcp(env, out):
     return out
 
 
+def _agent(env, out):
+    """The API's database role, storage, flags and paid-guard policy with ``AGENT_KEYS`` as the only provider
+    credential; plus the agent worker's quote secret and run slots."""
+    out = {key: value for key, value in out.items() if key not in AGENT_DENIED}
+    out.update({key: env[key] for key in AGENT_SERVICE_KEYS if env.get(key)})
+    return out
+
+
 def translate(component, env):
     """Return the complete, allowlisted environment for ``component``."""
     if component == 'mcp':
         return _mcp(env, translate('api', env))
+    if component == 'agent':
+        return _agent(env, translate('api', env))
     if component == 'api':
         cfg = json.loads(env[API_VARIABLE])
         need(cfg.get('role') == API_ROLE, 'unexpected API role')
@@ -219,7 +237,7 @@ def translate(component, env):
 
 def preflight_contract(component, env):
     """Database facts every service must observe before it starts (from the old launchers)."""
-    if component in ('api', 'mcp'):
+    if component in ('api', 'mcp', 'agent'):
         return {'role': API_ROLE}
     cfg = json.loads(env[WORKER_VARIABLE])
     return {'role': cfg['role'], 'rls_tables': cfg['rls_tables'], 'hidden_job_contracts': cfg['hidden_job_contracts']}
