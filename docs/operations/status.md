@@ -14,6 +14,81 @@ preview build first. Production only receives a release after it has passed ther
 
 Legend: PASS · FAIL · NOT VERIFIED · PENDING (not started) · BLOCKED (needs owner approval)
 
+## Production release 2026-11-02 (second) - main `c4c56d23`
+
+Owner-approved release of the combined board PR (#139): every remaining board slice (formats, media, templates, comments and
+notifications, facilitation, AI create and sidekicks, find and presenting, drawing and frames, cards, import and export,
+admin). The deployed commit is `c4c56d23`, the merge of #139. Its gate (1,825 backend and 1,467 frontend tests) and local
+rehearsal passed, including the 81 -> 90 migration on a restored copy with grants checked on every new table. The board AI
+colour and image-accuracy fix is not part of it and ships later.
+
+Maintenance was ON from about 16:21 UTC on 2026-11-02 until about 17:33 UTC, longer than planned: after the backup and the
+migration every `railway up` was refused ("Your trial has expired") until the owner bought a Railway plan (now hobby), and
+the previous images cannot start on schema 90, so maintenance stayed on until the new images were up. Queues were empty
+before the backup and the migration.
+
+### Migration and backup evidence
+
+A fresh private backup (`bundle.tar` SHA-256 `7b84bbd34cbd4708ef78b32b0d74d40b953c41d01588b0becbf51c30903cef80`, 20.9 MB,
+taken 16:21 UTC) is kept outside Git. Production applied nine migrations (`canvas.0009_work_records` to
+`canvas.0017_sidekicks_flows`): 81 -> 90 rows, none pending. `audit_generation_names` gave the same result before and
+after. API and worker grants were proven on the restored copy for every new table before the window.
+
+### Deployments
+
+| Service | Deployed (all `c4c56d23`) | Before this release (rollback target) |
+|---|---|---|
+| api | `0fae110d-a553-4bfd-9e1a-9ff099432025` | `edad096e-04bc-46fe-8977-00b94a79a0e8` |
+| generation | `01930db7-afc1-4349-abcf-67bb56ccb3e9` | `23618dcf-be01-484c-a1a4-da501ecb9ba9` |
+| export | `96112adc-1afc-4e67-8bf1-f40c7e2fea8e` | `40db4173-f467-435e-9553-6ecba2819168` |
+| scheduler | `624ba87a-ab75-4e71-bf74-41ffdaa361b3` | `0f615bde-e7f7-451a-b713-2eac49a8ca93` |
+| mcp (`green-django-mcp`) | `baeb4c83-ca27-47d9-bb7f-1957f36838d3` | `5704994b-7936-47ed-8eb5-950c141d1ddc` |
+| Vercel | `dpl_69GoY6Gybc595ERhCviiu5SfKj9a` | `dpl_5PXB4LoBfb5KfhmREVkiXGK49WZJ` |
+
+**The previous Railway images accept schema 81 only, so recovery of a Railway service is forward only.** The Vercel
+deployment was built before the Railway deploys and promoted on 2026-11-03 at 05:23 UTC, after the new backend had served
+real traffic overnight with the previous frontend (200s, no 5xx in about 12 hours of API logs, one start per service, no
+crash loop). A frontend rollback is a promotion of the previous deployment.
+
+### Browser push keys
+
+New web push (VAPID) keys were generated locally and piped straight into Railway as `VEEVEE_WEB_PUSH_PUBLIC_KEY`,
+`VEEVEE_WEB_PUSH_PRIVATE_KEY` and `VEEVEE_WEB_PUSH_SUBJECT` (`https://www.veevee.ai`) on the API and scheduler only; the
+frontend does not read them. They were set before the Railway deploys, and the read-back shows all three present on both
+services (names only; no value was printed or stored). Push delivery to a real browser has not been exercised.
+
+### Verification
+
+Before promotion: the deployment's `/api/health` through `vercel curl` (database ready), login page rendered, `/api/folders`
+and `/api/v1/boards` 401 through the live API, and the `/mcp` 401 challenge. After promotion: `/api/health` ready and
+empty-input login 400 on veevee.ai, www.veevee.ai and aistudio-v1.vercel.app (veevee.ai redirects to www); maintenance
+`enabled:false, available:true` on the aliases; `/api/folders`, `/api/v1/boards` and `/api/push-subscription` 401 when
+signed out; `POST /mcp` 401 with the `WWW-Authenticate` challenge whose `resource_metadata` names
+`https://www.veevee.ai/.well-known/oauth-protected-resource/mcp`, and protected-resource metadata resource
+`https://www.veevee.ai/mcp`. The three workers and the MCP service started on the new images. The repository's required
+`Vercel - aistudio-v1` context is not reported on `main` commits (Git deploys are off); `frontend`, `backend` and `browser`
+passed on `c4c56d23`.
+
+After promotion, a 10 minute watch (a probe every 30 seconds on www.veevee.ai and aistudio-v1.vercel.app) read health 200,
+maintenance off and signed-out `/api/folders` 401 every time, and the Railway logs for the same window held no 5xx and no
+worker failure (the three 400s are the empty-login probes).
+
+Not done: the signed-in board check and a generation request, which need the owner's account (no paid provider call was
+made). Two Nano Banana 2.1 image jobs failed with `provider_error` at 19:11 UTC on 2026-11-02; no other worker failure.
+
+### Old services shut down
+
+With the green stack serving all traffic, the running deployments of the retired `balanced-acceptance` Railway services
+(production: Postgres, backend, generation worker; cutover-preview: Postgres and three app services) were removed so they
+stop billing compute. Nothing was deleted: services, volumes, environments and backups remain, so both old databases still
+hold their data. Deleting those volumes is a separate owner decision.
+
+### Finding F-01 resolved
+
+`VEEVEE_PUBLIC_APP_URL_OVERRIDE=https://www.veevee.ai` is set on the API and MCP services (set on 2026-11-02, after the
+first release). The OAuth protected-resource metadata and the MCP challenge now name `https://www.veevee.ai`, no longer a
+stale preview host.
+
 ## Production release 2026-11-02 - main `7cfe50b1` (deployed as `f24be255`)
 
 Owner-approved release of `main` through `7cfe50b1`: agent access tokens, OAuth 2.1 and spending controls (#117),
@@ -73,10 +148,9 @@ veevee.ai, www.veevee.ai and aistudio-v1.vercel.app; the generation, export and 
 `enabled:false, available:true` and OPTIONS reaching Django on all three origins. An authenticated MCP tool call was not
 made (it needs a signed-in user's token).
 
-**Open: the public app URL (F-01).** The API and MCP still derive the public app URL from `GOAL4_PREVIEW_APP_ORIGIN`, a
-stale `aistudio-v1-*.vercel.app` preview deployment, so the OAuth protected-resource metadata and the MCP challenge point at
-that host rather than veevee.ai. The fix is the single variable `VEEVEE_PUBLIC_APP_URL_OVERRIDE` on the API and MCP
-services; it needs owner approval and is not applied. Agents should not be told to connect until it is.
+**Resolved: the public app URL (F-01).** The API and MCP derived the public app URL from `GOAL4_PREVIEW_APP_ORIGIN`, a stale
+`aistudio-v1-*.vercel.app` preview deployment. `VEEVEE_PUBLIC_APP_URL_OVERRIDE=https://www.veevee.ai` was set on the API and MCP
+services on 2026-11-02 afternoon and the MCP challenge now names `https://www.veevee.ai`.
 
 ## Production release 2026-10-28 - 87688a0 (deployed as 15e25c2)
 
