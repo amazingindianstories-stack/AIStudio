@@ -17,7 +17,11 @@ endpoints.
   the user's `agent_llm_usage` cost for the trailing 24 hours (microcents summed, rounded up once to whole cents); a
   per-token total adds LLM rows only for an Agents tab grant, matched by `grant_id`. `admit_paid_submission` keeps
   its per-user lock and checks; `agentGlobalDailyCapCents` (all users' agent generations plus all LLM cost) is
-  enforced only by the worker's `check_step`, so MCP admission has no account-wide serialization point.
+  enforced only by the worker's `check_step` and by `check_budget`, so MCP admission has no account-wide
+  serialization point. `check_budget` runs before each Agents tab Gemini call outside a run step (voice
+  transcription, PDF describe, `view_media`, `read_document`) against the user, grant and global daily caps; once
+  one has no cent left, nothing is sent and the call fails `BUDGET_EXCEEDED` (HTTP 429 from `.../messages` and
+  `.../transcribe`).
   Settings, Agent access shows the same `spent_cents` total as the user's spent today.
 - Agents tab limits (`apps/agents/limits.py`, all in `LIMITS` and `src/lib/limits.js`): `agentActiveRuns` (2),
   `agentMaxStepsPerRun` (40), `agentMaxRunCostCents` (1000), global-only `agentGlobalDailyCapCents` (20000) and
@@ -145,7 +149,7 @@ queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed
 | Method and path (under `/api/agent-conversations/<id>`) | Purpose |
 |---|---|
 | `GET .../runs` | The chat's 20 most recent runs |
-| `POST .../runs` `{content, model?}` | Starts a run with the message (201), or writes it to the active run's inbox (202). One active run per conversation is a database constraint. `403 AGENTS_DISABLED` when the global `agentsEnabled` is `0` and no run is active |
+| `POST .../runs` `{content, model?}` | Starts a run with the message (201), or writes it to the active run's inbox (202). One active run per conversation is a database constraint. When no run is active: `403 AGENTS_DISABLED` when `agentsEnabled` is off for the user, `429 AGENT_LIMIT` (with `kind` `active_runs`) at the `agentActiveRuns` cap |
 | `GET .../runs/<run>/events?after=<seq>&limit=` | Up to 100 events after `seq`, with the run, `nextAfter`, `more` and the undelivered messages |
 | `POST .../runs/<run>/approve`, `.../decline` `{stepIndex}` | Answers the waiting quote; `409 NO_PENDING_QUOTE` otherwise |
 | `POST .../runs/<run>/cancel` `{cancelJobs?}` | Stop (202), or stop and cancel the run's active jobs; `409 RUN_FINISHED` once it ended |

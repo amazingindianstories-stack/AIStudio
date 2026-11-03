@@ -25,13 +25,14 @@ other services. It needs:
   `GOOGLE_API_KEY` is its only provider key; no BytePlus, Kling or Magnific keys, portrait or Web Push settings,
   ingress secret or `PORT` (it serves no HTTP);
 - its own `MCP_QUOTE_SECRET` (32+ characters; it signs and checks quotes in-process);
-- optional `VEEVEE_AGENT_WORKER_SLOTS` (1 to 8, default 4): runs advanced at once per replica; 8 global slot leases
-  cap all replicas together.
+- optional `VEEVEE_AGENT_WORKER_SLOTS` (1 to 8, default 4): runs advanced at once per replica; the admin
+  `agentMaxConcurrentRuns` limit (at most 8 global slot leases) caps all replicas together.
 
 The scheduler gains the `agent_runs` pass (re-queues a `running` run whose heartbeat is older than 60 s), so the
 scheduler deploys with it. The new run endpoints (`/api/agent-conversations/<id>/runs...`) ship with the API; starting
-a run and approving a quote open in the gateway only with its paid routes on. A global `agentsEnabled` setting of `0`
-pauses every run at its next step boundary and refuses new runs; unset or `1` is on. No migration: the run tables come
+a run and approving a quote open in the gateway only with its paid routes on. Runs obey the Agents tab admin limits,
+`agentsEnabled` included (a global `0` pauses every run at its next step boundary and refuses new runs; unset is
+admins only); see agent-access.md, Who may connect. No migration: the run tables come
 from `agents.0005_agent_runs` (#150). The current Agents tab UI still uses the synchronous message path; the tab's
 rewrite onto runs is a separate change.
 
