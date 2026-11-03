@@ -27,6 +27,7 @@ import { supportsVideoReference } from "@/lib/config";
 import { measureAudioDuration } from "@/lib/audio-duration";
 import { extractFrame } from "@/lib/video-frame";
 import { ATTACH_ACCEPT, MAX_DOCUMENTS, documentType, uploadAgentDocument } from "@/lib/agent-attachments";
+import { afterFailedSend } from "@/lib/agent-send";
 import { insertTranscript, startVoiceNote, transcribeVoiceNote, voiceCaps, voiceErrorMessage } from "@/lib/voice-note";
 import { formatTime } from "@/lib/canvas/talktrack";
 
@@ -191,7 +192,11 @@ export function StudioChat({ conversationId }) {
           ...(sentDocuments.length ? { attachments: sentDocuments.map((d) => d.uploadId) } : {}) }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || data.error) throw new Error(apiErrorMessage(data, res.status));
+      if (!res.ok || data.error) {
+        const kept = afterFailedSend({ status: res.status, data, optimisticId: optimistic.id, sentDocuments });
+        if (kept) { setMessages(kept.messages); setDocuments(kept.documents); }
+        throw new Error(apiErrorMessage(data, res.status));
+      }
       const assistantMessage = data.assistantMessage;
       setDocuments((cur) => cur.filter((d) => !sentDocuments.includes(d)));
       setMessages((cur) => [...cur.filter((m) => m.id !== optimistic.id), data.userMessage, assistantMessage]);

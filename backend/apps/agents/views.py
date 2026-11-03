@@ -23,6 +23,8 @@ MAX_ATTACHMENTS = 10                    # the composer's MAX_DOCUMENTS (src/lib/
 ATTACHMENT_ID_CHARS = 64
 MAX_PDFS = 3                            # PDFs of one message, all described at once
 REQUEST_SECONDS = 100                   # one message's PDF describes and chat turn, well inside the gateway's 120 s wait
+DOCUMENT_SECONDS = 60                   # of which the PDF describes take at most this
+TURN_RESERVE_SECONDS = 40               # and the chat turn starts with at least this left, or nothing is stored
 HISTORY_DOCUMENT_CHARS = 100_000        # documents' text a rebuilt history carries, newest first
 DOCUMENT_DEADLINE = 'DOCUMENT_DEADLINE'
 ATTACHMENTS_LATE = 'Veevee could not read the attachments in time. Nothing was sent; try fewer or shorter PDFs.'
@@ -133,7 +135,7 @@ def described(asset, **kwargs):
 def document_parts(user_id, conversation_id, asset_ids, deadline):
     """``(assets, documents)`` for one message's attached documents: ``{id, text}`` each, the text ``media.untrusted``
     data. Plain text, markdown and docx give their own text; each of at most ``MAX_PDFS`` PDFs one ``media.describe``
-    sub-call (usage purpose 'media'), all at once within the request's ``deadline``. Raises ``errors.ToolError``, before
+    sub-call (usage purpose 'media'), all at once within ``deadline``. Raises ``errors.ToolError``, before
     anything is stored; a PDF without GOOGLE_API_KEY is an explicit refusal, not a skip."""
     assets = [attached_document(user_id, asset_id) for asset_id in asset_ids]
     texts = [media.document_text(asset) for asset in assets]
@@ -203,10 +205,11 @@ def messages(request, id):
     except Exception:
         return Response({'error': 'Invalid reference image.'}, status=400)
     try:
-        assets, documents = document_parts(user.id, conversation['id'], attachments, deadline)
+        reading = media.Deadline(min(deadline.remaining(), DOCUMENT_SECONDS))
+        assets, documents = document_parts(user.id, conversation['id'], attachments, reading)
     except errors.ToolError as error:
         return renew_session(request, Response({'error': error.message}, status=ATTACHMENT_STATUS.get(error.code, 502)))
-    if deadline.expired():
+    if deadline.remaining() < TURN_RESERVE_SECONDS:
         return renew_session(request, Response({'error': ATTACHMENTS_LATE}, status=504))
     for asset in assets:
         media.record_attachment(conversation['id'], asset)

@@ -253,9 +253,10 @@ class MessageAttachmentTests(StorageMixin, TransactionTestCase):
 
     def test_the_document_deadline_is_a_clear_error_before_anything_is_stored_or_billed_and_uploads_are_released(self):
         large = self.upload('application/pdf', PDF + b'0' * (media.INLINE_BYTES + 1))
-        sent = []
+        sent, remaining = [], []
 
         def route(method, url, body, signal):
+            remaining.append(signal.remaining())
             if (method, url) == ('POST', FILES_UPLOAD):
                 return started()
             if (method, url) == ('POST', UPLOAD):
@@ -273,20 +274,22 @@ class MessageAttachmentTests(StorageMixin, TransactionTestCase):
         self.assertEqual(response.json(), {'error': LATE_ATTACHMENTS})
         self.assertEqual([(method, url) for method, url, body in sent],
                          [('POST', FILES_UPLOAD), ('POST', UPLOAD), ('GET', FILE), ('DELETE', FILE)])  # no media or chat call
+        self.assertTrue(views.DOCUMENT_SECONDS - 5 < remaining[0] <= views.DOCUMENT_SECONDS)  # the describes' own share
         self.assertNothingStored()
         self.assertFalse(AgentLlmUsage.objects.exists())
 
-    def test_a_request_that_ran_out_while_reading_pdfs_stores_nothing_and_makes_no_chat_call(self):
-        brief, sent = self.upload('application/pdf', PDF), []
+    def test_a_request_without_the_turn_reserve_left_after_reading_pdfs_stores_nothing_and_makes_no_chat_call(self):
+        brief, sent, remaining = self.upload('application/pdf', PDF), [], []
 
         def route(method, url, body, signal):
-            signal.until = 0                                       # the describe answers just as the request runs out
+            remaining.append(signal.remaining())
             return answer('A fox brief.')
-        with routed(route, sent):
+        with patch.object(views, 'REQUEST_SECONDS', views.TURN_RESERVE_SECONDS - 1), routed(route, sent):
             response = self.client.post(f'/api/agent-conversations/{self.conversation}/messages',
                                         {'content': 'Read the brief', 'attachments': [brief]}, content_type='application/json')
         self.assertEqual((response.status_code, response.json()), (504, {'error': LATE_ATTACHMENTS}))
         self.assertEqual([url for method, url, body in sent], [FLASH])
+        self.assertTrue(remaining[0] <= views.TURN_RESERVE_SECONDS - 1)                   # read within what the request had
         self.assertNothingStored()
 
     def test_every_chat_and_design_prompt_call_shares_the_request_deadline_and_running_out_is_a_definite_error(self):
