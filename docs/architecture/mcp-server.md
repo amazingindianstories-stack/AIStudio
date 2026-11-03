@@ -69,6 +69,12 @@ refused while the switch is off or maintenance is on. The emergency revoke is th
 admin Users tab), which the switch does not affect; maintenance freezes it with every other web write, while
 agents can only read.
 
+`server.dispatch` is the one tools/call path: HTTP calls and the in-app Agents tab (an agent grant,
+`agent-access.md`) run the same admission, validation, handler, log and audit. An agent grant reaches only
+`registry.AGENT_TOOLS` (no admin tools, `move_to_folder`, `get_export`, `upload_reference` or board tools); any
+other name is an unknown tool. The per-user opt-in does not apply to it, but the global switch and maintenance
+do.
+
 ## Tools
 
 Scopes come from `agent-access.md`. Each tool declares its scope, schemas and annotations (`readOnlyHint`,
@@ -97,7 +103,7 @@ Scopes come from `agent-access.md`. Each tool declares its scope, schemas and an
 | `veevee.boards.write` | `add_board_items` | Up to 50 objects or connectors, all or none; needs the edit role |
 | | `update_board_item`, `delete_board_item` | Field patch and removal through `apps.canvas.board_items`; locks, stamps, history and the size limit apply; delete is destructive |
 | `veevee.admin` + admin role | `admin_spend_report`, `admin_provider_errors`, `admin_system_status` | Read-only reports; status runs no provider credential check |
-| | `admin_revoke_mcp_tokens` | Revokes one grant or every grant of a user; destructive |
+| | `admin_revoke_mcp_tokens` | Revokes one grant (a token, connection or Agents tab grant id) or every grant of a user; destructive |
 
 Board tools call the same service layer as the board REST API (`agent-access.md`, Board API), so the user's board
 role decides and every call spends board credits (`policy.BOARD_COSTS`) on top of the per-call rate.
@@ -208,7 +214,8 @@ Prompts (`apps/mcp/prompts.py`) are plain guidance and never spend: `storyboard_
 Each call writes one JSON line to the `veevee.mcp` logger: request id, token, client and user ids, protocol
 version, tool, duration, outcome code, generation id and cost. Every non-read call is also an `mcp_tool_call`
 activity row (tool, token, client, outcome and the generation, cost, quote, export, reference, folder or revoke
-details). Neither ever carries prompts, names or token values. The service also runs
+details). A call from an Agents tab run also carries its `runId` and `stepIndex` (the log line's `tags`, and audit
+fields). Neither ever carries prompts, names or token values. The service also runs
 `mcp_auth.maintenance.purge_expired()` every 10 minutes.
 
 ## Testing and local runs

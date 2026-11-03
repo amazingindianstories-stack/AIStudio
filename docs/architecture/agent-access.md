@@ -9,7 +9,8 @@ endpoints.
 ## Who may connect
 
 - Agent access is an admin opt-in per user and off by default: the `mcpEnabled` user limit, set from the
-  admin Users tab (Limits dialog, "Agent access (MCP)"). The same dialog revokes every token a user holds.
+  admin Users tab (Limits dialog, "Agent access (MCP)"). The same dialog revokes every token a user holds and
+  their Agents tab grant.
 - `mcpDailyCapCents` (default 2000, $20) and `mcpActiveJobs` (default 4) are ordinary registered limits
   (`admin_dashboard/views.py` `LIMITS`, `src/lib/limits.js`): a global default with per-user overrides.
 - Each grant (a personal access token or one connected app) has its own daily cap (default $10, never above
@@ -26,6 +27,14 @@ family, and an OAuth connection's access and refresh tokens share one across rot
 revocation follow the family. Every token is bound to the resource `PUBLIC_APP_URL + /mcp` and to the user's
 `auth_version`, so a password, role or status change ends it exactly like a cookie session; password changes
 and admin account changes also mark every token revoked.
+
+The in-app Agents tab acts through an agent grant instead (`agent_grants`, `apps/agents/grants.py`): one live
+grant per user, with no secret, so it never authenticates over HTTP. It is an in-process principal of kind
+`agent` with the read, generate and organize scopes, never admin. Its jobs are `created_via='agent'` with
+`mcp_token_id` set to the grant id, and they share the user's agent daily cap and active jobs with MCP grants
+(`policy.AGENT_ORIGINS`). `mcpEnabled` gates MCP tokens only; the Agents tab's caller checks its own switch.
+Every "revoke all agent access" path (`tokens.revoke_all_for_user`) also revokes the grant, and so does the
+user's `auth_version` changing.
 
 Users manage tokens and connected apps in Account settings, Agent access (`/api/mcp/tokens`,
 `/api/mcp/connections/<id>`).
@@ -95,7 +104,7 @@ controls.check_rate(principal, 'calls')                                # RateLim
 decision = controls.price_decision(principal, cost_cents)              # 'submit', 'quote' or 'confirm'
 with transaction.atomic():
     controls.admit_paid_submission(principal, cost_cents)              # BudgetExceeded / RateLimited / ConcurrencyLimit
-    generation = submit(..., **principal.origin_fields())              # created_via='mcp', mcp_token_id, mcp_client_id
+    generation = submit(..., **principal.origin_fields())              # created_via='mcp' ('agent' for a grant), mcp_token_id, mcp_client_id
 with controls.hold_slot(principal):                                    # at most 4 waiting calls per grant
     ...
 ```
@@ -105,8 +114,8 @@ with controls.hold_slot(principal):                                    # at most
   The MCP service checks scopes with `principal.has_scope` and answers a missing one as the tool error
   `INSUFFICIENT_SCOPE`.
 - `admit_paid_submission` takes a per-user advisory lock, so parallel calls cannot pass the user or grant cap.
-  Spend is the trailing 24 hours of agent-created rows (reconciled cost when known, else the estimate;
-  `cancelled_before_submission` rows are free). Pass `controls.booked_cents(...)`: for Seedance 2.5 it is the
+  Spend is the trailing 24 hours of agent-created rows (`created_via` in `policy.AGENT_ORIGINS`; reconciled cost
+  when known, else the estimate; `cancelled_before_submission` rows are free). Pass `controls.booked_cents(...)`: for Seedance 2.5 it is the
   higher of the estimate and the paid guard's current token estimate, and spend counts an unfinished estimated
   Seedance 2.5 row at that amount until it reconciles.
 - Rate windows and hold slots live in `mcp_rate_windows` (no Redis). `GET /api/mcp/me` exercises the same
