@@ -101,6 +101,32 @@ class AdminContractTests(TransactionTestCase):
         self.assertFalse(UserLimit.objects.exists())
         self.assertEqual(ActivityLog.objects.filter(action='admin_user_limit_updated').count(),2)
 
+    def test_agent_limits_global_only_keys_switches_and_the_composer_filter(self):
+        base={'userId':fixtures.UID}
+        for key,value in [('agentGlobalDailyCapCents',5000),('agentMaxConcurrentRuns',4)]:
+            self.assertEqual(self.post('user-limits',{**base,'key':key,'value':value}).status_code,400,'global-only')
+            self.assertEqual(self.post('limits',{'key':key,'value':value}).json(),{'ok':True})
+        self.assertEqual(self.post('limits',{'key':'agentMaxConcurrentRuns','value':51}).status_code,400)
+        self.assertEqual(self.post('limits',{'key':'agentsEnabled','value':2}).status_code,400)
+        self.assertNotIn('agentsEnabled',self.client.get('/api/admin/data').json()['limits'],'unset means admins only')
+        self.assertEqual(self.post('limits',{'key':'agentsEnabled','value':0}).json(),{'ok':True})
+        self.assertEqual(self.client.get('/api/admin/data').json()['limits']['agentsEnabled'],0)
+        from apps.agents.limits import agents_enabled
+        member=User.objects.create(id=uuid.uuid4(),email='member@example.invalid',name='Member',role='user',password_hash='x',password_salt='x',created_at=1)
+        self.assertEqual((agents_enabled(fixtures.UID),agents_enabled(member)),(False,False),'killed')
+        self.assertEqual(self.post('limits',{'key':'agentsEnabled','value':None}).json(),{'ok':True})
+        self.assertFalse(AppSetting.objects.filter(key='agentsEnabled').exists())
+        self.assertNotIn('agentsEnabled',self.client.get('/api/admin/data').json()['limits'],'reset to admins only')
+        self.assertEqual((agents_enabled(fixtures.UID),agents_enabled(member.id)),(True,False),'admins only again')
+        self.assertEqual(self.post('limits',{'key':'agentsEnabled','value':None}).json(),{'ok':True},'resetting twice is harmless')
+        self.assertEqual(self.post('limits',{'key':'agentMaxConcurrentRuns','value':None}).status_code,400,'only agentsEnabled can be unset')
+        for key,value in [('agentsEnabled',1),('agentActiveRuns',3),('agentMaxStepsPerRun',200),('agentMaxRunCostCents',5),('agentAttachMaxMb',100),('agentAttachVideo',0)]:
+            self.assertEqual(self.post('user-limits',{**base,'key':key,'value':value}).status_code,200,key)
+        self.assertEqual(self.post('user-limits',{**base,'key':'agentMaxStepsPerRun','value':201}).status_code,400)
+        self.assertEqual(UserLimit.objects.get(user_id=fixtures.UID,key='agentAttachVideo').value,'0')
+        from .views import COMPOSER_LIMITS
+        self.assertEqual([key for key in COMPOSER_LIMITS if key.startswith('agent')],[],'composer excludes agent keys')
+
     def test_pricing_upsert_preserves_notes_and_validates_units(self):
         Pricing.objects.create(model='fixture',unit_cost_cents=3,unit='per_image',notes='keep')
         self.assertEqual(self.post('pricing',{'model':' fixture ','unitCostCents':'-Infinity','unit':'per_image'}).status_code,200)
@@ -121,7 +147,7 @@ class AdminContractTests(TransactionTestCase):
         self.assertEqual((result['stats']['totalGenerations'],result['stats']['totalCostCents'],result['stats']['reconciledCostCents'],result['stats']['estimatedCostCents']),(4,50,30,20))
         self.assertEqual(result['users'][0]['genCount'],4)
         self.assertEqual(result['users'][0]['costCents'],50)
-        self.assertEqual(result['limits'],{'maxPromptLength':30000,'maxConcurrentJobs':8,'seedanceConcurrency':3,'mcpDailyCapCents':2000,'mcpActiveJobs':4,'boardAiMonthlyCapCents':10000000,'boardAiEnabled':1})
+        self.assertEqual(result['limits'],{'maxPromptLength':30000,'maxConcurrentJobs':8,'seedanceConcurrency':3,'mcpDailyCapCents':2000,'mcpActiveJobs':4,'boardAiMonthlyCapCents':10000000,'boardAiEnabled':1,'agentActiveRuns':2,'agentMaxStepsPerRun':40,'agentMaxRunCostCents':1000,'agentGlobalDailyCapCents':20000,'agentMaxConcurrentRuns':8,'agentAttachMaxMb':20,'agentAttachMaxVideoSeconds':300,'agentAttachMaxAudioSeconds':600,'agentAttachImages':1,'agentAttachDocuments':1,'agentAttachVideo':1,'agentAttachAudio':1})
         self.assertEqual(len(result['pricing']),33)  # 23 frozen rows + 4 Magnific video rows + Nano Banana 2.1 + Gemini Omni Flash 1.1 + 2 Board AI text + Board AI web search
         self.assertNotIn('private',json.dumps(result))
         self.assertEqual(Pricing.objects.get(pk='Nano Banana Pro').unit_cost_cents,777)

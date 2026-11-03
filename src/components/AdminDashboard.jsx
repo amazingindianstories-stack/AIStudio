@@ -1051,7 +1051,7 @@ function UserLimitsModal({
                 min={def.min}
                 max={def.max}
                 value={values[def.key]}
-                placeholder={`Default (${globalLimits[def.key]?.toLocaleString() ?? def.defaultValue.toLocaleString()})`}
+                placeholder={globalLimits[def.key] == null && def.unsetLabel ? def.unsetLabel : `Default (${globalLimits[def.key]?.toLocaleString() ?? def.defaultValue.toLocaleString()})`}
                 onChange={(e) => setValues((v) => ({ ...v, [def.key]: e.target.value }))}
                 onBlur={() => save(def)}
                 disabled={busyKey === def.key}
@@ -2008,14 +2008,17 @@ export function PortraitStorageCard() {
   );
 }
 
-function GlobalLimitCard({
+export function GlobalLimitCard({
   def,
   data,
   reload,
 }
 
 ) {
-  const [value, setValue] = useState(String(data.limits[def.key] ?? def.defaultValue));
+  const stored = data.limits[def.key];
+  const unset = stored == null && Boolean(def.unsetLabel);
+  const shown = unset ? "" : String(stored ?? def.defaultValue);
+  const [value, setValue] = useState(shown);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
@@ -2023,20 +2026,29 @@ function GlobalLimitCard({
   // Re-sync if another admin session changed it and this tab reloads —
   // mirrors PricingTab's defaultValue-per-row approach, just for one field.
   useEffect(() => {
-    setValue(String(data.limits[def.key] ?? def.defaultValue));
-  }, [data.limits, def.key, def.defaultValue]);
+    setValue(shown);
+  }, [shown]);
 
   const save = async () => {
-    const n = Math.round(Number(value));
+    const raw = value.trim();
+    if (raw === "" && unset) {
+      setError("");
+      return;
+    }
+    const n = raw === "" ? NaN : Math.round(Number(raw));
     if (!Number.isFinite(n) || n < def.min || (def.max != null && n > def.max)) {
       setSaved(false);
       setError(def.max != null ? `Enter a whole number from ${def.min} to ${def.max}.` : `Enter a whole number of at least ${def.min}.`);
       return;
     }
-    if (n === data.limits[def.key]) {
+    if (n === stored) {
       setError("");
       return;
     }
+    await post(n);
+  };
+
+  const post = async (next) => {
     setSaving(true);
     setSaved(false);
     setError("");
@@ -2044,7 +2056,7 @@ function GlobalLimitCard({
       const res = await apiFetch("/api/admin/limits", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: def.key, value: n }),
+        body: JSON.stringify({ key: def.key, value: next }),
       });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(apiErrorMessage(json, res.status, "Could not save this limit."));
@@ -2059,12 +2071,12 @@ function GlobalLimitCard({
   };
 
   return (
-    <div className="rounded-xl border border-line p-4">
+    <div className={def.note ? "rounded-xl border border-amber-400/30 p-4" : "rounded-xl border border-line p-4"}>
       <label className="mb-1 block text-sm font-medium text-white">{def.label}</label>
+      {def.note && <p className="mb-1 text-xs font-medium leading-5 text-amber-300">{def.note}</p>}
       <p className="mb-3 text-xs leading-5 text-white/45">
-        {def.description} This is the default for every user; give an
-        individual user their own limit from the Users tab, which overrides
-        this value for them specifically.
+        {def.description}
+        {!def.globalOnly && ` ${def.overrideText ?? "This is the default for every user; give an individual user their own limit from the Users tab, which overrides this value for them specifically."}`}
       </p>
       <div className="flex items-center gap-2">
         <input
@@ -2072,11 +2084,22 @@ function GlobalLimitCard({
           min={def.min}
           max={def.max}
           value={value}
+          placeholder={def.unsetLabel}
           onChange={(e) => setValue(e.target.value)}
           onBlur={save}
-          className="w-40 rounded-lg border border-line bg-ink-700 px-2 py-1.5 text-sm outline-none focus:border-brand/40"
+          className="w-40 rounded-lg border border-line bg-ink-700 px-2 py-1.5 text-sm outline-none placeholder:text-white/30 focus:border-brand/40"
         />
         <span className="text-xs text-white/40">{def.unit}</span>
+        {def.unsetLabel && !unset && (
+          <button
+            type="button"
+            onClick={() => void post(null)}
+            disabled={saving}
+            className="rounded-lg px-2 py-1 text-xs text-white/60 transition hover:bg-white/[0.06] hover:text-white disabled:opacity-50"
+          >
+            Reset to default
+          </button>
+        )}
         {saving && <Loader2 className="h-3.5 w-3.5 animate-spin text-white/40" />}
         {saved && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />}
       </div>

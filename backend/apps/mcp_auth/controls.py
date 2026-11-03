@@ -122,16 +122,34 @@ def counted_cents(model, status, cost_basis, cost_cents, duration=None, resoluti
     return cost_cents or 0
 
 
-def spent_cents(user_id, *, token_id=None, now=None):
-    from apps.generation.models import Generation
-    now = now_ms() if now is None else now
-    rows = Generation.objects.filter(created_via__in=policy.AGENT_ORIGINS, created_at__gt=now - policy.DAY_MS).exclude(cost_basis=FREE_COST_BASIS)
-    rows = rows.filter(mcp_token_id=token_id) if token_id is not None else rows.filter(user_id=user_id)
+def _generation_cents(rows):
     total = rows.aggregate(total=Sum('cost_cents'))['total'] or 0
     booked = rows.filter(model=SEEDANCE_25, status__in=ACTIVE_STATUSES, cost_basis='estimated').values_list(
         'cost_cents', 'duration', 'resolution', 'reference_videos')
     return total + sum(booked_cents(SEEDANCE_25, cost, duration, resolution, videos) - (cost or 0)
                        for cost, duration, resolution, videos in booked)
+
+
+def spent_cents(user_id, *, token_id=None, now=None):
+    """Generation spend plus, for a user (or an Agents tab grant), the agent's model token cost in the trailing day."""
+    from apps.agents.limits import llm_spend_cents
+    from apps.agents.models import AgentGrant
+    from apps.generation.models import Generation
+    now = now_ms() if now is None else now
+    rows = Generation.objects.filter(created_via__in=policy.AGENT_ORIGINS, created_at__gt=now - policy.DAY_MS).exclude(cost_basis=FREE_COST_BASIS)
+    if token_id is None:
+        return _generation_cents(rows.filter(user_id=user_id)) + llm_spend_cents(user_id=user_id, now=now)
+    spent = _generation_cents(rows.filter(mcp_token_id=token_id))
+    return spent + (llm_spend_cents(grant_id=token_id, now=now) if AgentGrant.objects.filter(pk=token_id).exists() else 0)
+
+
+def global_spent_cents(*, now=None):
+    """Every user's agent spend in the trailing day: agent-origin generations plus all model token cost."""
+    from apps.agents.limits import llm_spend_cents
+    from apps.generation.models import Generation
+    now = now_ms() if now is None else now
+    rows = Generation.objects.filter(created_via__in=policy.AGENT_ORIGINS, created_at__gt=now - policy.DAY_MS).exclude(cost_basis=FREE_COST_BASIS)
+    return _generation_cents(rows) + llm_spend_cents(now=now)
 
 
 def active_jobs(user_id):

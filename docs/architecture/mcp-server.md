@@ -123,8 +123,9 @@ that return URLs say when links expire and to call `get_download_links` again.
    estimate when the job finishes. The row keeps the web's stored estimate (`cost.cents`); `cost.bookedCents` is
    what the job counts against the caps now (`controls.counted_cents`), and a running Seedance 2.5 job carries a
    `cost.note` naming the booked amount. `get_account` spending is the sum of `bookedCents` over agent jobs created
-   in the last 24 hours (every status except cancelled before submission), and `admin_spend_report`'s
-   `mcpBookedCents` sums the same rows with the same window, so with `days: 1` per user they agree.
+   in the last 24 hours (every status except cancelled before submission) plus the Agents tab's model token cost
+   (`agent-access.md`). `admin_spend_report`'s `mcpBookedCents` sums the same job rows with the same window but
+   leaves out that model cost, so with `days: 1` per user it equals `todayCents` minus that cost.
 2. Approve: a price below $1.00 and at or below the grant's auto-approve amount submits at once. Otherwise the
    result is `outcome: "quote_required"` with a `quote` and the exact call to repeat with `quoteToken`, plus
    `confirmedByUser: true` at $1.00 or more (the agent must ask the user). A quote is an HMAC

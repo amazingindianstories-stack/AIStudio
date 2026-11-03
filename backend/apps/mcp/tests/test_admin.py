@@ -6,6 +6,7 @@ from unittest.mock import patch
 from apps.admin_dashboard import status
 from apps.admin_dashboard.models import AppSetting
 from apps.agents.grants import AgentGrantInvalid, agent_principal, ensure_grant, recheck, revoke_grant
+from apps.agents.models import AgentLlmUsage
 from apps.common.leases import now_ms
 from apps.common.models import ActivityLog
 from apps.generation.availability import availability
@@ -123,6 +124,9 @@ class AdminToolTests(McpCase):
         self.generation(age_ms=DAY, cost_cents=1000, **mcp)                                    # the window edge: out
         self.generation(cost_cents=100)                                                        # web
         self.generation(cost_cents=50, user_id=self.admin.id, **mcp)
+        AgentLlmUsage.objects.create(user_id=self.user.id, grant_id=None, run_id=None, model='m', purpose='loop', prompt_tokens=1,
+                                     cached_tokens=0, output_tokens=1, thoughts_tokens=0, tool_prompt_tokens=0, total_tokens=2,
+                                     cost_microcents=40_000_000, created_at=self.now - 1)                    # Agents tab model cost
         booked = controls.booked_cents('Seedance 2.5', 590, 30, '1080p')
         self.assertGreater(booked, 590)
         expected = 25 + 14 + 7 + booked + 3
@@ -133,7 +137,7 @@ class AdminToolTests(McpCase):
         account = self.call(self.token(self.user), 'get_account').structured_content['spend']['todayCents']
         report = self.call(self.raw, 'admin_spend_report', {'days': 1, 'groupBy': 'user'}).structured_content
         rows = {row['key']: row for row in report['rows']}
-        self.assertEqual((account, rows[str(self.user.id)]['mcpBookedCents']), (expected, expected))
+        self.assertEqual((account, rows[str(self.user.id)]['mcpBookedCents']), (expected + 40, expected), 'model cost is in todayCents only')
         self.assertEqual((rows[str(self.admin.id)]['mcpBookedCents'], report['totals']['mcpBookedCents']), (50, expected + 50))
         self.assertEqual((rows[str(self.user.id)]['mcpCostCents'], rows[str(self.user.id)]['count']), (25 + 3, 7))
 
