@@ -98,21 +98,28 @@ queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed
   unpaid with `QUOTE_DECLINED` for the model. The model can never send `idempotencyKey`, `quoteToken`,
   `confirmedByUser`, `wait` or `maxWaitSeconds` (removed from its schemas and its calls; `declarations.harness_arguments`
   sets them).
-- **Inbox.** A message posted while a run is active goes to `agent_inbox`. At every step boundary the runner delivers
-  undelivered rows in `created_at`/id order as user turns before the next model call, setting `delivered_at` and
-  `delivered_step`. A message wakes a run waiting on jobs or paused at a limit.
+- **Inbox.** A message posted while a run is active goes to `agent_inbox`. At every step boundary, before any bound or
+  limit check, the runner delivers undelivered rows in `created_at`/id order as user turns before the next model call,
+  setting `delivered_at` and `delivered_step`, adding the message to the chat and emitting `message_delivered`, so a
+  message reaches the chat history even when the run then pauses. A message wakes a run waiting on jobs or paused at a
+  limit, and a run does not complete while a delivered message is newer than the model's last turn.
 - **Step boundaries.** Before each step the runner stops if its lease was lost or the worker is stopping (the run goes
-  back to `queued`), honours a cancel request, re-checks the grant (`AgentGrantInvalid` fails the run), and checks the
+  back to `queued`), honours a cancel request, re-checks the grant (`AgentGrantInvalid` fails the run), delivers the
+  inbox, and checks the
   bounds: the global `agentsEnabled` setting (`0` pauses the run as `paused_limit`, `agents_disabled`, retried every
   minute; unset, `1` or an unparsable value is on), the per-run bounds in `runner.py`, and
   `step_limits.check_limits(run, step_kind)`, which allows everything today; a non-ok verdict pauses the run as
   `paused_limit` with its `pause_reason` and `resume_after`. The per-run bounds (module constants until the admin
   limits replace them) also pause the run as `paused_limit`, with no `resume_after`, so it waits for the artist instead
-  of retrying into the bound: `step_limit` at 40 steps; `cost_limit` once paid estimates reach 1000 estimator cents, or
-  before a paid tool whose price (or approved quote) would take the run past them, so nothing is submitted; and
-  `time_limit` at 2 hours spent inside steps, where each step counts from its latest attempt to its outcome, so waiting
-  for approval, jobs or a limit is not counted. A message wakes such a run, which pauses again at the same bound;
-  stopping it keeps its jobs.
+  of retrying into the bound: `step_limit` at 40 steps; `cost_limit` once spent paid estimates reach 1000 estimator
+  cents; and `time_limit` at 2 hours spent inside steps, where each step counts from its latest attempt to its outcome,
+  so waiting for approval, jobs or a limit is not counted. A message wakes such a run, which delivers it and pauses
+  again at the same bound; stopping it keeps its jobs. A paid call whose price (or approved quote) would take the run
+  past 1000 cents is never sent and not retried: it is journaled as its own tool step with outcome `COST_LIMIT` and a
+  `COST_LIMIT` function response (nothing was charged; suggest a cheaper option or ask the artist), and the model's
+  next turn can explain or offer a cheaper option. Every over-bound call in one model turn is refused this way; one in
+  a later turn, after the model was told, fails the run with error code `limit` (`kind` `cost`). A step already sent
+  is replayed with its key rather than refused, so a job it submitted is never lost.
 - **Cancel.** A stop request sets `cancel_requested_at`; the run ends `cancelled` at its next step boundary, and jobs
   already queued finish normally. "Stop and cancel jobs" (`cancel_jobs`) also cancels every active linked job through
   `generation/services/cancellation.cancel_generation` (deferred, so the generation worker sends any provider cancel).

@@ -13,8 +13,10 @@ again.
 At every step boundary the runner stops if its lease was lost or the worker is stopping (the run goes back to
 ``queued``), honours a cancel request, re-checks the grant, drains the inbox, and checks the bounds: the global
 ``agentsEnabled`` switch, the per-run step, cost and active-time bounds, and ``step_limits.check_limits``; each pauses the
-run with a reason instead of taking the step. Paid tools never wait: after a model turn's calls the run sits in ``waiting_jobs`` until every generation it linked is terminal, or
-until the artist sends a message. A
+run with a reason instead of taking the step. A paid call whose price would take the run past its cost bound is not
+sent: it is journaled with a ``COST_LIMIT`` response, and a second such call after the model was told ends the run.
+Paid tools never wait: after a model turn's calls the run sits in ``waiting_jobs`` until every generation it linked is
+terminal, or until the artist sends a message. A
 ``quote_required`` result parks the run in ``waiting_approval``; once the artist approves (``approve_quote``), the same
 step is replayed with the quote token, plus ``confirmedByUser`` at the confirmation amount. The model can never send
 either field (``declarations.harness_arguments``). The harness's own ``design_prompt`` tool is a tool step too, but it
@@ -28,7 +30,7 @@ import os
 from dataclasses import dataclass
 
 from django.db import transaction
-from django.db.models import F, Sum
+from django.db.models import F, Q, Sum
 
 from apps.admin_dashboard.models import AppSetting
 from apps.authentication.models import User
@@ -55,6 +57,8 @@ MAX_RUN_COST_CENTS = 1000            # paid tool estimates per run, the next pai
 MAX_ACTIVE_MS = 2 * 60 * 60 * 1000   # time spent in steps; waits for approval, jobs or a limit are not counted
 SWITCH = 'agentsEnabled'             # global AppSetting: '0' pauses every run at its next step boundary; unset or '1' is on
 SWITCH_RETRY_MS = 60_000
+COST_LIMIT = {'code': 'COST_LIMIT', 'message': 'Nothing was charged: this call would take the run past its spending bound. '
+                                               'Suggest a cheaper option or ask the artist.'}
 LLM_ATTEMPTS = 3
 LLM_RETRY_SECONDS = (2, 10)
 RETRYABLE_STATUS = frozenset((408, 429, 500, 502, 503, 504))
@@ -105,9 +109,10 @@ def _finish(run_id, status, kind, payload, *, now, **fields):
         return run
 
 
-def fail(run_id, code, message, *, now=None):
+def fail(run_id, code, message, *, now=None, **details):
     now = now_ms() if now is None else now
-    _finish(run_id, 'failed', 'failed', {'code': code, 'message': message}, now=now, error={'code': code, 'message': message})
+    error = {'code': code, 'message': message, **details}
+    _finish(run_id, 'failed', 'failed', error, now=now, error=error)
     return 'failed'
 
 
@@ -199,6 +204,12 @@ def pending_inbox(run):
     return AgentInboxMessage.objects.filter(run_id=run.id, delivered_at__isnull=True)
 
 
+def unanswered(run, model_turn):
+    """Whether the artist sent a message the model has not answered: still in the inbox, or delivered after its turn."""
+    return AgentInboxMessage.objects.filter(run_id=run.id) \
+        .filter(Q(delivered_at__isnull=True) | Q(delivered_step__gt=model_turn.step_index)).exists()
+
+
 def active_jobs(run):
     return list(Generation.objects.filter(agent_run_id=run.id, status__in=ACTIVE_JOBS).order_by('created_at', 'id')
                 .values_list('id', flat=True))
@@ -219,8 +230,8 @@ def next_action(run, steps):
         return Action('tool', call=calls[done])
     if calls:
         # A message from the artist wakes the model while jobs are still running.
-        return Action('wait_jobs') if active_jobs(run) and not pending_inbox(run).exists() else Action('llm')
-    if model_turn.outcome == 'final' and not pending_inbox(run).exists():
+        return Action('wait_jobs') if active_jobs(run) and not unanswered(run, model_turn) else Action('llm')
+    if model_turn.outcome == 'final' and not unanswered(run, model_turn):
         return Action('complete')
     return Action('llm')
 
@@ -615,17 +626,36 @@ def active_ms(run):
     return spent or 0
 
 
-def bound_reached(run, principal, action):
-    """The per-run bound the next step would cross: ``step_limit``, ``cost_limit`` (spent, plus a paid tool's price) or
-    ``time_limit``; None when it may run."""
+def bound_reached(run, action):
+    """The per-run bound the run has reached: ``step_limit``, ``cost_limit`` (spent) or ``time_limit``; None when the
+    next step may run."""
     if action.step is None and run.step_count >= MAX_STEPS:
         return 'step_limit'
-    if run.cost_cents >= MAX_RUN_COST_CENTS or (
-            action.kind == 'tool' and run.cost_cents + pending_cents(run, principal, action) > MAX_RUN_COST_CENTS):
+    if run.cost_cents >= MAX_RUN_COST_CENTS:
         return 'cost_limit'
     if active_ms(run) >= MAX_ACTIVE_MS:
         return 'time_limit'
     return None
+
+
+def over_cost_bound(run, principal, action):
+    """Whether a paid call not yet sent (a new call, or an approved quote) would take the run past its cost bound. A
+    step already sent is replayed with its key instead, so a job it submitted is never lost."""
+    if action.step is not None and action.step.outcome is None:
+        return False
+    return run.cost_cents + pending_cents(run, principal, action) > MAX_RUN_COST_CENTS
+
+
+def refuse_over_bound(run, action, *, now=now_ms):
+    """Journal the over-bound call as a tool step the model is told about, without dispatching it. A model that was
+    told once and asks again ends the run."""
+    steps = journal(run.id)
+    model_turn = next(step for step in reversed(steps) if step.kind == 'llm')
+    if any(step.outcome == COST_LIMIT['code'] and step.step_index < model_turn.step_index for step in steps):
+        return fail(run.id, 'limit', 'The run stopped: the model asked again for a paid call past its spending bound.',
+                    kind='cost', now=now())
+    step = action.step or _new_step(run, 'tool', now=now(), tool_name=action.call['name'], result={'call': step_call(run, action)})
+    return finish_tool_result(run, step, COST_LIMIT['code'], COST_LIMIT, COST_LIMIT['message'], now=now())
 
 
 def start(run, now):
@@ -687,9 +717,10 @@ def advance(run_id, *, lease, stop, now=now_ms):
             if outcome is not None:
                 return outcome
             continue
+        drain_inbox(run, run.step_count, now=now())
         if not switch_on():
             return pause(run.id, 'agents_disabled', now() + SWITCH_RETRY_MS, now=now())
-        bound = bound_reached(run, principal, action)
+        bound = bound_reached(run, action)
         if bound is not None:
             return pause(run.id, bound, None, now=now())
         verdict = check_limits(run, action.kind)
@@ -698,9 +729,10 @@ def advance(run_id, *, lease, stop, now=now_ms):
         run = start(run, now())
         if run is None:
             return 'finished'
-        drain_inbox(run, run.step_count, now=now())
         if action.kind == 'llm':
             outcome = llm_step(run, principal, action, stop, now=now)
+        elif over_cost_bound(run, principal, action):
+            outcome = refuse_over_bound(run, action, now=now)
         else:
             outcome = tool_step(run, principal, action, stop, now=now)
         if outcome is not None:

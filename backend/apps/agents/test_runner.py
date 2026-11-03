@@ -23,7 +23,7 @@ from apps.mcp.tests.test_paid_tools import mid_minute
 from apps.mcp.tests.test_results import StorageMixin
 from apps.projects.models import Project
 from apps.workers import scheduler
-from . import design, events, grants, runner, worker
+from . import design, events, grants, runner, runs, worker
 from .step_limits import LimitVerdict
 from .models import (AgentChatAsset, AgentConversation, AgentConversationMessage, AgentGrant, AgentInboxMessage, AgentLlmUsage,
                      AgentRun, AgentRunEvent, AgentRunStep)
@@ -488,21 +488,58 @@ class BoundaryTests(RunnerCase):
         self.assert_paused_at(run, 'step_limit')
         self.assertEqual((self.steps(run), bodies), ([], []))
 
-    def test_the_cost_bound_counts_the_next_paid_calls_price_and_pauses_before_submitting(self):
+    def test_a_message_to_a_bound_paused_run_lands_in_the_chat_history(self):
+        bodies = self.gemini()
+        run = self.start_run(step_count=runner.MAX_STEPS)
+        self.assertEqual(self.advance(run), 'paused')
+        sent = runs.deliver(self.refresh(run), self.user, 'Keep going', now=20)
+        self.assertEqual(sent['run']['resumeAfter'], 20)
+        self.assertEqual(self.advance(run), 'paused', 'it pauses again at the same bound')
+        self.assert_paused_at(run, 'step_limit')
+        inbox = AgentInboxMessage.objects.get(run_id=run.id)
+        self.assertIsNotNone(inbox.delivered_at)
+        self.assertEqual(inbox.delivered_step, runner.MAX_STEPS)
+        message = AgentConversationMessage.objects.get(conversation_id=self.conversation.id, content='Keep going')
+        self.assertEqual((message.role, message.tool_trace), ('user', {'runId': str(run.id), 'deliveredStep': runner.MAX_STEPS}))
+        self.assertEqual(self.kinds(run), ['paused', 'message_queued', 'message_delivered'])
+        self.assertEqual((self.steps(run), bodies), ([], []))
+
+    def test_a_paid_call_past_the_cost_bound_is_refused_with_cost_limit_and_never_sent(self):
         self.assertEqual(runner.MAX_RUN_COST_CENTS, 1000)
         sent = self.dispatched()
-        self.gemini([call('generate_image', {'prompt': 'red fox'})])
+        answer = 'That would go past what this run may spend. Shall I try a smaller size?'
+        bodies = self.gemini([call('generate_image', {'prompt': 'red fox'}, 'c1')], [text(answer)])
         run = self.start_run(cost_cents=runner.MAX_RUN_COST_CENTS - 5)
-        self.assertEqual(self.advance(run), 'paused')
-        run = self.assert_paused_at(run, 'cost_limit')
-        self.assertEqual((sent, Generation.objects.count(), run.cost_cents), ([], 0, runner.MAX_RUN_COST_CENTS - 5))
-        self.assertEqual([step.kind for step in self.steps(run)], ['llm'])
-        # A message wakes it, and it pauses again without paying.
-        AgentInboxMessage.objects.create(conversation_id=self.conversation.id, run_id=run.id, user_id=self.user.id,
-                                         content='Go ahead', created_at=20)
-        AgentRun.objects.filter(pk=run.id).update(resume_after=0)
-        self.assertEqual(self.advance(run), 'paused')
-        self.assertEqual((sent, Generation.objects.count(), self.refresh(run).pause_reason), ([], 0, 'cost_limit'))
+        self.assertEqual(self.advance(run), 'completed')
+        run = self.refresh(run)
+        self.assertEqual((sent, Generation.objects.count(), run.cost_cents, run.error), ([], 0, runner.MAX_RUN_COST_CENTS - 5, None))
+        steps = self.steps(run)
+        self.assertEqual([(step.kind, step.tool_name, step.outcome, step.cost_cents) for step in steps],
+                         [('llm', None, 'calls', 0), ('tool', 'generate_image', 'COST_LIMIT', 0), ('llm', None, 'final', 0)])
+        self.assertEqual(steps[1].result['response'], {
+            'code': 'COST_LIMIT',
+            'message': 'Nothing was charged: this call would take the run past its spending bound. Suggest a cheaper option or ask the artist.'})
+        self.assertEqual(bodies[1]['contents'][-1], {'role': 'user', 'parts': [{'functionResponse': {
+            'name': 'generate_image', 'response': steps[1].result['response'], 'id': 'c1'}}]})
+        message = AgentConversationMessage.objects.get(conversation_id=self.conversation.id, role='assistant')
+        self.assertEqual(message.content, answer)
+        self.assertNotIn('paused', self.kinds(run))
+
+    def test_a_paid_call_past_the_cost_bound_after_the_model_was_told_fails_the_run(self):
+        sent = self.dispatched()
+        bodies = self.gemini([call('generate_image', {'prompt': 'red fox'}), call('generate_image', {'prompt': 'grey fox'})],
+                             [call('generate_image', {'prompt': 'tiny fox'})])
+        run = self.start_run(cost_cents=runner.MAX_RUN_COST_CENTS - 5)
+        self.assertEqual(self.advance(run), 'failed')
+        run = self.refresh(run)
+        error = {'code': 'limit', 'kind': 'cost',
+                 'message': 'The run stopped: the model asked again for a paid call past its spending bound.'}
+        self.assertEqual((run.status, run.error, run.cost_cents), ('failed', error, runner.MAX_RUN_COST_CENTS - 5))
+        self.assertEqual(AgentRunEvent.objects.get(run_id=run.id, kind='failed').payload, error)
+        self.assertEqual((sent, Generation.objects.count(), len(bodies)), ([], 0, 2))
+        self.assertEqual([(step.kind, step.outcome) for step in self.steps(run)],
+                         [('llm', 'calls'), ('tool', 'COST_LIMIT'), ('tool', 'COST_LIMIT'), ('llm', 'calls')],
+                         'both calls of the turn are refused; the next turn asks again and the run ends')
 
     def test_after_a_job_reaches_the_cost_bound_the_next_model_turn_pauses_with_a_reason(self):
         sent = self.dispatched()
