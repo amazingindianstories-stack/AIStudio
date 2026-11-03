@@ -32,8 +32,8 @@ def enabled(component):
 
 
 def api_enabled():
-    """Admission on the services that create exports: the web API and the MCP service (``export_zip``)."""
-    return enabled('api') or enabled('mcp')
+    """Admission on the services that create exports: the web API, the MCP service and the agent worker (``export_zip``)."""
+    return enabled('api') or enabled('mcp') or enabled('agent')
 
 
 def worker_enabled():

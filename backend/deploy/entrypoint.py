@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Container entrypoint for the Veevee Django services (replaces env-injected launchers).
 
-Usage: python -m deploy.entrypoint {api|generation|export|scheduler|mcp}
+Usage: python -m deploy.entrypoint {api|generation|export|scheduler|agent|mcp}
 
 Credentials arrive as named environment variables and are written to private
 0600 files only where a library needs a file path (PostgreSQL CA, Google ADC).
@@ -9,7 +9,7 @@ The API runs the private ingress gateway on $PORT in front of gunicorn
 (1 worker x 8 threads on 127.0.0.1:18080, matching the qualified production
 process model). The MCP service runs the same gateway, in mcp mode, in front of
 one uvicorn process on 127.0.0.1:18082. Workers run their management command
-in this process.
+in this process; the agent worker runs the Agents tab's runs (apps.agents.worker).
 """
 import json
 import os
@@ -27,7 +27,9 @@ WORKER_COMMANDS = {
     'generation': ['generation_worker', '--interval', '2'],
     'export': ['media_export_worker', '--interval', '2'],
     'scheduler': ['run_scheduler'],
+    'agent': ['agent_worker', '--interval', '1'],
 }
+WORKER_SLOTS = {'generation': 'VEEVEE_GENERATION_WORKER_SLOTS', 'agent': 'VEEVEE_AGENT_WORKER_SLOTS'}
 API_THREADS = 8
 GUNICORN = ['--bind', f'127.0.0.1:{UPSTREAM_PORT}', '--workers', '1', '--threads', str(API_THREADS), '--timeout', '25',
             '--graceful-timeout', '5', '--access-logfile', '/dev/null', '--error-logfile', '-']
@@ -120,15 +122,24 @@ def supervise(children):
     return max((child.returncode or 0) for child in children) or 1
 
 
-def generation_worker_slots(env):
+def worker_slots(env, variable):
     """Default applies without a Railway variable; reject malformed overrides."""
     try:
-        slots = int(env.get('VEEVEE_GENERATION_WORKER_SLOTS', '4'))
+        slots = int(env.get(variable, '4'))
     except ValueError:
-        raise SystemExit('VEEVEE_GENERATION_WORKER_SLOTS must be an integer from 1 to 8') from None
+        raise SystemExit(f'{variable} must be an integer from 1 to 8') from None
     if not 1 <= slots <= 8:
-        raise SystemExit('VEEVEE_GENERATION_WORKER_SLOTS must be an integer from 1 to 8')
+        raise SystemExit(f'{variable} must be an integer from 1 to 8')
     return slots
+
+
+def generation_worker_slots(env):
+    return worker_slots(env, 'VEEVEE_GENERATION_WORKER_SLOTS')
+
+
+def agent_worker_slots(env):
+    """How many agent runs one agent worker advances at once."""
+    return worker_slots(env, 'VEEVEE_AGENT_WORKER_SLOTS')
 
 
 def run_worker(component, env):
@@ -138,15 +149,15 @@ def run_worker(component, env):
     django.setup()
     from django.core.management import execute_from_command_line
     command = list(WORKER_COMMANDS[component])
-    if component == 'generation':
-        command.extend(['--concurrency', str(generation_worker_slots(env))])
+    if component in WORKER_SLOTS:
+        command.extend(['--concurrency', str(worker_slots(env, WORKER_SLOTS[component]))])
     execute_from_command_line(['manage.py', *command])
     return 0
 
 
 def main(argv):
     if len(argv) != 2 or argv[1] not in ('api', 'mcp', *WORKER_COMMANDS):
-        raise SystemExit('usage: python -m deploy.entrypoint {api|generation|export|scheduler|mcp}')
+        raise SystemExit('usage: python -m deploy.entrypoint {api|generation|export|scheduler|agent|mcp}')
     component = argv[1]
     env, contract = dict(os.environ), None
     if legacy_config.present(env):

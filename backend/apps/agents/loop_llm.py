@@ -6,11 +6,12 @@
 
 A loop step is not a generation job (no row to reserve), so the transport is exempt from the paid guard and bounded by
 its own allowlist instead: POST generateContent on a pinned model (``LOOP_MODELS``), exactly ``SYSTEM_PROMPT``, tool
-declarations that each equal the registry-derived one for an Agents tab tool, exactly ``GENERATION_CONFIG`` (bounded
-output), user and model turns of text, media (``MEDIA_MIME`` inline or as a Files API ``fileData``), function calls
-and function responses for those tools, and a bounded body. The usage purpose picks the body: 'media' is only a
-``media_body`` sub-call and 'transcribe' only a ``transcribe_body``, each with its own fixed prompt and config and no
-tools. Every answered call writes one ``agent_llm_usage`` row from its ``usageMetadata``, priced from ``PRICES``.
+declarations that each equal the registry-derived one for an Agents tab tool or the harness's own ``design_prompt``
+(``design.DESIGN_DECLARATION``), exactly ``GENERATION_CONFIG`` (bounded output), user and model turns of text, media
+(``MEDIA_MIME`` inline or as a Files API ``fileData``), function calls and function responses for those tools, and a
+bounded body. The usage purpose picks the body: 'media' is only a ``media_body`` sub-call, 'transcribe' only a
+``transcribe_body`` and 'design_prompt' only a ``design.design_body`` sub-call, each with its own fixed prompt and config
+and no tools. Every answered call writes one ``agent_llm_usage`` row from its ``usageMetadata``, priced from ``PRICES``.
 
 ``GeminiFilesTransport`` carries only the Files API calls a large attachment needs: start and finish a resumable
 upload, read the file's state and delete it. Those calls carry no tokens, so they write no usage row; the file's
@@ -27,6 +28,7 @@ from apps.common.leases import now_ms
 from apps.integrations.transport import HttpTransport, ProviderError
 from apps.mcp.registry import AGENT_TOOLS, REGISTRY
 from .declarations import function_declarations, model_schema
+from .design import DESIGN_DECLARATION, DESIGN_TOOL, design_payload_allowed
 from .llm import API_ROOT, IMAGE_MIME, PART_METADATA, agent_endpoint
 from .models import AgentLlmUsage
 
@@ -38,6 +40,7 @@ LOOP_MODELS = (LOOP_MODEL, ADVANCED_LOOP_MODEL)
 GENERATION_CONFIG = {'maxOutputTokens': 16384, 'thinkingConfig': {'thinkingLevel': 'MEDIUM'}}
 MAX_BODY_BYTES = 16 * 1024 * 1024
 PART_KEYS = frozenset(('text', 'inlineData', 'fileData', 'functionCall', 'functionResponse'))
+LOOP_TOOLS = AGENT_TOOLS | {DESIGN_TOOL}
 ROLE_PARTS = {'user': frozenset(('text', 'inlineData', 'fileData', 'functionResponse')), 'model': frozenset(('text', 'functionCall'))}
 VOICE_MIME = frozenset(('audio/webm', 'audio/mp4', 'audio/ogg', 'audio/mpeg', 'audio/wav'))
 MEDIA_MIME = IMAGE_MIME | VOICE_MIME | frozenset((
@@ -60,6 +63,14 @@ SYSTEM_PROMPT = (
     'Use the tools to find models and their options (list_models), price work (estimate_cost), write prompts for '
     'text-to-image, image-to-image and reference-to-image work, start image, video and upscale jobs, finish drafts, '
     'check jobs, and keep the library organised in folders.\n'
+    'The mode is a property of the call. Text-to-image sends no references. Image-to-image sends one reference in '
+    'referenceIds and a prompt saying what to change and what to keep. Reference-to-image sends several referenceIds '
+    'in order and cites them in the prompt as @img1..@imgN by position. A video starts from an image with '
+    'firstFrameId, or cites referenceImageIds as @img1..@imgN. Each model takes its own number of references '
+    '(list_models). Before a new image or video, write its prompt with design_prompt unless the artist gave you the '
+    'exact prompt, then send the references in the order you described them. upscale_media takes a finished image '
+    'or video as sourceId and an upscale model for that kind. Jobs land in the chat\'s folder; pass folderId from '
+    'list_folders only when the artist asks for another place.\n'
     'Paid tools start the job and return its id at once; check it later with get_generation. When a call comes back '
     'needing approval, say what it costs and stop: Veevee asks the artist, and the approved call runs for you. Retries '
     'of the same step never pay twice. New messages from the artist can arrive between your tool calls; follow the '
@@ -102,7 +113,8 @@ class UsageContext:
 def loop_body(principal, contents):
     """The request body for one loop step as ``principal``: the fixed prompt, its tools and the bounded config."""
     return {'systemInstruction': {'parts': [{'text': SYSTEM_PROMPT}]}, 'contents': contents,
-            'tools': [{'functionDeclarations': function_declarations(principal)}], 'generationConfig': GENERATION_CONFIG}
+            'tools': [{'functionDeclarations': function_declarations(principal) + [DESIGN_DECLARATION]}],
+            'generationConfig': GENERATION_CONFIG}
 
 
 def media_body(parts, question=None):
@@ -126,10 +138,11 @@ def _declarations_allowed(tools):
     if not isinstance(declarations, list) or not declarations:
         return False
     names = [item.get('name') if isinstance(item, dict) else None for item in declarations]
-    if len(set(names)) != len(names) or not set(names) <= AGENT_TOOLS:
+    if len(set(names)) != len(names) or not set(names) <= LOOP_TOOLS:
         return False
-    return all(item == {'name': spec.name, 'description': spec.description, 'parametersJsonSchema': model_schema(spec.schema())}
-               for item, spec in ((item, REGISTRY[item['name']]) for item in declarations))
+    return all(item == DESIGN_DECLARATION if item['name'] == DESIGN_TOOL else
+               item == {'name': spec.name, 'description': spec.description, 'parametersJsonSchema': model_schema(spec.schema())}
+               for item, spec in ((item, REGISTRY.get(item['name'])) for item in declarations))
 
 
 def _part_allowed(role, part):
@@ -149,7 +162,7 @@ def _part_allowed(role, part):
                 and isinstance(value['fileUri'], str) and FILE_URI.fullmatch(value['fileUri']) is not None)
     payload = 'args' if kind == 'functionCall' else 'response'
     return (isinstance(value, dict) and {'name', payload} <= set(value) <= {'name', payload, 'id'}
-            and value['name'] in AGENT_TOOLS and isinstance(value[payload], dict))
+            and value['name'] in LOOP_TOOLS and isinstance(value[payload], dict))
 
 
 def loop_payload_allowed(body):
@@ -215,7 +228,7 @@ def transcribe_payload_allowed(body):
 
 
 # The body each usage purpose may carry; any other purpose is a loop step.
-PAYLOADS = {'media': media_payload_allowed, 'transcribe': transcribe_payload_allowed}
+PAYLOADS = {'media': media_payload_allowed, 'transcribe': transcribe_payload_allowed, DESIGN_TOOL: design_payload_allowed}
 
 
 def price_for(model, prompt_tokens, at_ms):
@@ -253,8 +266,8 @@ def record_usage(model, context, usage, *, now=None):
 
 
 class AgentLoopTransport(HttpTransport):
-    """An Agents tab step's, media sub-call's or transcription's only provider call; exempt from the paid guard and
-    bounded by the allowlist of its usage purpose (``PAYLOADS``, else ``loop_payload_allowed``). Every call Gemini
+    """An Agents tab step's, design, media or transcription sub-call's only provider call; exempt from the paid guard
+    and bounded by the allowlist of its usage purpose (``PAYLOADS``, else ``loop_payload_allowed``). Every call Gemini
     answers writes one usage row, so the ledger holds every billed call."""
     paid_guard_exempt = True
 

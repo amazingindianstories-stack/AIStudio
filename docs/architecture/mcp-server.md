@@ -75,7 +75,9 @@ agents can only read.
 other name is an unknown tool. `registry.AGENT_ONLY` (`view_media`, `read_document`) works the other way: only an
 agent grant reaches them, and HTTP clients neither list nor call them (they spend Veevee's own Gemini calls; an MCP
 client reads the files itself through `get_download_links`). The per-user opt-in does not apply to an agent grant, but
-the global switch and maintenance do.
+the global switch does. Maintenance applies only to callers that pass it: the durable Agents tab worker does not
+observe the maintenance write freeze yet, so setting the global `agentsEnabled` to `0` is how to stop its runs during
+a freeze (`agent-access.md`).
 
 ## Tools
 

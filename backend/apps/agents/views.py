@@ -11,10 +11,11 @@ from apps.common.responses import renew_session
 from apps.generation.watermark import WHITESPACE
 from apps.library.views import body_or_empty
 from apps.mcp import errors
-from . import media, services
+from . import media, runner, runs, services
+from .events import PAGE_SIZE
+from .grants import AgentGrantInvalid
 from .images import parse_message_body, images_to_parts
-from .loop_llm import VOICE_MIME, UsageContext
-from .models import AgentConversation
+from .loop_llm import LOOP_MODELS, VOICE_MIME, UsageContext
 from .orchestrator import run_turn
 
 logger = logging.getLogger(__name__)
@@ -244,11 +245,38 @@ def attach(request, id, message_id):
     return renew_session(request, Response({'message': message}))
 
 
-def owned(id, user_id):
+# Agent runs: the durable loop the agent worker advances. Each route needs an admin session (as above) and the
+# conversation's owner; another user's conversation or run answers 404, as if it did not exist.
+
+def owned(request, id):
+    """``(user, conversation, None)``, or ``(None, None, response)`` when the caller may not use the conversation."""
+    user = admin(request)
+    if user is None:
+        return None, None, forbidden()
+    conversation = runs.owned_conversation(id, user)
+    if conversation is None:
+        return None, None, Response({'error': 'Conversation not found.'}, status=404)
+    return user, conversation, None
+
+
+def owned_run(request, id, run_id):
+    user, conversation, refused = owned(request, id)
+    if refused is not None:
+        return None, None, refused
+    run = runs.conversation_run(conversation, run_id)
+    if run is None:
+        return None, None, Response({'error': 'Run not found.'}, status=404)
+    return user, run, None
+
+
+def bounded_int(value, default, low, high):
+    if value is None:
+        return default
     try:
-        return AgentConversation.objects.filter(pk=uuid.UUID(id), user_id=user_id).exists()
-    except ValueError:
-        return False
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if low <= number <= high else None
 
 
 @api_view(['GET', 'POST'])
@@ -258,11 +286,9 @@ def transcribe(request, id):
     """GET: the voice note caps. POST: the raw recording (its own Content-Type, ``durationMs`` in the query) as
     ``{transcript}``; raw bytes keep a 4 MB note under Vercel's 4.5 MB request body, which base64 would not. The audio
     goes to Gemini only: no upload session, no storage write, and neither it nor the transcript is logged."""
-    user = admin(request)
-    if user is None:
-        return forbidden()
-    if not owned(id, user.id):
-        return Response({'error': 'Conversation not found.'}, status=404)
+    user, _, refused = owned(request, id)
+    if refused is not None:
+        return refused
     max_seconds, max_bytes = media.limit(user.id, 'agentVoiceMaxSeconds'), media.limit(user.id, 'agentVoiceMaxBytes')
     if request.method == 'GET':
         return renew_session(request, Response({'maxSeconds': max_seconds, 'maxBytes': max_bytes}))
@@ -294,3 +320,81 @@ def transcribe(request, id):
     if transcript is None:
         return renew_session(request, Response({'error': 'Veevee could not transcribe the voice note. Try again.'}, status=502))
     return renew_session(request, Response({'transcript': transcript}))
+
+
+@api_view(['GET', 'POST'])
+@authentication_classes([])
+@permission_classes([])
+def agent_runs(request, id):
+    user, conversation, refused = owned(request, id)
+    if refused is not None:
+        return refused
+    if request.method == 'GET':
+        return renew_session(request, Response({'runs': runs.recent_runs(conversation)}))
+    body = body_or_empty(request)
+    parsed = parse_message_body({'content': body.get('content')})
+    if 'error' in parsed:
+        return Response(parsed, status=400)
+    if body.get('model') is not None and body['model'] not in LOOP_MODELS:
+        return Response({'error': 'Unknown model.'}, status=400)
+    try:
+        outcome = runs.post_message(conversation, user, parsed['content'], model=body.get('model'))
+    except runs.AgentsDisabled:
+        return Response({'error': 'Agents are turned off.', 'code': 'AGENTS_DISABLED'}, status=403)
+    except AgentGrantInvalid as error:
+        return Response({'error': str(error), 'code': 'AGENT_GRANT_INVALID'}, status=403)
+    return renew_session(request, Response(outcome, status=201 if outcome['delivery'] == 'run' else 202))
+
+
+@api_view(['GET'])
+@authentication_classes([])
+@permission_classes([])
+def run_events(request, id, run_id):
+    _, run, refused = owned_run(request, id, run_id)
+    if refused is not None:
+        return refused
+    after = bounded_int(first(request, 'after'), 0, 0, 2 ** 31 - 1)
+    limit = bounded_int(first(request, 'limit'), PAGE_SIZE, 1, PAGE_SIZE)
+    if after is None or limit is None:
+        return Response({'error': f'after must be a non-negative integer and limit 1-{PAGE_SIZE}.'}, status=400)
+    return renew_session(request, Response(runs.feed(run, after=after, limit=limit)))
+
+
+def step_index(body):
+    value = body.get('stepIndex')
+    return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+
+
+@api_view(['POST'])
+@authentication_classes([])
+@permission_classes([])
+def run_quote(request, id, run_id, decision):
+    user, run, refused = owned_run(request, id, run_id)
+    if refused is not None:
+        return refused
+    index = step_index(body_or_empty(request))
+    if index is None:
+        return Response({'error': 'stepIndex is required.'}, status=400)
+    if decision == 'approve':
+        answered = runner.approve_quote(run.id, user.id, step_index=index)
+    else:
+        answered = runner.decline_quote(run.id, 'declined', step_index=index)
+    if answered is None:
+        return Response({'error': 'No quote is waiting for approval at this step.', 'code': 'NO_PENDING_QUOTE'}, status=409)
+    return renew_session(request, Response({'run': runs.run_json(answered)}))
+
+
+@api_view(['POST'])
+@authentication_classes([])
+@permission_classes([])
+def run_cancel(request, id, run_id):
+    _, run, refused = owned_run(request, id, run_id)
+    if refused is not None:
+        return refused
+    cancel_jobs = body_or_empty(request).get('cancelJobs', False)
+    if not isinstance(cancel_jobs, bool):
+        return Response({'error': 'cancelJobs must be true or false.'}, status=400)
+    cancelled = runs.request_cancel(run.id, cancel_jobs=cancel_jobs)
+    if cancelled is None:
+        return Response({'error': 'This run has already finished.', 'code': 'RUN_FINISHED'}, status=409)
+    return renew_session(request, Response({'run': runs.run_json(cancelled)}, status=202))

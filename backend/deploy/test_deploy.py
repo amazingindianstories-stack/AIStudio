@@ -37,6 +37,49 @@ class EntrypointTests(SimpleTestCase):
             entrypoint.main(['entrypoint', 'shell'])
 
 
+class AgentWorkerDeployTests(SimpleTestCase):
+    def run_worker(self, env):
+        from unittest.mock import patch
+        with patch.dict(os.environ, {}, clear=True), patch('django.setup'), \
+                patch('django.core.management.execute_from_command_line') as execute:
+            entrypoint.run_worker('agent', env)
+        return execute.call_args.args[0]
+
+    def test_agent_component_runs_the_agent_worker_with_validated_slots(self):
+        self.assertEqual(entrypoint.WORKER_COMMANDS['agent'], ['agent_worker', '--interval', '1'])
+        for override, expected in ((None, '4'), ('1', '1'), ('8', '8')):
+            env = {} if override is None else {'VEEVEE_AGENT_WORKER_SLOTS': override}
+            with self.subTest(override=override):
+                self.assertEqual(self.run_worker(env), ['manage.py', 'agent_worker', '--interval', '1', '--concurrency', expected])
+        # The generation worker's own setting never sizes the agent worker.
+        self.assertEqual(self.run_worker({'VEEVEE_GENERATION_WORKER_SLOTS': '7'})[-1], '4')
+        for override in ('', 'no', '0', '9', '2.5'):
+            with self.subTest(override=override), self.assertRaisesRegex(SystemExit, 'VEEVEE_AGENT_WORKER_SLOTS must be an integer from 1 to 8'):
+                entrypoint.agent_worker_slots({'VEEVEE_AGENT_WORKER_SLOTS': override})
+
+    def test_main_dispatches_the_agent_component_to_its_worker(self):
+        from unittest.mock import patch
+        with patch.dict(os.environ, {'DATABASE_URL': 'fixture'}, clear=True), \
+                patch.object(entrypoint, 'prepare_environment', side_effect=lambda env: dict(env)), \
+                patch.object(entrypoint, 'run_worker', return_value=0) as worker, patch.object(entrypoint, 'run_api') as api:
+            self.assertEqual(entrypoint.main(['entrypoint', 'agent']), 0)
+        self.assertEqual(worker.call_args.args, ('agent', {'DATABASE_URL': 'fixture', 'VEEVEE_RUNTIME_COMPONENT': 'agent'}))
+        api.assert_not_called()
+
+    def test_the_agent_component_needs_a_quote_secret(self):
+        import subprocess
+        import sys
+        backend = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+        def settings_error(**env):
+            done = subprocess.run([sys.executable, '-c', 'import config.settings.base'], capture_output=True, text=True,
+                                  env=dict(os.environ, **env), cwd=backend, timeout=120)
+            return done.stderr if done.returncode else None
+        self.assertIn('The agent component needs a 32+ character MCP_QUOTE_SECRET',
+                      settings_error(VEEVEE_RUNTIME_COMPONENT='agent', MCP_QUOTE_SECRET='short') or '')
+        self.assertIsNone(settings_error(VEEVEE_RUNTIME_COMPONENT='agent', MCP_QUOTE_SECRET='q' * 32))
+
+
 class GatewayAllowlistTests(SimpleTestCase):
     def test_routes(self):
         allowed = lambda method, path: gateway.allowed(method, path, True, True)  # noqa: E731
@@ -376,6 +419,41 @@ class LegacyConfigTests(SimpleTestCase):
         self.assertEqual(self.legacy.preflight_contract('mcp', env), {'role': 'goal4_green_preview_api'})
         with self.assertRaises(SystemExit):
             self.legacy.translate('mcp', self.api_env(role='goal4_green_preview_worker'))
+
+    def test_agent_worker_runs_as_the_api_role_with_only_the_gemini_key(self):
+        import json
+        env = {**self.api_env(), 'MAGNIFIC_API_KEY': 'mk', 'VEEVEE_MAGNIFIC_UPSCALE': '1', 'VEEVEE_KLING': '1', 'KLING_API': 'kk',
+               'KLING_API_HOST': 'https://api-singapore.klingai.com', 'VEEVEE_OMNIHUMAN': '1', 'VEEVEE_MANAGED_PORTRAITS': '1',
+               'VEEVEE_WEB_PUSH_PUBLIC_KEY': 'pub', 'VEEVEE_WEB_PUSH_PRIVATE_KEY': 'priv', 'VEEVEE_WEB_PUSH_SUBJECT': 'mailto:x@example.invalid',
+               'VEEVEE_MCP': '1', 'MCP_QUOTE_SECRET': 'q' * 40, 'MCP_MAX_HOLD_SECONDS': '45', 'VEEVEE_AGENT_WORKER_SLOTS': '3'}
+        api, agent = self.legacy.translate('api', env), self.legacy.translate('agent', env)
+        self.assertEqual(agent['DATABASE_URL'], api['DATABASE_URL'])
+        self.assertEqual(self.legacy.preflight_contract('agent', env), {'role': 'goal4_green_preview_api'})
+        self.assertEqual((agent['VEEVEE_MEDIA_PREFIX'], agent['GCP_ADC_JSON']), (api['VEEVEE_MEDIA_PREFIX'], api['GCP_ADC_JSON']))
+        # GOOGLE_API_KEY is the only provider credential; nothing the agent loop never uses reaches it.
+        self.assertEqual(self.legacy.AGENT_KEYS, frozenset({'GOOGLE_API_KEY'}))
+        self.assertEqual(agent['GOOGLE_API_KEY'], 'google')
+        providers = self.legacy.PROVIDER_KEYS | self.legacy.BYTEPLUS_KEYS | {'MAGNIFIC_API_KEY', 'KLING_API'}
+        self.assertEqual(providers & set(agent), {'GOOGLE_API_KEY'})
+        for key in ('ARK_API_KEY', 'SEEDANCE_MODEL', 'BYTEPLUS_ACCESS_KEY_ID', 'BYTEPLUS_SECRET_ACCESS_KEY', 'MAGNIFIC_API_KEY', 'KLING_API',
+                    'VEEVEE_PORTRAIT_LIFECYCLE', 'VEEVEE_MANAGED_PORTRAITS', 'VEEVEE_WEB_PUSH_PUBLIC_KEY', 'VEEVEE_WEB_PUSH_PRIVATE_KEY',
+                    'VEEVEE_WEB_PUSH_SUBJECT', 'VEEVEE_INGRESS_SECRET', 'PORT', 'VEEVEE_MCP', 'MCP_MAX_HOLD_SECONDS',
+                    'VEEVEE_LEASE_PREFIX', 'VEEVEE_NAMING_PREFIX'):
+            self.assertNotIn(key, agent, key)
+        self.assertFalse(any(key.startswith('GOAL4_') for key in agent))
+        # The API's flags and paid-guard policy, so tool availability and quotes agree with the web and MCP.
+        self.assertEqual(json.loads(agent['VEEVEE_PAID_GUARD']), json.loads(api['VEEVEE_PAID_GUARD']))
+        self.assertEqual((agent['MOCK_GENERATION'], agent['VEEVEE_MAGNIFIC_UPSCALE'], agent['VEEVEE_KLING'], agent['VEEVEE_OMNIHUMAN']),
+                         ('0', '1', '1', '1'))
+        self.assertEqual(agent['KLING_API_HOST'], 'https://api-singapore.klingai.com')
+        self.assertEqual((agent['MCP_QUOTE_SECRET'], agent['VEEVEE_AGENT_WORKER_SLOTS']), ('q' * 40, '3'))
+        self.assertNotIn('VEEVEE_AGENT_WORKER_SLOTS', api)
+        self.assertNotIn('MCP_QUOTE_SECRET', api)
+        unpaid = self.legacy.translate('agent', self.api_env(paid=None))
+        self.assertNotIn('GOOGLE_API_KEY', unpaid)
+        self.assertEqual(unpaid['MOCK_GENERATION'], '1')
+        with self.assertRaises(SystemExit):
+            self.legacy.translate('agent', self.api_env(role='goal4_green_preview_worker'))
 
     def test_refuses_mismatched_or_unsafe_configuration(self):
         for component, env in (('generation', self.worker_env('export')),

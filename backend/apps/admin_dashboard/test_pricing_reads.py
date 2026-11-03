@@ -9,9 +9,10 @@ class PricingReadTests(TestCase):
         with override_settings(VEEVEE_RUNTIME_COMPONENT='generation'):
             self.assertEqual(queries.price_rows(), [])
             self.assertEqual(Pricing.objects.count(), 0)
-        with override_settings(VEEVEE_RUNTIME_COMPONENT='api'):
-            self.assertEqual(queries.price_rows(), [dict(row) for row in queries.DEFAULT_PRICING])
-            self.assertEqual(Pricing.objects.count(), 0)
+        for component in ('api', 'mcp', 'agent'):
+            with override_settings(VEEVEE_RUNTIME_COMPONENT=component):
+                self.assertEqual(queries.price_rows(), [dict(row) for row in queries.DEFAULT_PRICING], component)
+                self.assertEqual(Pricing.objects.count(), 0)
 
     def test_stored_prices_win_and_the_api_appends_only_missing_defaults(self):
         default = queries.DEFAULT_PRICING[0]

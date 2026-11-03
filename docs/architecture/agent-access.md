@@ -63,6 +63,98 @@ user's `auth_version` changing.
 Users manage tokens and connected apps in Account settings, Agent access (`/api/mcp/tokens`,
 `/api/mcp/connections/<id>`).
 
+## Agents tab runs
+
+An Agents tab chat turn can run as a durable run (`agent_runs`) that the `agent` worker advances in the background,
+so a turn survives a closed tab, a deploy or a worker crash. The old synchronous path (`POST .../messages`, one short
+tool loop inside the request) still serves the current UI; the run endpoints below are for the new tab. Code lives in
+`apps/agents`: `runs.py` (the services the views adapt), `runner.py` (the state machine), `worker.py` (claim,
+heartbeat and the scheduler's resume pass), `events.py`, `step_limits.py` and `design.py`.
+
+```
+queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed | failed | cancelled
+```
+
+- **Steps.** Every step is journaled in `agent_run_steps` before it runs. An `llm` step is one Gemini call through
+  `loop_llm.AgentLoopTransport` with `loop_body(...)` (the pinned models, payload allowlist and `agent_llm_usage`
+  ledger). A `tool` step is one model function call, dispatched in-process with `server.dispatch` as the run's grant
+  (re-checked before every step) with idempotency key `<run id>:<step index>`, tags `runId` and `stepIndex`. The next
+  action is always derived from the journal: after a crash an `llm` step without an outcome is re-issued, and a `tool`
+  step without an outcome is replayed with the same key, which returns the first receipt instead of paying twice.
+- **Paid tools never wait.** `generate_image`, `generate_video`, `upscale_media` and `finalize_draft` are sent with
+  `wait=false`. Each job they create gets `generations.agent_run_id`, `created_via='agent'` and an `agent_chat_assets`
+  output row; the run then sits in `waiting_jobs` until every linked job is terminal (rechecked each worker tick) or
+  the artist sends a message, and the model is told how the jobs finished.
+- **Location.** A job-creating tool (`generate_image`, `generate_video`, `upscale_media`, `finalize_draft`) that got
+  neither a folder nor a project lands in the chat's `default_folder_id`, else its `default_project_id`. A folder the
+  model names (from `list_folders`) is kept. Other tools that take a location, such as `search_generations`, keep the
+  model's scope.
+- **Prompt design.** `design_prompt` is the harness's own tool, declared after the registry tools and accepted by the
+  loop allowlist only with its exact declaration. It is a tool step that never reaches the dispatcher: one prompt-design
+  sub-call through the same transport (usage purpose `design_prompt`) with the old orchestrator's prompt craft and three
+  modes: text (no references), edit (one reference plus the instruction) and references (ordered `referenceIds`, cited
+  `@img1..@imgN` by position, at most the target model's `maxReferenceImages`).
+- **Approvals.** A `quote_required` result parks the run in `waiting_approval` and emits `quote_required` with the
+  price, tool, arguments and prompt. Approving stores the approval on the step; the worker replays the same step with
+  `quoteToken`, plus `confirmedByUser` at 100 cents or more. Declining, or sending a new message instead, ends the step
+  unpaid with `QUOTE_DECLINED` for the model. The model can never send `idempotencyKey`, `quoteToken`,
+  `confirmedByUser`, `wait` or `maxWaitSeconds` (removed from its schemas and its calls; `declarations.harness_arguments`
+  sets them).
+- **Inbox.** A message posted while a run is active goes to `agent_inbox`. At every step boundary, before any bound or
+  limit check, the runner delivers undelivered rows in `created_at`/id order as user turns before the next model call,
+  setting `delivered_at` and `delivered_step`, adding the message to the chat and emitting `message_delivered`, so a
+  message reaches the chat history even when the run then pauses. A run that ends `cancelled` or `failed` delivers any
+  message still waiting the same way, so it stays in the chat; no new run starts for it. A message wakes a run waiting
+  on jobs or paused at a limit, and a run does not complete while a delivered message is newer than the model's last
+  turn.
+- **Step boundaries.** Before each step the runner stops if its lease was lost or the worker is stopping (the run goes
+  back to `queued`), honours a cancel request, re-checks the grant (`AgentGrantInvalid` fails the run), delivers the
+  inbox, and checks the
+  bounds: the global `agentsEnabled` setting (`0` pauses the run as `paused_limit`, `agents_disabled`, retried every
+  minute; unset, `1` or an unparsable value is on; the runner does not observe the maintenance write freeze yet, so
+  setting `agentsEnabled` to `0` is how to stop runs during a freeze), the per-run bounds in `runner.py`, and
+  `step_limits.check_limits(run, step_kind)`, which allows everything today; a non-ok verdict pauses the run as
+  `paused_limit` with its `pause_reason` and `resume_after`. The per-run bounds (module constants until the admin
+  limits replace them) also pause the run as `paused_limit`, with no `resume_after`, so it waits for the artist instead
+  of retrying into the bound: `step_limit` at 40 steps; `cost_limit` once spent paid estimates reach 1000 estimator
+  cents; and `time_limit` at 2 hours spent inside steps, where each step counts from its latest attempt to its outcome,
+  so waiting for approval, jobs or a limit is not counted. A message wakes such a run, which delivers it and pauses
+  again at the same bound; stopping it keeps its jobs. A paid call whose price (or approved quote) would take the run
+  past 1000 cents is never sent and not retried: it is journaled as its own tool step with outcome `COST_LIMIT` and a
+  `COST_LIMIT` function response (nothing was charged; suggest a cheaper option or ask the artist), and the model's
+  next turn can explain or offer a cheaper option. Every over-bound call in one model turn is refused this way; one in
+  a later turn, after the model was told, fails the run with error code `limit` (`kind` `cost`). A step already sent
+  is replayed with its key rather than refused, so a job it submitted is never lost.
+- **Cancel.** A stop request sets `cancel_requested_at`; the run ends `cancelled` at its next step boundary, and jobs
+  already queued finish normally. "Stop and cancel jobs" (`cancel_jobs`) also cancels every active linked job through
+  `generation/services/cancellation.cancel_generation` (deferred, so the generation worker sends any provider cancel).
+- **Events.** `agent_run_events` carries a gapless, strictly increasing per-run `seq`, allocated under the run row lock:
+  `run_queued`, `run_started`, `resumed`, `step_started`, `tool_called`, `job_queued`, `job_finished`, `waiting_jobs`,
+  `quote_required`, `quote_approved`, `quote_declined`, `message_queued`, `message_delivered`, `assistant_text`,
+  `paused`, `cancel_requested`, `completed`, `failed` and `cancelled`. The final model text also becomes an assistant
+  `agent_conversation_messages` row. A terminal status is written with its final event.
+
+| Method and path (under `/api/agent-conversations/<id>`) | Purpose |
+|---|---|
+| `GET .../runs` | The chat's 20 most recent runs |
+| `POST .../runs` `{content, model?}` | Starts a run with the message (201), or writes it to the active run's inbox (202). One active run per conversation is a database constraint. `403 AGENTS_DISABLED` when the global `agentsEnabled` is `0` and no run is active |
+| `GET .../runs/<run>/events?after=<seq>&limit=` | Up to 100 events after `seq`, with the run, `nextAfter`, `more` and the undelivered messages |
+| `POST .../runs/<run>/approve`, `.../decline` `{stepIndex}` | Answers the waiting quote; `409 NO_PENDING_QUOTE` otherwise |
+| `POST .../runs/<run>/cancel` `{cancelJobs?}` | Stop (202), or stop and cancel the run's active jobs; `409 RUN_FINISHED` once it ended |
+
+Every route needs an admin session, like the old agent chat; another user's conversation or run is 404. The gateway
+opens starting a run and approving a quote only with its paid routes on (`paid_initial_routes`); the events feed,
+decline and cancel are always open.
+
+The worker is its own Railway component, `python -m deploy.entrypoint agent`, which runs
+`agent_worker --interval 1 --concurrency N` (`VEEVEE_AGENT_WORKER_SLOTS`, 1 to 8, default 4). It uses the API's
+database role and API-style configuration (`deploy/legacy_config.py` `_agent`) with `GOOGLE_API_KEY` as its only
+provider key (`AGENT_KEYS`; no BytePlus, Kling or Magnific keys, portrait or Web Push settings, ingress secret or
+port), plus its own `MCP_QUOTE_SECRET` (32+ characters), because it signs and checks quotes in-process. It advances a
+run only while it holds the run's lease and one of 8 global slot leases (`apps.common.leases`), renewed every 15 s
+with the run's `last_heartbeat_at`. The scheduler's `agent_runs` pass re-queues a `running` run whose heartbeat is
+older than 60 s, and the next worker resumes it from its journal. The worker never blocks on a provider.
+
 ## OAuth 2.1 authorization server
 
 | Endpoint | Path |

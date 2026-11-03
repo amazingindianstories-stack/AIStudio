@@ -35,13 +35,24 @@ class LeaseNamespaceTests(TestCase):
 
     def test_every_worker_component_and_only_workers_use_the_prefix(self):
         for component, key in (('generation', 'lease:private:x'), ('export', 'lease:private:x'), ('scheduler', 'lease:private:x'),
-                               ('api', 'lease:x'), (None, 'lease:x')):
+                               ('api', 'lease:x'), ('mcp', 'lease:x'), ('agent', 'lease:x'), (None, 'lease:x')):
             with override_settings(VEEVEE_RUNTIME_COMPONENT=component, VEEVEE_LEASE_PREFIX='lease:private:'):
                 self.assertTrue(leases.claim('lease:x', 'owner', now=1))
                 self.assertEqual(list(AppSetting.objects.values_list('key', flat=True)), [key], component)
                 self.assertTrue(leases.release('lease:x', 'owner'))
         with override_settings(VEEVEE_RUNTIME_COMPONENT='generation', VEEVEE_LEASE_PREFIX=''):
             self.assertEqual(leases.namespaced('lease:x'), 'lease:x')
+
+    def test_renew_extends_only_a_lease_the_owner_still_holds(self):
+        self.assertTrue(leases.claim('lease:x', 'owner', now=1, ttl_ms=10))
+        self.assertFalse(leases.claim('lease:x', 'other', now=5, ttl_ms=10))
+        self.assertFalse(leases.renew('lease:x', 'other', now=5, ttl_ms=10))
+        self.assertTrue(leases.renew('lease:x', 'owner', now=5, ttl_ms=10))
+        self.assertEqual(leases.read('lease:x'), {'owner': 'owner', 'expiresAt': 15})
+        self.assertFalse(leases.renew('lease:x', 'owner', now=15, ttl_ms=10), 'an expired lease is never renewed')
+        self.assertTrue(leases.claim('lease:x', 'other', now=15, ttl_ms=10))
+        self.assertFalse(leases.renew('lease:x', 'owner', now=16, ttl_ms=10))
+        self.assertFalse(leases.renew('lease:missing', 'owner', now=1))
 
 
 class LeasePrefixStartupTests(SimpleTestCase):

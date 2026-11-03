@@ -216,6 +216,15 @@ BOARD_SLICES = {
  '/api/workspace': ['GET'],
 }
 EXPECTED.update(BOARD_SLICES)
+# Agent runs: the durable Agents tab loop (admin session and conversation owner, like the agent conversation routes).
+AGENT_RUNS = {
+ '/api/agent-conversations/[id]/runs': ['GET', 'POST'],
+ '/api/agent-conversations/[id]/runs/[runId]/events': ['GET'],
+ '/api/agent-conversations/[id]/runs/[runId]/approve': ['POST'],
+ '/api/agent-conversations/[id]/runs/[runId]/decline': ['POST'],
+ '/api/agent-conversations/[id]/runs/[runId]/cancel': ['POST'],
+}
+EXPECTED.update(AGENT_RUNS)
 # Agent OAuth endpoints read no cookies and answer browser-based clients cross-origin (apps.common.origin).
 COOKIELESS_OAUTH = {'/api/oauth/register', '/api/oauth/token', '/api/oauth/revoke'}
 
@@ -248,9 +257,10 @@ def leaves(patterns,prefix=''):
 class CompleteApiCoverageTests(SimpleTestCase):
     def test_all_139_explicit_methods_resolve_to_the_declared_python_handlers(self):
         # 90 migrated methods, the media resolver, the managed-portrait routes, the admin provider error log, agent access,
-        # board roles, board sync, board AI jobs, board history, synced copies, board work tables, board media, the board integration slices and Agents tab voice notes.
-        self.assertEqual(len(EXPECTED),164)
-        self.assertEqual(sum(map(len,EXPECTED.values())),226)
+        # board roles, board sync, board AI jobs, board history, synced copies, board work tables, board media, the board
+        # integration slices, Agents tab voice notes and agent runs.
+        self.assertEqual(len(EXPECTED),169)
+        self.assertEqual(sum(map(len,EXPECTED.values())),232)
         resolved_routes=set()
         for path,methods in EXPECTED.items():
             with self.subTest(path=path):
@@ -365,6 +375,7 @@ NEGATIVE_STATUS.update({path:{method:401 for method in methods} for path,methods
 NEGATIVE_STATUS.update({path:{method:401 for method in methods} for path,methods in SYNCED_COPIES.items()})
 NEGATIVE_STATUS.update({path:{method:401 for method in methods} for path,methods in BOARD_WORK.items()})
 NEGATIVE_STATUS.update({path:{method:401 for method in methods} for path,methods in BOARD_SLICES.items()})
+NEGATIVE_STATUS.update({path:{method:403 for method in methods} for path,methods in AGENT_RUNS.items()})
 # Public discovery documents, and machine endpoints refusing an empty body or an unknown client.
 NEGATIVE_STATUS.update({'/api/oauth/authorization-server':{'GET':200},'/api/oauth/protected-resource':{'GET':200},
     '/api/oauth/register':{'POST':400},'/api/oauth/token':{'POST':401},'/api/oauth/revoke':{'POST':400}})
@@ -453,7 +464,7 @@ class CompleteApiNegativeBoundaryTests(TransactionTestCase):
                             if path=='/api/auth/me' and method=='GET': self.assertEqual(response.json(),{'user':None})
                             if path=='/api/auth/logout': self.assertEqual(response.json(),{'ok':True})
                             seen.add((mode,path,method))
-            self.assertEqual(len(seen),3*226)
+            self.assertEqual(len(seen),3*232)
             self.assert_no_effects(before)
 
     def test_every_unsafe_method_rejects_hostile_origin_even_with_valid_credentials(self):

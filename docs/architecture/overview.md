@@ -17,9 +17,11 @@ flowchart LR
     Gen[Generation worker] --> PG[(PostgreSQL 18)]
     Export[Export worker] --> PG
     Sched[Scheduler] --> PG
+    AgentW[Agent worker] --> PG
     API --> PG
   end
   Gen --> Providers[Gemini, Seedream, Seedance, Kling, Magnific, ...]
+  AgentW -->|agent loop only| Gemini[Gemini]
   API -->|signs URLs| GCS[(GCS media bucket)]
   Browser -->|media bytes| GCS
   Gen --> GCS
@@ -37,7 +39,8 @@ flowchart LR
 | MCP service | `apps/mcp` | The agent endpoint `/mcp`: one uvicorn process with Django in-process, behind the gateway in mcp mode, started by `python -m deploy.entrypoint mcp`. API database role, no provider credentials (`mcp-server.md`). |
 | Generation worker | `apps/generation` (`generation_worker`) | Admission, provider submission, task receipts, polling and terminal state. Also renders board SVG, PSD and PDF files, one at a time per process (`../features/board-media.md`). |
 | Export worker | `apps/exports` (`media_export_worker`) | Builds private ZIP archives from frozen manifests. |
-| Scheduler | `apps/workers` (`run_scheduler`) | Depth/video reconciliation, export, login-attempt, canvas save-record, board-history, 90-day board-notification and 30-day comment-notification cleanup, hourly work-table due reminders, board notification Web Push, portrait janitor. |
+| Agent worker | `apps/agents` (`agent_worker`) | Advances the Agents tab's durable runs (`agent_runs`): Gemini loop calls through the pinned agent transport and in-process tool calls as the user's agent grant, with leases, a step journal and resume. Started by `python -m deploy.entrypoint agent`; API database role, `GOOGLE_API_KEY` as its only provider key, `VEEVEE_AGENT_WORKER_SLOTS` runs at once (`agent-access.md`). Not deployed yet (`operations/status.md`). |
+| Scheduler | `apps/workers` (`run_scheduler`) | Depth/video reconciliation, re-queueing agent runs whose worker stopped heartbeating, export, login-attempt, canvas save-record, board-history, 90-day board-notification and 30-day comment-notification cleanup, hourly work-table due reminders, board notification Web Push, portrait janitor. |
 | Depth worker | `depth-worker/` | Runs on a GPU machine and talks to the fenced depth HTTP protocol. |
 | Database | `backend/apps/*/migrations` | One Django migration graph; production tables, roles and row-level security are described in `operations/status.md`. |
 
@@ -53,7 +56,7 @@ recorded in `operations/status.md`. Releases follow `operations/release-runbook.
 | `library` | Folder tree, naming counters, filenames, idempotency receipts |
 | `assets` | Material catalog, legacy and managed BytePlus portraits, face detection |
 | `canvas` | Canvas boards, board roles and the effective-role check (`../features/board-roles.md`), their conflict-safe autosave (`canvas-board-sync.md`), board history (`../features/board-history.md`), board media, files and embeds (`../features/board-media.md`), board comments, notifications and Web Push (`../features/board-comments.md`), board "Create with AI" jobs (`board-ai.md`), and work tables behind cards and data widgets with their history and in-app board notifications (`work_tables.py`, `work_views.py`, `work_notifications.py`) |
-| `agents` | Gemini tool-loop chat; the Agents tab's grants (`grants.py`, `agent-access.md`), runs and pinned-model loop transport (steps, media sub-calls, voice transcription and the Files API calls of large attachments) with its usage ledger (`loop_llm.py`), the owner-only library files it reads as Gemini parts and the `view_media`/`read_document` sub-call (`media.py`); the composer's voice note endpoint, `POST /api/agent-conversations/<id>/transcribe` (raw audio, never stored; a paid initial route at the gateway, `AGENT_TRANSCRIBE`; client `src/lib/voice-note.js`, with documents staged as `document-reference` uploads by `src/lib/agent-attachments.js`); board AI text formats and the agent payload allowlists |
+| `agents` | Gemini tool-loop chat; the Agents tab's grants (`grants.py`, `agent-access.md`), durable runs (`runner.py`, `runs.py`, the `agent_worker` in `worker.py`), prompt design (`design.py`) and pinned-model loop transport (steps, design, media sub-calls, voice transcription and the Files API calls of large attachments) with its usage ledger (`loop_llm.py`), the owner-only library files it reads as Gemini parts and the `view_media`/`read_document` sub-call (`media.py`); the composer's voice note endpoint, `POST /api/agent-conversations/<id>/transcribe` (raw audio, never stored; a paid initial route at the gateway, `AGENT_TRANSCRIBE`; client `src/lib/voice-note.js`, with documents staged as `document-reference` uploads by `src/lib/agent-attachments.js`); board AI text formats and the agent payload allowlists |
 | `generation` | Enqueue, history and live updates, providers, prompting, worker execution |
 | `exports` | ZIP manifests and the export worker |
 | `workers` | Depth protocol, depth enqueue, cron routes, scheduler |

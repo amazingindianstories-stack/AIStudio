@@ -18,6 +18,8 @@ export worker and scheduler, all started by `python -m deploy.entrypoint <compon
 `backend/Dockerfile`. `docs/operations/status.md` records the commit and deployment each service
 runs and its rollback target. The agent (MCP) server `apps/mcp` runs as `python -m deploy.entrypoint mcp` with the API database
 role and no provider keys (`docs/architecture/mcp-server.md`); status.md records whether it is deployed.
+The Agents tab's durable runs advance in the `agent` worker (`python -m deploy.entrypoint agent`, API database role,
+`GOOGLE_API_KEY` only; run lifecycle in `docs/architecture/agent-access.md`); status.md records whether it is deployed.
 Magnific image/video upscaling is behind `VEEVEE_MAGNIFIC_UPSCALE`,
 Kling images behind `VEEVEE_KLING` (`KLING_API` on the generation worker only).
 The single managed migration graph is under `backend/apps/*/migrations`; PostgreSQL only.

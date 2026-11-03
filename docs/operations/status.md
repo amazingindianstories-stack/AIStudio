@@ -14,6 +14,27 @@ preview build first. Production only receives a release after it has passed ther
 
 Legend: PASS · FAIL · NOT VERIFIED · PENDING (not started) · BLOCKED (needs owner approval)
 
+## Not deployed yet - Agents tab agent worker (branch `fm/veevee-agents-p1-worker`)
+
+The Agents tab's durable runs (`docs/architecture/agent-access.md`, Agents tab runs) add a sixth Railway component,
+`agent`: `python -m deploy.entrypoint agent` runs `agent_worker --interval 1 --concurrency N`. No Railway service
+exists for it yet; it is created at the Saturday 2026-11-07 deploy, with owner approval, from the same image as the
+other services. It needs:
+
+- the API's database role and the API's configuration, filtered by `deploy/legacy_config.py` (`_agent`):
+  `GOOGLE_API_KEY` is its only provider key; no BytePlus, Kling or Magnific keys, portrait or Web Push settings,
+  ingress secret or `PORT` (it serves no HTTP);
+- its own `MCP_QUOTE_SECRET` (32+ characters; it signs and checks quotes in-process);
+- optional `VEEVEE_AGENT_WORKER_SLOTS` (1 to 8, default 4): runs advanced at once per replica; 8 global slot leases
+  cap all replicas together.
+
+The scheduler gains the `agent_runs` pass (re-queues a `running` run whose heartbeat is older than 60 s), so the
+scheduler deploys with it. The new run endpoints (`/api/agent-conversations/<id>/runs...`) ship with the API; starting
+a run and approving a quote open in the gateway only with its paid routes on. A global `agentsEnabled` setting of `0`
+pauses every run at its next step boundary and refuses new runs; unset or `1` is on. No migration: the run tables come
+from `agents.0005_agent_runs` (#150). The current Agents tab UI still uses the synchronous message path; the tab's
+rewrite onto runs is a separate change.
+
 ## Production release 2026-11-02 (second) - main `c4c56d23`
 
 Owner-approved release of the combined board PR (#139): every remaining board slice (formats, media, templates, comments and

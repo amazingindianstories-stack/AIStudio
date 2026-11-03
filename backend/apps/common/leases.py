@@ -32,6 +32,13 @@ def claim(key, owner, *, now=None, ttl_ms=30000):
         return cursor.fetchone() is not None
 
 
+def renew(key, owner, *, now=None, ttl_ms=30000):
+    """Extend a lease ``owner`` still holds (``claim`` takes only an expired one); False once it has expired or moved."""
+    key = namespaced(key)
+    now = now_ms() if now is None else now
+    return AppSetting.objects.filter(key=key, value=owner, updated_at__gt=now).update(updated_at=now + ttl_ms) == 1
+
+
 def release(key, owner):
     key = namespaced(key)
     return AppSetting.objects.filter(key=key, value=owner).delete()[0] == 1
