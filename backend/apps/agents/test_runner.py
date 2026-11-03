@@ -18,7 +18,7 @@ from apps.generation.models import Generation
 from apps.integrations.transport import HttpResult, HttpTransport
 from apps.library.models import Folder
 from apps.mcp import server
-from apps.mcp_auth import policy
+from apps.mcp_auth import controls, policy
 from apps.mcp.tests.support import McpCase
 from apps.mcp.tests.test_paid_tools import mid_minute
 from apps.mcp.tests.test_results import StorageMixin
@@ -732,6 +732,26 @@ class BoundaryTests(RunnerCase):
         self.assertEqual([(step.kind, step.outcome) for step in self.steps(run)],
                          [('llm', 'calls'), ('tool', 'BUDGET_EXCEEDED'), ('llm', 'calls')])
         self.assertNotIn('paused', self.kinds(run))
+
+    def test_a_paid_call_past_a_daily_cap_is_refused_to_the_model_after_an_earlier_admission_refusal(self):
+        sent = self.dispatched()
+        answer = 'Both are over today\'s limit. Shall I wait?'
+
+        def cap_then_ask():
+            self.setting('agentGlobalDailyCapCents', 5)
+            return [call('generate_image', {'prompt': 'grey fox'})]
+        bodies = self.gemini([call('generate_image', {'prompt': 'red fox'})], cap_then_ask, [text(answer)])
+        run = self.start_run()
+        with patch.object(controls, 'admit_paid_submission', side_effect=controls.BudgetExceeded('Try again later.')):
+            self.assertEqual(self.advance(run), 'completed', 'an admission refusal is not the harness telling the model')
+        run = self.refresh(run)
+        self.assertEqual((run.status, run.error, Generation.objects.count(), len(sent), len(bodies)), ('completed', None, 0, 1, 3))
+        steps = self.steps(run)
+        self.assertEqual([(step.kind, step.outcome) for step in steps],
+                         [('llm', 'calls'), ('tool', 'BUDGET_EXCEEDED'), ('llm', 'calls'), ('tool', 'BUDGET_EXCEEDED'),
+                          ('llm', 'final')])
+        self.assertEqual(steps[3].result['response'], runner.OVER_DAILY_CAP)
+        self.assertNotIn('failed', self.kinds(run))
 
     def test_the_run_cost_limit_is_an_admin_value_read_at_the_next_step(self):
         sent = self.dispatched()

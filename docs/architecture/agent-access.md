@@ -76,7 +76,7 @@ An Agents tab chat turn can run as a durable run (`agent_runs`) that the `agent`
 so a turn survives a closed tab, a deploy or a worker crash. The old synchronous path (`POST .../messages`, one short
 tool loop inside the request) still serves the current UI; the run endpoints below are for the new tab. Code lives in
 `apps/agents`: `runs.py` (the services the views adapt), `runner.py` (the state machine), `worker.py` (claim,
-heartbeat and the scheduler's resume pass), `events.py`, `step_limits.py` and `design.py`.
+heartbeat and the scheduler's resume pass), `events.py`, `limits.py` and `design.py`.
 
 ```
 queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed | failed | cancelled

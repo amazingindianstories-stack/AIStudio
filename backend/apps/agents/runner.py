@@ -661,7 +661,8 @@ def refuse_over_bound(run, action, refused, *, now=now_ms):
     response = COST_LIMIT if over_run else OVER_DAILY_CAP
     steps = journal(run.id)
     model_turn = next(step for step in reversed(steps) if step.kind == 'llm')
-    if any(step.outcome == response['code'] and step.step_index < model_turn.step_index for step in steps):
+    if any(step.kind == 'tool' and step.result.get('response') == response and step.step_index < model_turn.step_index
+           for step in steps):
         bound = 'its spending bound' if over_run else 'a daily spending limit'
         return fail(run.id, 'limit', f'The run stopped: the model asked again for a paid call past {bound}.',
                     kind='cost' if over_run else refused.kind, now=now())
