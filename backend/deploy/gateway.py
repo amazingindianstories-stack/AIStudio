@@ -37,6 +37,10 @@ def board_transcription(method,path):
     return method=='POST' and BOARD_TRANSCRIPTIONS.fullmatch(unquote(path)) is not None
 def board_paid_submission(method,path):
     return board_ai_submission(method,path) or board_transcription(method,path)
+# Agents tab voice notes: one Gemini transcription per POST, so it opens with the paid initial routes (its GET reads the caps).
+AGENT_TRANSCRIBE=re.compile(r'/api/agent-conversations/[^/]+/transcribe')
+def agent_transcription(method,path):
+    return method=='POST' and AGENT_TRANSCRIBE.fullmatch(unquote(path)) is not None
 DEPTH_POST_ROUTES=frozenset(('/api/generate/depth','/api/worker/depth/claim','/api/worker/depth/heartbeat','/api/worker/depth/progress','/api/worker/depth/upload-url','/api/worker/depth/complete'))
 # Response-header waits beyond the default 25 s: enqueue may normalize large references, transcription
 # waits for its worker result (Django answers 504 itself after 120 s), an agent turn runs a short tool loop.
@@ -48,7 +52,7 @@ def upstream_wait(method,path,mode='api'):
     if mode=='mcp':return MCP_WAIT if method=='POST' else 25
     if method!='POST':return 25
     if board_transcription(method,path):return LONG_POSTS['/api/audio/transcribe']
-    return LONG_POSTS.get(path,120 if AGENT_MESSAGES.fullmatch(path) or board_ai_submission(method,path) else 25)
+    return LONG_POSTS.get(path,120 if AGENT_MESSAGES.fullmatch(path) or agent_transcription(method,path) or board_ai_submission(method,path) else 25)
 def allowed_mcp(method,path):
     return path=='/mcp' and method in ('POST','GET','DELETE')
 def allowed(method,path,paid_initial_routes=False,new_exports=False,magnific_upscale=False):
@@ -71,6 +75,7 @@ def allowed(method,path,paid_initial_routes=False,new_exports=False,magnific_ups
     if paid_initial_routes and method=='POST' and AGENT_MESSAGES.fullmatch(path):return True
     # Board AI, captions and transcripts: the submission is a paid initial route; quotes, reads and placement are not.
     if board_paid_submission(method,path):return paid_initial_routes
+    if agent_transcription(method,path):return paid_initial_routes
     if method in ('GET','HEAD') and path=='/api/generate/video/status':return True
     # Depth maps: artist enqueue/status and the external GPU worker protocol
     # (Django authenticates the worker with DEPTH_WORKER_TOKEN).
@@ -118,7 +123,7 @@ def handler(secret,paid_initial_routes=False,new_exports=False,magnific_upscale=
             if not hmac.compare_digest(self.headers.get(HEADER,''),secret):
                 self.send_error(403);return
             if not (allowed_mcp(self.command,path) if mode=='mcp' else allowed(self.command,path,paid_initial_routes,new_exports,magnific_upscale)):
-                paid=mode=='api' and (path.startswith(('/api/generate/','/api/audio/transcribe')) or (path.startswith('/api/agent-conversations/') and path.endswith('/messages') and self.command not in ('GET','HEAD')) or board_paid_submission(self.command,path))
+                paid=mode=='api' and (path.startswith(('/api/generate/','/api/audio/transcribe')) or (path.startswith('/api/agent-conversations/') and path.endswith('/messages') and self.command not in ('GET','HEAD')) or board_paid_submission(self.command,path) or agent_transcription(self.command,path))
                 message='This generation route is not available.' if paid else 'This operation is not available.'
                 data=json.dumps({'error':message,'code':'PREVIEW_PAID_PROVIDER_DISABLED' if paid else 'PREVIEW_OPERATION_DISABLED'}).encode()
                 self.send_response(403);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(data)));self.send_header('Cache-Control','no-store');self.send_header('Vary','Cookie');self.end_headers()
@@ -159,7 +164,7 @@ def handler(secret,paid_initial_routes=False,new_exports=False,magnific_upscale=
                 self.close_connection=True
             except socket.timeout:
                 if not headers_sent:
-                    submission=self.command=='POST' and (path in LONG_POSTS or mode=='mcp' or board_paid_submission(self.command,path))
+                    submission=self.command=='POST' and (path in LONG_POSTS or mode=='mcp' or board_paid_submission(self.command,path) or agent_transcription(self.command,path))
                     message=('The upstream request timed out and may still have been accepted. Check your library/status before trying again.' if submission else 'The upstream request timed out. Its completion could not be verified.')
                     data=json.dumps({'error':message,'code':'UPSTREAM_TIMEOUT_SUBMISSION_UNCERTAIN' if submission else 'UPSTREAM_TIMEOUT'}).encode()
                     self.send_response(502);self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(data)));self.send_header('Cache-Control','no-store');self.send_header('Vary','Cookie');self.end_headers()

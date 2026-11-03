@@ -291,11 +291,11 @@ def generation_download(request,id):
 
 RESOLVE_MAX_ITEMS = 100
 RESOLVE_URL_LIFETIME_MS = (PrefixedGCSAdapter.READ_URL_SECONDS - 60) * 1000
+RESOLVE_WORKERS = 8
 
 
 def _resolve_one(storage, ref, width):
     """Return a short-lived direct URL, or None to make the client use /api/media."""
-    from django.db import close_old_connections
     try:
         if not isinstance(ref, str) or not ref.startswith('/api/media/'):
             return None
@@ -311,8 +311,15 @@ def _resolve_one(storage, ref, width):
         return {'url': url, 'expiresAt': int(time.time() * 1000) + RESOLVE_URL_LIFETIME_MS} if url else None
     except Exception:
         return None
+
+
+def _resolve_slice(storage, pairs):
+    """Resolve on a pool thread, then close its connection: CONN_MAX_AGE would leave it open."""
+    from django.db import connection
+    try:
+        return [_resolve_one(storage, *pair) for pair in pairs]
     finally:
-        close_old_connections()
+        connection.close()
 
 
 @require_http_methods(['POST'])
@@ -333,8 +340,10 @@ def media_resolve(request):
     storage = get_storage()
     requests_ = [(item.get('ref'), _width(item.get('width'))) for item in items if isinstance(item, dict)]
     from concurrent.futures import ThreadPoolExecutor
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        results = list(pool.map(lambda pair: _resolve_one(storage, *pair), requests_))
+    slices = [requests_[i::RESOLVE_WORKERS] for i in range(RESOLVE_WORKERS)]
+    with ThreadPoolExecutor(max_workers=RESOLVE_WORKERS) as pool:
+        resolved = list(pool.map(lambda pairs: _resolve_slice(storage, pairs), slices))
+    results = [resolved[i % RESOLVE_WORKERS][i // RESOLVE_WORKERS] for i in range(len(requests_))]
     response = JsonResponse({'items': [{'ref': ref, **(result or {'url': None})} for (ref, _), result in zip(requests_, results)]})
     response['Cache-Control'] = 'private, no-store'
     return response

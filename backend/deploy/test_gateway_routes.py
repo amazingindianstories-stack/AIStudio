@@ -27,6 +27,7 @@ class ProductionRouteTableTests(SimpleTestCase):
             # Opened: audio transcription, admin agent chat, admin mutations and the read-only dependency status.
             ('POST', '/api/audio/transcribe', True),
             ('POST', f'/api/agent-conversations/{ID}/messages', True),
+            ('POST', f'/api/agent-conversations/{ID}/transcribe', True), ('GET', f'/api/agent-conversations/{ID}/transcribe', True),
             ('POST', '/api/admin/users', True), ('PATCH', '/api/admin/users', True), ('DELETE', '/api/admin/users', True),
             ('POST', '/api/admin/pricing', True), ('POST', '/api/admin/limits', True), ('POST', '/api/admin/user-limits', True),
             ('GET', '/api/admin/status', True), ('HEAD', '/api/admin/status', True),
@@ -57,8 +58,11 @@ class ProductionRouteTableTests(SimpleTestCase):
             self.assertIs(gateway.allowed(method, path, **PRODUCTION), expected, (method, path))
 
     def test_provider_routes_need_paid_routes_but_admin_routes_do_not(self):
-        for path in ('/api/audio/transcribe', f'/api/agent-conversations/{ID}/messages'):
+        for path in ('/api/audio/transcribe', f'/api/agent-conversations/{ID}/messages', f'/api/agent-conversations/{ID}/transcribe',
+                     f'/api/agent-conversations/{ID}/transcrib%65'):
             self.assertFalse(gateway.allowed('POST', path, False, True, True), path)
+        # The voice caps are a read: open without paid routes.
+        self.assertTrue(gateway.allowed('GET', f'/api/agent-conversations/{ID}/transcribe', False, True, True))
         for method, path in (('POST', '/api/admin/users'), ('POST', '/api/admin/limits'), ('GET', '/api/admin/status')):
             self.assertTrue(gateway.allowed(method, path), (method, path))
         self.assertFalse(gateway.allowed('POST', '/api/admin/audit/runtime', **PRODUCTION))
@@ -69,6 +73,7 @@ class ProductionRouteTableTests(SimpleTestCase):
         # Transcription answers its own 504 after 120 s, so the gateway waits a little longer.
         self.assertEqual(gateway.upstream_wait('POST', '/api/audio/transcribe'), 125)
         self.assertEqual(gateway.upstream_wait('POST', f'/api/agent-conversations/{ID}/messages'), 120)
+        self.assertEqual(gateway.upstream_wait('POST', f'/api/agent-conversations/{ID}/transcribe'), 120)
         for method, path in (('GET', '/api/audio/transcribe'), ('POST', '/api/admin/users'), ('POST', '/api/generate/upscale'),
                              ('GET', '/api/history')):
             self.assertEqual(gateway.upstream_wait(method, path), 25, (method, path))

@@ -167,6 +167,26 @@ class ResumableUploadTests(TransactionTestCase):
         self.assertNotIn('uploadUrl', session)
         self.assertNotIn('uploadUrl', upload_status(self.user.id, session['uploadId'], gcs))
 
+    def test_documents_use_the_same_sessions_and_never_become_generation_references(self):
+        docx = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+        for mime, data in (('application/pdf', b'%PDF-1.7\n'), ('text/plain', b'Shot list'),
+                           ('text/markdown', b'# Brief'), (docx, b'PK\x03\x04fixture')):
+            body = {'purpose': 'document-reference', 'contentType': mime, 'byteSize': len(data), 'filename': 'brief',
+                    'requestKey': mime}
+            result = store_upload(self.user.id, body, io.BytesIO(data), self.storage)
+            self.assertEqual((result['state'], result['contentType']), ('ready', mime))
+            self.assertTrue(result['key'].startswith(f'uploads/document-reference/{self.user.id}-'))
+            self.assertCode('UPLOAD_PURPOSE_MISMATCH', resolve_ready_upload, self.user.id, result['referenceId'],
+                            purposes=('image-reference', 'video-reference', 'audio-reference'))
+        body = {'purpose': 'document-reference', 'contentType': 'text/plain', 'filename': 'brief'}
+        self.assertCode('UPLOAD_TOO_LARGE_OR_EMPTY', initialize_upload, self.user.id,
+                        {**body, 'byteSize': 50*1024*1024+1}, self.storage)
+        for mime in ('text/html', 'application/msword', 'image/png'):
+            self.assertCode('INVALID_UPLOAD_CONTENT_TYPE', initialize_upload, self.user.id,
+                            {**body, 'contentType': mime, 'byteSize': 4}, self.storage)
+        self.assertCode('UPLOAD_SIGNATURE_MISMATCH', store_upload, self.user.id,
+                        {**body, 'byteSize': 8, 'requestKey': 'binary'}, io.BytesIO(b'\x89PNG\x00\x00\x00\x00'), self.storage)
+
     def test_cancel_and_ttl_collect_only_unpublished_new_objects(self):
         ready, _ = self.begin()
         self.chunk(ready, PNG)

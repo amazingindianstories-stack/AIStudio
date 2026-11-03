@@ -173,6 +173,23 @@ class MediaResolveTests(SharedMediaPolicyTests):
         self.assertIsNone(urls[5])  # no derivative yet: the client uses /api/media, which creates it
         self.assertGreater(response.json()['items'][0]['expiresAt'], 0)
 
+    def test_large_batch_keeps_order_and_closes_worker_connections(self):
+        from django.db import connection
+        uploads = [self.upload() for _ in range(19)]
+        items = [{'ref': '/api/media/' + u.key} if i % 3 else {'ref': 'https://elsewhere.example/a.png'}
+                 for i, u in enumerate(uploads)]
+        response = self.resolve(self.other, items)
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual([item['ref'] for item in response.json()['items']], [item['ref'] for item in items])
+        self.assertEqual([bool(item['url']) for item in response.json()['items']], [bool(i % 3) for i in range(19)])
+        for ref, item in zip(items, response.json()['items']):
+            if item['url']:
+                self.assertIn(ref['ref'][len('/api/media/'):], item['url'])
+        with connection.cursor() as cursor:
+            cursor.execute('select count(*) from pg_stat_activity where datname = current_database() '
+                           'and pid <> pg_backend_pid()')
+            self.assertEqual(cursor.fetchone()[0], 0)  # CONN_MAX_AGE must not keep pool threads' connections
+
     def test_limits_and_authentication(self):
         self.assertEqual(self.resolve(None, []).status_code, 401)
         self.assertEqual(self.resolve(self.owner, [{'ref': '/api/media/x'}] * 101).status_code, 400)

@@ -10,7 +10,7 @@ from apps.admin_dashboard.models import AppSetting
 from apps.common.models import ActivityLog
 from apps.mcp import runtime
 from apps.mcp.app import build_application
-from apps.mcp.registry import REGISTRY, ToolResult, obj, register
+from apps.mcp.registry import AGENT_ONLY, REGISTRY, ToolResult, obj, register
 from apps.mcp.server import INSTRUCTIONS
 from apps.mcp.tools.account import OUTPUT as ACCOUNT_OUTPUT
 from apps.mcp_auth import policy
@@ -24,7 +24,9 @@ def read_tools():
 
 
 def scoped(*scopes, admin=False):
-    return sorted(name for name, spec in REGISTRY.items() if spec.scope in scopes and (admin or not spec.admin_only))
+    """What an HTTP client with ``scopes`` lists: never the Agents tab's own tools."""
+    return sorted(name for name, spec in REGISTRY.items()
+                  if spec.scope in scopes and (admin or not spec.admin_only) and name not in AGENT_ONLY)
 
 
 def fake_tools():

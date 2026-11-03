@@ -97,9 +97,13 @@ _validators = {}
 # admin-only move_to_folder stay MCP-only; board tools come later; references reach the agent as chat attachments.
 AGENT_TOOLS = frozenset({
     'list_models', 'estimate_cost', 'get_generation', 'search_generations', 'list_folders', 'get_account', 'get_download_links',
+    'view_media', 'read_document',
     'generate_image', 'generate_video', 'upscale_media', 'finalize_draft', 'cancel_generation',
     'create_folder', 'rename_folder', 'move_folder', 'set_favorite', 'export_zip',
 })
+# What only the Agents tab reaches: these spend Veevee's own Gemini calls on the user's files, which an MCP client can
+# read itself through get_download_links.
+AGENT_ONLY = frozenset({'view_media', 'read_document'})
 
 
 def register(**fields):
@@ -113,8 +117,11 @@ def register(**fields):
 
 
 def exposed(principal, name):
-    """Whether the caller's kind may call this tool at all: an Agents tab grant only reaches ``AGENT_TOOLS``."""
-    return principal is None or principal.kind != 'agent' or name in AGENT_TOOLS
+    """Whether the caller's kind may call this tool at all: an Agents tab grant only reaches ``AGENT_TOOLS``, and
+    every other caller everything but ``AGENT_ONLY``."""
+    if principal is not None and principal.kind == 'agent':
+        return name in AGENT_TOOLS
+    return name not in AGENT_ONLY
 
 
 def visible(principal):

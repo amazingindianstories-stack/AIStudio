@@ -70,7 +70,8 @@ def error_result(error):
 async def list_tools(ctx, params):
     found = caller(ctx)
     # An account whose agent access is off still sees the read tools; calling any of them explains why it fails.
-    specs = [spec for spec in REGISTRY.values() if spec.scope == 'veevee.read'] if found.disabled else visible(found.principal)
+    specs = ([spec for spec in REGISTRY.values() if spec.scope == 'veevee.read' and exposed(None, spec.name)] if found.disabled
+             else visible(found.principal))
     return types.ListToolsResult(tools=[spec.definition() for spec in specs])
 
 

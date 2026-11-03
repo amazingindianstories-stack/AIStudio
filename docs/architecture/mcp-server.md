@@ -72,8 +72,10 @@ agents can only read.
 `server.dispatch` is the one tools/call path: HTTP calls and the in-app Agents tab (an agent grant,
 `agent-access.md`) run the same admission, validation, handler, log and audit. An agent grant reaches only
 `registry.AGENT_TOOLS` (no admin tools, `move_to_folder`, `get_export`, `upload_reference` or board tools); any
-other name is an unknown tool. The per-user opt-in does not apply to it, but the global switch and maintenance
-do.
+other name is an unknown tool. `registry.AGENT_ONLY` (`view_media`, `read_document`) works the other way: only an
+agent grant reaches them, and HTTP clients neither list nor call them (they spend Veevee's own Gemini calls; an MCP
+client reads the files itself through `get_download_links`). The per-user opt-in does not apply to an agent grant, but
+the global switch and maintenance do.
 
 ## Tools
 
@@ -91,6 +93,7 @@ Scopes come from `agent-access.md`. Each tool declares its scope, schemas and an
 | | `list_folders` | Projects and folder tree with SQL item counts; never creates "My Project" |
 | | `get_account` | User, token, spend today, caps, auto-approve and confirmation amounts, active jobs |
 | | `get_export` | Owner only; status and a fresh download link |
+| | `view_media`, `read_document` | Agents tab only; one of the user's own uploads or generations by id, through one bounded Gemini media sub-call (usage purpose `media`), or a text, markdown or docx file's own text; the result is quoted untrusted data (`apps/agents/media.py`) |
 | `veevee.generate` | `generate_image`, `generate_video` | Every available model, including OmniHuman 2.0 with an uploaded image and audio, and Kling behind `VEEVEE_KLING` |
 | | `upscale_media` | Every Magnific image and video model, from a finished generation or the caller's own upload |
 | | `finalize_draft` | Seedance 2.5 draft to its 1080p final |
