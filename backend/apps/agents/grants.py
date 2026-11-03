@@ -83,9 +83,13 @@ def recheck(principal):
     return agent_principal(principal.token_id)
 
 
-def revoke_grant(user_id, *, actor_id=None, now=None):
-    """Revoke the user's live grant; runs using it stop at their next step. Returns how many grants were revoked."""
+def revoke_grant(user_id, *, grant_id=None, actor_id=None, now=None):
+    """Revoke the user's live grant (only when it is ``grant_id``, if given); runs using it stop at their next step.
+    Returns how many grants were revoked."""
     now = now_ms() if now is None else now
     with transaction.atomic():
         _lock(user_id)
-        return AgentGrant.objects.filter(user_id=user_id, revoked_at__isnull=True).update(revoked_at=now, revoked_by=actor_id)
+        live = AgentGrant.objects.filter(user_id=user_id, revoked_at__isnull=True)
+        if grant_id is not None:
+            live = live.filter(pk=grant_id)
+        return live.update(revoked_at=now, revoked_by=actor_id)

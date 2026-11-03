@@ -11,6 +11,8 @@ from django.http import QueryDict
 from apps.admin_dashboard import errors as provider_errors_view
 from apps.admin_dashboard import status
 from apps.admin_dashboard.queries import COST, query
+from apps.agents.grants import revoke_grant
+from apps.agents.models import AgentGrant
 from apps.authentication.models import User
 from apps.common.leases import now_ms
 from apps.common.responses import log_activity
@@ -248,10 +250,14 @@ def revoke(actor_id, arguments):
         identifier = arguments['tokenId']
         row = (McpToken.objects.filter(pk=identifier).values('user_id', 'family_id').first()
                or McpToken.objects.filter(family_id=identifier).values('user_id', 'family_id').first())
-        if row is None:
-            raise errors.ToolError(errors.NOT_FOUND, 'No agent token or connection has this id.')
-        user, family = row['user_id'], row['family_id']
-        revoked = tokens.revoke_family(family)
+        if row is not None:
+            user, family = row['user_id'], row['family_id']
+            revoked = tokens.revoke_family(family)
+        else:
+            user = AgentGrant.objects.filter(pk=identifier).values_list('user_id', flat=True).first()
+            if user is None:
+                raise errors.ToolError(errors.NOT_FOUND, 'No agent token, connection or Agents tab grant has this id.')
+            family, revoked = identifier, revoke_grant(user, grant_id=identifier, actor_id=actor_id)
     detail = {'targetUserId': str(user), 'revoked': revoked, 'via': 'mcp',
               **({'tokenFamilyId': str(family)} if family else {})}
     log_activity(actor_id, 'admin_mcp_tokens_revoked', detail)
@@ -263,9 +269,9 @@ def revoke(actor_id, arguments):
     name='admin_revoke_mcp_tokens', title='Revoke agent access (admin)', scope=ADMIN, read_only=False,
     destructive=True, idempotent=True,
     description=('Admins only, emergency stop: revoke every agent token and connection of one user, or one token or '
-                 'connection.\nPass exactly one of userId or tokenId (a token id or a generation\'s token grant id). '
-                 'Revoked agents stop at their next call and must be reconnected by the user. Revoking again is '
-                 'harmless. Ask the user to confirm before calling.'),
+                 'connection.\nPass exactly one of userId or tokenId (a token id, an Agents tab grant id or a '
+                 'generation\'s token grant id). Revoked agents stop at their next call and must be reconnected by the '
+                 'user. Revoking again is harmless. Ask the user to confirm before calling.'),
     input_schema={**obj({'userId': results.UUID, 'tokenId': results.UUID}),
                   'oneOf': [{'required': ['userId']}, {'required': ['tokenId']}]},
     output_schema=REVOKE_RESULT)
