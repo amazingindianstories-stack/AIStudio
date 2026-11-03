@@ -172,12 +172,12 @@ class AgentInboxMessage(models.Model):
 
 
 class AgentChatAsset(models.Model):
-    """A media item the conversation can use by id: an attachment (an upload id) or a run's output (a generation id)."""
+    """A library file the conversation can use by id: an attachment (an upload id) or a run's output (a generation id)."""
     id = models.UUIDField(primary_key=True, db_default=RandomUUID())
     conversation_id = models.UUIDField()
     asset_id = models.UUIDField()
     source = models.TextField()                                        # 'attachment' or 'output'
-    kind = models.TextField()                                          # 'image', 'video' or 'audio'
+    kind = models.TextField()                                          # 'image', 'video', 'audio' or 'document'
     run_id = models.UUIDField(null=True)
     created_at = models.BigIntegerField()
 
