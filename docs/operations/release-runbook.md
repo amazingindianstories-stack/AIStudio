@@ -176,9 +176,11 @@ deployment's `meta.serviceManifest`.
    Two services write boards: the API and the MCP service (`green-django-mcp`, the same image run as
    `python -m deploy.entrypoint mcp`, whose board tools save through the same path). In one pause:
    remove the active API and MCP deployments and confirm both have stopped (no new requests in their
-   logs, draining over); then `railway up` the API with `overlapSeconds` 0 in the staged
-   `railway.json`, and deploy MCP from the same commit with no overlap before it serves again. The
-   API and agent tools are unavailable for that pause. Promote the frontend that reads payloads
+   logs, draining over); only then apply `canvas.0019_format_payloads` (never before the pause: an
+   old-image edit saved after it lands next to a stale reference, and the new release serves the
+   stale payload row and drops the edit on its next save); then `railway up` the API with
+   `overlapSeconds` 0 in the staged `railway.json`, and deploy MCP from the same commit with no
+   overlap before it serves again. The API and agent tools are unavailable for that pause. Promote the frontend that reads payloads
    lazily only after the new API serves: against the old API it would save format objects without
    their payloads. Later releases use the overlap above.
 2. **Generation worker** (overlap 0, drain 120 s): only with no queued/running jobs. Verify the
