@@ -1,0 +1,490 @@
+"""The run engine (apps.agents.runner): the journal, replay after a crash, the inbox, approvals, waits, cancel, bounds.
+
+Gemini is faked below the transport (``HttpTransport._send``), so every step still passes ``AgentLoopTransport``'s
+allowlist and writes its usage row; tools run in-process through ``server.dispatch`` as the run's agent grant, and paid
+tools only queue rows, as in the MCP tests. No network is used.
+"""
+import json
+import os
+import threading
+from types import SimpleNamespace
+from threading import Event
+from unittest.mock import Mock, patch
+
+from apps.admin_dashboard.models import AppSetting, Pricing
+from apps.generation.models import Generation
+from apps.integrations.transport import HttpResult, HttpTransport
+from apps.library.models import Folder
+from apps.mcp import server
+from apps.mcp.tests.support import McpCase
+from apps.mcp.tests.test_paid_tools import mid_minute
+from apps.mcp.tests.test_results import StorageMixin
+from apps.projects.models import Project
+from apps.workers import scheduler
+from . import events, grants, runner, worker
+from .step_limits import LimitVerdict
+from .models import (AgentChatAsset, AgentConversation, AgentConversationMessage, AgentGrant, AgentInboxMessage, AgentLlmUsage,
+                     AgentRun, AgentRunEvent, AgentRunStep)
+
+USAGE = {'promptTokenCount': 1000, 'candidatesTokenCount': 100, 'totalTokenCount': 1100}
+HELD = SimpleNamespace(held=True)
+
+
+def call(name, args=None, identifier=None):
+    function = {'name': name, 'args': args or {}}
+    if identifier:
+        function['id'] = identifier
+    return {'functionCall': function, 'thoughtSignature': 'c2ln'}
+
+
+def text(value):
+    return {'text': value}
+
+
+def reply(*parts):
+    return HttpResult(200, json.dumps({'candidates': [{'content': {'role': 'model', 'parts': list(parts)}, 'finishReason': 'STOP'}],
+                                       'usageMetadata': USAGE}).encode())
+
+
+class RunnerCase(StorageMixin, McpCase):
+    def setUp(self):
+        super().setUp()
+        self.use_storage()
+        clock = patch('apps.mcp_auth.controls.now_ms', return_value=mid_minute())
+        clock.start()
+        self.addCleanup(clock.stop)
+        key = patch.dict(os.environ, {'GOOGLE_API_KEY': 'fixture-key'})
+        key.start()
+        self.addCleanup(key.stop)
+        backoff = patch.object(runner, 'LLM_RETRY_SECONDS', (0, 0))
+        backoff.start()
+        self.addCleanup(backoff.stop)
+        self.price(6)
+        self.project = Project.objects.create(name='Winter', created_at=1, updated_at=1)
+        self.folder = Folder.objects.create(project=self.project, name='Hero shots', created_at=1)
+        self.other = Folder.objects.create(project=self.project, name='Alternates', created_at=1)
+        self.grant = grants.ensure_grant(self.user.id)
+        self.conversation = AgentConversation.objects.create(
+            project_id=self.project.id, name='Chat', kind='chat', agent_kind='image', user_id=self.user.id,
+            created_by=self.user.id, default_project_id=self.project.id, default_folder_id=self.folder.id, created_at=1, updated_at=1)
+
+    def price(self, cents):
+        Pricing.objects.bulk_create([Pricing(model='Nano Banana 2.1', unit_cost_cents=cents, unit='per_image', notes='')],
+                                    ignore_conflicts=True)
+        Pricing.objects.filter(model='Nano Banana 2.1').update(unit_cost_cents=cents)
+
+    def start_run(self, message='Make a red fox', **fields):
+        AgentConversationMessage.objects.create(conversation_id=self.conversation.id, role='user', content=message, created_at=10)
+        values = {'conversation_id': self.conversation.id, 'user_id': self.user.id, 'grant_id': self.grant.id,
+                  'model': 'gemini-3.8-flash', 'created_at': 10, 'updated_at': 10, **fields}
+        return AgentRun.objects.create(**values)
+
+    def gemini(self, *replies):
+        """Answer each Gemini call with the next reply: parts, an ``HttpResult``, an exception to raise, or a callable
+        run first (the artist acting mid-step) that returns one of those. Returns the request bodies."""
+        bodies, queue = [], list(replies)
+
+        def send(transport, method, url, **kwargs):
+            bodies.append(kwargs['body'])
+            answer = queue.pop(0)
+            answer = answer() if callable(answer) else answer
+            if isinstance(answer, Exception):
+                raise answer
+            return answer if isinstance(answer, HttpResult) else reply(*answer)
+        sender = patch.object(HttpTransport, '_send', send)
+        sender.start()
+        self.addCleanup(sender.stop)
+        return bodies
+
+    def dispatched(self):
+        """The arguments of every in-process tool call."""
+        sent, real = [], server.dispatch
+
+        async def spy(principal, name, arguments, **options):
+            sent.append((name, dict(arguments), options['tags']))
+            return await real(principal, name, arguments, **options)
+        spying = patch.object(server, 'dispatch', spy)
+        spying.start()
+        self.addCleanup(spying.stop)
+        return sent
+
+    def advance(self, run, stop=None):
+        return runner.advance(run.id, lease=HELD, stop=stop or Event())
+
+    def refresh(self, run):
+        return AgentRun.objects.get(pk=run.id)
+
+    def steps(self, run):
+        return list(AgentRunStep.objects.filter(run_id=run.id).order_by('step_index'))
+
+    def kinds(self, run):
+        return list(AgentRunEvent.objects.filter(run_id=run.id).order_by('seq').values_list('kind', flat=True))
+
+    def finish_jobs(self, run, status='completed'):
+        Generation.objects.filter(agent_run_id=run.id).update(status=status)
+
+
+class LoopTests(RunnerCase):
+    def test_a_run_journals_each_step_and_ends_with_the_models_reply(self):
+        bodies = self.gemini([text('Checking.'), call('list_models', {}, 'c1')], [text('Here are the models.')])
+        run = self.start_run()
+        self.assertEqual(self.advance(run), 'completed')
+        run = self.refresh(run)
+        self.assertEqual((run.status, run.step_count, run.cost_cents), ('completed', 3, 0))
+        self.assertIsNotNone(run.started_at)
+        self.assertIsNotNone(run.finished_at)
+        steps = self.steps(run)
+        self.assertEqual([(step.step_index, step.kind, step.tool_name, step.outcome) for step in steps],
+                         [(0, 'llm', None, 'calls'), (1, 'tool', 'list_models', 'ok'), (2, 'llm', None, 'final')])
+        self.assertEqual([step.idempotency_key for step in steps], [None, f'{run.id}:1', None])
+        self.assertTrue(all(len(step.input_hash) == 64 for step in steps))
+        # The first turn is the chat; the second adds the model turn (thought signature kept) and its response.
+        self.assertEqual(bodies[0]['contents'], [{'role': 'user', 'parts': [{'text': 'Make a red fox'}]}])
+        self.assertEqual(bodies[1]['contents'][1], {'role': 'model', 'parts': [text('Checking.'), call('list_models', {}, 'c1')]})
+        response = bodies[1]['contents'][2]['parts'][0]['functionResponse']
+        self.assertEqual((response['name'], response['id']), ('list_models', 'c1'))
+        self.assertIn('models', response['response'])
+        message = AgentConversationMessage.objects.get(conversation_id=self.conversation.id, role='assistant')
+        self.assertEqual((message.content, message.tool_trace), ('Here are the models.', {'runId': str(run.id), 'stepIndex': 2}))
+        self.assertEqual(self.kinds(run), ['run_started', 'step_started', 'assistant_text', 'step_started', 'tool_called',
+                                           'step_started', 'assistant_text', 'completed'])
+        self.assertEqual(list(AgentRunEvent.objects.filter(run_id=run.id).order_by('seq').values_list('seq', flat=True)),
+                         list(range(1, 9)))
+        self.assertEqual(list(AgentLlmUsage.objects.filter(run_id=run.id).order_by('step_index').values_list('step_index', 'purpose')),
+                         [(0, 'step'), (2, 'step')])
+        self.assertEqual(AgentConversation.objects.get(pk=self.conversation.id).status, 'completed')
+
+    def test_a_call_to_a_tool_the_grant_cannot_use_is_dropped_and_explained(self):
+        bodies = self.gemini([call('admin_list_users', {})], [text('Sorry, I cannot do that.')])
+        run = self.start_run()
+        self.assertEqual(self.advance(run), 'completed')
+        self.assertEqual(self.steps(run)[0].result['rejected'], ['admin_list_users'])
+        # The refused call is not replayed to the model (the loop allowlist only carries declared tools); a note is.
+        self.assertEqual(bodies[1]['contents'], [{'role': 'user', 'parts': [
+            {'text': 'Make a red fox'}, {'text': 'Veevee: admin_list_users is not a tool you can call. Use only the declared tools.'}]}])
+        self.assertEqual([step.kind for step in self.steps(run)], ['llm', 'llm'])
+
+    def test_missing_credentials_fail_the_run_instead_of_pretending(self):
+        run = self.start_run()
+        with patch.dict(os.environ, {'GOOGLE_API_KEY': ''}):
+            self.assertEqual(self.advance(run), 'failed')
+        self.assertEqual(self.refresh(run).error['code'], 'llm_unconfigured')
+
+    def test_transient_model_errors_are_retried_then_fail_the_run(self):
+        self.gemini(HttpResult(503, b'{}'), [text('Done.')])
+        run = self.start_run()
+        self.assertEqual(self.advance(run), 'completed')
+        self.assertEqual([step.result.get('attempts') for step in self.steps(run)], [1])
+        self.gemini(HttpResult(503, b'{}'), HttpResult(429, b'{}'), HttpResult(500, b'{}'))
+        AgentConversationMessage.objects.all().delete()
+        second = self.start_run(created_at=20)
+        AgentRun.objects.filter(pk=run.id).delete()
+        self.assertEqual(self.advance(second), 'failed')
+        self.assertEqual(self.refresh(second).error['code'], 'llm_failed')
+        self.gemini(HttpResult(400, b'{}'))
+        AgentRun.objects.filter(pk=second.id).delete()
+        third = self.start_run(created_at=30)
+        self.assertEqual(self.advance(third), 'failed')
+        self.assertEqual(self.steps(third)[0].result['attempts'], 1, 'a refused request is not retried')
+
+
+class PaidToolTests(RunnerCase):
+    def test_paid_jobs_never_wait_link_to_the_run_and_land_in_the_chats_folder(self):
+        sent = self.dispatched()
+        bodies = self.gemini([call('generate_image', {'prompt': 'red fox in snow'})], [text('Your fox is ready.')])
+        run = self.start_run()
+        self.assertEqual(self.advance(run), 'waiting')
+        run = self.refresh(run)
+        self.assertEqual(run.status, 'waiting_jobs')
+        name, arguments, tags = sent[0]
+        self.assertEqual((name, arguments['wait'], arguments['idempotencyKey'], arguments['folderId']),
+                         ('generate_image', False, f'{run.id}:1', str(self.folder.id)))
+        self.assertEqual(tags, {'runId': str(run.id), 'stepIndex': 1})
+        job = Generation.objects.get()
+        self.assertEqual((job.agent_run_id, job.created_via, job.mcp_token_id, job.folder_id, job.status),
+                         (run.id, 'agent', self.grant.id, self.folder.id, 'queued'))
+        self.assertEqual((run.cost_cents, self.steps(run)[1].cost_cents), (6, 6))
+        asset = AgentChatAsset.objects.get()
+        self.assertEqual((asset.conversation_id, asset.asset_id, asset.source, asset.kind, asset.run_id),
+                         (self.conversation.id, job.id, 'output', 'image', run.id))
+        queued = AgentRunEvent.objects.get(run_id=run.id, kind='job_queued').payload
+        self.assertEqual(queued, {'generationId': str(job.id), 'kind': 'image', 'tool': 'generate_image', 'stepIndex': 1})
+        # Rechecked each tick, without another model call, until the job is terminal.
+        self.assertEqual(self.advance(run), 'waiting')
+        self.assertEqual((len(bodies), self.kinds(run).count('waiting_jobs')), (1, 1))
+        self.finish_jobs(run)
+        self.assertEqual(self.advance(run), 'completed')
+        self.assertEqual(bodies[1]['contents'][-1]['parts'][-1],
+                         {'text': f'Veevee: these jobs finished since your last turn: image {job.id} completed. '
+                                  'get_generation shows each result.'})
+        self.assertEqual(AgentRunEvent.objects.get(run_id=run.id, kind='job_finished').payload,
+                         {'generationId': str(job.id), 'kind': 'image', 'status': 'completed', 'stepIndex': 2})
+
+    def test_a_folder_the_model_names_is_respected_and_harness_fields_it_sends_are_dropped(self):
+        sent = self.dispatched()
+        forged = {'prompt': 'red fox', 'folderId': str(self.other.id), 'wait': True, 'maxWaitSeconds': 45,
+                  'idempotencyKey': 'model-chosen-key', 'quoteToken': 'forged', 'confirmedByUser': True}
+        self.gemini([call('generate_image', forged)])
+        run = self.start_run()
+        self.assertEqual(self.advance(run), 'waiting')
+        arguments = sent[0][1]
+        self.assertEqual((arguments['folderId'], arguments['wait'], arguments['idempotencyKey']), (str(self.other.id), False, f'{run.id}:1'))
+        self.assertFalse({'quoteToken', 'confirmedByUser', 'maxWaitSeconds'} & set(arguments))
+        self.assertEqual(self.steps(run)[1].result['call']['args'], {'prompt': 'red fox', 'folderId': str(self.other.id)})
+        self.assertEqual(Generation.objects.get().folder_id, self.other.id)
+
+    def test_without_a_default_folder_the_chats_project_is_used(self):
+        AgentConversation.objects.filter(pk=self.conversation.id).update(default_folder_id=None)
+        sent = self.dispatched()
+        self.gemini([call('generate_image', {'prompt': 'red fox'})])
+        self.advance(self.start_run())
+        self.assertEqual(sent[0][1]['projectId'], str(self.project.id))
+        self.assertNotIn('folderId', sent[0][1])
+        self.assertEqual((Generation.objects.get().project_id, Generation.objects.get().folder_id), (self.project.id, None))
+
+
+class ReplayTests(RunnerCase):
+    def test_an_llm_step_without_an_outcome_is_reissued_after_the_lease_expires(self):
+        bodies = self.gemini(RuntimeError('worker died mid-call'), [text('Hello again.')])
+        run = self.start_run()
+        with self.assertRaises(RuntimeError):
+            self.advance(run)
+        run = self.refresh(run)
+        self.assertEqual((run.status, [(step.kind, step.outcome) for step in self.steps(run)]), ('running', [('llm', None)]))
+        # The worker's heartbeat stopped; the scheduler's resume pass re-queues the run for the next worker.
+        AgentRun.objects.filter(pk=run.id).update(last_heartbeat_at=1)
+        scheduler.resume_agent_runs()
+        self.assertEqual(self.refresh(run).status, 'queued')
+        self.assertEqual(worker.runnable(), [run.id])
+        self.assertEqual(self.advance(run), 'completed')
+        self.assertEqual([(step.step_index, step.outcome) for step in self.steps(run)], [(0, 'final')])
+        self.assertEqual(bodies[0], bodies[1], 'the same step is re-issued with the same contents')
+        self.assertEqual(self.kinds(run).count('resumed'), 1)
+
+    def test_a_tool_step_without_an_outcome_is_replayed_by_its_key_and_billed_once(self):
+        sent = self.dispatched()
+        self.gemini([call('generate_image', {'prompt': 'red fox'})])
+        run = self.start_run()
+        real = runner.finish_tool_step
+        with patch.object(runner, 'finish_tool_step', side_effect=RuntimeError('worker died after submitting')):
+            with self.assertRaises(RuntimeError):
+                self.advance(run)
+        self.assertEqual(Generation.objects.count(), 1)
+        self.assertEqual([(step.kind, step.outcome) for step in self.steps(run)], [('llm', 'calls'), ('tool', None)])
+        self.assertEqual(self.refresh(run).cost_cents, 0)
+        with patch.object(runner, 'finish_tool_step', side_effect=real):
+            self.assertEqual(self.advance(run), 'waiting')
+        self.assertEqual([arguments['idempotencyKey'] for _, arguments, _ in sent], [f'{run.id}:1'] * 2)
+        job = Generation.objects.get()
+        run = self.refresh(run)
+        self.assertEqual((job.agent_run_id, run.cost_cents, run.status, run.step_count), (run.id, 6, 'waiting_jobs', 2))
+        self.assertEqual(AgentChatAsset.objects.count(), 1)
+        self.assertEqual(self.kinds(run).count('job_queued'), 1)
+
+    def test_a_graceful_stop_or_lost_lease_requeues_the_run_at_the_next_boundary(self):
+        stop = Event()
+        self.gemini(lambda: (stop.set(), [call('list_models', {})])[1], [text('Done.')])
+        run = self.start_run()
+        self.assertEqual(self.advance(run, stop), 'stopped')
+        self.assertEqual((self.refresh(run).status, len(self.steps(run))), ('queued', 1))
+        lost = SimpleNamespace(held=False)
+        self.assertEqual(runner.advance(run.id, lease=lost, stop=Event()), 'stopped')
+        self.assertEqual(self.advance(run), 'completed')
+
+
+class InboxTests(RunnerCase):
+    def test_messages_are_delivered_in_order_at_the_next_boundary_and_hold_the_run_open(self):
+        run = self.start_run()
+
+        def artist_writes(*messages):
+            def act():
+                for content, created_at in messages:
+                    AgentInboxMessage.objects.create(conversation_id=self.conversation.id, run_id=run.id, user_id=self.user.id,
+                                                     content=content, created_at=created_at)
+                return [call('list_models', {}, 'c1')] if len(messages) == 2 else [text('Final answer.')]
+            return act
+        bodies = self.gemini(artist_writes(('Make it blue', 20), ('Actually green', 15)), artist_writes(('One more thing', 30)),
+                             [text('Done with that too.')])
+        self.assertEqual(self.advance(run), 'completed')
+        rows = list(AgentInboxMessage.objects.order_by('created_at').values_list('content', 'delivered_step'))
+        self.assertEqual(rows, [('Actually green', 1), ('Make it blue', 1), ('One more thing', 3)])
+        # Delivered before the next model call, after the function response, oldest first; a message that arrives
+        # during the final turn keeps the run open for one more.
+        self.assertEqual([part.get('text') for part in bodies[1]['contents'][-1]['parts']], [None, 'Actually green', 'Make it blue'])
+        self.assertEqual(bodies[2]['contents'][-2:], [{'role': 'model', 'parts': [{'text': 'Final answer.'}]},
+                                                      {'role': 'user', 'parts': [{'text': 'One more thing'}]}])
+        self.assertEqual([step.outcome for step in self.steps(run)], ['calls', 'ok', 'final', 'final'])
+        self.assertEqual(self.kinds(run).count('message_delivered'), 3)
+        chat = list(AgentConversationMessage.objects.filter(conversation_id=self.conversation.id).order_by('created_at', 'role')
+                    .values_list('role', 'content'))
+        self.assertEqual(chat[0], ('user', 'Make a red fox'))
+        self.assertIn(('user', 'One more thing'), chat)
+        self.assertEqual(chat[-1], ('assistant', 'Done with that too.'))
+
+
+    def test_a_message_wakes_a_run_that_is_waiting_for_jobs(self):
+        bodies = self.gemini([call('generate_image', {'prompt': 'red fox'})], [text('Making a blue one next.')])
+        run = self.start_run()
+        self.assertEqual(self.advance(run), 'waiting')
+        AgentInboxMessage.objects.create(conversation_id=self.conversation.id, run_id=run.id, user_id=self.user.id,
+                                         content='Make it blue', created_at=20)
+        self.assertEqual(self.advance(run), 'completed')
+        self.assertEqual(Generation.objects.get().status, 'queued', 'the job keeps running and still lands in the library')
+        self.assertEqual(bodies[1]['contents'][-1]['parts'][-1], {'text': 'Make it blue'})
+        self.assertEqual(AgentInboxMessage.objects.get().delivered_step, 2)
+
+class ApprovalTests(RunnerCase):
+    def setUp(self):
+        super().setUp()
+        AgentGrant.objects.filter(pk=self.grant.id).update(auto_approve_cents=0)
+
+    def approve_and_replay(self, cents):
+        self.price(cents)
+        sent = self.dispatched()
+        self.gemini([call('generate_image', {'prompt': 'red fox', 'quoteToken': 'forged', 'confirmedByUser': True})])
+        run = self.start_run()
+        self.assertEqual(self.advance(run), 'waiting')
+        self.assertEqual(self.refresh(run).status, 'waiting_approval')
+        self.assertEqual(Generation.objects.count(), 0)
+        self.assertFalse({'quoteToken', 'confirmedByUser'} & set(sent[0][1]))
+        event = AgentRunEvent.objects.get(run_id=run.id, kind='quote_required').payload
+        self.assertEqual((event['stepIndex'], event['tool'], event['prompt'], event['quote']['costCents']), (1, 'generate_image', 'red fox', cents))
+        self.assertEqual(event['arguments'], {'prompt': 'red fox', 'folderId': str(self.folder.id)})
+        self.assertNotIn('token', event['quote'])
+        self.assertEqual(worker.runnable(), [], 'a run waiting for approval is not advanced')
+        self.assertEqual(self.advance(run), 'waiting')
+        self.assertIsNone(runner.approve_quote(run.id, self.user.id, step_index=0))
+        self.assertIsNotNone(runner.approve_quote(run.id, self.user.id, step_index=1))
+        self.assertEqual(self.refresh(run).status, 'queued')
+        self.assertEqual(self.advance(run), 'waiting')
+        token = self.steps(run)[1].result['quote']['token']
+        replay = sent[1][1]
+        self.assertEqual((replay['quoteToken'], replay['idempotencyKey']), (token, f'{run.id}:1'))
+        run = self.refresh(run)
+        self.assertEqual((run.status, run.step_count, run.cost_cents, Generation.objects.get().cost_cents), ('waiting_jobs', 2, cents, cents))
+        self.assertEqual(self.kinds(run).count('quote_approved'), 1)
+        return replay
+
+    def test_an_approved_quote_replays_the_same_step_with_its_token(self):
+        self.assertNotIn('confirmedByUser', self.approve_and_replay(10))
+
+    def test_at_a_dollar_or_more_the_replay_carries_the_users_confirmation(self):
+        self.assertIs(self.approve_and_replay(100)['confirmedByUser'], True)
+
+
+class CancelTests(RunnerCase):
+    def waiting_run(self, **fields):
+        self.gemini([call('generate_image', {'prompt': 'red fox'})])
+        run = self.start_run(**fields)
+        self.assertEqual(self.advance(run), 'waiting')
+        return run
+
+    def test_stop_ends_the_run_and_keeps_its_jobs(self):
+        run = self.waiting_run()
+        AgentRun.objects.filter(pk=run.id).update(cancel_requested_at=99)
+        self.assertIn(run.id, worker.runnable())
+        cancel = Mock()
+        with patch.object(runner.cancellation, 'cancel_generation', cancel):
+            self.assertEqual(self.advance(run), 'cancelled')
+        cancel.assert_not_called()
+        self.assertEqual((self.refresh(run).status, Generation.objects.get().status), ('cancelled', 'queued'))
+        self.assertEqual(AgentRunEvent.objects.get(run_id=run.id, kind='cancelled').payload, {'cancelJobs': False, 'jobs': []})
+
+    def test_stop_and_cancel_jobs_cancels_each_active_linked_job(self):
+        self.gemini([call('generate_image', {'prompt': 'red fox'}), call('generate_image', {'prompt': 'grey fox'})])
+        run = self.start_run()
+        self.assertEqual(self.advance(run), 'waiting')
+        done, job = Generation.objects.filter(agent_run_id=run.id).order_by('created_at', 'id')
+        Generation.objects.filter(pk=done.id).update(status='completed')
+        AgentRun.objects.filter(pk=run.id).update(cancel_requested_at=99, cancel_jobs=True)
+        cancel = Mock(return_value=(SimpleNamespace(status='cancelled'), None))
+        with patch.object(runner.cancellation, 'cancel_generation', cancel):
+            self.assertEqual(self.advance(run), 'cancelled')
+        self.assertEqual(len(cancel.call_args_list), 1)
+        (identifier, actor), options = cancel.call_args
+        self.assertEqual((identifier, actor.id, options), (job.id, self.user.id, {'defer': True}))
+        self.assertEqual(AgentRunEvent.objects.get(run_id=run.id, kind='cancelled').payload['jobs'],
+                         [{'generationId': str(job.id), 'status': 'cancelled', 'message': None}])
+
+    def test_a_job_with_no_provider_task_is_cancelled_by_the_shared_service(self):
+        run = self.waiting_run()
+        AgentRun.objects.filter(pk=run.id).update(cancel_requested_at=99, cancel_jobs=True)
+        self.assertEqual(self.advance(run), 'cancelled')
+        payload = AgentRunEvent.objects.get(run_id=run.id, kind='cancelled').payload
+        self.assertEqual(len(payload['jobs']), 1)
+        self.assertEqual(payload['jobs'][0]['generationId'], str(Generation.objects.get().id))
+
+
+class BoundaryTests(RunnerCase):
+    def test_the_agents_switch_off_pauses_at_the_next_step_boundary(self):
+        def switch_off():
+            AppSetting.objects.create(key=runner.SWITCH, value='false', updated_at=1)
+            return [call('list_models', {})]
+        self.gemini(switch_off, [text('Done.')])
+        run = self.start_run()
+        self.assertEqual(self.advance(run), 'paused')
+        run = self.refresh(run)
+        self.assertEqual((run.status, run.pause_reason, len(self.steps(run))), ('paused_limit', 'agents_disabled', 1))
+        self.assertGreater(run.resume_after, mid_minute() - runner.SWITCH_RETRY_MS)
+        self.assertEqual(worker.runnable(now=run.resume_after - 1), [])
+        self.assertEqual(worker.runnable(now=run.resume_after), [run.id])
+        self.assertEqual(self.advance(run), 'paused', 'still off')
+        self.assertEqual(self.kinds(run).count('paused'), 1)
+        AppSetting.objects.filter(key=runner.SWITCH).update(value='true')
+        self.assertEqual(self.advance(run), 'completed')
+        run = self.refresh(run)
+        self.assertEqual((run.pause_reason, run.resume_after), (None, None))
+
+    def test_a_non_ok_limit_verdict_pauses_the_run_with_its_reason(self):
+        verdict = LimitVerdict(ok=False, reason='agentGlobalDailyCapCents', resume_after=123_456)
+        run = self.start_run()
+        with patch.object(runner, 'check_limits', return_value=verdict) as check:
+            self.assertEqual(self.advance(run), 'paused')
+        self.assertEqual(check.call_args.args[1], 'llm')
+        run = self.refresh(run)
+        self.assertEqual((run.status, run.pause_reason, run.resume_after, run.step_count), ('paused_limit', 'agentGlobalDailyCapCents', 123_456, 0))
+        self.assertEqual(AgentRunEvent.objects.get(run_id=run.id, kind='paused').payload,
+                         {'reason': 'agentGlobalDailyCapCents', 'resumeAfter': 123_456})
+
+    def test_per_run_bounds_end_the_run(self):
+        run = self.start_run(step_count=runner.MAX_STEPS)
+        self.assertEqual(self.advance(run), 'failed')
+        self.assertEqual(self.refresh(run).error['code'], 'step_limit')
+        AgentRun.objects.filter(pk=run.id).delete()
+        run = self.start_run(cost_cents=runner.MAX_RUN_COST_CENTS, created_at=20)
+        self.assertEqual(self.advance(run), 'failed')
+        self.assertEqual(self.refresh(run).error['code'], 'cost_limit')
+        AgentRun.objects.filter(pk=run.id).delete()
+        run = self.start_run(started_at=1, created_at=30)
+        self.assertEqual(self.advance(run), 'failed')
+        self.assertEqual(self.refresh(run).error['code'], 'time_limit')
+
+    def test_a_revoked_grant_fails_the_run_with_a_clear_error(self):
+        run = self.start_run()
+        grants.revoke_grant(self.user.id)
+        self.assertEqual(self.advance(run), 'failed')
+        run = self.refresh(run)
+        self.assertEqual((run.status, run.error['code']), ('failed', 'grant_invalid'))
+        self.assertIn('Agent access for this chat has ended', AgentRunEvent.objects.get(run_id=run.id, kind='failed').payload['message'])
+
+
+class EventTests(RunnerCase):
+    def test_concurrent_writers_get_strictly_increasing_gapless_seqs(self):
+        run = self.start_run()
+        failures = []
+
+        def write(worker_index):
+            try:
+                for index in range(5):
+                    events.emit(run.id, 'note', {'writer': worker_index, 'index': index})
+            except Exception as error:   # pragma: no cover - reported below
+                failures.append(error)
+        threads = [threading.Thread(target=write, args=(index,)) for index in range(4)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertEqual(failures, [])
+        self.assertEqual(sorted(AgentRunEvent.objects.filter(run_id=run.id).values_list('seq', flat=True)), list(range(1, 21)))
+        self.assertEqual([row.seq for row in events.page(run.id, after=15)], [16, 17, 18, 19, 20])
+        self.assertEqual(len(events.page(run.id, after=0, limit=3)), 3)
