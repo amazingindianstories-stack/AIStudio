@@ -9,7 +9,7 @@ from django.test import TransactionTestCase, override_settings
 
 from apps.authentication.session import sign_session
 from apps.projects.models import Project
-from . import payloads, services
+from . import services
 from .models import BoardFormatPayload, BoardMember, CanvasBoard
 from .serialization import empty_state, validate_state
 from .test_activity import BOARD, PROJECT, graph

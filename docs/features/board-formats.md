@@ -108,7 +108,8 @@ return each changed node's new reference (`src/lib/canvas/formats/payloads.js` h
 outlives its node, so an undo or merge that brings the node back finds its content; the rows go with the board.
 
 The 2 Mi board limit, and the template snapshot's, count the graph without payloads. One payload may hold up
-to 1,048,576 UTF-16 units of JSON (413 `payload` beyond that), on top of the per-field caps above.
+to 1,048,576 UTF-16 units of JSON, on top of the per-field caps above. Beyond that a board save gets 413
+`payload`, and the board items API and MCP board tools get 413 `PAYLOAD_TOO_LARGE`; nothing is written.
 Copying a board or template reads inline and re-splits; a template saved from a selection takes unloaded
 payloads from the source board.
 
