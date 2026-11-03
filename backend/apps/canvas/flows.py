@@ -97,7 +97,7 @@ def quote_flow(actor, body):
     quotes = []
     for step in steps:
         quote = quote_step(actor, step)
-        quotes.append({'costCents': quote['costCents'], 'model': quote['model'], **({'groundingCents': quote['groundingCents']} if 'groundingCents' in quote else {})})
+        quotes.append({'costCents': quote['costCents'], 'model': quote['model'], **({'groundingCents': quote['groundingCents'], 'groundingBasis': quote['groundingBasis']} if 'groundingCents' in quote else {})})
     total = sum(item['costCents'] for item in quotes)
     return {'steps': quotes, 'costCents': total, 'credits': sidekicks.quote_credits(actor.id)}
 

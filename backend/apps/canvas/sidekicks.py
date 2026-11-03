@@ -427,7 +427,7 @@ def turn_request(body):
 
 
 def turn_format(request):
-    """The text format of a chat turn: ``sidekick-web`` (Google Search grounding, priced per grounded request) or ``sidekick``."""
+    """The text format of a chat turn: ``sidekick-web`` (Google Search grounding, priced per search) or ``sidekick``."""
     return 'sidekick-web' if request['webSearch'] else 'sidekick'
 
 
@@ -478,7 +478,7 @@ def quote_job(actor, name, processing, turns):
              'credits': quote_credits(actor.id)}
     if 'groundingCents' in result:
         # costCents already includes the Google Search grounding fee; it is shown on its own so the person sees it.
-        quote.update(webSearch=True, groundingCents=result['groundingCents'])
+        quote.update(webSearch=True, groundingCents=result['groundingCents'], groundingBasis=result['groundingBasis'])
     return quote
 
 

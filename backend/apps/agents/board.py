@@ -441,7 +441,7 @@ def parse_output(name, text):
 
 
 def is_web_format(name):
-    """Whether the format sends Gemini's google_search grounding tool (billed per grounded request)."""
+    """Whether the format sends Gemini's google_search grounding tool (billed per search it runs)."""
     return TEXT_FORMATS[name].get('web') is True
 
 

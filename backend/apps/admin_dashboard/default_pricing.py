@@ -144,4 +144,4 @@ DEFAULT_PRICING = [{'model': 'OmniHuman 2.0', 'unitCostCents': 0, 'unit': 'per_s
  {'model': 'Board AI web search',
   'unitCostCents': 1400,
   'unit': 'per_1000_requests',
-  'notes': 'Google Search grounding fee for one grounded Sidekick or Flow step request (sidekick-web, flowstep-web), added to the token cost at the same 1 USD = 100 cents conversion as the Board AI text rows. Gemini API list price: 14 USD per 1,000 search queries for Gemini 3 models (https://ai.google.dev/gemini-api/docs/pricing). Charged once per grounded request, and refunded when the answer reports no search was run'}]
+  'notes': 'Google Search grounding fee for one search run by a Sidekick or Flow step request (sidekick-web, flowstep-web), added to the token cost at the same 1 USD = 100 cents conversion as the Board AI text rows. Gemini API list price: 14 USD per 1,000 search queries for Gemini 3 models (https://ai.google.dev/gemini-api/docs/pricing). Charged for each search the answer reports (none means no fee); the quote estimates one search'}]

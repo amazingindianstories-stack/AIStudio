@@ -89,11 +89,11 @@ the job read-back carries `model`, `aspectRatio` and `resolution`.
 - **Pricing.** The quote and the stored `cost_cents` are estimator cents. A text job costs `Board AI text`
   (`per_million_tokens`, default 250) times the input characters / 4 plus the whole output budget, with a minimum
   of 1 cent. An image job uses the image model's normal pricing.
-- **Web search.** The `sidekick-web` and `flowstep-web` formats send Gemini's `google_search` tool. Each one adds
-  the `Board AI web search` fee (`per_1000_requests`, default 1400 cents, Google's published 14 USD per 1,000
-  grounded queries) once per request, before the single rounding. The quote shows it as `groundingCents`, and it
-  flows into the monthly credits and the Gemini spend window through `cost_cents`. When the answer reports no
-  `webSearchQueries`, the stored cost drops back to the plain text cost.
+- **Web search.** The `sidekick-web` and `flowstep-web` formats send Gemini's `google_search` tool. Each search
+  the model runs adds the `Board AI web search` fee (`per_1000_requests`, default 1400 cents, Google's published 14
+  USD per 1,000 search queries), before the single rounding. The quote estimates one search and shows it as
+  `groundingCents`. The stored `cost_cents` then follows the entries in the answer's `webSearchQueries`: none means
+  no fee, several mean several fees. It flows into the monthly credits and the Gemini spend window.
 - **Admission.** Text jobs are admitted like Gemini images:
   - they count toward each user's `maxConcurrentJobs`
   - at most 4 run at once

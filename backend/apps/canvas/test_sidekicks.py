@@ -166,19 +166,20 @@ class SidekickCatalogueTests(AssistantFixture):
 
 
 class WebSearchPricingTests(AssistantFixture):
-    """Sidekick and Flow web search: the grounding fee is in the quote, the stored cost (credits and spend window) and is
-    refunded when the answer reports that no search ran."""
+    """Sidekick and Flow web search: the quote shows one search fee (a per-search estimate), and the stored cost (credits and
+    spend window) follows the searches the answer reports: none means no fee, several mean several fees."""
 
-    def test_the_fee_is_the_published_price_per_grounded_request(self):
+    def test_the_fee_is_the_published_price_per_search(self):
         from apps.admin_dashboard.default_pricing import DEFAULT_PRICING
         row = next(row for row in DEFAULT_PRICING if row['model'] == 'Board AI web search')
         self.assertEqual((row['unit'], row['unitCostCents']), ('per_1000_requests', 1400))
         self.assertIn('ai.google.dev/gemini-api/docs/pricing', row['notes'])
 
-    def token_cents(self, generation_id):
+    def cost_at(self, generation_id, searches):
+        from apps.admin_dashboard.default_pricing import DEFAULT_PRICING
         from apps.generation.services import text_submission
         value = Generation.objects.get(pk=generation_id).submission_input
-        return text_submission.text_cost(value, [{'model': 'Board AI text', 'unit': 'per_million_tokens', 'unitCostCents': 250}], grounded=False)
+        return text_submission.text_cost(value, DEFAULT_PRICING, searches=searches)
 
     def test_a_web_turn_is_quoted_with_the_grounding_fee_before_it_runs(self):
         chat = self.new_chat()
@@ -189,6 +190,7 @@ class WebSearchPricingTests(AssistantFixture):
         self.assertEqual((web['format'], web['webSearch']), ('sidekick-web', True))
         self.assertEqual(web['costCents'] - plain['costCents'], web['groundingCents'])
         self.assertGreaterEqual(web['groundingCents'], 1)
+        self.assertEqual(web['groundingBasis'], 'per_search_estimate')
         self.assertEqual(self.board_api('post', path, {'message': 'x', 'webSearch': 'yes'}).status_code, 400)
         self.assertEqual(Generation.objects.count(), 0)
 
@@ -237,30 +239,31 @@ class WebSearchPricingTests(AssistantFixture):
             Generation.objects.filter(pk=web['generationId']).update(status='queued')
             self.assertTrue(admission.queue_position(web['generationId'])['heldForBudget'])
 
-    def test_the_fee_is_kept_when_the_answer_reports_a_search_and_refunded_when_it_does_not(self):
+    def test_the_debit_follows_the_searches_the_answer_reports(self):
         chat = self.new_chat()
         base = f"sidekick-chats/{chat['id']}/turns"
-        grounded = self.board_api('post', base, {'message': 'one', 'webSearch': True}, key='web-key-0006').json()['job']
-        quoted = Generation.objects.get(pk=grounded['generationId']).cost_cents
-        with FakeProviders() as fake:
-            self.assertEqual(self.run_worker(grounded['generationId'])['kind'], 'succeeded')
-        self.assertEqual(fake.board_payloads[0]['tools'], [{'google_search': {}}])
-        self.assertEqual(Generation.objects.get(pk=grounded['generationId']).cost_cents, quoted)
-        silent = self.board_api('post', base, {'message': 'two', 'webSearch': True}, key='web-key-0007').json()['job']
-        quoted = Generation.objects.get(pk=silent['generationId']).cost_cents
-        with FakeProviders() as fake:
-            fake.web_search_ran = False
-            self.assertEqual(self.run_worker(silent['generationId'])['kind'], 'succeeded')
-        row = Generation.objects.get(pk=silent['generationId'])
-        self.assertEqual(row.cost_cents, self.token_cents(silent['generationId']))
-        self.assertLess(row.cost_cents, quoted)
-        self.assertEqual(self.personal('get', 'credits').json()['credits']['usedCents'], Generation.objects.get(pk=grounded['generationId']).cost_cents + row.cost_cents)
+        costs = {}
+        for searches in (0, 1, 3):
+            job = self.board_api('post', base, {'message': f'q{searches}', 'webSearch': True}, key=f'web-key-010{searches}').json()['job']
+            quoted = Generation.objects.get(pk=job['generationId']).cost_cents
+            with FakeProviders() as fake:
+                fake.web_searches = searches
+                self.assertEqual(self.run_worker(job['generationId'])['kind'], 'succeeded')
+            if searches:
+                self.assertEqual(fake.board_payloads[0]['tools'], [{'google_search': {}}])
+            row = Generation.objects.get(pk=job['generationId'])
+            self.assertEqual(row.cost_cents, self.cost_at(job['generationId'], searches))
+            costs[searches] = (row.cost_cents, quoted)
+        self.assertLess(costs[0][0], costs[1][0])
+        self.assertEqual(costs[1][0], costs[1][1])
+        self.assertGreater(costs[3][0], costs[1][0])
+        self.assertEqual(self.personal('get', 'credits').json()['credits']['usedCents'], sum(cost for cost, _ in costs.values()))
 
     def test_a_plain_turn_never_pays_or_sends_the_fee(self):
         chat = self.new_chat()
         job = self.board_api('post', f"sidekick-chats/{chat['id']}/turns", {'message': 'one', 'webSearch': False}, key='web-key-0008').json()['job']
         row = Generation.objects.get(pk=job['generationId'])
-        self.assertEqual((row.submission_input['format'], row.cost_cents), ('sidekick', self.token_cents(job['generationId'])))
+        self.assertEqual((row.submission_input['format'], row.cost_cents), ('sidekick', self.cost_at(job['generationId'], 0)))
 
     def test_flow_steps_with_web_search_are_quoted_priced_and_run_with_grounding(self):
         step = {'task': 'Find the release date.', 'inputs': [{'text': 'a film'}]}
