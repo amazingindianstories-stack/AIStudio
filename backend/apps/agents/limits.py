@@ -2,6 +2,7 @@
 
     enabled = agents_enabled(user)                        # the switch, with the global kill
     hit = check_run_admission(user)                       # API run creation, inside transaction.atomic()
+    hit = check_global_concurrency()                      # worker claim: leave the run queued while this is a hit
     hit = check_step(run, cost_cents=estimate)            # worker, before every LLM or paid tool step
     if hit: status = apply_limit_hit(run, hit)            # pause once per kind, fail on the second refusal
     ok, hit = resume_run(run_id)                          # the Resume action, only when capacity is back
@@ -179,7 +180,7 @@ def check_global_concurrency():
 
 
 def check_run_admission(user):
-    """Before creating a run: the switch, the user's active-run cap and the global concurrency cap, or None.
+    """Before creating a run: the switch and the user's active-run cap, or None.
 
     Call inside ``transaction.atomic()``; a per-user advisory lock serializes concurrent creates so the count cannot
     be overshot. ``user`` is a ``User``.
@@ -194,7 +195,7 @@ def check_run_admission(user):
     active = AgentRun.objects.filter(user_id=user.id, status__in=ACTIVE_RUN_STATUSES).count()
     if active >= cap:
         return LimitHit(ACTIVE_RUNS, f'You have {active} agent runs in progress (limit {cap}). Finish or cancel one first.', None, 'user')
-    return check_global_concurrency()
+    return None
 
 
 def check_step(run, *, cost_cents=0, now=None):

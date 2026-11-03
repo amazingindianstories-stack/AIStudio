@@ -244,7 +244,7 @@ class StepTests(LimitsCase):
 
 
 class AdmissionTests(LimitsCase):
-    def test_admission_checks_switch_active_runs_and_global_concurrency(self):
+    def test_admission_checks_switch_and_active_runs_and_leaves_global_concurrency_to_the_claim(self):
         with transaction.atomic():
             self.assertEqual(limits.check_run_admission(self.user).kind, 'disabled')
             self.assertIsNone(limits.check_run_admission(self.admin))
@@ -259,8 +259,8 @@ class AdmissionTests(LimitsCase):
         self.setting('agentMaxConcurrentRuns', 1)
         self.run_for(self.admin)
         with transaction.atomic():
-            hit = limits.check_run_admission(self.admin)
+            self.assertIsNone(limits.check_run_admission(self.admin), 'a busy account still creates the run, queued')
+        hit = limits.check_global_concurrency()
         self.assertEqual((hit.kind, hit.scope), ('global_concurrency', 'global'))
         AgentRun.objects.filter(user_id=self.admin.id).update(status='completed')
-        with transaction.atomic():
-            self.assertIsNone(limits.check_run_admission(self.admin))
+        self.assertIsNone(limits.check_global_concurrency())

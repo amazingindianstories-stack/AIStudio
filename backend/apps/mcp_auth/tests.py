@@ -17,6 +17,7 @@ from django.db.migrations.executor import MigrationExecutor
 from django.test import TransactionTestCase, override_settings
 
 from apps.admin_dashboard.models import UserLimit
+from apps.agents.models import AgentLlmUsage
 from apps.authentication.models import User
 from apps.authentication.password import hash_password
 from apps.authentication.session import sign_session
@@ -724,6 +725,17 @@ class ControlsTests(AgentAccessCase):
                                   user_id=self.user.id, cost_cents=5000, created_at=now, updated_at=1)
         self.assertEqual(controls.spent_cents(self.user.id, now=now), 550)
         self.assertEqual(controls.spent_cents(self.user.id, token_id=principal.token_id, now=now), 500)
+
+    def test_settings_spend_matches_the_daily_cap_total_including_agents_tab_model_cost(self):
+        principal = self.principal()
+        self.generation(principal, 500)
+        AgentLlmUsage.objects.create(user_id=self.user.id, grant_id=None, run_id=None, model='m', purpose='loop', prompt_tokens=1,
+                                     cached_tokens=0, output_tokens=1, thoughts_tokens=0, tool_prompt_tokens=0, total_tokens=2,
+                                     cost_microcents=1_500_000_000, created_at=controls.now_ms() - 1)
+        self.sign_in()
+        listed = self.client.get('/api/mcp/tokens').json()
+        self.assertEqual((listed['access']['spentTodayCents'], [token['spentTodayCents'] for token in listed['tokens']]), (2000, [500]))
+        self.assertEqual(listed['access']['spentTodayCents'], controls.spent_cents(self.user.id))
 
     def test_admission_enforces_caps_concurrency_and_paid_rates(self):
         principal = self.principal(user_cap=1000, token_cap=600, active=2)

@@ -18,11 +18,14 @@ endpoints.
   per-token total adds LLM rows only for an Agents tab grant, matched by `grant_id`. `admit_paid_submission` keeps
   its per-user lock and checks; `agentGlobalDailyCapCents` (all users' agent generations plus all LLM cost) is
   enforced only by the worker's `check_step`, so MCP admission has no account-wide serialization point.
+  Settings, Agent access shows the same `spent_cents` total as the user's spent today.
 - Agents tab limits (`apps/agents/limits.py`, all in `LIMITS` and `src/lib/limits.js`): `agentActiveRuns` (2),
   `agentMaxStepsPerRun` (40), `agentMaxRunCostCents` (1000), global-only `agentGlobalDailyCapCents` (20000) and
   `agentMaxConcurrentRuns` (8), and attachment limits `agentAttachMaxMb`, `agentAttachMaxVideoSeconds`,
   `agentAttachMaxAudioSeconds` plus 1/0 switches `agentAttachImages`, `agentAttachDocuments`, `agentAttachVideo`,
   `agentAttachAudio`. A per-user row overrides the global value. They are not composer settings.
+- Run creation (`check_run_admission`) checks only `agentsEnabled` and `agentActiveRuns`; a run is created queued
+  even when `agentMaxConcurrentRuns` runs are running, and `check_global_concurrency` is the worker claim's check.
 - `agentsEnabled` (1/0): a global 0 is a kill switch, off for everyone including admins and per-user overrides.
   Otherwise a per-user row decides, then a global 1 (on for all), and with nothing set it is on for admins only.
   The dashboard omits the key while no global row exists, and `POST /api/admin/limits` with `value: null` deletes
