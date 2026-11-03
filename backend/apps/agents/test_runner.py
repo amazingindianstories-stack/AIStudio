@@ -333,6 +333,23 @@ class InboxTests(RunnerCase):
         self.assertIn(('user', 'One more thing'), chat)
         self.assertEqual(chat[-1], ('assistant', 'Done with that too.'))
 
+    def test_a_message_delivered_before_a_retried_turn_gets_its_own_turn_before_the_run_completes(self):
+        run = self.start_run()
+
+        def artist_writes_then_unavailable():
+            AgentInboxMessage.objects.create(conversation_id=self.conversation.id, run_id=run.id, user_id=self.user.id,
+                                             content='Make it blue instead', created_at=20)
+            return HttpResult(503, b'{}')
+        bodies = self.gemini(artist_writes_then_unavailable, [text('A red fox.')], [text('A blue fox it is.')])
+        self.assertEqual(self.advance(run), 'completed')
+        self.assertEqual(AgentInboxMessage.objects.get().delivered_step, 1)
+        self.assertEqual(bodies[1]['contents'], [{'role': 'user', 'parts': [{'text': 'Make a red fox'}]}],
+                         'the retried turn is the same turn, so it does not see the message')
+        self.assertEqual(bodies[2]['contents'][-2:], [{'role': 'model', 'parts': [{'text': 'A red fox.'}]},
+                                                      {'role': 'user', 'parts': [{'text': 'Make it blue instead'}]}])
+        self.assertEqual([(step.kind, step.outcome) for step in self.steps(run)], [('llm', 'final'), ('llm', 'final')])
+        self.assertEqual(list(AgentConversationMessage.objects.filter(conversation_id=self.conversation.id, role='assistant')
+                              .order_by('tool_trace__stepIndex').values_list('content', flat=True)), ['A red fox.', 'A blue fox it is.'])
 
     def test_a_message_wakes_a_run_that_is_waiting_for_jobs(self):
         bodies = self.gemini([call('generate_image', {'prompt': 'red fox'})], [text('Making a blue one next.')])

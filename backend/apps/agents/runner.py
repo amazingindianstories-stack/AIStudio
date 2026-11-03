@@ -455,7 +455,7 @@ def finish_llm_step(run, step, parts, calls, rejected, text, *, now):
             return None
         AgentConversationMessage.objects.create(conversation_id=run.conversation_id, role='assistant', content=text,
                                                 tool_trace={'runId': str(run.id), 'stepIndex': step.step_index}, created_at=now)
-        if pending_inbox(locked).exists():
+        if unanswered(locked, step):
             return None
         return complete(locked, now=now)
 
