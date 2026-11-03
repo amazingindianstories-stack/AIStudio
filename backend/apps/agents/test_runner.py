@@ -11,6 +11,8 @@ from types import SimpleNamespace
 from threading import Event
 from unittest.mock import Mock, patch
 
+from django.db import connection
+
 from apps.admin_dashboard.models import AppSetting, Pricing
 from apps.generation.models import Generation
 from apps.integrations.transport import HttpResult, HttpTransport
@@ -21,7 +23,7 @@ from apps.mcp.tests.test_paid_tools import mid_minute
 from apps.mcp.tests.test_results import StorageMixin
 from apps.projects.models import Project
 from apps.workers import scheduler
-from . import events, grants, runner, worker
+from . import design, events, grants, runner, worker
 from .step_limits import LimitVerdict
 from .models import (AgentChatAsset, AgentConversation, AgentConversationMessage, AgentGrant, AgentInboxMessage, AgentLlmUsage,
                      AgentRun, AgentRunEvent, AgentRunStep)
@@ -479,6 +481,8 @@ class EventTests(RunnerCase):
                     events.emit(run.id, 'note', {'writer': worker_index, 'index': index})
             except Exception as error:   # pragma: no cover - reported below
                 failures.append(error)
+            finally:
+                connection.close()       # each thread's own connection, or the test database cannot be dropped
         threads = [threading.Thread(target=write, args=(index,)) for index in range(4)]
         for thread in threads:
             thread.start()
@@ -488,3 +492,119 @@ class EventTests(RunnerCase):
         self.assertEqual(sorted(AgentRunEvent.objects.filter(run_id=run.id).values_list('seq', flat=True)), list(range(1, 21)))
         self.assertEqual([row.seq for row in events.page(run.id, after=15)], [16, 17, 18, 19, 20])
         self.assertEqual(len(events.page(run.id, after=0, limit=3)), 3)
+
+
+class DesignPromptTests(RunnerCase):
+    """The harness's own design_prompt: a prompt-design sub-call through the loop transport, never the dispatcher."""
+
+    def brief(self, bodies, index):
+        self.assertEqual(set(bodies[index]), {'systemInstruction', 'contents', 'generationConfig'})
+        self.assertEqual(bodies[index]['systemInstruction'], {'parts': [{'text': design.DESIGN_SYSTEM_PROMPT}]})
+        return bodies[index]['contents'][0]['parts'][0]['text']
+
+    def test_text_to_image_designs_the_prompt_then_generates_with_it(self):
+        sent = self.dispatched()
+        idea = {'idea': 'a red fox in fresh snow at dawn', 'kind': 'image', 'mode': 'text', 'wait': True}
+        bodies = self.gemini([call('design_prompt', idea, 'd1')], [text('"A red fox steps through fresh snow, low golden dawn light."')],
+                             lambda: [call('generate_image', {'prompt': bodies[2]['contents'][-1]['parts'][0]['functionResponse']
+                                                              ['response']['prompt']})])
+        run = self.start_run()
+        self.assertEqual(self.advance(run), 'waiting')
+        self.assertTrue(declared(bodies[0], 'design_prompt'))
+        brief = self.brief(bodies, 1)
+        self.assertEqual(brief, 'Idea: a red fox in fresh snow at dawn\nMake: an image\nMode: Text to image: no references.\n'
+                                'Model: Nano Banana 2.1 (nano-banana-2-1) makes images.')
+        response = bodies[2]['contents'][-1]['parts'][0]['functionResponse']
+        self.assertEqual(response, {'name': 'design_prompt', 'id': 'd1',
+                                    'response': {'prompt': 'A red fox steps through fresh snow, low golden dawn light.'}})
+        # The model's wait is a harness field and is dropped; the sub-call never reaches the dispatcher.
+        steps = self.steps(run)
+        self.assertEqual([(step.kind, step.tool_name, step.outcome, step.cost_cents) for step in steps],
+                         [('llm', None, 'calls', 0), ('tool', 'design_prompt', 'ok', 0), ('llm', None, 'calls', 0),
+                          ('tool', 'generate_image', 'running', 6)])
+        self.assertEqual(steps[1].result['call']['args'], {'idea': idea['idea'], 'kind': 'image', 'mode': 'text'})
+        self.assertEqual([name for name, _, _ in sent], ['generate_image'])
+        self.assertEqual(Generation.objects.get().prompt, 'A red fox steps through fresh snow, low golden dawn light.')
+        self.assertEqual(list(AgentLlmUsage.objects.filter(run_id=run.id).order_by('step_index').values_list('step_index', 'purpose')),
+                         [(0, 'step'), (1, 'design_prompt'), (2, 'step')])
+        called = AgentRunEvent.objects.filter(run_id=run.id, kind='tool_called').order_by('seq').first().payload
+        self.assertEqual(called, {'stepIndex': 1, 'tool': 'design_prompt', 'outcome': 'ok',
+                                  'summary': 'A red fox steps through fresh snow, low golden dawn light.'})
+
+    def test_reference_and_edit_modes_brief_the_model_with_ordered_citations_and_its_limits(self):
+        notes = ['the fox character, keep its face', 'the snowy pine forest', 'the warm dawn palette']
+        bodies = self.gemini([call('design_prompt', {'idea': 'the fox in the forest', 'kind': 'image', 'mode': 'references',
+                                                     'references': notes}),
+                              call('design_prompt', {'idea': 'make it night', 'kind': 'image', 'mode': 'edit',
+                                                     'references': ['the finished fox image']}),
+                              call('design_prompt', {'idea': 'the fox runs', 'kind': 'video', 'mode': 'edit', 'model': 'seedance-25',
+                                                     'references': ['the fox still']})],
+                             [text('@img1 walks through @img2 under the colours of @img3.')], [text('The same fox at night.')],
+                             [text('Starting on the still, the fox breaks into a run.')], [text('Three prompts ready.')])
+        run = self.start_run()
+        self.assertEqual(self.advance(run), 'completed')
+        self.assertEqual(self.brief(bodies, 1).split('\n'), [
+            'Idea: the fox in the forest', 'Make: an image', 'Mode: References: 3 ordered reference images.',
+            'Model: Nano Banana 2.1 (nano-banana-2-1) makes images. It takes up to 14 reference images, cited @img1..@img14.',
+            'References, in order:', '@img1: the fox character, keep its face', '@img2: the snowy pine forest',
+            '@img3: the warm dawn palette'])
+        self.assertEqual(self.brief(bodies, 2).split('\n')[2:], [
+            'Mode: Edit: one reference image.', 'Model: Nano Banana 2.1 (nano-banana-2-1) makes images.',
+            'References, in order:', 'Reference: the finished fox image'])
+        self.assertEqual(self.brief(bodies, 3).split('\n')[1:4], [
+            'Make: a video', 'Mode: Edit: one reference image (the first frame).',
+            'Model: Seedance 2.5 (seedance-25) makes videos. Describe camera movement, subject action and pacing over the clip.'])
+        responses = [part['functionResponse']['response'] for part in bodies[4]['contents'][-1]['parts']]
+        self.assertEqual(responses, [{'prompt': '@img1 walks through @img2 under the colours of @img3.'},
+                                     {'prompt': 'The same fox at night.'}, {'prompt': 'Starting on the still, the fox breaks into a run.'}])
+
+    def test_a_brief_that_does_not_fit_its_mode_or_model_is_answered_without_a_sub_call(self):
+        cases = [({'idea': 'fox', 'kind': 'image', 'mode': 'text', 'references': ['a fox']}, 'takes no references'),
+                 ({'idea': 'fox', 'kind': 'image', 'mode': 'edit', 'references': ['a', 'b']}, 'exactly one reference'),
+                 ({'idea': 'fox', 'kind': 'image', 'mode': 'references'}, 'a note for each reference'),
+                 ({'idea': 'fox', 'kind': 'image', 'mode': 'references', 'references': ['ref'] * 15}, 'at most 14 reference images'),
+                 ({'idea': 'fox', 'kind': 'image', 'mode': 'text', 'model': 'seedance-25'}, 'not a image model you can use'),
+                 ({'idea': ' ', 'kind': 'image', 'mode': 'text'}, 'Send the idea'),
+                 ({'idea': 'fox', 'kind': 'audio', 'mode': 'text'}, 'image or video'),
+                 ({'idea': 'fox', 'kind': 'image', 'mode': 'text', 'style': 'noir'}, 'does not take style')]
+        bodies = self.gemini([call('design_prompt', args) for args, _ in cases], [text('I will fix those.')])
+        run = self.start_run()
+        self.assertEqual(self.advance(run), 'completed')
+        self.assertEqual(len(bodies), 2)
+        responses = [part['functionResponse']['response'] for part in bodies[1]['contents'][-1]['parts']]
+        for (_, expected), response in zip(cases, responses):
+            with self.subTest(expected):
+                self.assertEqual(response['code'], 'INVALID_INPUT')
+                self.assertIn(expected, response['message'])
+        self.assertEqual({step.outcome for step in self.steps(run) if step.kind == 'tool'}, {'INVALID_INPUT'})
+        self.assertFalse(AgentLlmUsage.objects.filter(purpose='design_prompt').exists())
+
+    def test_a_design_sub_call_is_retried_and_an_unanswered_one_is_reissued_after_a_crash(self):
+        bodies = self.gemini([call('design_prompt', {'idea': 'fox', 'kind': 'image', 'mode': 'text'})],
+                             HttpResult(503, b'{}'), RuntimeError('worker died mid-call'), [text('A fox.')], [text('Done.')])
+        run = self.start_run()
+        with self.assertRaises(RuntimeError):
+            self.advance(run)
+        step = self.steps(run)[1]
+        self.assertEqual((step.tool_name, step.outcome, step.result['attempts']), ('design_prompt', None, 1))
+        AgentRun.objects.filter(pk=run.id).update(last_heartbeat_at=1)
+        scheduler.resume_agent_runs()
+        self.assertEqual(self.refresh(run).status, 'queued')
+        self.assertEqual(self.advance(run), 'completed')
+        self.assertEqual(self.steps(run)[1].outcome, 'ok')
+        self.assertEqual(bodies[1], bodies[2])
+        self.assertEqual(bodies[2], bodies[3])
+        self.assertEqual(bodies[4]['contents'][-1]['parts'][0]['functionResponse']['response'], {'prompt': 'A fox.'})
+        self.assertEqual(AgentLlmUsage.objects.filter(run_id=run.id, purpose='design_prompt').count(), 1)
+
+    def test_a_sub_call_that_never_answers_tells_the_model_to_write_the_prompt_itself(self):
+        bodies = self.gemini([call('design_prompt', {'idea': 'fox', 'kind': 'image', 'mode': 'text'})],
+                             *[HttpResult(503, b'{}')] * runner.LLM_ATTEMPTS, [text('I will write it myself.')])
+        run = self.start_run()
+        self.assertEqual(self.advance(run), 'completed')
+        self.assertEqual(self.steps(run)[1].outcome, 'DESIGN_FAILED')
+        self.assertEqual(bodies[-1]['contents'][-1]['parts'][0]['functionResponse']['response']['code'], 'DESIGN_FAILED')
+
+
+def declared(body, name):
+    return any(item['name'] == name for item in body['tools'][0]['functionDeclarations'])

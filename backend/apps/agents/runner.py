@@ -17,7 +17,8 @@ wait: after a model turn's calls the run sits in ``waiting_jobs`` until every ge
 until the artist sends a message. A
 ``quote_required`` result parks the run in ``waiting_approval``; once the artist approves (``approve_quote``), the same
 step is replayed with the quote token, plus ``confirmedByUser`` at the confirmation amount. The model can never send
-either field (``declarations.harness_arguments``).
+either field (``declarations.harness_arguments``). The harness's own ``design_prompt`` tool is a tool step too, but it
+never reaches the dispatcher: it is one prompt-design sub-call through the same transport (``apps.agents.design``).
 """
 import asyncio
 import hashlib
@@ -38,6 +39,7 @@ from apps.mcp import server
 from apps.mcp.registry import REGISTRY, visible
 from . import events, grants
 from .declarations import HARNESS_FIELDS, harness_arguments
+from .design import DESIGN_TOOL, design_body, design_brief, read_prompt
 from .step_limits import check_limits
 from .llm import PART_METADATA
 from .loop_llm import AgentLoopTransport, UsageContext, loop_body
@@ -344,12 +346,42 @@ def finished_jobs(run, steps):
     return [{'id': str(row['id']), 'kind': row['kind'], 'status': row['status']} for row in rows if str(row['id']) not in told]
 
 
+def ask(run, step, key, body, *, purpose='step'):
+    """``(payload, retryable)`` for one Gemini call of the run's step through ``AgentLoopTransport``; ``payload`` is
+    None when Gemini gave no answer."""
+    transport = AgentLoopTransport(run.model, UsageContext(user_id=run.user_id, grant_id=run.grant_id,
+                                                           conversation_id=run.conversation_id, run_id=run.id,
+                                                           step_index=step.step_index, purpose=purpose))
+    try:
+        response = transport.request('POST', transport.endpoint, headers={'Content-Type': 'application/json', 'x-goog-api-key': key},
+                                     body=body)
+        if response.ok:
+            return response.json(), False
+        return None, response.status in RETRYABLE_STATUS
+    except ProviderError as error:
+        return None, getattr(error, 'code', None) != 'agent_scope'
+    except ValueError:
+        return None, True
+
+
+def retry(step, retryable, stop):
+    """Count a failed attempt on the step; True after a backoff when it may be tried again (the step keeps no outcome,
+    so the next pass re-issues it)."""
+    attempts = (step.result.get('attempts') or 0) + 1
+    step.result = {**step.result, 'attempts': attempts}
+    AgentRunStep.objects.filter(pk=step.pk).update(result=step.result)
+    if not retryable or attempts >= LLM_ATTEMPTS:
+        return False
+    stop.wait(LLM_RETRY_SECONDS[min(attempts, len(LLM_RETRY_SECONDS)) - 1])
+    return True
+
+
 def read_reply(principal, payload):
     """``(parts, calls, rejected, text)`` from a generateContent answer: the model turn to keep, its function calls
     for tools this grant can call, the names of any other calls (dropped), and its visible text."""
     candidates = payload.get('candidates') if isinstance(payload, dict) else None
     content = (candidates[0].get('content') if candidates and isinstance(candidates[0], dict) else None) or {}
-    allowed = {spec.name for spec in visible(principal)}
+    allowed = {spec.name for spec in visible(principal)} | {DESIGN_TOOL}
     parts, calls, rejected, texts = [], [], [], []
     for part in content.get('parts') or []:
         if not isinstance(part, dict):
@@ -387,28 +419,11 @@ def llm_step(run, principal, action, stop, *, now=now_ms):
     key = os.environ.get('GOOGLE_API_KEY')
     if not key:
         return fail(run.id, 'llm_unconfigured', 'The Agents tab is not configured on this server.')
-    transport = AgentLoopTransport(run.model, UsageContext(user_id=run.user_id, grant_id=run.grant_id,
-                                                           conversation_id=run.conversation_id, run_id=run.id,
-                                                           step_index=step.step_index))
-    retryable, payload = False, None
-    try:
-        response = transport.request('POST', transport.endpoint, headers={'Content-Type': 'application/json', 'x-goog-api-key': key},
-                                     body=body)
-        if response.ok:
-            payload = response.json()
-        else:
-            retryable = response.status in RETRYABLE_STATUS
-    except ProviderError as error:
-        retryable = getattr(error, 'code', None) != 'agent_scope'
-    except ValueError:
-        retryable = True
+    payload, retryable = ask(run, step, key, body)
     if payload is None:
-        attempts = (step.result.get('attempts') or 0) + 1
-        AgentRunStep.objects.filter(pk=step.pk).update(result={**step.result, 'attempts': attempts})
-        if not retryable or attempts >= LLM_ATTEMPTS:
-            return fail(run.id, 'llm_failed', 'The model could not answer. Try again in a few minutes.')
-        stop.wait(LLM_RETRY_SECONDS[min(attempts, len(LLM_RETRY_SECONDS)) - 1])
-        return None
+        if retry(step, retryable, stop):
+            return None
+        return fail(run.id, 'llm_failed', 'The model could not answer. Try again in a few minutes.')
     parts, calls, rejected, text = read_reply(principal, payload)
     if not calls and not rejected and not text:
         return fail(run.id, 'empty_reply', 'The model returned nothing usable.')
@@ -460,7 +475,25 @@ def with_location(conversation, name, arguments):
     return arguments
 
 
-def tool_step(run, principal, action, *, now=now_ms):
+def design_step(run, step, stop, *, now=now_ms):
+    """The harness's ``design_prompt``: one prompt-design sub-call, answered to the model as ``{'prompt': ...}``."""
+    problem, brief = design_brief(step.result['call']['args'])
+    if problem is not None:
+        return finish_tool_result(run, step, problem['code'], problem, problem['message'], now=now())
+    key = os.environ.get('GOOGLE_API_KEY')
+    if not key:
+        return fail(run.id, 'llm_unconfigured', 'The Agents tab is not configured on this server.')
+    payload, retryable = ask(run, step, key, design_body(brief), purpose=DESIGN_TOOL)
+    prompt = read_prompt(payload) if payload is not None else ''
+    if prompt:
+        return finish_tool_result(run, step, 'ok', {'prompt': prompt}, prompt, now=now())
+    if retry(step, retryable, stop):
+        return None
+    failed = {'code': 'DESIGN_FAILED', 'message': 'The prompt could not be designed this time; write the prompt yourself.'}
+    return finish_tool_result(run, step, failed['code'], failed, failed['message'], now=now())
+
+
+def tool_step(run, principal, action, stop, *, now=now_ms):
     if action.step is None:
         conversation = AgentConversation.objects.get(pk=run.conversation_id)
         model_arguments = {key: value for key, value in action.call['args'].items() if key not in HARNESS_FIELDS}
@@ -475,6 +508,8 @@ def tool_step(run, principal, action, *, now=now_ms):
                                   confirmed=approved and quote['costCents'] >= principal.caps.confirm_at_cents)
     AgentRunStep.objects.filter(pk=step.pk).update(input_hash=digest({'name': call['name'], 'arguments': call['args']}),
                                                    outcome=None, status='started')
+    if call['name'] == DESIGN_TOOL:
+        return design_step(run, step, stop, now=now)
     try:
         done = asyncio.run(server.dispatch(principal, call['name'], arguments, request_id=f'agent:{run.id}:{step.step_index}',
                                            protocol_version=PROTOCOL, tags={'runId': str(run.id), 'stepIndex': step.step_index}))
@@ -484,13 +519,19 @@ def tool_step(run, principal, action, *, now=now_ms):
 
 
 def finish_tool_step(run, step, done, *, now):
-    call = step.result['call']
     if done is None:
         outcome, structured, sentence, record = 'UNKNOWN_TOOL', {'code': 'UNKNOWN_TOOL', 'message': 'This tool cannot be used here.'}, '', {}
     else:
         outcome, record = done.outcome, done.call.record
         structured = done.result.structured if done.error is None else done.error.payload()
         sentence = done.result.sentence if done.error is None else done.error.message
+    return finish_tool_result(run, step, outcome, structured, sentence, record=record, ok=done is not None and done.error is None,
+                              now=now)
+
+
+def finish_tool_result(run, step, outcome, structured, sentence, *, now, record=None, ok=False):
+    """Journal a tool step's outcome: park a quote for approval, or link a submitted job and keep the response."""
+    call, record = step.result['call'], record or {}
     with transaction.atomic():
         locked = _locked(run.id)
         if outcome == 'quote_required':
@@ -505,7 +546,7 @@ def finish_tool_step(run, step, done, *, now):
                 now=now)
             return 'waiting'
         cost, generation_id = 0, record.get('generationId')
-        if call['name'] in SUBMIT_TOOLS and generation_id and done.error is None:
+        if call['name'] in SUBMIT_TOOLS and generation_id and ok:
             linked = link_job(locked, generation_id, now=now)
             if linked is not None:
                 cost = int(record.get('costCents') or 0)
@@ -621,6 +662,6 @@ def advance(run_id, *, lease, stop, now=now_ms):
         if action.kind == 'llm':
             outcome = llm_step(run, principal, action, stop, now=now)
         else:
-            outcome = tool_step(run, principal, action, now=now)
+            outcome = tool_step(run, principal, action, stop, now=now)
         if outcome is not None:
             return outcome

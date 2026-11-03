@@ -11,7 +11,7 @@ from apps.generation.test_paid_guard_audio_agent import guard
 from apps.integrations.transport import HttpResult, ProviderError
 from apps.mcp.registry import AGENT_TOOLS, REGISTRY
 from apps.mcp_auth.principal import McpCaps, McpPrincipal
-from . import loop_llm
+from . import design, loop_llm
 from .declarations import HARNESS_FIELDS, KEYWORDS, function_declarations, gemini_schema, harness_arguments
 from .grants import AGENT_SCOPES
 from .llm import AgentTransport, agent_payload_allowed
@@ -167,6 +167,48 @@ class LoopTransportTests(TestCase):
         self.assertEqual(usage_counts({'promptTokenCount': -5, 'candidatesTokenCount': '9', 'thoughtsTokenCount': True}),
                          {'prompt_tokens': 0, 'cached_tokens': 0, 'output_tokens': 0, 'thoughts_tokens': 0, 'tool_prompt_tokens': 0,
                           'total_tokens': 0})
+
+    def test_the_loop_declares_design_prompt_and_carries_its_sub_call_and_nothing_else(self):
+        declarations = loop_body(principal('admin'), history())['tools'][0]['functionDeclarations']
+        self.assertEqual(declarations[-1], design.DESIGN_DECLARATION)
+        self.assertEqual({item['name'] for item in declarations}, set(AGENT_TOOLS) | {'design_prompt'})
+        self.assertLessEqual(keywords(design.DESIGN_DECLARATION['parametersJsonSchema'], set()) - {'properties'}, KEYWORDS)
+        self.assertNotIn('design_prompt', REGISTRY)
+        designed = [{'role': 'user', 'parts': [{'text': 'Make a fox'}]},
+                    {'role': 'model', 'parts': [{'functionCall': {'name': 'design_prompt', 'args': {'idea': 'fox'}, 'id': 'd1'}}]},
+                    {'role': 'user', 'parts': [{'functionResponse': {'name': 'design_prompt', 'response': {'prompt': 'A fox.'}, 'id': 'd1'}}]}]
+        self.assertTrue(loop_payload_allowed(self.body(contents=designed)))
+        edited = {**design.DESIGN_DECLARATION, 'description': 'Write any text you like.'}
+        self.assertFalse(loop_payload_allowed(self.body(tools=[{'functionDeclarations': declarations[:-1] + [edited]}])))
+        # The sub-call: the design system prompt, one text turn, its own bounded config, no tools.
+        sub = design.design_body('Idea: a fox\nMake: an image')
+        self.assertTrue(design.design_payload_allowed(sub))
+        self.assertFalse(loop_payload_allowed(sub))
+        ledger, sent = {}, []
+        context = UsageContext(user_id=self.principal.user.id, step_index=4, purpose='design_prompt')
+        with guard(ledger, sent, [reply()]):
+            self.assertTrue(AgentLoopTransport(LOOP_MODEL, context).request('POST', FLASH, body=sub).ok)
+        self.assertEqual((len(sent), ledger), (1, {}))
+        self.assertEqual(list(AgentLlmUsage.objects.values_list('step_index', 'purpose')), [(4, 'design_prompt')])
+        turn = lambda *parts: [{'role': 'user', 'parts': list(parts)}]  # noqa: E731
+        cases = {
+            'tools': {**sub, 'tools': loop_body(self.principal, history())['tools']},
+            'loop system prompt': {**sub, 'systemInstruction': {'parts': [{'text': SYSTEM_PROMPT}]}},
+            'old design prompt': {**sub, 'systemInstruction': {'parts': [{'text': design_prompt_text()}]}},
+            'loop config': {**sub, 'generationConfig': GENERATION_CONFIG},
+            'two turns': {**sub, 'contents': sub['contents'] + [{'role': 'model', 'parts': [{'text': 'x'}]}, *sub['contents']]},
+            'model turn': {**sub, 'contents': [{'role': 'model', 'parts': [{'text': 'x'}]}]},
+            'two parts': {**sub, 'contents': turn({'text': 'a'}, {'text': 'b'})},
+            'image': {**sub, 'contents': turn({'inlineData': {'mimeType': 'image/png', 'data': 'AA=='}})},
+            'thought': {**sub, 'contents': turn({'text': 'x', 'thought': True})},
+            'oversized': {**sub, 'contents': turn({'text': 'x' * design.MAX_DESIGN_BODY_BYTES})},
+        }
+        with guard({}, sent):
+            transport = AgentLoopTransport(LOOP_MODEL, context)
+            for name, body in cases.items():
+                with self.subTest(name), self.assertRaises(ProviderError):
+                    transport.request('POST', FLASH, body=body)
+        self.assertEqual(len(sent), 1)
 
     def test_only_pinned_models(self):
         for model in ('gemini-flash-latest', 'gemini-3-pro-preview', 'gemini-3.8-pro'):
@@ -388,3 +430,8 @@ class FilesTransportTests(TestCase):
                     transport.request(method, url, **kwargs)
                 self.assertEqual((caught.exception.code, caught.exception.may_have_submitted), ('agent_scope', False))
         self.assertEqual(sent, [])
+
+
+def design_prompt_text():
+    from .prompts import DESIGN_PROMPT
+    return DESIGN_PROMPT
