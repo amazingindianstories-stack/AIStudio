@@ -11,7 +11,7 @@ from apps.mcp.tests.support import McpCase
 from apps.mcp_auth import controls, policy
 from . import limits
 from .grants import agent_principal, ensure_grant
-from .models import AgentConversation, AgentLlmUsage, AgentRun
+from .models import AgentConversation, AgentGrant, AgentLlmUsage, AgentRun
 
 NOW = 1_800_000_000_000
 HOUR = 3_600_000
@@ -118,18 +118,18 @@ class SpendTests(LimitsCase):
         with transaction.atomic():
             controls.admit_paid_submission(principal, 50, now=NOW)
 
-    def test_admission_enforces_the_global_cap_across_users(self):
+    def test_the_global_cap_is_left_to_check_step_not_admission(self):
         self.setting('agentGlobalDailyCapCents', 1000)
         self.override(self.user, 'mcpDailyCapCents', 100000)
+        self.override(self.user, 'agentsEnabled', 1)
         self.usage(self.admin, 600 * 1_000_000)                             # another user's model spend
         self.generation(self.admin, 300)                                    # and generation
-        with self.assertRaises(controls.BudgetExceeded) as refused, transaction.atomic():
-            controls.admit_paid_submission(self.principal(self.user), 200, now=NOW)
-        self.assertIn('all agents together', refused.exception.message)
-        self.assertIn('$9.00 used', refused.exception.message)
-        with transaction.atomic():
-            controls.admit_paid_submission(self.principal(self.user), 100, now=NOW)
         self.assertEqual(controls.global_spent_cents(now=NOW), 900)
+        with transaction.atomic():
+            controls.admit_paid_submission(self.principal(self.user), 200, now=NOW)
+        hit = limits.check_step(self.run_for(self.user), cost_cents=200, now=NOW)
+        self.assertEqual((hit.kind, hit.scope), ('global_daily_cap', 'global'))
+        self.assertIn('all agents together', hit.message)
 
 
 class StepTests(LimitsCase):
@@ -168,6 +168,22 @@ class StepTests(LimitsCase):
         self.setting('agentGlobalDailyCapCents', 1000)
         hit = limits.check_step(run, cost_cents=100, now=NOW)
         self.assertEqual((hit.kind, hit.scope, hit.resume_after_ms), ('global_daily_cap', 'global', NOW - 20 * HOUR + 24 * HOUR))
+
+    def test_the_agents_tab_grant_cap_pauses_before_the_user_cap(self):
+        self.override(self.user, 'agentsEnabled', 1)
+        self.override(self.user, 'mcpDailyCapCents', 5000)
+        self.setting('agentMaxRunCostCents', 100000)
+        run = self.run_for(self.user)
+        AgentGrant.objects.filter(pk=run.grant_id).update(daily_cap_cents=1000)
+        self.generation(self.user, 400, created_at=NOW - 20 * HOUR, token_id=run.grant_id)
+        self.generation(self.user, 2000, created_at=NOW - 22 * HOUR, token_id=uuid.uuid4())    # another connection: user cap only
+        self.usage(self.user, 550 * 1_000_000, created_at=NOW - 3 * HOUR, run=run)
+        self.assertIsNone(limits.check_step(run, cost_cents=50, now=NOW))
+        hit = limits.check_step(run, cost_cents=100, now=NOW)               # 950 + 100 passes the grant's 1000 by 50
+        self.assertEqual((hit.kind, hit.scope, hit.cost_cents), ('grant_daily_cap', 'user', 100))
+        self.assertEqual(hit.resume_after_ms, NOW - 20 * HOUR + 24 * HOUR, 'only the grant\'s own rows free its window')
+        self.assertIn('$10.00', hit.message)
+        self.assertIsNone(limits.check_step(run, cost_cents=1001, now=NOW).resume_after_ms)
 
     def test_first_refusal_pauses_and_the_second_of_the_same_kind_fails(self):
         self.override(self.user, 'agentsEnabled', 1)
@@ -211,6 +227,20 @@ class StepTests(LimitsCase):
         refused, hit = limits.resume_run(run.id, now=NOW + 1)
         self.assertEqual((refused, hit.kind, hit.resume_after_ms), (False, 'daily_cap', NOW + HOUR))
         self.assertEqual(limits.resume_run(run.id, now=NOW + HOUR), (True, None))
+
+    def test_resume_checks_the_refused_step_cost_again(self):
+        self.override(self.user, 'agentsEnabled', 1)
+        self.setting('agentMaxRunCostCents', 1000)
+        run = self.run_for(self.user, cost_cents=990)
+        hit = limits.check_step(run, cost_cents=20, now=NOW)
+        self.assertEqual((hit.kind, hit.cost_cents), ('run_cost', 20))
+        limits.apply_limit_hit(run, hit, now=NOW)
+        self.assertEqual(AgentRun.objects.get(pk=run.pk).error['costCents'], 20)
+        refused, again = limits.resume_run(run.id, now=NOW + 1)
+        self.assertEqual((refused, again.kind), (False, 'run_cost'), 'no capacity was freed for the 20-cent step')
+        self.assertEqual(AgentRun.objects.get(pk=run.pk).status, 'paused_limit')
+        self.setting('agentMaxRunCostCents', 1010)
+        self.assertEqual(limits.resume_run(run.id, now=NOW + 2), (True, None))
 
 
 class AdmissionTests(LimitsCase):

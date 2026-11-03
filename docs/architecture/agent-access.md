@@ -15,9 +15,9 @@ endpoints.
   (`admin_dashboard/views.py` `LIMITS`, `src/lib/limits.js`): a global default with per-user overrides.
 - `mcpDailyCapCents` is labelled "Agent daily cap" and covers MCP and the Agents tab. `controls.spent_cents` adds
   the user's `agent_llm_usage` cost for the trailing 24 hours (microcents summed, rounded up once to whole cents); a
-  per-token total adds LLM rows only for an Agents tab grant, matched by `grant_id`. `admit_paid_submission` also
-  checks `agentGlobalDailyCapCents` (all users' agent generations plus all LLM cost) after taking the per-user
-  advisory lock and then a global one, always in that order, so concurrent users cannot overshoot.
+  per-token total adds LLM rows only for an Agents tab grant, matched by `grant_id`. `admit_paid_submission` keeps
+  its per-user lock and checks; `agentGlobalDailyCapCents` (all users' agent generations plus all LLM cost) is
+  enforced only by the worker's `check_step`, so MCP admission has no account-wide serialization point.
 - Agents tab limits (`apps/agents/limits.py`, all in `LIMITS` and `src/lib/limits.js`): `agentActiveRuns` (2),
   `agentMaxStepsPerRun` (40), `agentMaxRunCostCents` (1000), global-only `agentGlobalDailyCapCents` (20000) and
   `agentMaxConcurrentRuns` (8), and attachment limits `agentAttachMaxMb`, `agentAttachMaxVideoSeconds`,
@@ -25,12 +25,15 @@ endpoints.
   `agentAttachAudio`. A per-user row overrides the global value. They are not composer settings.
 - `agentsEnabled` (1/0): a global 0 is a kill switch, off for everyone including admins and per-user overrides.
   Otherwise a per-user row decides, then a global 1 (on for all), and with nothing set it is on for admins only.
-  The dashboard omits the key while no global row exists.
-- Mid-run, `check_step` returns a `LimitHit` (`disabled`, `steps`, `run_cost`, `daily_cap`, `global_daily_cap`).
+  The dashboard omits the key while no global row exists, and `POST /api/admin/limits` with `value: null` deletes
+  the global row to return to admins only (the Limits tab's "Reset to default").
+- Mid-run, `check_step` returns a `LimitHit` (`disabled`, `steps`, `run_cost`, `daily_cap`, `grant_daily_cap` for
+  the Agents tab grant's own `daily_cap_cents`, `global_daily_cap`).
   `apply_limit_hit` pauses the run (`paused_limit`, `pause_reason` = kind, `resume_after` from the oldest rows
   that free enough of the trailing window, none for step, run-cost and disabled) and records the kind in
   `agent_runs.error.hits`; a second refusal of the same kind ends the run `failed` with
-  `error = {code: 'limit', kind}`. `resume_run` requeues only when the limit has capacity again.
+  `error = {code: 'limit', kind}`. The pause records the refused step's estimate in `error.costCents`, and
+  `resume_run` requeues only when that same step fits again.
 - Each grant (a personal access token or one connected app) has its own daily cap (default $10, never above
   the user cap) and an auto-approve amount (default 25 cents, 0 to 100). Jobs at or below the auto-approve
   amount start right away unless they cost $1.00 or more: those always need the user's confirmation, whatever

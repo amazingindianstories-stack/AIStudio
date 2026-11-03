@@ -12,7 +12,8 @@ Global-only keys (``agentGlobalDailyCapCents``, ``agentMaxConcurrentRuns``) igno
 
 A limit is never retried into: the first refusal of a kind pauses the run (``paused_limit``), the second refusal of the
 same kind in the same run ends it ``failed`` with ``error = {'code': 'limit', 'kind': ...}``. Pauses are recorded in
-``agent_runs.error`` as ``{'code': 'limit_paused', 'kind', 'hits': [kinds], ...}``; no schema change is needed.
+``agent_runs.error`` as ``{'code': 'limit_paused', 'kind', 'hits': [kinds], 'costCents', ...}``, where ``costCents`` is the
+refused step's estimate that Resume re-checks; no schema change is needed.
 """
 from dataclasses import dataclass
 from typing import Optional
@@ -21,7 +22,7 @@ from django.db import connection, transaction
 from django.db.models import Sum
 
 from apps.common.leases import now_ms
-from .models import ACTIVE_RUN_STATUSES, AgentLlmUsage, AgentRun
+from .models import ACTIVE_RUN_STATUSES, AgentGrant, AgentLlmUsage, AgentRun
 
 ENABLED = 'agentsEnabled'
 RUN_KEYS = ('agentActiveRuns', 'agentMaxStepsPerRun', 'agentMaxRunCostCents')
@@ -34,7 +35,7 @@ PAUSED = 'paused_limit'
 
 # LimitHit.kind values
 DISABLED, ACTIVE_RUNS, STEPS, RUN_COST = 'disabled', 'active_runs', 'steps', 'run_cost'
-DAILY_CAP, GLOBAL_DAILY_CAP, GLOBAL_CONCURRENCY = 'daily_cap', 'global_daily_cap', 'global_concurrency'
+DAILY_CAP, GRANT_DAILY_CAP, GLOBAL_DAILY_CAP, GLOBAL_CONCURRENCY = 'daily_cap', 'grant_daily_cap', 'global_daily_cap', 'global_concurrency'
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,7 @@ class LimitHit:
     message: str
     resume_after_ms: Optional[int] = None      # earliest epoch ms the trailing window frees capacity; None for a cap only an admin lifts
     scope: str = 'user'                        # 'user' or 'global'
+    cost_cents: int = 0                        # the refused step's estimated cost, which Resume checks again
 
 
 def _views():
@@ -110,7 +112,7 @@ def agents_enabled(user):
     return role == 'admin'
 
 
-def llm_spend_cents(*, user_id=None, grant_id=None, run_id=None, now=None):
+def llm_spend_cents(*, user_id=None, grant_id=None, now=None):
     """Agent model token cost in the trailing 24 hours as whole cents, rounded up once on the sum of microcents."""
     from apps.mcp_auth import policy
     now = now_ms() if now is None else now
@@ -119,8 +121,6 @@ def llm_spend_cents(*, user_id=None, grant_id=None, run_id=None, now=None):
         rows = rows.filter(user_id=user_id)
     if grant_id is not None:
         rows = rows.filter(grant_id=grant_id)
-    if run_id is not None:
-        rows = rows.filter(run_id=run_id)
     return -(-(rows.aggregate(total=Sum('cost_microcents'))['total'] or 0) // MICROCENTS_PER_CENT)
 
 
@@ -134,7 +134,7 @@ def _dollars(cents):
     return f'${cents / 100:,.2f}'
 
 
-def _window_resume(excess_cents, *, user_id=None, now):
+def _window_resume(excess_cents, *, user_id=None, grant_id=None, now):
     """Earliest epoch ms at which the trailing window has shed ``excess_cents``, from the oldest counted rows; None when
     it never will (the excess is more than everything in the window)."""
     from apps.generation.models import Generation
@@ -143,6 +143,8 @@ def _window_resume(excess_cents, *, user_id=None, now):
     usage = AgentLlmUsage.objects.filter(created_at__gt=now - policy.DAY_MS)
     if user_id is not None:
         rows, usage = rows.filter(user_id=user_id), usage.filter(user_id=user_id)
+    if grant_id is not None:
+        rows, usage = rows.filter(mcp_token_id=grant_id), usage.filter(grant_id=grant_id)
     events = [(created, controls.counted_cents(model, status, basis, cost, duration, resolution, videos))
               for created, model, status, basis, cost, duration, resolution, videos in rows.values_list(
                   'created_at', 'model', 'status', 'cost_basis', 'cost_cents', 'duration', 'resolution', 'reference_videos')]
@@ -155,12 +157,16 @@ def _window_resume(excess_cents, *, user_id=None, now):
     return None
 
 
-def _cap_hit(kind, scope, spent, upcoming, cap, *, user_id, now):
+_CAP_NAMES = {DAILY_CAP: 'your daily agent limit', GRANT_DAILY_CAP: 'the Agents tab\'s own daily limit',
+              GLOBAL_DAILY_CAP: 'the daily limit for all agents together'}
+
+
+def _cap_hit(kind, scope, spent, upcoming, cap, *, user_id=None, grant_id=None, now):
     if spent + upcoming <= cap:
         return None
-    resume = _window_resume(spent + upcoming - cap, user_id=user_id, now=now) if upcoming <= cap else None
-    who = 'your daily agent limit' if scope == 'user' else 'the daily limit for all agents together'
-    return LimitHit(kind, f'The next step would pass {who} of {_dollars(cap)} ({_dollars(spent)} used in the last 24 hours).', resume, scope)
+    resume = _window_resume(spent + upcoming - cap, user_id=user_id, grant_id=grant_id, now=now) if upcoming <= cap else None
+    return LimitHit(kind, f'The next step would pass {_CAP_NAMES[kind]} of {_dollars(cap)} ({_dollars(spent)} used in the last 24 hours).',
+                    resume, scope, upcoming)
 
 
 def check_global_concurrency():
@@ -195,23 +201,27 @@ def check_step(run, *, cost_cents=0, now=None):
     """Evaluated before each LLM or paid tool step: None, or the first ``LimitHit`` that refuses it.
 
     ``cost_cents`` is the step's estimated cost (0 for a free tool). Order: switch, steps, run cost, user daily cap,
-    global daily cap. Reads are unlocked; ``controls.admit_paid_submission`` is the atomic check for paid jobs.
+    the grant's own daily cap, global daily cap. Reads are unlocked; ``controls.admit_paid_submission`` is the atomic
+    check for paid jobs. The global daily cap is enforced here only, never in MCP admission.
     """
     from apps.mcp_auth import controls, policy
     now = now_ms() if now is None else now
     if not agents_enabled(run.user_id):
-        return LimitHit(DISABLED, 'Agents were turned off by an admin.', None, 'user')
+        return LimitHit(DISABLED, 'Agents were turned off by an admin.', None, 'user', cost_cents)
     limits = run_limits(run.user_id)
     if run.step_count >= limits['agentMaxStepsPerRun']:
-        return LimitHit(STEPS, f'This run reached its limit of {limits["agentMaxStepsPerRun"]} steps.', None, 'user')
+        return LimitHit(STEPS, f'This run reached its limit of {limits["agentMaxStepsPerRun"]} steps.', None, 'user', cost_cents)
     run_spent = run.cost_cents + _run_llm_cents(run.id)
     if run_spent + cost_cents > limits['agentMaxRunCostCents']:
         return LimitHit(RUN_COST, f'The next step would pass this run\'s {_dollars(limits["agentMaxRunCostCents"])} cost limit '
-                                  f'({_dollars(run_spent)} used).', None, 'user')
-    hit = _cap_hit(DAILY_CAP, 'user', controls.spent_cents(run.user_id, now=now), cost_cents,
-                   policy.user_limits(run.user_id)['dailyCapCents'], user_id=run.user_id, now=now)
+                                  f'({_dollars(run_spent)} used).', None, 'user', cost_cents)
+    grant_cap = AgentGrant.objects.values_list('daily_cap_cents', flat=True).get(pk=run.grant_id)
+    hit = (_cap_hit(DAILY_CAP, 'user', controls.spent_cents(run.user_id, now=now), cost_cents,
+                    policy.user_limits(run.user_id)['dailyCapCents'], user_id=run.user_id, now=now)
+           or _cap_hit(GRANT_DAILY_CAP, 'user', controls.spent_cents(run.user_id, token_id=run.grant_id, now=now), cost_cents,
+                       grant_cap, grant_id=run.grant_id, now=now))
     return hit or _cap_hit(GLOBAL_DAILY_CAP, 'global', controls.global_spent_cents(now=now), cost_cents,
-                           global_limits()['agentGlobalDailyCapCents'], user_id=None, now=now)
+                           global_limits()['agentGlobalDailyCapCents'], now=now)
 
 
 def apply_limit_hit(run, hit, *, now=None):
@@ -232,7 +242,8 @@ def apply_limit_hit(run, hit, *, now=None):
             locked.error = {'code': 'limit', 'kind': hit.kind, 'message': hit.message, 'scope': hit.scope, 'hits': hits}
         else:
             locked.status, locked.pause_reason, locked.resume_after = PAUSED, hit.kind, hit.resume_after_ms
-            locked.error = {'code': 'limit_paused', 'kind': hit.kind, 'message': hit.message, 'scope': hit.scope, 'hits': hits + [hit.kind]}
+            locked.error = {'code': 'limit_paused', 'kind': hit.kind, 'message': hit.message, 'scope': hit.scope, 'hits': hits + [hit.kind],
+                            'costCents': hit.cost_cents}
         locked.updated_at = now
         locked.save(update_fields=['status', 'pause_reason', 'resume_after', 'finished_at', 'error', 'updated_at'])
     for field in ('status', 'pause_reason', 'resume_after', 'finished_at', 'error', 'updated_at'):
@@ -241,7 +252,8 @@ def apply_limit_hit(run, hit, *, now=None):
 
 
 def resume_run(run_id, *, now=None):
-    """The Resume action: requeue a ``paused_limit`` run only when the limit that paused it has capacity again.
+    """The Resume action: requeue a ``paused_limit`` run only when the limit that paused it has capacity again for the
+    refused step's recorded cost.
 
     Returns ``(True, None)`` once requeued, else ``(False, hit)`` with the limit still in the way (or ``(False, None)``
     when the run is not paused on a limit). The refused kind stays in ``error['hits']``, so refusing again fails the run.
@@ -254,7 +266,7 @@ def resume_run(run_id, *, now=None):
         if run.resume_after is not None and run.resume_after > now:
             return False, LimitHit(run.pause_reason, (run.error or {}).get('message', 'Still at the limit.'), run.resume_after,
                                    (run.error or {}).get('scope', 'user'))
-        hit = check_step(run, now=now)
+        hit = check_step(run, cost_cents=(run.error or {}).get('costCents', 0), now=now)
         if hit is not None:
             return False, hit
         AgentRun.objects.filter(pk=run.pk).update(status='queued', pause_reason=None, resume_after=None, updated_at=now)

@@ -27,6 +27,7 @@ LIMITS = {'maxPromptLength': (30000, 1, None), 'maxConcurrentJobs': (PER_USER_DE
           'agentAttachMaxAudioSeconds': (600, 1, 7200), 'agentAttachImages': (1, 0, 1), 'agentAttachDocuments': (1, 0, 1),
           'agentAttachVideo': (1, 0, 1), 'agentAttachAudio': (1, 0, 1)}
 GLOBAL_ONLY = {LANE_SETTING, 'agentGlobalDailyCapCents', 'agentMaxConcurrentRuns'}        # account-wide provider limits: no per-user override
+UNSETTABLE = {'agentsEnabled'}      # global rows an admin may delete, because no row has a meaning of its own
 USER_LIMITS = {key: value for key, value in LIMITS.items() if key not in GLOBAL_ONLY}
 # What the composer reads back through /api/settings; agent limits are enforced by apps.mcp_auth instead.
 COMPOSER_LIMITS = {key: value for key, value in USER_LIMITS.items() if not key.startswith(('mcp', 'boardAi', 'agent'))}

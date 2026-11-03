@@ -99,9 +99,6 @@ def check_credits(principal, kind, *, now=None):
     return result
 
 
-GLOBAL_BUDGET_LOCK = 'mcp-budget:global'
-
-
 def booked_cents(model, cost_cents, duration=None, resolution=None, reference_videos=None):
     """What an agent job costs before it reconciles: Seedance 2.5 books at least its current token estimate.
 
@@ -133,29 +130,26 @@ def _generation_cents(rows):
                        for cost, duration, resolution, videos in booked)
 
 
-def llm_cents(*, user_id=None, grant_id=None, now=None):
-    from apps.agents.limits import llm_spend_cents
-    return llm_spend_cents(user_id=user_id, grant_id=grant_id, now=now)
-
-
 def spent_cents(user_id, *, token_id=None, now=None):
     """Generation spend plus, for a user (or an Agents tab grant), the agent's model token cost in the trailing day."""
+    from apps.agents.limits import llm_spend_cents
     from apps.agents.models import AgentGrant
     from apps.generation.models import Generation
     now = now_ms() if now is None else now
     rows = Generation.objects.filter(created_via__in=policy.AGENT_ORIGINS, created_at__gt=now - policy.DAY_MS).exclude(cost_basis=FREE_COST_BASIS)
     if token_id is None:
-        return _generation_cents(rows.filter(user_id=user_id)) + llm_cents(user_id=user_id, now=now)
+        return _generation_cents(rows.filter(user_id=user_id)) + llm_spend_cents(user_id=user_id, now=now)
     spent = _generation_cents(rows.filter(mcp_token_id=token_id))
-    return spent + (llm_cents(grant_id=token_id, now=now) if AgentGrant.objects.filter(pk=token_id).exists() else 0)
+    return spent + (llm_spend_cents(grant_id=token_id, now=now) if AgentGrant.objects.filter(pk=token_id).exists() else 0)
 
 
 def global_spent_cents(*, now=None):
     """Every user's agent spend in the trailing day: agent-origin generations plus all model token cost."""
+    from apps.agents.limits import llm_spend_cents
     from apps.generation.models import Generation
     now = now_ms() if now is None else now
     rows = Generation.objects.filter(created_via__in=policy.AGENT_ORIGINS, created_at__gt=now - policy.DAY_MS).exclude(cost_basis=FREE_COST_BASIS)
-    return _generation_cents(rows) + llm_cents(now=now)
+    return _generation_cents(rows) + llm_spend_cents(now=now)
 
 
 def active_jobs(user_id):
@@ -182,8 +176,6 @@ def admit_paid_submission(principal, cost_cents, *, now=None):
     user_id = principal.user.id
     with connection.cursor() as cursor:
         cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", ['mcp-budget:' + str(user_id)])
-        # Always user lock first, then this one, so two users admitting at once cannot deadlock or overshoot together.
-        cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [GLOBAL_BUDGET_LOCK])
     caps = principal.caps
     running = active_jobs(user_id)
     if running >= caps.active_jobs:
@@ -192,12 +184,6 @@ def admit_paid_submission(principal, cost_cents, *, now=None):
     if user_spent + cost_cents > caps.user_daily_cap_cents:
         raise BudgetExceeded(f'This {dollars(cost_cents)} job would pass your {dollars(caps.user_daily_cap_cents)} daily agent limit '
                              f'({dollars(user_spent)} used in the last 24 hours). Try again later or ask an admin.')
-    from apps.agents import limits as agent_limits
-    global_cap = agent_limits.global_limits()['agentGlobalDailyCapCents']
-    global_spent = global_spent_cents(now=now)
-    if global_spent + cost_cents > global_cap:
-        raise BudgetExceeded(f'This {dollars(cost_cents)} job would pass the {dollars(global_cap)} daily limit for all agents together '
-                             f'({dollars(global_spent)} used in the last 24 hours). Try again later or ask an admin.')
     token_spent = spent_cents(user_id, token_id=principal.token_id, now=now)
     if token_spent + cost_cents > caps.token_daily_cap_cents:
         raise BudgetExceeded(f'This {dollars(cost_cents)} job would pass this connection\'s {dollars(caps.token_daily_cap_cents)} daily limit '

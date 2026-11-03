@@ -92,6 +92,9 @@ export const LIMIT_DEFINITIONS = [
     unit: "1 on, 0 off",
     switch: true,
     note: "Agents kill switch: set 0 to stop the Agents tab for everyone at once.",
+    // No global row is its own state, admins only, which neither 1 nor 0 says:
+    // the Limits tab shows it blank and can delete the row again.
+    unsetLabel: "Unset: admins only",
     defaultValue: 0,
     min: 0,
     max: 1,

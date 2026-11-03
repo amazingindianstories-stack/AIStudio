@@ -111,6 +111,15 @@ class AdminContractTests(TransactionTestCase):
         self.assertNotIn('agentsEnabled',self.client.get('/api/admin/data').json()['limits'],'unset means admins only')
         self.assertEqual(self.post('limits',{'key':'agentsEnabled','value':0}).json(),{'ok':True})
         self.assertEqual(self.client.get('/api/admin/data').json()['limits']['agentsEnabled'],0)
+        from apps.agents.limits import agents_enabled
+        member=User.objects.create(id=uuid.uuid4(),email='member@example.invalid',name='Member',role='user',password_hash='x',password_salt='x',created_at=1)
+        self.assertEqual((agents_enabled(fixtures.UID),agents_enabled(member)),(False,False),'killed')
+        self.assertEqual(self.post('limits',{'key':'agentsEnabled','value':None}).json(),{'ok':True})
+        self.assertFalse(AppSetting.objects.filter(key='agentsEnabled').exists())
+        self.assertNotIn('agentsEnabled',self.client.get('/api/admin/data').json()['limits'],'reset to admins only')
+        self.assertEqual((agents_enabled(fixtures.UID),agents_enabled(member.id)),(True,False),'admins only again')
+        self.assertEqual(self.post('limits',{'key':'agentsEnabled','value':None}).json(),{'ok':True},'resetting twice is harmless')
+        self.assertEqual(self.post('limits',{'key':'agentMaxConcurrentRuns','value':None}).status_code,400,'only agentsEnabled can be unset')
         for key,value in [('agentsEnabled',1),('agentActiveRuns',3),('agentMaxStepsPerRun',200),('agentMaxRunCostCents',5),('agentAttachMaxMb',100),('agentAttachVideo',0)]:
             self.assertEqual(self.post('user-limits',{**base,'key':key,'value':value}).status_code,200,key)
         self.assertEqual(self.post('user-limits',{**base,'key':'agentMaxStepsPerRun','value':201}).status_code,400)
