@@ -45,10 +45,12 @@ def dispatch_tool(name, args, images, client):
 
 
 def run_turn(history, message, images=None, kind='image', client=None, documents=None):
-    """``documents`` are text parts (attached files as untrusted data) the current user turn carries after its message."""
+    """``documents`` are text parts (attached files as untrusted data) the current user turn carries after its message;
+    a history item's own ``documents`` follow its content the same way."""
     client = client or GeminiAgentClient()
     images = images or []
-    contents = [{'role': 'model' if item['role'] == 'assistant' else 'user', 'parts': [{'text': item['content']}]} for item in history if item['role'] != 'system']
+    contents = [{'role': 'model' if item['role'] == 'assistant' else 'user', 'parts': [{'text': item['content']}, *item.get('documents', ())]}
+                for item in history if item['role'] != 'system']
     contents.append({'role': 'user', 'parts': [{'text': message}, *(documents or []), *images]})
     trace = None
     for _ in range(4):

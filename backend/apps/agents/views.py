@@ -2,6 +2,8 @@ import logging
 import math
 import os
 import uuid
+from concurrent.futures import ThreadPoolExecutor
+from django.db import connections
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
 from apps.authentication.session import lookup
@@ -19,6 +21,9 @@ logger = logging.getLogger(__name__)
 
 MAX_ATTACHMENTS = 10                    # the composer's MAX_DOCUMENTS (src/lib/agent-attachments.js)
 ATTACHMENT_ID_CHARS = 64
+MAX_PDFS = 3                            # PDFs of one message, all described at once
+DOCUMENT_SECONDS = 60                   # every PDF's describe within this, well inside the gateway's 120 s wait
+DOCUMENT_DEADLINE = 'DOCUMENT_DEADLINE'
 
 
 def admin(request):
@@ -114,21 +119,56 @@ def attached_document(user_id, asset_id):
     return asset
 
 
+def described(asset, **kwargs):
+    """``media.describe`` on a worker thread, which closes the database connection its usage row opened."""
+    try:
+        return media.describe(asset, **kwargs)
+    finally:
+        connections.close_all()
+
+
 def document_parts(user_id, conversation_id, asset_ids):
-    """``(assets, parts)`` for one message's attached documents: each one's text as ``media.untrusted`` data after a
-    line naming it. Plain text, markdown and docx give their own text; a PDF one ``media.describe`` sub-call (usage
-    purpose 'media'). Raises ``errors.ToolError``; a PDF without GOOGLE_API_KEY is an explicit refusal, not a skip."""
+    """``(assets, documents)`` for one message's attached documents: ``{id, text}`` each, the text ``media.untrusted``
+    data. Plain text, markdown and docx give their own text; each of at most ``MAX_PDFS`` PDFs one ``media.describe``
+    sub-call (usage purpose 'media'), all at once within ``DOCUMENT_SECONDS``. Raises ``errors.ToolError``, before
+    anything is stored; a PDF without GOOGLE_API_KEY is an explicit refusal, not a skip."""
     assets = [attached_document(user_id, asset_id) for asset_id in asset_ids]
     texts = [media.document_text(asset) for asset in assets]
-    key = os.environ.get('GOOGLE_API_KEY')
-    if None in texts and not key:
-        raise errors.ToolError(errors.MODEL_UNAVAILABLE, 'Veevee cannot read PDF attachments: GOOGLE_API_KEY is not set. Ask a Veevee admin.')
-    usage = UsageContext(user_id=user_id, conversation_id=uuid.UUID(str(conversation_id)), purpose='media')
-    texts = [media.describe(asset, api_key=key, usage=usage) if text is None else text for asset, text in zip(assets, texts)]
-    return assets, [part for asset, text in zip(assets, texts) for part in ({'text': f'Attached document {asset.id}:'}, {'text': text})]
+    pdfs = [asset for asset, text in zip(assets, texts) if text is None]
+    if len(pdfs) > MAX_PDFS:
+        raise media.invalid(f'A message can carry {MAX_PDFS} PDFs. Remove one and send it again.')
+    if pdfs:
+        key = os.environ.get('GOOGLE_API_KEY')
+        if not key:
+            raise errors.ToolError(errors.MODEL_UNAVAILABLE, 'Veevee cannot read PDF attachments: GOOGLE_API_KEY is not set. Ask a Veevee admin.')
+        usage = UsageContext(user_id=user_id, conversation_id=uuid.UUID(str(conversation_id)), purpose='media')
+        deadline = media.Deadline(DOCUMENT_SECONDS)
+        with ThreadPoolExecutor(max_workers=len(pdfs), thread_name_prefix='agent-document') as pool:
+            futures = [pool.submit(described, asset, api_key=key, usage=usage, signal=deadline) for asset in pdfs]
+        failures = [future.exception() for future in futures if future.exception() is not None]
+        if failures and deadline.expired():
+            raise errors.ToolError(DOCUMENT_DEADLINE, f'Veevee could not read the attached PDFs within {DOCUMENT_SECONDS} seconds. '
+                                                      'Nothing was sent; try fewer or shorter PDFs.')
+        if failures:
+            raise failures[0]
+        results = (future.result() for future in futures)
+        texts = [next(results) if text is None else text for text in texts]
+    return assets, [{'id': asset.id, 'text': text} for asset, text in zip(assets, texts)]
 
 
-ATTACHMENT_STATUS = {errors.NOT_FOUND: 404, errors.INVALID_INPUT: 400, errors.MODEL_UNAVAILABLE: 503}
+def document_turn(documents):
+    """A user turn's attached documents as Gemini text parts: a line naming each, then its untrusted text."""
+    return [part for document in documents for part in ({'text': f'Attached document {document["id"]}:'}, {'text': document['text']})]
+
+
+def history_turn(row):
+    """A stored message as a ``run_turn`` history item; a user message keeps the documents it was sent with."""
+    trace = row['toolTrace'] if row['role'] == 'user' and isinstance(row['toolTrace'], dict) else {}
+    documents = document_turn(trace.get('documents', []))
+    return {'role': row['role'], 'content': row['content'], **({'documents': documents} if documents else {})}
+
+
+ATTACHMENT_STATUS = {errors.NOT_FOUND: 404, errors.INVALID_INPUT: 400, errors.MODEL_UNAVAILABLE: 503, DOCUMENT_DEADLINE: 504}
 
 
 @api_view(['POST'])
@@ -158,10 +198,10 @@ def messages(request, id):
         return renew_session(request, Response({'error': error.message}, status=ATTACHMENT_STATUS.get(error.code, 502)))
     for asset in assets:
         media.record_attachment(conversation['id'], asset)
-    history = [{'role': row['role'], 'content': row['content']} for row in services.list_messages(id)]
-    user_message = services.append_message(id, 'user', parsed['content'])
+    history = [history_turn(row) for row in services.list_messages(id)]
+    user_message = services.append_message(id, 'user', parsed['content'], {'documents': documents} if documents else None)
     try:
-        result = run_turn(history, parsed['content'], parts, conversation['agentKind'], documents=documents)
+        result = run_turn(history, parsed['content'], parts, conversation['agentKind'], documents=document_turn(documents))
         assistant = services.append_message(id, 'assistant', result['reply'], result.get('toolTrace'))
         return renew_session(request, Response({'userMessage': user_message, 'assistantMessage': assistant}))
     except Exception as error:

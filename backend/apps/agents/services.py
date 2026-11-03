@@ -65,7 +65,7 @@ def append_message(identifier, role, content, tool_trace=None):
 @transaction.atomic
 def attach_generated_item(conversation_id, message_id, item_id):
     # Scope the message to the requested thread, closing the legacy URL mismatch.
-    row = AgentConversationMessage.objects.select_for_update().filter(pk=message_id, conversation_id=conversation_id).first()
+    row = AgentConversationMessage.objects.select_for_update().filter(pk=message_id, conversation_id=conversation_id, role='assistant').first()
     if row is None or row.tool_trace is None:
         return None
     trace = row.tool_trace if isinstance(row.tool_trace, dict) else {}

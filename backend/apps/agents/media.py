@@ -53,6 +53,7 @@ VOICE_SLACK = 64 * 1024                # container headers, so a short note's cl
 TEXT_CHARS = 50_000                     # characters of one file's text the agent sees
 ANSWER_CHARS = 20_000                   # characters of one media sub-call's answer the agent sees
 FILE_POLLS, FILE_POLL_SECONDS = 30, 2   # a Files API upload must be ACTIVE within about a minute
+RELEASE_SECONDS = 10                    # one Files API delete, also after a caller's deadline passed
 DOCX_MEMBERS = 1000
 DOCX_TOTAL_BYTES = 100 * MB             # declared uncompressed size of every member
 DOCX_XML_BYTES = 20 * MB                # word/document.xml as read, whatever the zip declares
@@ -69,6 +70,24 @@ TRUNCATED = '\n[truncated: the rest of the file is not shown]'
 
 # Seconds between Files API state reads; tests replace it.
 sleep = time.sleep
+
+
+class Deadline:
+    """One end time shared by provider calls, passed as their ``signal``: ``HttpTransport`` bounds each request by
+    ``remaining`` and refuses to start one once it has passed."""
+
+    def __init__(self, seconds):
+        self.until = time.monotonic() + seconds
+
+    def expired(self):
+        return time.monotonic() >= self.until
+
+    def remaining(self):
+        return max(self.until - time.monotonic(), 0)
+
+    def check(self):
+        if self.expired():
+            raise ProviderError('The agent file deadline passed.', code='request_deadline', may_have_submitted=False)
 
 
 @dataclass(frozen=True)
@@ -206,19 +225,20 @@ class Files:
     def __init__(self, api_key, transport=None):
         self.key, self.transport, self.uris = api_key, transport or GeminiFilesTransport(), []
 
-    def upload(self, mime, data):
-        """A ``fileData`` part once the file is ACTIVE. An upload whose answer is lost cannot be named, so it cannot be
-        deleted here; Gemini deletes every file after 48 hours."""
+    def upload(self, mime, data, signal=None):
+        """A ``fileData`` part once the file is ACTIVE, every call and wait within ``signal`` (a ``Deadline``) when
+        given. An upload whose answer is lost cannot be named, so it cannot be deleted here; Gemini deletes every file
+        after 48 hours."""
         start = self.transport.request('POST', FILES_UPLOAD, headers={
             'Content-Type': 'application/json', 'x-goog-api-key': self.key, 'X-Goog-Upload-Protocol': 'resumable',
             'X-Goog-Upload-Command': 'start', 'X-Goog-Upload-Header-Content-Length': str(len(data)),
-            'X-Goog-Upload-Header-Content-Type': mime}, body={'file': {'display_name': FILES_DISPLAY_NAME}})
+            'X-Goog-Upload-Header-Content-Type': mime}, body={'file': {'display_name': FILES_DISPLAY_NAME}}, signal=signal)
         target = next((value for name, value in start.headers.items() if name.lower() == 'x-goog-upload-url'), None)
         if not start.ok or not target:
             raise self.failed(f'start answered {start.status}')
         done = self.transport.request('POST', target, headers={
             'Content-Length': str(len(data)), 'X-Goog-Upload-Offset': '0', 'X-Goog-Upload-Command': 'upload, finalize'},
-            raw_body=data)
+            raw_body=data, signal=signal)
         uri = self.uri(done)
         if not done.ok or uri is None:
             raise self.failed(f'upload answered {done.status}')
@@ -227,8 +247,8 @@ class Files:
         for _ in range(FILE_POLLS):
             if state != 'PROCESSING':
                 break
-            sleep(FILE_POLL_SECONDS)
-            response = self.transport.request('GET', uri, headers={'x-goog-api-key': self.key})
+            sleep(min(FILE_POLL_SECONDS, signal.remaining()) if signal else FILE_POLL_SECONDS)
+            response = self.transport.request('GET', uri, headers={'x-goog-api-key': self.key}, signal=signal)
             state = self.state(response, top=True) if response.ok else 'FAILED'
         if state != 'ACTIVE':
             raise self.failed(f'file state {state}')
@@ -259,7 +279,8 @@ class Files:
         uris, self.uris = self.uris, []
         for uri in uris:
             try:
-                response = self.transport.request('DELETE', uri, headers={'x-goog-api-key': self.key})
+                response = self.transport.request('DELETE', uri, headers={'x-goog-api-key': self.key},
+                                                  signal=Deadline(RELEASE_SECONDS))
                 if not response.ok and response.status != 404:
                     logger.warning('agent_file_delete_failed file=%s status=%s', uri.rsplit('/', 1)[-1], response.status)
             except Exception as error:
@@ -273,7 +294,7 @@ def document_text(asset):
     return untrusted(docx_text(asset.data)) if asset.mime == DOCX else None
 
 
-def asset_part(asset, files, inline_total=0):
+def asset_part(asset, files, inline_total=0, signal=None):
     """``(part, inline bytes used)``: text for plain text, markdown and docx; inline or a Files API upload otherwise."""
     text = document_text(asset)
     if text is not None:
@@ -281,7 +302,7 @@ def asset_part(asset, files, inline_total=0):
     if len(asset.data) <= INLINE_BYTES and inline_total + len(asset.data) <= INLINE_TOTAL:
         part = {'inlineData': {'mimeType': asset.mime, 'data': base64.b64encode(asset.data).decode()}}
         return part, inline_total + len(asset.data)
-    return files.upload(asset.mime, asset.data), inline_total
+    return files.upload(asset.mime, asset.data, signal), inline_total
 
 
 def attachment_parts(user_id, asset_ids, *, api_key, storage=None, transport=None):
@@ -309,15 +330,16 @@ def answer_text(response):
     return text.strip() or None
 
 
-def describe(asset, question=None, *, api_key, usage, transport=None, files_transport=None):
+def describe(asset, question=None, *, api_key, usage, transport=None, files_transport=None, signal=None):
     """One media sub-call about an image, video, audio or PDF ``asset``: ``MEDIA_PROMPT``, the file and the question
-    quoted as data, on ``LOOP_MODEL`` under ``usage`` (purpose 'media'). The answer comes back ``untrusted`` and cut to
-    ``ANSWER_CHARS``; the Files API upload, if any, is deleted whatever happened."""
+    quoted as data, on ``LOOP_MODEL`` under ``usage`` (purpose 'media'), within ``signal`` (a ``Deadline``) when given.
+    The answer comes back ``untrusted`` and cut to ``ANSWER_CHARS``; the Files API upload, if any, is deleted whatever
+    happened."""
     files, transport = Files(api_key, files_transport), transport or AgentLoopTransport(LOOP_MODEL, usage)
     try:
-        part, _ = asset_part(asset, files)
+        part, _ = asset_part(asset, files, signal=signal)
         response = transport.request('POST', transport.endpoint, headers={'Content-Type': 'application/json', 'x-goog-api-key': api_key},
-                                     body=media_body([part], question))
+                                     body=media_body([part], question), signal=signal)
     except ProviderError as error:
         response = None
         logger.warning('agent_media_call_failed code=%s', error.code)
