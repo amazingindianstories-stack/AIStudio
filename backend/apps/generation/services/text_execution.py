@@ -88,4 +88,28 @@ def execute_text(item, *, signal, env=None, transport=None, on_task=None):
         failure.terminal = True
         raise failure from None
     signal.check()
-    return {'status': 'succeeded', 'output': output, 'updated_at': now_ms()}
+    result = {'status': 'succeeded', 'output': output, 'updated_at': now_ms()}
+    refund = ungrounded_cost(item, value, candidate, env)
+    if refund is not None:
+        result['cost_cents'] = refund
+    return result
+
+
+def grounded(candidate):
+    """Whether Gemini reports that it ran at least one Google Search for this answer."""
+    metadata = candidate.get('groundingMetadata') if isinstance(candidate, dict) else None
+    queries = metadata.get('webSearchQueries') if isinstance(metadata, dict) else None
+    return isinstance(queries, list) and any(isinstance(query, str) and query.strip() for query in queries)
+
+
+def ungrounded_cost(item, value, candidate, env):
+    """The lower cost of a web-format job whose answer reports no search (the quote included the grounding fee), else None:
+    the fee is charged only for a request that actually used grounding."""
+    from apps.agents.board import is_web_format
+    from apps.agents.llm import advanced_agent_model, agent_model
+    from .pricing import read_pricing
+    from .text_submission import text_cost
+    if not is_web_format(value['format']) or grounded(candidate):
+        return None
+    processing = 'advanced' if value['model'] == advanced_agent_model(env) and value['model'] != agent_model(env) else 'basic'
+    return min(item.cost_cents or 0, text_cost(value, read_pricing(), processing, grounded=False))

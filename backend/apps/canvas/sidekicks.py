@@ -25,7 +25,7 @@ from . import ai_allowance, switches
 from .ai_jobs import ORIGIN, PROCESSING, UUID, JobError, job_json, receipt_key, require_enabled
 from .models import BoardAiJob, BoardSidekickChat, Sidekick
 
-OWN_FORMATS = ('sidekick', 'flowstep', 'catchup', 'boardsearch')
+OWN_FORMATS = ('sidekick', 'flowstep', 'catchup', 'boardsearch', 'sidekick-web', 'flowstep-web')
 CREDIT_DEFAULT_CENTS = 5000
 
 MAX_NAME = 80
@@ -105,7 +105,7 @@ def action_prices():
     """What one typical call of each AI action costs at the configured rates, for the credits panel."""
     from apps.generation.services.pricing import read_pricing
     prices = {}
-    for name in ('sidekick', 'flowstep', 'catchup', 'boardsearch'):
+    for name in OWN_FORMATS:
         for processing in PROCESSING:
             try:
                 value = {'format': name, 'turns': [{'role': 'user', 'text': 'x' * 4000}]}
@@ -419,7 +419,16 @@ def turn_request(body):
     processing = body.get('processing')
     if processing is not None and processing not in PROCESSING:
         raise _error('Unknown processing.', 'UNKNOWN_PROCESSING')
-    return {'message': message, 'selection': selection_ids(body), 'sources': body.get('sources') or [], 'processing': processing}
+    web = body.get('webSearch', False)
+    if not isinstance(web, bool):
+        raise _error('Invalid webSearch.')
+    return {'message': message, 'selection': selection_ids(body), 'sources': body.get('sources') or [], 'processing': processing,
+            'webSearch': web}
+
+
+def turn_format(request):
+    """The text format of a chat turn: ``sidekick-web`` (Google Search grounding, priced per grounded request) or ``sidekick``."""
+    return 'sidekick-web' if request['webSearch'] else 'sidekick'
 
 
 def turn_turns(actor, board, sidekick, request, chat=None):
@@ -433,20 +442,20 @@ def turn_turns(actor, board, sidekick, request, chat=None):
 def quote_first_turn(actor, board, body):
     """The price of the first message of a new chat with ``body['sidekick']``; no chat is created."""
     request = turn_request(body)
-    return quote_job(actor, 'sidekick', *turn_turns(actor, board, chosen_sidekick(actor, body), request))
+    return quote_job(actor, turn_format(request), *turn_turns(actor, board, chosen_sidekick(actor, body), request))
 
 
 def quote_turn(actor, board, chat_id, body):
     chat = own_chat(actor, board, chat_id)
     request = turn_request(body)
-    return quote_job(actor, 'sidekick', *turn_turns(actor, board, chat_sidekick(actor, chat), request, chat))
+    return quote_job(actor, turn_format(request), *turn_turns(actor, board, chat_sidekick(actor, chat), request, chat))
 
 
 def submit_turn(actor, board, chat_id, body, idempotency_key):
     chat = own_chat(actor, board, chat_id)
     request = turn_request(body)
     message = request['message']
-    job = submit_job(actor, board, 'sidekick', message, idempotency_key, request=request, chat=chat,
+    job = submit_job(actor, board, turn_format(request), message, idempotency_key, request=request, chat=chat,
                      build=lambda: turn_turns(actor, board, chat_sidekick(actor, chat), request, chat))
     BoardSidekickChat.objects.filter(pk=chat.pk).update(updated_at=now_ms(), **({'title': message[:60]} if chat.title == resolve_name(chat) else {}))
     return job
@@ -465,8 +474,12 @@ def resolve_name(chat):
 def quote_job(actor, name, processing, turns):
     require_enabled(actor)
     result = text_submission.quote_text(actor, name, turns, processing)
-    return {'format': name, 'processing': processing, 'model': result['model'], 'costCents': result['costCents'],
-            'credits': quote_credits(actor.id)}
+    quote = {'format': name, 'processing': processing, 'model': result['model'], 'costCents': result['costCents'],
+             'credits': quote_credits(actor.id)}
+    if 'groundingCents' in result:
+        # costCents already includes the Google Search grounding fee; it is shown on its own so the person sees it.
+        quote.update(webSearch=True, groundingCents=result['groundingCents'])
+    return quote
 
 
 def submit_job(actor, board, name, prompt, idempotency_key, *, request, build, chat=None, operation='BOARD_SIDEKICK_JOB'):

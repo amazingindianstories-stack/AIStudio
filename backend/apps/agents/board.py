@@ -394,9 +394,12 @@ def build_body(value):
     if not is_board_input(value) or not valid_turns(value.get('turns'), value['format']):
         raise ValueError('Invalid board text input.')
     name = value['format']
-    return {'systemInstruction': {'parts': [{'text': TEXT_FORMATS[name]['prompt']}]},
+    body = {'systemInstruction': {'parts': [{'text': TEXT_FORMATS[name]['prompt']}]},
             'contents': [{'role': turn['role'], 'parts': [{'text': turn['text']}]} for turn in value['turns']],
             'generationConfig': generation_config(name)}
+    if TEXT_FORMATS[name].get('tools'):
+        body['tools'] = TEXT_FORMATS[name]['tools']
+    return body
 
 
 def body_bytes(body):
@@ -406,10 +409,11 @@ def body_bytes(body):
 
 def body_format(body):
     """The text format whose exact request shape ``body`` has, else None."""
-    if not isinstance(body, dict) or set(body) != {'systemInstruction', 'contents', 'generationConfig'}:
+    if not isinstance(body, dict) or not {'systemInstruction', 'contents', 'generationConfig'} <= set(body) <= {'systemInstruction', 'contents', 'generationConfig', 'tools'}:
         return None
     for name, spec in TEXT_FORMATS.items():
-        if body['systemInstruction'] == {'parts': [{'text': spec['prompt']}]} and body['generationConfig'] == generation_config(name):
+        if (body['systemInstruction'] == {'parts': [{'text': spec['prompt']}]} and body['generationConfig'] == generation_config(name)
+                and body.get('tools') == spec.get('tools') and ('tools' in body) == ('tools' in spec)):
             contents = body['contents']
             if not isinstance(contents, list):
                 return None
@@ -434,6 +438,11 @@ def parse_output(name, text):
     except (TypeError, ValueError):
         raise UnusableResult('The AI answer was not valid JSON.') from None
     return TEXT_FORMATS[name]['parse'](value)
+
+
+def is_web_format(name):
+    """Whether the format sends Gemini's google_search grounding tool (billed per grounded request)."""
+    return TEXT_FORMATS[name].get('web') is True
 
 
 def estimated_tokens(value):

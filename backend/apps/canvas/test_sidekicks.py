@@ -24,9 +24,9 @@ def body_of(name, turns):
 
 
 class SidekickFormatTests(SimpleTestCase):
-    def test_every_format_has_one_exact_allowed_shape_and_no_format_carries_tools(self):
+    def test_every_format_has_one_exact_allowed_shape_and_only_the_web_formats_carry_tools(self):
         turns = [{'role': 'user', 'text': 'context'}, {'role': 'model', 'text': 'Understood.'}, {'role': 'user', 'text': 'go'}]
-        for name in sidekick.FORMATS:
+        for name in (name for name in sidekick.FORMATS if not name.endswith('-web')):
             with self.subTest(name):
                 body = body_of(name, turns)
                 self.assertTrue(board_payload_allowed(body))
@@ -36,8 +36,22 @@ class SidekickFormatTests(SimpleTestCase):
                 self.assertFalse(board_payload_allowed({**body, 'safetySettings': []}))
         plain = body_of('sidekick', turns)
         self.assertFalse(board_payload_allowed({**plain, 'tools': [{'google_search': {}}]}))
-        self.assertNotIn('sidekick-web', board_formats.TEXT_FORMATS)
-        self.assertNotIn('flowstep-web', board_formats.TEXT_FORMATS)
+
+    def test_the_web_formats_send_exactly_the_google_search_tool_and_no_other_format_does(self):
+        turns = [{'role': 'user', 'text': 'context'}, {'role': 'model', 'text': 'Understood.'}, {'role': 'user', 'text': 'go'}]
+        for name in ('sidekick-web', 'flowstep-web'):
+            with self.subTest(name):
+                self.assertTrue(board_formats.is_web_format(name))
+                body = body_of(name, turns)
+                self.assertEqual(body['tools'], [{'google_search': {}}])
+                self.assertEqual(board_formats.body_format(body), name)
+                self.assertTrue(board_payload_allowed(body))
+                self.assertFalse(board_payload_allowed({key: value for key, value in body.items() if key != 'tools'}))
+                self.assertFalse(board_payload_allowed({**body, 'tools': [{'google_search': {}}, {'codeExecution': {}}]}))
+                self.assertFalse(board_payload_allowed({**body, 'tools': [{'codeExecution': {}}]}))
+        self.assertFalse(any(board_formats.is_web_format(name) for name in board_formats.TEXT_FORMATS if not name.endswith('-web')))
+        # A plain body never passes as its web twin: the web prompt and the tool differ.
+        self.assertEqual(board_formats.body_format(body_of('sidekick', turns)), 'sidekick')
 
     def test_the_largest_sidekick_context_fits_one_turn_and_an_oversized_body_is_refused_before_queueing(self):
         sidekick_ = {'name': 'n' * sidekicks.MAX_NAME, 'instructions': 'i' * sidekicks.MAX_INSTRUCTIONS,
@@ -84,7 +98,7 @@ class SidekickFormatTests(SimpleTestCase):
                'flow': {'block': 'instruction', 'task': 'do it', 'webSearch': True, 'inputHash': 'abc', 'junk': 1}}
         result = node(raw)
         self.assertEqual((result['aiCreated'], result['aiEditedAt']), (True, 5))
-        self.assertEqual(result['flow'], {'block': 'instruction', 'task': 'do it', 'inputHash': 'abc'})
+        self.assertEqual(result['flow'], {'block': 'instruction', 'task': 'do it', 'webSearch': True, 'inputHash': 'abc'})
         bad = node({**raw, 'aiCreated': 'yes', 'aiEditedAt': 'x', 'flow': {'block': 'weird'}})
         self.assertNotIn('aiCreated', bad)
         self.assertNotIn('flow', bad)
@@ -149,6 +163,126 @@ class SidekickCatalogueTests(AssistantFixture):
         self.assertEqual(sidekicks.catalogue(other)['custom'], [])
         self.assertEqual(self.personal('delete', f"sidekicks/{item['id']}").status_code, 200)
         self.assertEqual(Sidekick.objects.count(), 0)
+
+
+class WebSearchPricingTests(AssistantFixture):
+    """Sidekick and Flow web search: the grounding fee is in the quote, the stored cost (credits and spend window) and is
+    refunded when the answer reports that no search ran."""
+
+    def test_the_fee_is_the_published_price_per_grounded_request(self):
+        from apps.admin_dashboard.default_pricing import DEFAULT_PRICING
+        row = next(row for row in DEFAULT_PRICING if row['model'] == 'Board AI web search')
+        self.assertEqual((row['unit'], row['unitCostCents']), ('per_1000_requests', 1400))
+        self.assertIn('ai.google.dev/gemini-api/docs/pricing', row['notes'])
+
+    def token_cents(self, generation_id):
+        from apps.generation.services import text_submission
+        value = Generation.objects.get(pk=generation_id).submission_input
+        return text_submission.text_cost(value, [{'model': 'Board AI text', 'unit': 'per_million_tokens', 'unitCostCents': 250}], grounded=False)
+
+    def test_a_web_turn_is_quoted_with_the_grounding_fee_before_it_runs(self):
+        chat = self.new_chat()
+        path = f"sidekick-chats/{chat['id']}/quote"
+        plain = self.board_api('post', path, {'message': 'Who won?'}).json()['quote']
+        web = self.board_api('post', path, {'message': 'Who won?', 'webSearch': True}).json()['quote']
+        self.assertNotIn('groundingCents', plain)
+        self.assertEqual((web['format'], web['webSearch']), ('sidekick-web', True))
+        self.assertEqual(web['costCents'] - plain['costCents'], web['groundingCents'])
+        self.assertGreaterEqual(web['groundingCents'], 1)
+        self.assertEqual(self.board_api('post', path, {'message': 'x', 'webSearch': 'yes'}).status_code, 400)
+        self.assertEqual(Generation.objects.count(), 0)
+
+    def test_a_web_turn_is_stored_at_the_quoted_cost_and_counts_in_the_monthly_credits(self):
+        chat = self.new_chat()
+        base = f"sidekick-chats/{chat['id']}"
+        quote = self.board_api('post', base + '/quote', {'message': 'Who won?', 'webSearch': True}).json()['quote']
+        job = self.board_api('post', base + '/turns', {'message': 'Who won?', 'webSearch': True}, key='web-key-0001').json()['job']
+        row = Generation.objects.get(pk=job['generationId'])
+        self.assertEqual((row.submission_input['format'], row.cost_cents), ('sidekick-web', quote['costCents']))
+        self.assertEqual(BoardAiJob.objects.get().format, 'sidekick-web')
+        self.assertEqual(self.personal('get', 'credits').json()['credits']['usedCents'], quote['costCents'])
+        prices = self.personal('get', 'credits').json()['credits']['prices']
+        self.assertGreater(prices['sidekick-web']['basic'], prices['sidekick']['basic'])
+        # The same message without web search is a different request under the same key.
+        self.assertEqual(self.board_api('post', base + '/turns', {'message': 'Who won?'}, key='web-key-0001').status_code, 409)
+
+    def test_a_web_turn_over_the_remaining_credits_is_refused_though_the_plain_turn_fits(self):
+        from django.db import connection
+        chat = self.new_chat()
+        base = f"sidekick-chats/{chat['id']}"
+        plain = self.board_api('post', base + '/quote', {'message': 'x'}).json()['quote']['costCents']
+        with connection.cursor() as cursor:
+            cursor.execute("INSERT INTO settings VALUES ('boardAiMonthlyCapCents', %s, 0)", [str(plain)])
+        refused = self.board_api('post', base + '/turns', {'message': 'x', 'webSearch': True}, key='web-key-0002')
+        self.assertEqual((refused.status_code, refused.json()['code']), (402, 'AI_CREDITS_EXHAUSTED'))
+        self.assertEqual(Generation.objects.count(), 0)
+        self.assertEqual(self.board_api('post', base + '/turns', {'message': 'x'}, key='web-key-0003').status_code, 201)
+
+    def test_a_web_turn_counts_its_fee_in_the_gemini_spend_window(self):
+        from unittest.mock import patch
+        from apps.generation.services import admission
+        chat = self.new_chat()
+        base = f"sidekick-chats/{chat['id']}"
+        plain = self.board_api('post', base + '/turns', {'message': 'a'}, key='web-key-0004').json()['job']
+        web = self.board_api('post', base + '/turns', {'message': 'a', 'webSearch': True}, key='web-key-0005').json()['job']
+        plain_cost, web_cost = (Generation.objects.get(pk=item['generationId']).cost_cents for item in (plain, web))
+        self.assertGreater(web_cost, plain_cost)
+        Generation.objects.filter(pk=web['generationId']).update(status='cancelled')
+        Generation.objects.create(id=uuid.uuid4(), kind='text', status='succeeded', prompt='x', model=f'Gemini ({MODEL})', aspect_ratio='',
+                                  user_id=self.actor_id, cost_cents=5, created_at=now(), updated_at=now())
+        # The window holds 5 already: room for the plain turn (admission prices a job at cost times the best-of multiplier),
+        # not for the web turn that costs the fee more.
+        with patch.dict('os.environ', {'GEMINI_SPEND_LIMIT_CENTS': str(5 + plain_cost * admission.best_of_multiplier())}):
+            self.assertNotIn('heldForBudget', admission.queue_position(plain['generationId']))
+            Generation.objects.filter(pk=web['generationId']).update(status='queued')
+            self.assertTrue(admission.queue_position(web['generationId'])['heldForBudget'])
+
+    def test_the_fee_is_kept_when_the_answer_reports_a_search_and_refunded_when_it_does_not(self):
+        chat = self.new_chat()
+        base = f"sidekick-chats/{chat['id']}/turns"
+        grounded = self.board_api('post', base, {'message': 'one', 'webSearch': True}, key='web-key-0006').json()['job']
+        quoted = Generation.objects.get(pk=grounded['generationId']).cost_cents
+        with FakeProviders() as fake:
+            self.assertEqual(self.run_worker(grounded['generationId'])['kind'], 'succeeded')
+        self.assertEqual(fake.board_payloads[0]['tools'], [{'google_search': {}}])
+        self.assertEqual(Generation.objects.get(pk=grounded['generationId']).cost_cents, quoted)
+        silent = self.board_api('post', base, {'message': 'two', 'webSearch': True}, key='web-key-0007').json()['job']
+        quoted = Generation.objects.get(pk=silent['generationId']).cost_cents
+        with FakeProviders() as fake:
+            fake.web_search_ran = False
+            self.assertEqual(self.run_worker(silent['generationId'])['kind'], 'succeeded')
+        row = Generation.objects.get(pk=silent['generationId'])
+        self.assertEqual(row.cost_cents, self.token_cents(silent['generationId']))
+        self.assertLess(row.cost_cents, quoted)
+        self.assertEqual(self.personal('get', 'credits').json()['credits']['usedCents'], Generation.objects.get(pk=grounded['generationId']).cost_cents + row.cost_cents)
+
+    def test_a_plain_turn_never_pays_or_sends_the_fee(self):
+        chat = self.new_chat()
+        job = self.board_api('post', f"sidekick-chats/{chat['id']}/turns", {'message': 'one', 'webSearch': False}, key='web-key-0008').json()['job']
+        row = Generation.objects.get(pk=job['generationId'])
+        self.assertEqual((row.submission_input['format'], row.cost_cents), ('sidekick', self.token_cents(job['generationId'])))
+
+    def test_flow_steps_with_web_search_are_quoted_priced_and_run_with_grounding(self):
+        step = {'task': 'Find the release date.', 'inputs': [{'text': 'a film'}]}
+        plain = self.board_api('post', 'flows/steps/quote', step).json()['quote']
+        web = self.board_api('post', 'flows/steps/quote', {**step, 'webSearch': True}).json()['quote']
+        self.assertEqual((web['format'], web['webSearch'], web['costCents'] - plain['costCents']), ('flowstep-web', True, web['groundingCents']))
+        run = self.board_api('post', 'flows/quote', {'steps': [step, {**step, 'webSearch': True}]}).json()['quote']
+        self.assertEqual((run['costCents'], 'groundingCents' in run['steps'][0], run['steps'][1]['groundingCents']),
+                         (plain['costCents'] + web['costCents'], False, web['groundingCents']))
+        self.assertEqual(self.board_api('post', 'flows/steps/quote', {**step, 'webSearch': 1}).status_code, 400)
+        job = self.board_api('post', 'flows/steps', {**step, 'webSearch': True}, key='web-key-0009').json()['job']
+        row = Generation.objects.get(pk=job['generationId'])
+        self.assertEqual((row.submission_input['format'], row.cost_cents), ('flowstep-web', web['costCents']))
+        with FakeProviders() as fake:
+            self.assertEqual(self.run_worker(job['generationId'])['kind'], 'succeeded')
+        self.assertEqual(fake.board_payloads[0]['tools'], [{'google_search': {}}])
+        self.assertEqual(self.board_api('get', f"work/{job['id']}").json()['job']['result'], {'text': 'Mock flow output'})
+
+    def test_a_flow_step_keeps_its_web_search_setting(self):
+        raw = {'id': 'n1', 'type': 'sticky', 'x': 0, 'y': 0, 'w': 10, 'h': 10, 'text': 'a', 'flow': {'block': 'instruction', 'task': 't', 'webSearch': True}}
+        self.assertEqual(node(raw)['flow'], {'block': 'instruction', 'task': 't', 'webSearch': True})
+        self.assertNotIn('webSearch', node({**raw, 'flow': {**raw['flow'], 'webSearch': 'yes'}})['flow'])
 
 
 class SidekickChatTests(AssistantFixture):

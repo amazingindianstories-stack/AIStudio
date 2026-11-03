@@ -20,6 +20,8 @@ from .submission import AdmissionRefused, Refused, admitted, invalid, origin_val
 
 # Each processing level has its own model and its own estimator rate.
 PRICING_KEYS = {'basic': 'Board AI text', 'advanced': 'Board AI text (advanced)'}
+# The Google Search grounding fee of one grounded request (``per_1000_requests``), for the web formats only.
+WEB_SEARCH_KEY = 'Board AI web search'
 
 
 def text_model(processing='basic', env=None):
@@ -34,13 +36,26 @@ def model_name(code):
     return f'Gemini ({code})'
 
 
-def text_cost(value, pricing, processing='basic'):
-    from apps.agents.board import estimated_tokens
+def web_search_fee(pricing):
+    """The exact (unrounded) cents one grounded request adds. A worker reads only stored prices, so a row that was never
+    stored falls back to the default one."""
+    from apps.admin_dashboard.default_pricing import DEFAULT_PRICING
+    row = next((row for row in pricing if row['model'] == WEB_SEARCH_KEY), None) or next(row for row in DEFAULT_PRICING if row['model'] == WEB_SEARCH_KEY)
+    if row['unit'] != 'per_1000_requests' or not enqueue.integer(row['unitCostCents']) or row['unitCostCents'] < 0:
+        raise enqueue.InvalidRequest(f'Board AI pricing is not configured. Ask an administrator to set the "{WEB_SEARCH_KEY}" rate.')
+    return row['unitCostCents'] / 1000
+
+
+def text_cost(value, pricing, processing='basic', *, grounded=None):
+    """Estimator cents of a text job: tokens at the processing rate, plus one grounding fee for a web format.
+    ``grounded=False`` prices a web format as if no search ran (the refund when the answer reports none)."""
+    from apps.agents.board import estimated_tokens, is_web_format
     key = PRICING_KEYS[processing]
     row = next((row for row in pricing if row['model'] == key), None)
     if row is None or row['unit'] != 'per_million_tokens' or not enqueue.integer(row['unitCostCents']) or row['unitCostCents'] < 0:
         raise enqueue.InvalidRequest(f'Board AI pricing is not configured. Ask an administrator to set the "{key}" rate.')
-    return max(1, math.ceil(row['unitCostCents'] * estimated_tokens(value) / 1000000))
+    fee = web_search_fee(pricing) if is_web_format(value['format']) and grounded is not False else 0
+    return max(1, math.ceil(row['unitCostCents'] * estimated_tokens(value) / 1000000 + fee))
 
 
 def text_request(actor, name, turns, processing, prompt=None):
@@ -58,8 +73,13 @@ def text_request(actor, name, turns, processing, prompt=None):
 
 def quote_text(actor, name, turns, processing='basic', prompt=None):
     """Price a text job exactly as ``submit_text`` would queue it; nothing is stored or queued."""
+    from apps.agents.board import is_web_format
     value, cost = text_request(actor, name, turns, processing, prompt)
-    return {'kind': 'text', 'model': model_name(value['model']), 'costCents': cost}
+    result = {'kind': 'text', 'model': model_name(value['model']), 'costCents': cost}
+    if is_web_format(name):
+        # What the grounding fee adds to costCents, so the panel can show it before the person runs the request.
+        result['groundingCents'] = cost - text_cost(value, read_pricing(), processing, grounded=False)
+    return result
 
 
 def submit_text(actor, name, turns, *, processing='basic', project_id=None, origin=None, admit=None, prompt=None):

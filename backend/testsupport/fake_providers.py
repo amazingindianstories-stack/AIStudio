@@ -219,6 +219,7 @@ class FakeProviders:
         self.person_reference = None    # what the face-detection vision call reports for any image; None answers nothing usable
         self.gemini_payloads = []       # (model code, body) for each generateContent call
         self.board_payloads = []        # bodies of board sticky-notes text jobs
+        self.web_search_ran = True      # a board web format's answer reports the Google Search queries it ran (groundingMetadata)
         self.omni_payloads, self.omni_polls = [], {}    # Interactions create bodies; interaction id -> GETs so far
         self.omni_running_polls = 1     # GETs answered in_progress before an interaction completes
         self.asset_capacity = asset_capacity          # None = unlimited; int = BytePlus shared pool size
@@ -289,8 +290,10 @@ class FakeProviders:
                 with self.lock:
                     self.board_payloads.append(data)
                 reply = MOCK_OUTPUTS[board] if board in MOCK_OUTPUTS else board_reply(board, data)
-                return 200, {'candidates': [{'content': {'role': 'model', 'parts': [{'text': json.dumps(reply)}]},
-                                             'finishReason': 'STOP'}], 'usageMetadata': {'promptTokenCount': 300, 'candidatesTokenCount': 90}}
+                candidate = {'content': {'role': 'model', 'parts': [{'text': json.dumps(reply)}]}, 'finishReason': 'STOP'}
+                if data.get('tools') and self.web_search_ran:
+                    candidate['groundingMetadata'] = {'webSearchQueries': ['mock query']}
+                return 200, {'candidates': [candidate], 'usageMetadata': {'promptTokenCount': 300, 'candidatesTokenCount': 90}}
             if 'systemInstruction' in data:     # the admin chat agent (apps/agents)
                 return 200, {'candidates': [{'content': {'role': 'model', 'parts': [{'text': AGENT_REPLY}]}, 'finishReason': 'STOP'}],
                              'usageMetadata': {'promptTokenCount': 40, 'candidatesTokenCount': 12}}
