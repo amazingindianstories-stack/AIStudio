@@ -7,6 +7,14 @@ import {
 import { apiErrorMessage } from "@/lib/api-error";
 
 const STALE = Symbol("stale");
+
+/** One page of the run's event feed; rejects with the API's message (and `status`) when it is refused. */
+async function fetchEvents(conversationId, runId, after) {
+  const response = await fetch(`/api/agent-conversations/${conversationId}/runs/${runId}/events?after=${after}`, { cache: "no-store" });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw Object.assign(new Error(apiErrorMessage(data, response.status)), { status: response.status });
+  return data;
+}
 /** Consecutive failed polls before the panel says it lost touch with the run (it keeps retrying with backoff). */
 const QUIET_FAILURES = 3;
 
@@ -70,17 +78,15 @@ export function useAgentRun(conversationId, { onSettled } = {}) {
     let refused = null;
     try {
       await drainFeed(start, async (after) => {
-        const response = await fetch(`/api/agent-conversations/${conversation}/runs/${runId}/events?after=${after}`, { cache: "no-store" });
-        const data = await response.json().catch(() => ({}));
+        const data = await fetchEvents(conversation, runId, after);
         if (token !== tokenRef.current) throw STALE;
-        if (!response.ok) throw Object.assign(new Error(apiErrorMessage(data, response.status)), { status: response.status });
         commit((current) => (current?.run?.id === runId ? applyPage(current, data) : current));
         return data;
       });
       failuresRef.current = 0;
       setPollError(null);
     } catch (error) {
-      if (error === STALE) return;
+      if (error === STALE || token !== tokenRef.current) return;
       failuresRef.current += 1;
       // The run is gone or the Agents tab was switched off: polling again cannot help.
       if (error?.status === 403 || error?.status === 404) refused = error.message;
@@ -135,9 +141,12 @@ export function useAgentRun(conversationId, { onSettled } = {}) {
         return;
       }
       forgetRunState(latest.id);
-      // The thread already holds what a finished run wrote; a failed or stopped one still says how it ended.
+      // The thread already holds what a finished run wrote; a failed or stopped one still shows its steps and how it
+      // ended, read from its feed (the run JSON alone does not say which jobs a stop cancelled).
       if (latest.status !== "completed") {
-        commit({ ...runState(latest), more: false });
+        const ended = await drainFeed(runState(latest), (after) => fetchEvents(conversationId, latest.id, after)).catch(() => runState(latest));
+        if (token !== tokenRef.current || stateRef.current) return;
+        commit({ ...ended, more: false });
         setSyncedRunId(latest.id);
       }
     })();

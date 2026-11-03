@@ -258,6 +258,15 @@ test("failed and cancelled runs explain themselves", () => {
   const jobs = [{ generationId: "g-1", status: "cancelled", message: "Cancelled." }, { generationId: "g-2", status: "cancelled", message: "Cancelled." }];
   const cancelled = runView(applyPage(runState(run()), page([event(1, "cancelled", { cancelJobs: true, jobs })], { run: run({ status: "cancelled" }) })));
   assert.equal(outcomeText(cancelled.outcome), "Stopped and cancelled 2 jobs.");
+
+  // The jobs a stop cancelled stop showing as running: a deferred provider cancel (still 'running') counts as cancelled.
+  const queued = [1, 2, 3].map((index) => event(index, "job_queued", { generationId: `g-${index}`, kind: "image", tool: "generate_image", stepIndex: index }));
+  const stopped = runView(applyPage(runState(run()), page([...queued, event(4, "cancelled", { cancelJobs: true, jobs: [
+    { generationId: "g-1", status: "cancelled", message: null },
+    { generationId: "g-2", status: "running", message: "Cancellation is being reconciled with the provider." },
+    { generationId: "g-9", status: "cancelled", message: null },
+  ] })], { run: run({ status: "cancelled" }) })));
+  assert.deepEqual(stopped.jobs.map((job) => [job.generationId, job.status]), [["g-1", "cancelled"], ["g-2", "cancelled"], ["g-3", "queued"]]);
   assert.equal(outcomeText({ status: "cancelled", cancelJobs: true, jobs: [] }), "Stopped. No jobs were still running.");
 
   const unread = runView(runState(run({ status: "failed", error: { code: "grant_invalid", message: "Access was revoked." } })));

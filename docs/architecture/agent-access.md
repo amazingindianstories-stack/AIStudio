@@ -169,6 +169,45 @@ another user's conversation or run is 404. The gateway
 opens starting a run and approving a quote only with its paid routes on (`paid_initial_routes`); the events feed,
 decline and cancel are always open.
 
+### Agents tab UI
+
+`src/components/StudioChat.jsx` sends every message to `POST .../runs` with `content`, the staged document upload ids
+(`attachments`) and the reference images (`images`; data-URL references are uploaded first and written back to the
+draft). Voice notes are transcribed into the composer before sending, so they take the same path. A 201 shows the
+saved message and follows the new run; a 202 shows the inbox row as a dashed "Queued" bubble until `message_delivered`
+arrives, or a `pendingMessages` snapshot read after its `message_queued` no longer lists it. A refused send keeps the
+draft and staged files and shows the API's message (`AGENTS_DISABLED`, `AGENT_GRANT_INVALID` and the rest).
+
+- **Feed.** `src/lib/agent-run.js` is pure: `applyPage` keeps events by `seq` (duplicate, out-of-order and repeated
+  pages change nothing; the cursor only advances over gapless seqs), `drainFeed` follows `more`, and `runView` builds
+  the timeline (model text, tool steps keyed by `stepIndex` with their status, outcome code and summary, the jobs each
+  step queued, delivered messages), the pending quote, the pause, the stop request and the outcome. A stop that
+  cancelled jobs marks them cancelled. `src/components/useAgentRun.js` polls `events?after=<cursor>` every 1.5 s while
+  the run works and every 5 s while it waits for approval or a limit, doubling per failure up to 30 s; after three
+  failures in a row it says it lost touch, and a 403 or 404 stops it. Once the run is terminal and `more` is false it
+  re-reads the conversation, so the saved thread becomes authoritative.
+- **Thread.** `src/components/AgentRunPanel.jsx` renders each run after the message that started it (`run_queued`
+  `messageId`). While the run is live, saved messages after that point are hidden because the feed shows them; once
+  the thread is re-read the panel keeps only tool steps, jobs (a finished job shows its `MediaCard` when the item is
+  loaded, a running one `GenerationStatus`), non-final text and how a failed or stopped run ended.
+- **Reconnect.** Opening a conversation reads `GET .../runs`. An active latest run resumes from the state saved in
+  `sessionStorage` (`veevee.agentRun.<run id>`: the gapless events, cursor and queued rows, written after every poll
+  in try/catch), so a reload polls from the last seq with nothing duplicated; a missing or damaged save reads from 0.
+  A latest run that failed or was cancelled is read once from its feed to show its steps and ending.
+- **Quote card.** Shows the tool, the cost (`display`, else dollars from `costCents`), the summary, the prompt and the
+  scalar arguments, with Approve and Decline. Approving is always a click; at 100 cents or more it first asks for
+  "Confirm $X" and only then sends `{stepIndex}` (the API needs no confirm field; the worker adds `confirmedByUser`).
+  `409 NO_PENDING_QUOTE` shows "This quote is no longer waiting for approval."
+- **Pause, failure and stop.** The pause card gives the `pause_reason` in plain words and when the run tries again
+  ("in N minutes" within the hour, else the local time). A failed run shows its error message; a cancelled one says
+  whether its jobs keep running or how many the stop cancelled. While a run is active the status line offers "Stop"
+  (`cancelJobs: false`) and "Stop and cancel jobs" (`true`), then shows "Stopping…" after `cancel_requested` until
+  the run ends; `409 RUN_FINISHED` is not shown as an error.
+- **Tests.** `src/lib/agent-run.test.js` covers the reducer and helpers. `tests/browser/agents-runs.spec.mjs` drives
+  the tab against Django with no agent worker: the composer starts a real run and the spec writes the worker's events
+  and run status through `fixture-db.mjs` (feed rendering, delivered message, reload from the last seq, quote approve
+  with the second confirmation and decline including a 409, the pause card, Stop and cancel jobs, and a failed run).
+
 The worker is its own Railway component, `python -m deploy.entrypoint agent`, which runs
 `agent_worker --interval 1 --concurrency N` (`VEEVEE_AGENT_WORKER_SLOTS`, 1 to 8, default 4). It uses the API's
 database role and API-style configuration (`deploy/legacy_config.py` `_agent`) with `GOOGLE_API_KEY` as its only

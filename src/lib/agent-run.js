@@ -206,6 +206,11 @@ export function runView(state) {
         break;
       case "cancelled":
         outcome = { status: "cancelled", cancelJobs: Boolean(payload.cancelJobs), jobs: payload.jobs || [], seq };
+        // A job the stop cancelled (or is still cancelling with the provider) no longer runs for this thread.
+        for (const entry of payload.jobs || []) {
+          const job = jobs[entry?.generationId];
+          if (job) job.status = ["succeeded", "failed"].includes(entry.status) ? entry.status : "cancelled";
+        }
         break;
       default:
         break;

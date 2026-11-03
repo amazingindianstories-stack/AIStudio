@@ -138,7 +138,7 @@ function StatusLine({ view, onStop }) {
   };
   return (
     <div className="flex flex-wrap items-center gap-2 text-xs text-white/50">
-      <span role="status" className="flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" /> {label}</span>
+      <span role="status" data-testid="agent-run-status" className="flex items-center gap-1.5"><Loader2 className="h-3.5 w-3.5 animate-spin" /> {label}</span>
       {!view.stopping && (
         <>
           <button type="button" disabled={stopping} onClick={() => stop(false)} className="rounded-full border border-line px-2.5 py-0.5 text-white/70 transition hover:text-white disabled:opacity-50">
