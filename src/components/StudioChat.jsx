@@ -194,7 +194,8 @@ export function StudioChat({ conversationId }) {
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.error) {
         const kept = afterFailedSend({ status: res.status, data, optimisticId: optimistic.id, sentDocuments });
-        if (kept) { setMessages(kept.messages); setDocuments(kept.documents); }
+        setMessages(kept.messages);
+        setDocuments(kept.documents);
         throw new Error(apiErrorMessage(data, res.status));
       }
       const assistantMessage = data.assistantMessage;

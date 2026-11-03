@@ -16,9 +16,12 @@ for (const status of [502, 504]) {
   });
 }
 
-test("a failure that saved nothing leaves the optimistic message and staged documents for a retry", () => {
+test("a failure that saved nothing drops the optimistic message and keeps the staged documents for a retry", () => {
   for (const [status, data] of [[504, { error: "Veevee could not read the attachments in time." }], [502, { error: "UPSTREAM_TIMEOUT" }],
     [400, { userMessage: saved, error: "bad" }], [502, {}], [504, { userMessage: null }]]) {
-    assert.equal(afterFailedSend({ status, data, optimisticId: optimistic.id, sentDocuments: [brief] }), null, `${status} ${JSON.stringify(data)}`);
+    const label = `${status} ${JSON.stringify(data)}`;
+    const kept = afterFailedSend({ status, data, optimisticId: optimistic.id, sentDocuments: [brief] });
+    assert.deepEqual(kept.messages([earlier, optimistic]), [earlier], label);
+    assert.deepEqual(kept.documents([brief, notes]), [brief, notes], label);
   }
 });
