@@ -29,7 +29,7 @@ def get_conversation(identifier):
 def create_conversation(project_id, kind, name, created_by):
     now = now_ms()
     row = AgentConversation.objects.create(project_id=project_id, agent_kind=kind, name=name,
-        created_by=created_by, created_at=now, updated_at=now)
+        created_by=created_by, user_id=created_by, created_at=now, updated_at=now)
     return conversation_json(row)
 
 

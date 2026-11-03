@@ -77,6 +77,7 @@ class ToolCall:
     maintenance: bool = False
     started: float = field(default_factory=time.monotonic)
     record: dict = field(default_factory=dict)       # generationId, costCents, quoteId for logs and audit
+    tags: dict = field(default_factory=dict)         # the Agents tab's runId and stepIndex, added to the log and audit
 
     def elapsed(self):
         return time.monotonic() - self.started
@@ -92,6 +93,13 @@ class ToolResult:
 
 REGISTRY = {}
 _validators = {}
+# What the in-app Agents tab (an agent grant, kind 'agent') may call, whatever its scopes. Every admin_* tool and the
+# admin-only move_to_folder stay MCP-only; board tools come later; references reach the agent as chat attachments.
+AGENT_TOOLS = frozenset({
+    'list_models', 'estimate_cost', 'get_generation', 'search_generations', 'list_folders', 'get_account', 'get_download_links',
+    'generate_image', 'generate_video', 'upscale_media', 'finalize_draft', 'cancel_generation',
+    'create_folder', 'rename_folder', 'move_folder', 'set_favorite', 'export_zip',
+})
 
 
 def register(**fields):
@@ -104,8 +112,13 @@ def register(**fields):
     return decorate
 
 
+def exposed(principal, name):
+    """Whether the caller's kind may call this tool at all: an Agents tab grant only reaches ``AGENT_TOOLS``."""
+    return principal is None or principal.kind != 'agent' or name in AGENT_TOOLS
+
+
 def visible(principal):
-    return [spec for spec in REGISTRY.values() if spec.visible_to(principal)]
+    return [spec for spec in REGISTRY.values() if spec.visible_to(principal) and exposed(principal, spec.name)]
 
 
 def obj(properties, required=(), *, additional=False):

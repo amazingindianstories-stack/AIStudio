@@ -125,7 +125,7 @@ def counted_cents(model, status, cost_basis, cost_cents, duration=None, resoluti
 def spent_cents(user_id, *, token_id=None, now=None):
     from apps.generation.models import Generation
     now = now_ms() if now is None else now
-    rows = Generation.objects.filter(created_via='mcp', created_at__gt=now - policy.DAY_MS).exclude(cost_basis=FREE_COST_BASIS)
+    rows = Generation.objects.filter(created_via__in=policy.AGENT_ORIGINS, created_at__gt=now - policy.DAY_MS).exclude(cost_basis=FREE_COST_BASIS)
     rows = rows.filter(mcp_token_id=token_id) if token_id is not None else rows.filter(user_id=user_id)
     total = rows.aggregate(total=Sum('cost_cents'))['total'] or 0
     booked = rows.filter(model=SEEDANCE_25, status__in=ACTIVE_STATUSES, cost_basis='estimated').values_list(
@@ -136,7 +136,7 @@ def spent_cents(user_id, *, token_id=None, now=None):
 
 def active_jobs(user_id):
     from apps.generation.models import Generation
-    return Generation.objects.filter(user_id=user_id, created_via='mcp', status__in=ACTIVE_STATUSES).count()
+    return Generation.objects.filter(user_id=user_id, created_via__in=policy.AGENT_ORIGINS, status__in=ACTIVE_STATUSES).count()
 
 
 def price_decision(principal, cost_cents):

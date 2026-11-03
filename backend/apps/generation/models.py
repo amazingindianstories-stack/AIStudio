@@ -87,11 +87,14 @@ class Generation(models.Model):
     flag_reason = models.TextField(null=True)
     judge_score = models.JSONField(null=True)
     location_version = models.IntegerField(default=1, db_default=1)
-    # Agent provenance (apps.mcp_auth): 'mcp' for agent submissions, null for the web. mcp_token_id is the
-    # token grant (family) id and mcp_client_id the OAuth client row id; both are null for web rows.
+    # Agent provenance (apps.mcp_auth): 'mcp' for MCP submissions, 'agent' for the in-app Agents tab, 'board' for
+    # board AI jobs, null for the web; 'mcp' and 'agent' share the agent budget (policy.AGENT_ORIGINS). mcp_token_id
+    # is the grant id (an MCP token family or an Agents tab grant) and mcp_client_id the OAuth client row id; both
+    # are null for web rows. agent_run_id links an Agents tab job to the run that submitted it.
     created_via = models.TextField(null=True)
     mcp_token_id = models.UUIDField(null=True)
     mcp_client_id = models.UUIDField(null=True)
+    agent_run_id = models.UUIDField(null=True)
     created_at = models.BigIntegerField()
     updated_at = models.BigIntegerField()
 
@@ -116,6 +119,7 @@ class Generation(models.Model):
             PostgreSQLIndex(name='generations_mcp_token_created_idx', fields=['mcp_token_id', 'created_at'],
                 condition=models.Q(mcp_token_id__isnull=False)),
             HashIndex(name='generations_url_hash_idx', fields=['url']),
+            PostgreSQLIndex(name='generations_agent_run_idx', fields=['agent_run_id'], condition=models.Q(agent_run_id__isnull=False)),
         ]
 
 

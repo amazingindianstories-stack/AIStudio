@@ -4,6 +4,9 @@
 Every call is re-checked here: the caller's scopes (and admin role), the maintenance header and the admin switch
 for write tools, the per-token call rate, and the input schema. Each call writes one JSON log line to
 ``veevee.mcp``; every non-read call is also audited as ``mcp_tool_call``. Neither ever carries prompts or tokens.
+
+``dispatch`` is that sequence without the protocol: HTTP tools/call and the in-app Agents tab (an agent grant,
+``apps.agents.grants``) both run it, so both callers are admitted, validated, logged and audited identically.
 """
 import json
 import logging
@@ -16,10 +19,11 @@ from mcp.shared.exceptions import MCPError
 from apps.common.responses import log_activity
 from apps.mcp_auth import controls
 from . import errors, prompts, resources, runtime, tools
-from .registry import REGISTRY, ToolCall, visible
+from .registry import REGISTRY, ToolCall, exposed, visible
 
 logger = logging.getLogger('veevee.mcp')
 INVALID_PARAMS = -32602
+TAGS = ('runId', 'stepIndex')                     # what an Agents tab run adds to a call's log line and audit row
 VERSION = '1'
 INSTRUCTIONS = (
     'Veevee makes images and videos for a studio. Start with list_models. Generate tools wait up to 45 s by default and '
@@ -70,45 +74,77 @@ async def list_tools(ctx, params):
     return types.ListToolsResult(tools=[spec.definition() for spec in specs])
 
 
-async def admit(spec, call, found):
-    if found.disabled:
+async def admit(spec, call):
+    principal = call.principal
+    if principal is None:
         raise errors.ToolError(errors.MCP_DISABLED, 'Agent access is switched off for this account. Ask a Veevee admin.')
-    principal = found.principal
     if not principal.has_scope(spec.scope):
         raise errors.scope_missing(spec.scope)
     if not spec.visible_to(principal):
         raise errors.ToolError(errors.FORBIDDEN, 'Only Veevee admins can use this tool.')
     if not spec.read_only:
-        if found.maintenance:
+        if call.maintenance:
             raise errors.ToolError(errors.MAINTENANCE, errors.MAINTENANCE_MESSAGE)
         if not await runtime.db(runtime.admin_switch_on):
             raise errors.ToolError(errors.MCP_DISABLED, errors.SWITCHED_OFF_MESSAGE)
     await runtime.db(controls.check_rate, principal, 'calls')
 
 
-async def call_tool(ctx, params):
-    found = caller(ctx)
-    spec = REGISTRY.get(params.name)
-    if spec is None:
-        raise MCPError(INVALID_PARAMS, f'Unknown tool: {params.name}. Call tools/list for the tools you can use.')
-    call = ToolCall(principal=found.principal, arguments=dict(params.arguments or {}), request_id=found.request_id,
-                    protocol_version=ctx.protocol_version, maintenance=found.maintenance)
+class UnknownTool(LookupError):
+    """A name the caller cannot call: not registered, or outside what its kind of grant may reach."""
+
+
+@dataclass
+class Dispatched:
+    """One finished call: its outcome, and either the tool's result or the error the caller sees."""
+    call: ToolCall
+    outcome: str
+    result: object = None                         # ToolResult when the handler returned
+    error: object = None                          # errors.ToolError otherwise
+
+    @property
+    def response(self):
+        """The MCP ``CallToolResult`` an HTTP client receives."""
+        return tool_result(self.result) if self.error is None else error_result(self.error)
+
+
+async def dispatch(principal, name, arguments, *, request_id, protocol_version, maintenance=False, tags=None):
+    """Run one tool call as ``principal`` (None when the account's agent access is off) in the one fixed order:
+    admit, validate, handle, finish. Raises ``UnknownTool``; every other failure is the returned ``Dispatched.error``."""
+    spec = REGISTRY.get(name)
+    if spec is None or not exposed(principal, name):
+        raise UnknownTool(name)
+    tags = dict(tags or {})
+    if set(tags) - set(TAGS):
+        raise ValueError(f'Unknown tool call tags: {sorted(set(tags) - set(TAGS))}')
+    call = ToolCall(principal=principal, arguments=dict(arguments or {}), request_id=request_id,
+                    protocol_version=protocol_version, maintenance=maintenance, tags=tags)
     try:
-        await admit(spec, call, found)
+        await admit(spec, call)
         call.arguments = spec.validate(call.arguments)
         result = await spec.handler(call)
-        outcome, response = result.outcome, tool_result(result)
+        done = Dispatched(call, result.outcome, result=result)
     except errors.ToolError as error:
-        outcome, response = error.code, error_result(error)
+        done = Dispatched(call, error.code, error=error)
     except controls.ControlRefusal as refusal:
-        outcome, response = refusal.code, error_result(errors.from_refusal(refusal))
+        done = Dispatched(call, refusal.code, error=errors.from_refusal(refusal))
     except Exception:
         logger.exception(json.dumps({'event': 'mcp_tool_error', 'request_id': call.request_id, 'tool': spec.name}))
         failure = errors.ToolError(errors.INTERNAL_ERROR, 'Something went wrong in Veevee. Try again in a minute; '
                                    'if this call created work, find it with search_generations before retrying.')
-        outcome, response = failure.code, error_result(failure)
-    await finish(spec, call, outcome)
-    return response
+        done = Dispatched(call, failure.code, error=failure)
+    await finish(spec, call, done.outcome)
+    return done
+
+
+async def call_tool(ctx, params):
+    found = caller(ctx)
+    try:
+        done = await dispatch(found.principal, params.name, params.arguments, request_id=found.request_id,
+                              protocol_version=ctx.protocol_version, maintenance=found.maintenance)
+    except UnknownTool:
+        raise MCPError(INVALID_PARAMS, f'Unknown tool: {params.name}. Call tools/list for the tools you can use.')
+    return done.response
 
 
 async def finish(spec, call, outcome):
@@ -120,12 +156,14 @@ async def finish(spec, call, outcome):
         'client_id': str(principal.client_id) if principal and principal.client_id else None,
         'user_id': str(principal.user.id) if principal else None, 'protocol_version': call.protocol_version,
         'tool': spec.name, 'duration_ms': round(call.elapsed() * 1000, 1), 'outcome': outcome,
-        'generation_id': record.get('generationId'), 'cost_cents': record.get('costCents')}))
+        'generation_id': record.get('generationId'), 'cost_cents': record.get('costCents'),
+        **({'tags': call.tags} if call.tags else {})}))
     if not spec.read_only and principal is not None:
         detail = {'tool': spec.name, 'tokenId': str(principal.token_id),
                   'clientId': str(principal.client_id) if principal.client_id else None, 'outcome': outcome,
                   **{key: record[key] for key in ('generationId', 'costCents', 'quoteId', 'exportId', 'referenceId', 'folderId', 'movedCount',
-                                                     'targetUserId', 'revoked') if record.get(key) is not None}}
+                                                     'targetUserId', 'revoked') if record.get(key) is not None},
+                  **call.tags}
         await runtime.db(log_activity, principal.user.id, 'mcp_tool_call', detail)
 
 
