@@ -14,7 +14,7 @@ whatever happened. Plain text, markdown and docx become text parts. Every text f
 delimiter block, cut to a character budget. Size and duration caps are admin limit keys read at call time.
 
 ``describe`` is the view_media/read_document sub-call (``apps.mcp.tools.media``): one media call about one file, its
-answer ``untrusted`` too.
+answer ``untrusted`` too. ``transcribe`` is the composer's voice note: inline audio in, text out, nothing stored.
 """
 import base64
 import io
@@ -36,7 +36,7 @@ from apps.integrations.transport import ProviderError
 from apps.media.storage import MediaNotFoundError, get_storage
 from apps.mcp import errors
 from .loop_llm import (FILE_URI, FILES_DISPLAY_NAME, FILES_UPLOAD, LOOP_MODEL, MEDIA_MIME, AgentLoopTransport, GeminiFilesTransport,
-                       media_body)
+                       media_body, transcribe_body)
 from .models import AgentChatAsset
 
 logger = logging.getLogger(__name__)
@@ -48,6 +48,8 @@ DEFAULTS = {'agentAttachmentMaxBytes': 50 * MB, 'agentAttachmentMaxSeconds': 600
             'agentVoiceMaxBytes': 4 * MB}
 INLINE_BYTES = 4 * MB                   # one file inline at most; larger files go through the Files API
 INLINE_TOTAL = 9 * MB                   # all inline files of one call: 12 MB as base64, under MAX_BODY_BYTES with the turns
+VOICE_BYTE_RATE = 48 * 1024            # bytes a second of voice audio at most: Opus or AAC at 384 kbps, far above MediaRecorder's
+VOICE_SLACK = 64 * 1024                # container headers, so a short note's claimed duration is not refused
 TEXT_CHARS = 50_000                     # characters of one file's text the agent sees
 ANSWER_CHARS = 20_000                   # characters of one media sub-call's answer the agent sees
 FILE_POLLS, FILE_POLL_SECONDS = 30, 2   # a Files API upload must be ACTIVE within about a minute
@@ -327,6 +329,22 @@ def describe(asset, question=None, *, api_key, usage, transport=None, files_tran
             logger.warning('agent_media_call_failed status=%s', response.status)
         raise errors.ToolError(errors.INTERNAL_ERROR, f'Veevee could not read file {asset.id} for the agent. Try again in a minute.')
     return untrusted(text, ANSWER_CHARS)
+
+
+def transcribe(mime, data, *, api_key, usage, transport=None):
+    """A voice note's words: ``TRANSCRIBE_PROMPT`` and the inline audio on ``LOOP_MODEL`` under ``usage`` (purpose
+    'transcribe'); '' when Gemini hears no speech. Neither the audio nor the transcript is stored or logged."""
+    transport = transport or AgentLoopTransport(LOOP_MODEL, usage)
+    try:
+        response = transport.request('POST', transport.endpoint, headers={'Content-Type': 'application/json', 'x-goog-api-key': api_key},
+                                     body=transcribe_body(mime, base64.b64encode(data).decode()))
+    except ProviderError as error:
+        logger.warning('agent_transcribe_failed code=%s', error.code)
+        return None
+    if not response.ok:
+        logger.warning('agent_transcribe_failed status=%s', response.status)
+        return None
+    return answer_text(response) or ''
 
 
 def record_attachment(conversation_id, asset, *, run_id=None, now=None):

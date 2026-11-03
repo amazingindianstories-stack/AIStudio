@@ -1,12 +1,17 @@
 import logging
+import math
+import os
+import uuid
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
 from apps.authentication.session import lookup
 from apps.common.responses import renew_session
 from apps.generation.watermark import WHITESPACE
 from apps.library.views import body_or_empty
-from . import services
+from . import media, services
 from .images import parse_message_body, images_to_parts
+from .loop_llm import VOICE_MIME, UsageContext
+from .models import AgentConversation
 from .orchestrator import run_turn
 
 logger = logging.getLogger(__name__)
@@ -125,3 +130,55 @@ def attach(request, id, message_id):
     if not message:
         return Response({'error': 'Message not found.'}, status=404)
     return renew_session(request, Response({'message': message}))
+
+
+def owned(id, user_id):
+    try:
+        return AgentConversation.objects.filter(pk=uuid.UUID(id), user_id=user_id).exists()
+    except ValueError:
+        return False
+
+
+@api_view(['GET', 'POST'])
+@authentication_classes([])
+@permission_classes([])
+def transcribe(request, id):
+    """GET: the voice note caps. POST: the raw recording (its own Content-Type, ``durationMs`` in the query) as
+    ``{transcript}``; raw bytes keep a 4 MB note under Vercel's 4.5 MB request body, which base64 would not. The audio
+    goes to Gemini only: no upload session, no storage write, and neither it nor the transcript is logged."""
+    user = admin(request)
+    if user is None:
+        return forbidden()
+    if not owned(id, user.id):
+        return Response({'error': 'Conversation not found.'}, status=404)
+    max_seconds, max_bytes = media.limit(user.id, 'agentVoiceMaxSeconds'), media.limit(user.id, 'agentVoiceMaxBytes')
+    if request.method == 'GET':
+        return renew_session(request, Response({'maxSeconds': max_seconds, 'maxBytes': max_bytes}))
+    mime = media.normalize(request.headers.get('Content-Type'))
+    if mime not in VOICE_MIME:
+        return Response({'error': 'Send the voice note as WebM, MP4, Ogg, MP3 or WAV audio.'}, status=415)
+    try:
+        seconds = float(first(request, 'durationMs')) / 1000
+    except (TypeError, ValueError):
+        seconds = math.nan
+    if not 0 < seconds <= max_seconds:
+        return Response({'error': f'A voice note can be up to {max_seconds} seconds long.'}, status=413 if seconds > max_seconds else 400)
+    try:
+        declared = int(request.META.get('CONTENT_LENGTH') or 0)
+    except ValueError:
+        return Response({'error': 'Invalid Content-Length.'}, status=400)
+    audio = request.read(max_bytes + 1) if declared <= max_bytes else b''
+    if declared > max_bytes or len(audio) > max_bytes:
+        return Response({'error': f'A voice note can be up to {max_bytes / media.MB:g} MB.'}, status=413)
+    if not audio:
+        return Response({'error': 'The voice note is empty.'}, status=400)
+    if len(audio) > media.VOICE_SLACK + seconds * media.VOICE_BYTE_RATE:
+        return Response({'error': 'The voice note is longer than its reported duration.'}, status=400)
+    key = os.environ.get('GOOGLE_API_KEY')
+    if not key:
+        return Response({'error': 'Voice input is not configured: GOOGLE_API_KEY is not set. Ask a Veevee admin.'}, status=503)
+    usage = UsageContext(user_id=user.id, conversation_id=uuid.UUID(id), purpose='transcribe')
+    transcript = media.transcribe(mime, audio, api_key=key, usage=usage)
+    if transcript is None:
+        return renew_session(request, Response({'error': 'Veevee could not transcribe the voice note. Try again.'}, status=502))
+    return renew_session(request, Response({'transcript': transcript}))
