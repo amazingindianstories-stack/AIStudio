@@ -17,8 +17,7 @@ from django.db import connection
 from django.test import SimpleTestCase, TransactionTestCase, override_settings
 
 from apps.agents.llm import AgentTransport, GeminiAgentClient, agent_payload_allowed
-from apps.agents.orchestrator import run_turn, tools_for_kind
-from apps.agents.prompts import DESIGN_PROMPT, system_prompt
+from apps.agents.prompts import DESIGN_PROMPT, system_prompt, tools_for_kind
 from apps.generation.models import Generation
 from apps.integrations.transport import HttpResult, HttpTransport, ProviderError
 from apps.generation.services import audio_submission
@@ -340,8 +339,13 @@ class AgentTransportTests(TransactionTestCase):
         with guard(ledger, sent, replies):
             client = GeminiAgentClient(env={'GOOGLE_API_KEY': 'fixture-key'})
             self.assertIsInstance(client.transport, AgentTransport)
-            result = run_turn([{'role': 'assistant', 'content': 'Hi'}], 'A courtyard', [], 'video', client)
-        self.assertEqual(result['reply'], 'Here is your prompt.')
+            turn = [{'role': 'model', 'parts': [{'text': 'Hi'}]}, {'role': 'user', 'parts': [{'text': 'A courtyard'}]}]
+            chat = lambda contents: client.raw(system_prompt=system_prompt('video'), contents=contents, tools=tools_for_kind('video'))  # noqa: E731
+            self.assertEqual(chat(turn)['parts'], [call])
+            client.raw(system_prompt=DESIGN_PROMPT, contents=[{'role': 'user', 'parts': [{'text': 'courtyard at dawn'}]}])
+            response = {'functionResponse': {'name': 'design_prompt', 'response': {'prompt': 'A misty stone courtyard at dawn.'}}}
+            result = chat([*turn, {'role': 'model', 'parts': [call]}, {'role': 'user', 'parts': [response]}])
+        self.assertEqual(result['parts'], [{'text': 'Here is your prompt.'}])
         self.assertEqual([url for _, url, _ in sent], [AGENT_ENDPOINT] * 3)
         self.assertEqual(sent[1][2]['systemInstruction'], {'parts': [{'text': DESIGN_PROMPT}]})
         self.assertNotIn('tools', sent[1][2])

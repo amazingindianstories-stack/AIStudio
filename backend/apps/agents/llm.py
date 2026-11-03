@@ -30,8 +30,7 @@ def agent_endpoint(model):
 def agent_payload_allowed(body):
     """Only an agent chat turn: one of the agent's own system prompts with exactly its tool set, chat contents,
     no generation config."""
-    from .orchestrator import tools_for_kind
-    from .prompts import DESIGN_PROMPT, system_prompt
+    from .prompts import DESIGN_PROMPT, system_prompt, tools_for_kind
     if not isinstance(body, dict) or not {'systemInstruction', 'contents'} <= set(body) <= {'systemInstruction', 'contents', 'tools'}:
         return False
     # The chat turn of each tab carries that tab's tools; the prompt-design subcall carries none.

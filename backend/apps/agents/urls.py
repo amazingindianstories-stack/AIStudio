@@ -4,7 +4,6 @@ from . import views
 urlpatterns = [
     path('api/agent-conversations', views.conversations),
     path('api/agent-conversations/<str:id>', views.detail),
-    path('api/agent-conversations/<str:id>/messages', views.messages),
     path('api/agent-conversations/<str:id>/transcribe', views.transcribe),
     path('api/agent-conversations/<str:id>/messages/<str:message_id>', views.attach),
     path('api/agent-conversations/<str:id>/runs', views.agent_runs),

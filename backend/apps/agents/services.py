@@ -56,15 +56,6 @@ def list_messages(identifier):
     return [message_json(row) for row in AgentConversationMessage.objects.filter(conversation_id=identifier).order_by('created_at')]
 
 
-def list_turns(identifier):
-    """The chat so far for its next turn, oldest first: each message's role and content, and the documents ``{id, text}``
-    a user message was sent with, which only the server sees."""
-    rows = AgentConversationMessage.objects.filter(conversation_id=identifier).order_by('created_at')
-    return [{'role': 'assistant' if row.role == 'assistant' else 'user', 'content': row.content,
-             'documents': row.tool_trace.get('documents', []) if row.role == 'user' and isinstance(row.tool_trace, dict) else []}
-            for row in rows]
-
-
 @transaction.atomic
 def append_message(identifier, role, content, tool_trace=None):
     conversation = AgentConversation.objects.select_for_update().filter(pk=identifier).first()

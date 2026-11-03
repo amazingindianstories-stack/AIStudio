@@ -1,10 +1,7 @@
-import logging
 import math
 import os
 import uuid
-from concurrent.futures import ThreadPoolExecutor
 from django.conf import settings
-from django.db import connections
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
 from apps.authentication.session import lookup
@@ -18,22 +15,11 @@ from apps.media.models import UploadSession
 from . import limits, media, runner, runs, services
 from .events import PAGE_SIZE
 from .grants import AgentGrantInvalid
-from .images import parse_message_body, images_to_parts
+from .images import parse_message_body
 from .loop_llm import LOOP_MODELS, VOICE_MIME, UsageContext
-from .orchestrator import run_turn
-
-logger = logging.getLogger(__name__)
 
 MAX_ATTACHMENTS = 10                    # the composer's MAX_DOCUMENTS (src/lib/agent-attachments.js)
 ATTACHMENT_ID_CHARS = 64
-MAX_PDFS = 3                            # PDFs of one message, all described at once
-REQUEST_SECONDS = 100                   # one message's PDF describes and chat turn, well inside the gateway's 120 s wait
-DOCUMENT_SECONDS = 60                   # of which the PDF describes take at most this
-TURN_RESERVE_SECONDS = 40               # and the chat turn starts with at least this left, or nothing is stored
-HISTORY_DOCUMENT_CHARS = 100_000        # documents' text a rebuilt history carries, newest first
-DOCUMENT_DEADLINE = 'DOCUMENT_DEADLINE'
-ATTACHMENTS_LATE = 'Veevee could not read the attachments in time. Nothing was sent; try fewer or shorter PDFs.'
-TURN_LATE = 'The agent did not answer in time. Your message is saved; try again in a moment.'
 
 
 def forbidden():
@@ -41,7 +27,7 @@ def forbidden():
 
 
 def agents_disabled():
-    return Response({'error': 'Agents are turned off for your account.', 'code': 'AGENTS_DISABLED'}, status=403)
+    return Response({'error': 'Agents are turned off.', 'code': 'AGENTS_DISABLED'}, status=403)
 
 
 def agent_user(request):
@@ -148,106 +134,7 @@ def attached_document(user_id, asset_id):
     return asset
 
 
-def described(asset, **kwargs):
-    """``media.describe`` on a worker thread, which closes the database connection its usage row opened."""
-    try:
-        return media.describe(asset, **kwargs)
-    finally:
-        connections.close_all()
-
-
-def document_parts(user_id, conversation_id, asset_ids, deadline):
-    """``(assets, documents)`` for one message's attached documents: ``{id, text}`` each, the text ``media.untrusted``
-    data. Plain text, markdown and docx give their own text; each of at most ``MAX_PDFS`` PDFs one ``media.describe``
-    sub-call (usage purpose 'media'), all at once within ``deadline``. Raises ``errors.ToolError``, before
-    anything is stored; a PDF without GOOGLE_API_KEY is an explicit refusal, not a skip."""
-    assets = [attached_document(user_id, asset_id) for asset_id in asset_ids]
-    texts = [media.document_text(asset) for asset in assets]
-    pdfs = [asset for asset, text in zip(assets, texts) if text is None]
-    if len(pdfs) > MAX_PDFS:
-        raise media.invalid(f'A message can carry {MAX_PDFS} PDFs. Remove one and send it again.')
-    if pdfs:
-        key = os.environ.get('GOOGLE_API_KEY')
-        if not key:
-            raise errors.ToolError(errors.MODEL_UNAVAILABLE, 'Veevee cannot read PDF attachments: GOOGLE_API_KEY is not set. Ask a Veevee admin.')
-        usage = UsageContext(user_id=user_id, conversation_id=uuid.UUID(str(conversation_id)), purpose='media')
-        with ThreadPoolExecutor(max_workers=len(pdfs), thread_name_prefix='agent-document') as pool:
-            futures = [pool.submit(described, asset, api_key=key, usage=usage, signal=deadline) for asset in pdfs]
-        failures = [future.exception() for future in futures if future.exception() is not None]
-        if failures and deadline.expired():
-            raise errors.ToolError(DOCUMENT_DEADLINE, ATTACHMENTS_LATE)
-        if failures:
-            raise failures[0]
-        results = (future.result() for future in futures)
-        texts = [next(results) if text is None else text for text in texts]
-    return assets, [{'id': asset.id, 'text': text} for asset, text in zip(assets, texts)]
-
-
-def document_turn(documents):
-    """A user turn's attached documents as Gemini text parts: a line naming each, then its untrusted text."""
-    return [part for document in documents for part in ({'text': f'Attached document {document["id"]}:'}, {'text': document['text']})]
-
-
-def history_turns(turns):
-    """``run_turn`` history from ``services.list_turns``: a user message keeps the documents it was sent with, the newest
-    in full while their text fits ``HISTORY_DOCUMENT_CHARS`` together, every older one as a one-line note."""
-    budget, history = HISTORY_DOCUMENT_CHARS, []
-    for turn in reversed(turns):
-        parts = []
-        for document in reversed(turn['documents']):
-            fits = len(document['text']) <= budget
-            budget = budget - len(document['text']) if fits else 0
-            parts[:0] = document_turn([document]) if fits else [
-                {'text': f'Attached document {document["id"]} was attached earlier in this chat; its text is no longer shown.'}]
-        history.append({'role': turn['role'], 'content': turn['content'], **({'documents': parts} if parts else {})})
-    return history[::-1]
-
-
-ATTACHMENT_STATUS = {errors.BUDGET_EXCEEDED: 429, errors.NOT_FOUND: 404, errors.INVALID_INPUT: 400, errors.MODEL_UNAVAILABLE: 503, DOCUMENT_DEADLINE: 504}
-
-
-@api_view(['POST'])
-@authentication_classes([])
-@permission_classes([])
-def messages(request, id):
-    user, refused = agent_user(request)
-    if refused is not None:
-        return refused
-    deadline = media.Deadline(REQUEST_SECONDS)
-    conversation = visible(user, id)
-    if not conversation:
-        return Response({'error': 'Conversation not found.'}, status=404)
-    body = body_or_empty(request)
-    parsed = parse_message_body(body)
-    if 'error' in parsed:
-        return Response(parsed, status=400)
-    attachments = parse_attachments(body)
-    if attachments is None:
-        return Response({'error': f'attachments must be a list of at most {MAX_ATTACHMENTS} upload ids.'}, status=400)
-    try:
-        parts = images_to_parts(parsed['images'])
-    except Exception:
-        return Response({'error': 'Invalid reference image.'}, status=400)
-    try:
-        reading = media.Deadline(min(deadline.remaining(), DOCUMENT_SECONDS))
-        assets, documents = document_parts(user.id, conversation['id'], attachments, reading)
-    except errors.ToolError as error:
-        return renew_session(request, Response({'error': error.message}, status=ATTACHMENT_STATUS.get(error.code, 502)))
-    if deadline.remaining() < TURN_RESERVE_SECONDS:
-        return renew_session(request, Response({'error': ATTACHMENTS_LATE}, status=504))
-    for asset in assets:
-        media.record_attachment(conversation['id'], asset)
-    history = history_turns(services.list_turns(id))
-    user_message = services.append_message(id, 'user', parsed['content'], {'documents': documents} if documents else None)
-    try:
-        result = run_turn(history, parsed['content'], parts, conversation['agentKind'], documents=document_turn(documents), signal=deadline)
-        assistant = services.append_message(id, 'assistant', result['reply'], result.get('toolTrace'))
-        return renew_session(request, Response({'userMessage': user_message, 'assistantMessage': assistant}))
-    except Exception as error:
-        logger.warning('agent_turn_failed conversation_id=%s error_type=%s', id, type(error).__name__)
-        if deadline.expired():
-            return renew_session(request, Response({'userMessage': user_message, 'error': TURN_LATE}, status=504))
-        return renew_session(request, Response({'userMessage': user_message, 'error': 'Orchestrator request failed.'}, status=502))
+ATTACHMENT_STATUS = {errors.BUDGET_EXCEEDED: 429, errors.NOT_FOUND: 404, errors.INVALID_INPUT: 400, errors.MODEL_UNAVAILABLE: 503}
 
 
 @api_view(['PATCH'])

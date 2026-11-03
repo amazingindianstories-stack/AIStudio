@@ -1,4 +1,4 @@
-"""Release rehearsal only: the API process's Gemini calls (the admin chat agent) reach the fake provider network.
+"""Release rehearsal only: the API process's Gemini calls (such as Agents voice transcription) reach the fake provider network.
 
 scripts/release/rehearse_local.sh puts this directory on the rehearsal API container's PYTHONPATH, so Python loads
 it in gunicorn before Django starts. Only generativelanguage.googleapis.com is answered by

@@ -3,12 +3,11 @@ import json
 import uuid
 
 from django.db import transaction
-from django.test import override_settings
 
 from apps.admin_dashboard.models import AppSetting, UserLimit
 from apps.generation.models import Generation
 from apps.mcp.tests.support import McpCase
-from apps.mcp_auth import controls, policy
+from apps.mcp_auth import controls
 from . import limits
 from .grants import agent_principal, ensure_grant
 from .models import AgentConversation, AgentGrant, AgentLlmUsage, AgentRun

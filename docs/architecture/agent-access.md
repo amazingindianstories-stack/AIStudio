@@ -76,9 +76,10 @@ Users manage tokens and connected apps in Account settings, Agent access (`/api/
 
 ## Agents tab runs
 
-An Agents tab chat turn can run as a durable run (`agent_runs`) that the `agent` worker advances in the background,
-so a turn survives a closed tab, a deploy or a worker crash. The old synchronous path (`POST .../messages`, one short
-tool loop inside the request) still serves the current UI; the run endpoints below are for the new tab. Code lives in
+Every Agents tab message goes to a durable run (`agent_runs`) that the `agent` worker advances in the background,
+so a turn survives a closed tab, a deploy or a worker crash. The old synchronous turn (`POST .../messages`, one short
+tool loop inside the request) is gone; only `PATCH .../messages/<id>` remains, which links a generated item to an
+older `design_prompt` reply. Code lives in
 `apps/agents`: `runs.py` (the services the views adapt), `runner.py` (the state machine), `worker.py` (claim,
 heartbeat and the scheduler's resume pass), `events.py`, `limits.py` and `design.py`.
 
@@ -118,8 +119,8 @@ queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed
   message still waiting the same way, so it stays in the chat; no new run starts for it. A message wakes a run waiting
   on jobs or paused at a limit, and a run does not complete while a delivered message is newer than the model's last
   turn.
-- **Attachments.** A run message may carry `attachments` (up to 10 document upload ids, checked as `/messages` checks
-  them) and `images` (stored reference image URLs that resolve to the caller's ready upload or finished image
+- **Attachments.** A run message may carry `attachments` (up to 10 document upload ids, each the caller's ready
+  document upload) and `images` (stored reference image URLs that resolve to the caller's ready upload or finished image
   generation; a data URL is refused, so the composer uploads it first). Each file is loaded once to validate it, recorded
   in `agent_chat_assets` with the run, and stored as `{id, kind, name}` on the chat message or inbox row (`attachments`
   in the message and inbox JSON). Nothing is read for the model at send time: its turn gets one note naming each file
