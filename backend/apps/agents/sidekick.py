@@ -3,9 +3,10 @@
 Each entry is a ``apps.agents.board.TEXT_FORMATS`` entry: a fixed system prompt, a fixed response schema and a fixed
 generation config, so the agent payload allowlist and the paid guard keep requiring one exact request body. What varies
 between calls (a Sidekick's instructions and knowledge, the board summary, a Flow step's task and inputs) travels in the
-last user turn, never in the system prompt. No format carries tools: nothing searches the web.
+last user turn, never in the system prompt. Only the two web formats (``sidekick-web``, ``flowstep-web``) carry a tool,
+Gemini's ``google_search`` grounding; its fee (``Board AI web search`` in the pricing table) is in the quote, the
+monthly AI credits and the Gemini spend window. Every other format sends no tools.
 """
-import json
 import re
 
 # The named sticky colors (the frontend's STICKY_FILLS holds their fills). A color outside the list travels as a six digit
@@ -50,6 +51,11 @@ SIDEKICK_PROMPT = (
     '"delete" removes the object whose "id" is given; "connect" draws an arrow from "from" to "to", each an id of '
     'an existing object or the "ref" of one you add. Only use ids that appear in the board summary. Never delete or '
     'rewrite objects the user did not ask you to change. Text is plain: no markdown.')
+
+WEB_PROMPT = (
+    '\n\nYou may search the web when the request needs current or outside facts. Use it only for that, and name the '
+    'source in plain text when you rely on it.')
+WEB_TOOLS = [{'google_search': {}}]
 
 SIDEKICK_ACTION_SCHEMA = {
     'type': 'OBJECT',
@@ -236,6 +242,11 @@ FORMATS = {
                     'parse': parse_search, **SMALL_LIMITS},
 }
 
+# Each web format is its base format with a web-aware system prompt and the grounding tool; ``web`` marks it for the
+# quote (apps.generation.services.text_submission) and the paid guard's exact-body check (apps.agents.board.build_body).
+for _base in ('sidekick', 'flowstep'):
+    FORMATS[f'{_base}-web'] = {**FORMATS[_base], 'prompt': FORMATS[_base]['prompt'] + WEB_PROMPT, 'tools': WEB_TOOLS, 'web': True}
+
 MOCK_OUTPUTS = {
     'sidekick': {'reply': 'Here is a first pass.', 'plan': ['Draft the notes'],
                  'actions': [{'op': 'add', 'type': 'sticky', 'text': 'Mock Sidekick idea', 'color': 'yellow'}]},
@@ -243,3 +254,5 @@ MOCK_OUTPUTS = {
     'catchup': {'summary': 'Mock summary of the changes.', 'highlights': [], 'actionItems': []},
     'boardsearch': {'terms': [], 'updatedWithinDays': 7, 'createdByMe': False, 'explanation': 'Boards updated this week.'},
 }
+MOCK_OUTPUTS['sidekick-web'] = MOCK_OUTPUTS['sidekick']
+MOCK_OUTPUTS['flowstep-web'] = MOCK_OUTPUTS['flowstep']

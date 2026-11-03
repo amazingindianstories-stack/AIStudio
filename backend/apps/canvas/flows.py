@@ -76,8 +76,11 @@ def step_request(body):
             parts.append(f'--- input {len(parts) + 1}\n{text}')
     if total > FLOW_CHARS:
         raise _error('This step\'s inputs are too long.')
+    web = body.get('webSearch', False)
+    if not isinstance(web, bool):
+        raise _error('Invalid webSearch.')
     context = f'TASK:\n{task}\n\nINPUTS:\n' + ('\n\n'.join(parts) if parts else '(none)')
-    return 'flowstep', processing, [{'role': 'user', 'text': context}, {'role': 'model', 'text': ACK}, {'role': 'user', 'text': 'Run the step.'}], task
+    return 'flowstep-web' if web else 'flowstep', processing, [{'role': 'user', 'text': context}, {'role': 'model', 'text': ACK}, {'role': 'user', 'text': 'Run the step.'}], task
 
 
 def quote_step(actor, body):
@@ -101,7 +104,8 @@ def quote_flow(actor, body):
 
 def submit_step(actor, board, body, idempotency_key):
     name, processing, turns, task = step_request(body)
-    return sidekicks.submit_job(actor, board, name, task, idempotency_key, request={'processing': processing, 'context': turns[0]['text']},
+    return sidekicks.submit_job(actor, board, name, task, idempotency_key,
+                                request={'processing': processing, 'context': turns[0]['text'], **({'webSearch': True} if name == 'flowstep-web' else {})},
                                 build=lambda: (processing, turns), operation='BOARD_FLOW_STEP')
 
 
@@ -244,7 +248,7 @@ def apply_search(actor, board, identifier):
 # ---- usage analytics ----------------------------------------------------------------------------------------------
 
 PERIODS = {'day': 'day', 'week': 'week', 'month': 'month', 'quarter': 'quarter'}
-FORMAT_LABELS = {'sidekick': 'Sidekick', 'flowstep': 'Flow', 'catchup': 'Catch up',
+FORMAT_LABELS = {'sidekick': 'Sidekick', 'sidekick-web': 'Sidekick', 'flowstep': 'Flow', 'flowstep-web': 'Flow', 'catchup': 'Catch up',
                  'boardsearch': 'AI search', 'stickies': 'Create with AI', 'image': 'Create with AI'}
 
 

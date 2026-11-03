@@ -55,8 +55,8 @@ def agent_payload_allowed(body):
 
 
 def board_payload_allowed(body):
-    """Only a board "Create with AI" text request: one board format's exact system prompt, response schema and
-    generation config, text-only user/model turns, bounded size (``apps.agents.board``)."""
+    """Only a board "Create with AI" text request: one board format's exact system prompt, response schema,
+    generation config and tools, text-only user/model turns, bounded size (``apps.agents.board``)."""
     from .board import body_format
     return body_format(body) is not None
 

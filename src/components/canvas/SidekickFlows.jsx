@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { History, Loader2, Play, Plus, Undo2 } from "lucide-react";
+import { Globe, History, Loader2, Play, Plus, Undo2 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { formatCost } from "@/lib/format-cost";
 import { useCanvasStore } from "@/lib/canvas-store";
 import { flowSteps, nodeText, planRun } from "@/lib/canvas/flows";
@@ -24,6 +25,7 @@ export function FlowsTab({ boardId }) {
   const results = useFlowRun((s) => s.results);
   const error = useFlowRun((s) => s.error);
   const [task, setTask] = useState("");
+  const [web, setWeb] = useState(false);
   const [templates, setTemplates] = useState([]);
   const [force, setForce] = useState(false);
   const [versionsFor, setVersionsFor] = useState(null);
@@ -50,9 +52,10 @@ export function FlowsTab({ boardId }) {
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-2.5 text-xs text-white/70">
       <p className="text-white/50">Select notes on the board, add a step, and the arrows from your selection become its inputs. Each step reads what is connected into it and writes its answer into its own note.</p>
 
-      <form className="mt-2.5 space-y-1.5" onSubmit={(event) => { event.preventDefault(); if (task.trim()) { addStep(task.trim()); setTask(""); } }} aria-label="Add Flow step">
+      <form className="mt-2.5 space-y-1.5" onSubmit={(event) => { event.preventDefault(); if (task.trim()) { addStep(task.trim(), { webSearch: web }); setTask(""); } }} aria-label="Add Flow step">
         <textarea value={task} onChange={(e) => setTask(e.target.value)} rows={2} maxLength={4000} aria-label="Step instruction" placeholder="What should this step do with its inputs?" className="w-full resize-none rounded-lg border border-line bg-ink-900/60 px-2.5 py-2 text-sm text-white/90 placeholder:text-white/35" />
         <div className="flex items-center gap-2">
+          <button type="button" aria-pressed={web} onClick={() => setWeb(!web)} className={cn("flex items-center gap-1 rounded-md px-1.5 py-1 hover:bg-white/[0.07]", web ? "bg-white/[0.07] text-white" : "text-white/55")}><Globe className="h-3.5 w-3.5" aria-hidden />Search the web</button>
           <button type="submit" disabled={!task.trim()} className="ml-auto flex items-center gap-1 rounded-md bg-ink-600 px-2.5 py-1 font-medium text-white ring-1 ring-line disabled:opacity-40"><Plus className="h-3.5 w-3.5" aria-hidden />Add step</button>
         </div>
       </form>
@@ -79,6 +82,7 @@ export function FlowsTab({ boardId }) {
               <div className="flex items-center gap-1.5">
                 <button type="button" onClick={() => useCanvasStore.getState().focusObject(step.id)} className="font-medium text-white/85 hover:underline">Step {index + 1}</button>
                 <span className="rounded bg-white/[0.07] px-1 py-0.5 text-[10px] text-white/60">{running?.current === step.id ? "Running" : results[step.id] === "failed" ? "Failed" : !nodeText(step) ? "No output" : staleIds.has(step.id) ? "Out of date" : "Up to date"}</span>
+                {step.flow.webSearch && <Globe className="h-3 w-3 text-white/45" aria-label="Web search on" />}
                 <button type="button" aria-label={`Versions of step ${index + 1}`} title="Earlier outputs (24 hours)" onClick={() => setVersionsFor(versionsFor === step.id ? null : step.id)} className="ml-auto rounded-md p-1 text-white/50 hover:bg-white/[0.07] hover:text-white"><History className="h-3.5 w-3.5" /></button>
               </div>
               <textarea
@@ -90,6 +94,7 @@ export function FlowsTab({ boardId }) {
                 onBlur={(event) => { const value = event.target.value.trim(); if (value && value !== step.flow.task) editStep(step.id, { task: value }); }}
                 className="mt-1 w-full resize-none rounded-md border border-line bg-transparent px-2 py-1 text-white/85"
               />
+              <label className="mt-1 flex items-center gap-1.5 text-white/55"><input type="checkbox" checked={step.flow.webSearch === true} onChange={(e) => editStep(step.id, { webSearch: e.target.checked })} />Search the web</label>
               {versionsFor === step.id && <Versions boardId={boardId} nodeId={step.id} />}
             </li>
           ))}
@@ -106,7 +111,7 @@ export function FlowsTab({ boardId }) {
           {running ? (
             <button type="button" onClick={() => useFlowRun.getState().cancel()} className="flex items-center gap-1 rounded-md px-2.5 py-1 font-medium text-white ring-1 ring-line"><Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />Stop after this step</button>
           ) : (
-            <button type="button" disabled={!toRun || exhausted} onClick={() => void useFlowRun.getState().run(ids, { force })} className="flex items-center gap-1 rounded-md bg-brand px-2.5 py-1 font-medium text-white disabled:opacity-40"><Play className="h-3.5 w-3.5" aria-hidden />Run</button>
+            <button type="button" disabled={!toRun || exhausted} onClick={() => void useFlowRun.getState().run(ids, { force })} className="flex items-center gap-1 rounded-md bg-brand px-2.5 py-1 font-medium text-ink-900 disabled:opacity-40"><Play className="h-3.5 w-3.5" aria-hidden />Run</button>
           )}
         </div>
       )}

@@ -89,6 +89,14 @@ the job read-back carries `model`, `aspectRatio` and `resolution`.
 - **Pricing.** The quote and the stored `cost_cents` are estimator cents. A text job costs `Board AI text`
   (`per_million_tokens`, default 250) times the input characters / 4 plus the whole output budget, with a minimum
   of 1 cent. An image job uses the image model's normal pricing.
+- **Web search.** The Sidekick chat's **Web** toggle and a Flow step's **Search the web** toggle (a globe on the step,
+  stored as `flow.webSearch`, and part of its input hash) send `webSearch: true`, which selects the `sidekick-web` or
+  `flowstep-web` format. These formats send Gemini's `google_search` tool. Their quote
+  adds one `Board AI web search` fee (`per_1000_requests`, default 1400 cents, Google's published 14 USD per 1,000
+  search queries) before the single rounding, and the job is stored and admitted at that quote. The stored input
+  also records `costWithoutSearchCents`, the same job priced without the fee; when the answer's `webSearchQueries`
+  is empty the worker charges that instead. Further searches are absorbed, so the debit never exceeds the quote. The
+  stored `cost_cents` flows into the monthly credits and the Gemini spend window.
 - **Admission.** Text jobs are admitted like Gemini images:
   - they count toward each user's `maxConcurrentJobs`
   - at most 4 run at once
@@ -100,8 +108,8 @@ the job read-back carries `model`, `aspectRatio` and `resolution`.
   - The limited (priced) scope has no reviewed text quote, so it refuses board text jobs with 409
     `PREVIEW_PAID_BUDGET_HOLD`. Nothing is stored when that happens.
 - **Payload allowlist.** Board prompts go through the agents payload allowlist (`apps/agents/llm.py`
-  `board_payload_allowed`). The body must have exactly one format's system prompt, response schema and generation
-  config. Turns must be text only (one prompt, or prompt / previous result / refinement), and the size is bounded.
+  `board_payload_allowed`). The body must have exactly one format's system prompt, response schema, generation
+  config and tools (only the web formats carry `google_search`). Turns must be text only (one prompt, or prompt / previous result / refinement), and the size is bounded.
   `BoardTextTransport` enforces this. Unlike the admin chat transport, it is not exempt from the paid guard.
 - **No duplicate billed submission.**
   - A submission needs an `Idempotency-Key`. Its receipt, the generation row and the job row commit together, so a
