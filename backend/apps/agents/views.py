@@ -3,14 +3,18 @@ import math
 import os
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from django.conf import settings
 from django.db import connections
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
 from apps.authentication.session import lookup
 from apps.common.responses import renew_session
+from apps.generation.models import Generation
 from apps.generation.watermark import WHITESPACE
 from apps.library.views import body_or_empty
 from apps.mcp import errors
+from apps.media.keys import is_protected_key, media_key_from_ref
+from apps.media.models import UploadSession
 from . import limits, media, runner, runs, services
 from .events import PAGE_SIZE
 from .grants import AgentGrantInvalid
@@ -347,6 +351,42 @@ def transcribe(request, id):
     return renew_session(request, Response({'transcript': transcript}))
 
 
+def reference_asset(user_id, ref):
+    """The user's stored reference image ``ref`` (a ready upload or a finished image generation, by its media URL) as
+    a ``media.Asset``. A data URL is refused: a run keeps ids, not bytes, so the composer uploads it first."""
+    if ref.startswith('data:'):
+        raise media.invalid('Upload reference images before you send them to the agent.')
+    cdn = getattr(settings, 'GCP_MEDIA_CDN_URL', '')
+    key = media_key_from_ref(ref, cdn)
+    if not key or is_protected_key(key):
+        raise media.invalid('Use stored reference images.')
+    identifier = (UploadSession.objects.filter(key=key, actor_id=user_id, state='ready', finalized_at__isnull=False)
+                  .values_list('id', flat=True).first())
+    if identifier is None:
+        rows = Generation.objects.filter(user_id=user_id, status='succeeded', kind='image', url__endswith=key).values_list('id', 'url')
+        identifier = next((generation for generation, url in rows if media_key_from_ref(url, cdn) == key), None)
+    if identifier is None:
+        raise errors.ToolError(errors.NOT_FOUND, 'A reference image is not in your library. Remove it and attach it again.')
+    asset = media.load(user_id, identifier)
+    if asset.kind != 'image':
+        raise media.invalid(f'Reference {asset.id} is {asset.mime}; attach it as a file instead.')
+    return asset
+
+
+def upload_name(asset):
+    """The filename the artist uploaded ``asset`` under; '' for a generation."""
+    return UploadSession.objects.filter(id=asset.id).values_list('filename', flat=True).first() or ''
+
+
+def run_attachments(user_id, attachment_ids, refs):
+    """``(assets, attachments)`` for a run message: its document uploads (``attached_document``, as /messages checks
+    them) and its reference images, deduplicated by id, with the ``media.attachment_json`` each stores. Nothing is
+    read for the model here; the run opens each with read_document or view_media. Raises ``errors.ToolError``."""
+    found = [attached_document(user_id, asset_id) for asset_id in attachment_ids] + [reference_asset(user_id, ref) for ref in refs]
+    assets = list({asset.id: asset for asset in found}.values())
+    return assets, [media.attachment_json(asset, upload_name(asset)) for asset in assets]
+
+
 @api_view(['GET', 'POST'])
 @authentication_classes([])
 @permission_classes([])
@@ -357,19 +397,28 @@ def agent_runs(request, id):
     if request.method == 'GET':
         return renew_session(request, Response({'runs': runs.recent_runs(conversation)}))
     body = body_or_empty(request)
-    parsed = parse_message_body({'content': body.get('content')})
+    parsed = parse_message_body(body)
     if 'error' in parsed:
         return Response(parsed, status=400)
     if body.get('model') is not None and body['model'] not in LOOP_MODELS:
         return Response({'error': 'Unknown model.'}, status=400)
+    attachment_ids = parse_attachments(body)
+    if attachment_ids is None:
+        return Response({'error': f'attachments must be a list of at most {MAX_ATTACHMENTS} upload ids.'}, status=400)
     try:
-        outcome = runs.post_message(conversation, user, parsed['content'], model=body.get('model'))
+        assets, attachments = run_attachments(user.id, attachment_ids, parsed['images'])
+    except errors.ToolError as error:
+        return renew_session(request, Response({'error': error.message}, status=ATTACHMENT_STATUS.get(error.code, 502)))
+    try:
+        outcome = runs.post_message(conversation, user, parsed['content'], model=body.get('model'), attachments=attachments)
     except runs.AgentsDisabled:
         return agents_disabled()
     except runs.RunLimitReached as error:
         return Response({'error': error.hit.message, 'code': 'AGENT_LIMIT', 'kind': error.hit.kind}, status=429)
     except AgentGrantInvalid as error:
         return Response({'error': str(error), 'code': 'AGENT_GRANT_INVALID'}, status=403)
+    for asset in assets:
+        media.record_attachment(conversation.id, asset, run_id=outcome['run']['id'])
     return renew_session(request, Response(outcome, status=201 if outcome['delivery'] == 'run' else 202))
 
 

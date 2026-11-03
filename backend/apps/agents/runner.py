@@ -44,7 +44,7 @@ from apps.integrations.transport import ProviderError
 from apps.mcp import errors, paid, server
 from apps.mcp.registry import REGISTRY, visible
 from apps.mcp.tools.generate import PREPARE
-from . import events, grants, limits
+from . import events, grants, limits, media
 from .declarations import HARNESS_FIELDS, harness_arguments
 from .design import DESIGN_TOOL, design_body, design_brief, read_prompt
 from .llm import PART_METADATA
@@ -246,7 +246,9 @@ def drain_inbox(run, step_index, *, now=None):
         for row in rows:
             AgentInboxMessage.objects.filter(pk=row.pk).update(delivered_at=now, delivered_step=step_index)
             AgentConversationMessage.objects.create(conversation_id=run.conversation_id, role='user', content=row.content,
-                                                    tool_trace={'runId': str(run.id), 'deliveredStep': step_index}, created_at=now)
+                                                    tool_trace={'runId': str(run.id), 'deliveredStep': step_index,
+                                                                **({'attachments': row.attachments} if row.attachments else {})},
+                                                    created_at=now)
             events.emit(run.id, 'message_delivered', {'inboxId': str(row.id), 'stepIndex': step_index}, now=now)
     return len(rows)
 
@@ -271,8 +273,14 @@ def history_turns(run):
     rows = list(AgentConversationMessage.objects.filter(conversation_id=run.conversation_id, created_at__lte=run.created_at,
                                                         role__in=('user', 'assistant'))
                 .order_by('-created_at', '-id')[:HISTORY_MESSAGES])
-    return [{'role': 'model' if row.role == 'assistant' else 'user', 'parts': [{'text': row.content}]}
+    return [{'role': 'model' if row.role == 'assistant' else 'user', 'parts': [{'text': row.content}] + sent_files(row)}
             for row in reversed(rows) if row.content]
+
+
+def sent_files(row):
+    """The note naming the files a user message was sent with: a run's attachments, or an older chat turn's documents."""
+    trace = row.tool_trace if row.role == 'user' and isinstance(row.tool_trace, dict) else {}
+    return media.attachment_note(trace.get('attachments') or trace.get('documents'))
 
 
 def note_parts(notes):
@@ -311,7 +319,7 @@ def build_contents(run, steps, step):
         nonlocal pending, placed
         parts = pending + note_parts(notes)
         while placed < len(inbox) and inbox[placed].delivered_step <= before:
-            parts.append({'text': inbox[placed].content})
+            parts.extend([{'text': inbox[placed].content}] + media.attachment_note(inbox[placed].attachments))
             placed += 1
         pending = []
         if parts:

@@ -118,6 +118,12 @@ queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed
   message still waiting the same way, so it stays in the chat; no new run starts for it. A message wakes a run waiting
   on jobs or paused at a limit, and a run does not complete while a delivered message is newer than the model's last
   turn.
+- **Attachments.** A run message may carry `attachments` (up to 10 document upload ids, checked as `/messages` checks
+  them) and `images` (stored reference image URLs that resolve to the caller's ready upload or finished image
+  generation; a data URL is refused, so the composer uploads it first). Each file is loaded once to validate it, recorded
+  in `agent_chat_assets` with the run, and stored as `{id, kind, name}` on the chat message or inbox row (`attachments`
+  in the message and inbox JSON). Nothing is read for the model at send time: its turn gets one note naming each file
+  by kind, id and quoted filename, and it opens them with `read_document` or `view_media`.
 - **Step boundaries.** Before each step the runner stops if its lease was lost or the worker is stopping (the run goes
   back to `queued`), honours a cancel request, re-checks the grant (`AgentGrantInvalid` fails the run), delivers the
   inbox, and checks the limits with `limits.check_step`, read at call time (the `agentsEnabled` switch, which is how to
@@ -149,7 +155,7 @@ queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed
 | Method and path (under `/api/agent-conversations/<id>`) | Purpose |
 |---|---|
 | `GET .../runs` | The chat's 20 most recent runs |
-| `POST .../runs` `{content, model?}` | Starts a run with the message (201), or writes it to the active run's inbox (202). One active run per conversation is a database constraint. `403 AGENTS_DISABLED` when the Agents tab is off for the caller, even with a run active; when no run is active, `429 AGENT_LIMIT` (with `kind` `active_runs`) at the `agentActiveRuns` cap |
+| `POST .../runs` `{content, model?, attachments?, images?}` | Starts a run with the message (201), or writes it to the active run's inbox (202). One active run per conversation is a database constraint. `403 AGENTS_DISABLED` when the Agents tab is off for the caller, even with a run active; when no run is active, `429 AGENT_LIMIT` (with `kind` `active_runs`) at the `agentActiveRuns` cap |
 | `GET .../runs/<run>/events?after=<seq>&limit=` | Up to 100 events after `seq`, with the run, `nextAfter`, `more` and the undelivered messages |
 | `POST .../runs/<run>/approve`, `.../decline` `{stepIndex}` | Answers the waiting quote; `409 NO_PENDING_QUOTE` otherwise |
 | `POST .../runs/<run>/cancel` `{cancelJobs?}` | Stop (202), or stop and cancel the run's active jobs; `409 RUN_FINISHED` once it ended |

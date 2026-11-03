@@ -18,6 +18,7 @@ answer ``untrusted`` too. ``transcribe`` is the composer's voice note: inline au
 """
 import base64
 import io
+import json
 import logging
 import time
 import uuid
@@ -386,3 +387,23 @@ def record_attachment(conversation_id, asset, *, run_id=None, now=None):
         conversation_id=conversation_id, asset_id=asset.id,
         defaults={'source': 'attachment', 'kind': asset.kind, 'run_id': run_id, 'created_at': now_ms() if now is None else now})
     return row
+
+
+ATTACHMENT_NAME_CHARS = 100
+
+
+def attachment_json(asset, name=''):
+    """What a run message stores about one attached file: its id, kind and (cut) filename."""
+    return {'id': asset.id, 'kind': asset.kind, 'name': (name or '')[:ATTACHMENT_NAME_CHARS]}
+
+
+def attachment_note(attachments):
+    """A run's model turn for a message sent with ``attachments`` (``attachment_json`` items, or a chat message's
+    ``{id, text}`` documents): one text part naming each by id, kind and filename, so read_document or view_media can
+    open it. No file content goes in; filenames are quoted data."""
+    named = [f'{item.get("kind") or "document"} {item["id"]}' + (f' named {json.dumps(item["name"])}' if item.get('name') else '')
+             for item in attachments or [] if isinstance(item, dict) and item.get('id')]
+    if not named:
+        return []
+    return [{'text': f'Veevee: the artist attached {"; ".join(named)}. Open documents with read_document and images, '
+                     'video and audio with view_media, by id, before you rely on them.'}]

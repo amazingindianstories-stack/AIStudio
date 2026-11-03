@@ -15,7 +15,9 @@ def conversation_json(row):
 def message_json(row):
     return {'id': str(row.id), 'conversationId': str(row.conversation_id),
         'role': 'assistant' if row.role == 'assistant' else 'user', 'content': row.content,
-        'toolTrace': row.tool_trace if row.role == 'assistant' else None, 'createdAt': row.created_at}
+        'toolTrace': row.tool_trace if row.role == 'assistant' else None, 'createdAt': row.created_at,
+        **({'attachments': row.tool_trace['attachments']} if row.role == 'user' and isinstance(row.tool_trace, dict)
+           and row.tool_trace.get('attachments') else {})}
 
 
 def list_conversations(project_id, kind, owner=None):
