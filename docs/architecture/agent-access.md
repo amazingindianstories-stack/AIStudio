@@ -103,10 +103,11 @@ queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed
   `delivered_step`. A message wakes a run waiting on jobs or paused at a limit.
 - **Step boundaries.** Before each step the runner stops if its lease was lost or the worker is stopping (the run goes
   back to `queued`), honours a cancel request, re-checks the grant (`AgentGrantInvalid` fails the run), and checks the
-  bounds: the `agentsEnabled` setting (off pauses the run as `paused_limit`, `agents_disabled`, retried every minute),
-  the per-run bounds in `runner.py` (60 steps, 5000 estimator cents of paid estimates, 2 hours from the first step;
-  reaching one fails the run), and `step_limits.check_limits(run, step_kind)`, which allows everything today; a non-ok
-  verdict pauses the run as `paused_limit` with its `pause_reason` and `resume_after`.
+  bounds: the global `agentsEnabled` setting (`0` pauses the run as `paused_limit`, `agents_disabled`, retried every
+  minute; unset, `1` or an unparsable value is on), the per-run bounds in `runner.py` (60 steps, 5000 estimator cents
+  of paid estimates, 2 hours from the first step; reaching one fails the run), and
+  `step_limits.check_limits(run, step_kind)`, which allows everything today; a non-ok verdict pauses the run as
+  `paused_limit` with its `pause_reason` and `resume_after`.
 - **Cancel.** A stop request sets `cancel_requested_at`; the run ends `cancelled` at its next step boundary, and jobs
   already queued finish normally. "Stop and cancel jobs" (`cancel_jobs`) also cancels every active linked job through
   `generation/services/cancellation.cancel_generation` (deferred, so the generation worker sends any provider cancel).
@@ -119,7 +120,7 @@ queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed
 | Method and path (under `/api/agent-conversations/<id>`) | Purpose |
 |---|---|
 | `GET .../runs` | The chat's 20 most recent runs |
-| `POST .../runs` `{content, model?}` | Starts a run with the message (201), or writes it to the active run's inbox (202). One active run per conversation is a database constraint. `403 AGENTS_DISABLED` when `agentsEnabled` is off and no run is active |
+| `POST .../runs` `{content, model?}` | Starts a run with the message (201), or writes it to the active run's inbox (202). One active run per conversation is a database constraint. `403 AGENTS_DISABLED` when the global `agentsEnabled` is `0` and no run is active |
 | `GET .../runs/<run>/events?after=<seq>&limit=` | Up to 100 events after `seq`, with the run, `nextAfter`, `more` and the undelivered messages |
 | `POST .../runs/<run>/approve`, `.../decline` `{stepIndex}` | Answers the waiting quote; `409 NO_PENDING_QUOTE` otherwise |
 | `POST .../runs/<run>/cancel` `{cancelJobs?}` | Stop (202), or stop and cancel the run's active jobs; `409 RUN_FINISHED` once it ended |

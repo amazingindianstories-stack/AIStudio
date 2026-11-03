@@ -30,9 +30,10 @@ other services. It needs:
 
 The scheduler gains the `agent_runs` pass (re-queues a `running` run whose heartbeat is older than 60 s), so the
 scheduler deploys with it. The new run endpoints (`/api/agent-conversations/<id>/runs...`) ship with the API; starting
-a run and approving a quote open in the gateway only with its paid routes on. The `agentsEnabled` setting pauses every
-run at its next step boundary. No migration: the run tables come from `agents.0005_agent_runs` (#150). The current
-Agents tab UI still uses the synchronous message path; the tab's rewrite onto runs is a separate change.
+a run and approving a quote open in the gateway only with its paid routes on. A global `agentsEnabled` setting of `0`
+pauses every run at its next step boundary and refuses new runs; unset or `1` is on. No migration: the run tables come
+from `agents.0005_agent_runs` (#150). The current Agents tab UI still uses the synchronous message path; the tab's
+rewrite onto runs is a separate change.
 
 ## Production release 2026-11-02 (second) - main `c4c56d23`
 

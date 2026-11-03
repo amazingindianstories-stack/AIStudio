@@ -117,13 +117,26 @@ class StartAndMessageTests(RunsApiCase):
 
     def test_with_agents_off_no_run_starts_but_an_active_run_still_gets_messages(self):
         run = self.started()
-        AppSetting.objects.create(key='agentsEnabled', value='false', updated_at=1)
+        AppSetting.objects.create(key='agentsEnabled', value='0', updated_at=1)
         self.assertEqual(self.post(self.base, {'content': 'And a wolf'}).status_code, 202)
         AgentRun.objects.filter(pk=run.id).update(status='completed')
         refused = self.post(self.base, {'content': 'Another'})
         self.assertEqual((refused.status_code, refused.json()['code']), (403, 'AGENTS_DISABLED'))
         self.assertEqual(AgentRun.objects.count(), 1)
         self.assertEqual(AgentConversationMessage.objects.filter(content='Another').count(), 0)
+
+    def test_only_an_agents_switch_of_0_refuses_a_new_run(self):
+        for value in (None, '1', 'false', 'garbage'):
+            with self.subTest(value=value):
+                AppSetting.objects.filter(key='agentsEnabled').delete()
+                if value is not None:
+                    AppSetting.objects.create(key='agentsEnabled', value=value, updated_at=1)
+                run = self.started()
+                AgentRun.objects.filter(pk=run.id).update(status='completed')
+        AppSetting.objects.filter(key='agentsEnabled').update(value='0')
+        refused = self.post(self.base, {'content': 'Another'})
+        self.assertEqual((refused.status_code, refused.json()['code']), (403, 'AGENTS_DISABLED'))
+        self.assertEqual(AgentRun.objects.count(), 4)
 
     def test_an_inactive_account_cannot_start_a_run(self):
         AgentGrant.objects.all().delete()

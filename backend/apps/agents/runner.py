@@ -51,7 +51,7 @@ logger = logging.getLogger('veevee.agents')
 MAX_STEPS = 60                       # steps per run, LLM and tool together
 MAX_RUN_COST_CENTS = 5000            # paid tool estimates per run
 MAX_WALL_MS = 2 * 60 * 60 * 1000     # from the run's first step, waits included
-SWITCH = 'agentsEnabled'             # AppSetting: 'false' pauses every run at its next step boundary
+SWITCH = 'agentsEnabled'             # global AppSetting: '0' pauses every run at its next step boundary; unset or '1' is on
 SWITCH_RETRY_MS = 60_000
 LLM_ATTEMPTS = 3
 LLM_RETRY_SECONDS = (2, 10)
@@ -575,7 +575,10 @@ def link_job(run, generation_id, *, now):
 # The loop --------------------------------------------------------------------------------------------------------
 
 def switch_on():
-    return AppSetting.objects.filter(key=SWITCH).values_list('value', flat=True).first() != 'false'
+    """Whether the global ``agentsEnabled`` switch allows runs. It is parsed like the admin limits: only ``0`` is off;
+    unset, ``1`` or an unparsable value is on."""
+    from apps.admin_dashboard.views import parse
+    return parse(AppSetting.objects.filter(key=SWITCH).values_list('value', flat=True).first(), (-1, 0, 1)) != 0
 
 
 def bound_exceeded(run, action, now):

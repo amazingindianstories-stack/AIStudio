@@ -420,7 +420,7 @@ class CancelTests(RunnerCase):
 class BoundaryTests(RunnerCase):
     def test_the_agents_switch_off_pauses_at_the_next_step_boundary(self):
         def switch_off():
-            AppSetting.objects.create(key=runner.SWITCH, value='false', updated_at=1)
+            AppSetting.objects.create(key=runner.SWITCH, value='0', updated_at=1)
             return [call('list_models', {})]
         self.gemini(switch_off, [text('Done.')])
         run = self.start_run()
@@ -432,10 +432,25 @@ class BoundaryTests(RunnerCase):
         self.assertEqual(worker.runnable(now=run.resume_after), [run.id])
         self.assertEqual(self.advance(run), 'paused', 'still off')
         self.assertEqual(self.kinds(run).count('paused'), 1)
-        AppSetting.objects.filter(key=runner.SWITCH).update(value='true')
+        AppSetting.objects.filter(key=runner.SWITCH).update(value='1')
         self.assertEqual(self.advance(run), 'completed')
         run = self.refresh(run)
         self.assertEqual((run.pause_reason, run.resume_after), (None, None))
+
+    def test_only_a_global_agents_switch_of_0_pauses(self):
+        values = (None, '1', 'false', 'garbage')
+        self.gemini(*[[text('Done.')] for _ in values])
+        for value in values:
+            with self.subTest(value=value):
+                AppSetting.objects.filter(key=runner.SWITCH).delete()
+                if value is not None:
+                    AppSetting.objects.create(key=runner.SWITCH, value=value, updated_at=1)
+                self.assertTrue(runner.switch_on())
+                run = self.start_run()
+                self.assertEqual(self.advance(run), 'completed')
+                self.assertEqual(self.refresh(run).pause_reason, None)
+        AppSetting.objects.filter(key=runner.SWITCH).update(value='0')
+        self.assertFalse(runner.switch_on())
 
     def test_a_non_ok_limit_verdict_pauses_the_run_with_its_reason(self):
         verdict = LimitVerdict(ok=False, reason='agentGlobalDailyCapCents', resume_after=123_456)
