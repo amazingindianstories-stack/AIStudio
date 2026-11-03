@@ -32,17 +32,30 @@ ATTACHMENTS_LATE = 'Veevee could not read the attachments in time. Nothing was s
 TURN_LATE = 'The agent did not answer in time. Your message is saved; try again in a moment.'
 
 
-def admin(request):
-    user = lookup(request)
-    return user if user and user.role == 'admin' else None
-
-
 def forbidden():
     return Response({'error': 'FORBIDDEN'}, status=403)
 
 
 def agents_disabled():
-    return Response({'error': 'Agents are turned off.', 'code': 'AGENTS_DISABLED'}, status=403)
+    return Response({'error': 'Agents are turned off for your account.', 'code': 'AGENTS_DISABLED'}, status=403)
+
+
+def agent_user(request):
+    """``(user, None)`` when the session's user may use the Agents tab (``limits.agents_enabled``), else ``(None, 403)``."""
+    user = lookup(request)
+    if user is None:
+        return None, forbidden()
+    if not limits.agents_enabled(user):
+        return None, agents_disabled()
+    return user, None
+
+
+def visible(user, conversation_id):
+    """The conversation's JSON when ``user`` may see it: an admin sees every conversation, anyone else only their own."""
+    if user.role == 'admin':
+        return services.get_conversation(conversation_id)
+    row = runs.owned_conversation(conversation_id, user)
+    return services.conversation_json(row) if row is not None else None
 
 
 def first(request, key):
@@ -58,16 +71,17 @@ def name_value(value):
 @authentication_classes([])
 @permission_classes([])
 def conversations(request):
-    user = admin(request)
-    if user is None:
-        return forbidden()
+    user, refused = agent_user(request)
+    if refused is not None:
+        return refused
+    owner = None if user.role == 'admin' else user.id
     if request.method == 'GET':
         project, kind = first(request, 'projectId'), first(request, 'agentKind')
         if not project:
             return Response({'error': 'projectId required.'}, status=400)
         if kind not in ('image', 'video'):
             return Response({'error': "agentKind must be 'image' or 'video'."}, status=400)
-        return renew_session(request, Response({'conversations': services.list_conversations(project, kind)}))
+        return renew_session(request, Response({'conversations': services.list_conversations(project, kind, owner=owner)}))
     body = body_or_empty(request)
     operation = body.get('op')
     if operation == 'createConversation':
@@ -79,18 +93,18 @@ def conversations(request):
         if not name:
             return Response({'error': 'Name required.'}, status=400)
         conversation = services.create_conversation(project, kind, name, user.id)
-        return renew_session(request, Response({'conversations': services.list_conversations(project, kind), 'conversation': conversation}))
+        return renew_session(request, Response({'conversations': services.list_conversations(project, kind, owner=owner), 'conversation': conversation}))
     if operation in ('renameConversation', 'deleteConversation'):
         if not body.get('id'):
             return Response({'error': 'id required.'}, status=400)
-        existing = services.get_conversation(body['id'])
+        existing = visible(user, body['id'])
         if not existing:
             return Response({'error': 'Conversation not found.'}, status=404)
         if operation == 'renameConversation':
             services.rename_conversation(body['id'], name_value(body.get('name')))
         else:
             services.delete_conversation(body['id'])
-        return renew_session(request, Response({'conversations': services.list_conversations(existing['projectId'], existing['agentKind'])}))
+        return renew_session(request, Response({'conversations': services.list_conversations(existing['projectId'], existing['agentKind'], owner=owner)}))
     return Response({'error': 'Unknown op.'}, status=400)
 
 
@@ -98,9 +112,10 @@ def conversations(request):
 @authentication_classes([])
 @permission_classes([])
 def detail(request, id):
-    if admin(request) is None:
-        return forbidden()
-    conversation = services.get_conversation(id)
+    user, refused = agent_user(request)
+    if refused is not None:
+        return refused
+    conversation = visible(user, id)
     if not conversation:
         return Response({'error': 'Conversation not found.'}, status=404)
     return renew_session(request, Response({'conversation': conversation, 'messages': services.list_messages(id)}))
@@ -191,13 +206,11 @@ ATTACHMENT_STATUS = {errors.BUDGET_EXCEEDED: 429, errors.NOT_FOUND: 404, errors.
 @authentication_classes([])
 @permission_classes([])
 def messages(request, id):
-    user = admin(request)
-    if user is None:
-        return forbidden()
-    if not limits.agents_enabled(user):
-        return agents_disabled()
+    user, refused = agent_user(request)
+    if refused is not None:
+        return refused
     deadline = media.Deadline(REQUEST_SECONDS)
-    conversation = services.get_conversation(id)
+    conversation = visible(user, id)
     if not conversation:
         return Response({'error': 'Conversation not found.'}, status=404)
     body = body_or_empty(request)
@@ -237,9 +250,10 @@ def messages(request, id):
 @authentication_classes([])
 @permission_classes([])
 def attach(request, id, message_id):
-    if admin(request) is None:
-        return forbidden()
-    if not services.get_conversation(id):
+    user, refused = agent_user(request)
+    if refused is not None:
+        return refused
+    if not visible(user, id):
         return Response({'error': 'Conversation not found.'}, status=404)
     body = body_or_empty(request)
     generated = body.get('generatedItemId').strip(WHITESPACE) if isinstance(body.get('generatedItemId'), str) else ''
@@ -251,14 +265,14 @@ def attach(request, id, message_id):
     return renew_session(request, Response({'message': message}))
 
 
-# Agent runs: the durable loop the agent worker advances. Each route needs an admin session (as above) and the
-# conversation's owner; another user's conversation or run answers 404, as if it did not exist.
+# Agent runs: the durable loop the agent worker advances. Each route needs a session with the Agents tab on (as above)
+# and the conversation's owner; another user's conversation or run answers 404, as if it did not exist.
 
 def owned(request, id):
     """``(user, conversation, None)``, or ``(None, None, response)`` when the caller may not use the conversation."""
-    user = admin(request)
-    if user is None:
-        return None, None, forbidden()
+    user, refused = agent_user(request)
+    if refused is not None:
+        return None, None, refused
     conversation = runs.owned_conversation(id, user)
     if conversation is None:
         return None, None, Response({'error': 'Conversation not found.'}, status=404)

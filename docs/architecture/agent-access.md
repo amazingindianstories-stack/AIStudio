@@ -149,12 +149,16 @@ queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed
 | Method and path (under `/api/agent-conversations/<id>`) | Purpose |
 |---|---|
 | `GET .../runs` | The chat's 20 most recent runs |
-| `POST .../runs` `{content, model?}` | Starts a run with the message (201), or writes it to the active run's inbox (202). One active run per conversation is a database constraint. When no run is active: `403 AGENTS_DISABLED` when `agentsEnabled` is off for the user, `429 AGENT_LIMIT` (with `kind` `active_runs`) at the `agentActiveRuns` cap |
+| `POST .../runs` `{content, model?}` | Starts a run with the message (201), or writes it to the active run's inbox (202). One active run per conversation is a database constraint. `403 AGENTS_DISABLED` when the Agents tab is off for the caller, even with a run active; when no run is active, `429 AGENT_LIMIT` (with `kind` `active_runs`) at the `agentActiveRuns` cap |
 | `GET .../runs/<run>/events?after=<seq>&limit=` | Up to 100 events after `seq`, with the run, `nextAfter`, `more` and the undelivered messages |
 | `POST .../runs/<run>/approve`, `.../decline` `{stepIndex}` | Answers the waiting quote; `409 NO_PENDING_QUOTE` otherwise |
 | `POST .../runs/<run>/cancel` `{cancelJobs?}` | Stop (202), or stop and cancel the run's active jobs; `409 RUN_FINISHED` once it ended |
 
-Every route needs an admin session, like the old agent chat; another user's conversation or run is 404. The gateway
+Every agent-conversation route (conversations, messages, transcription and runs) needs a session for which
+`limits.agents_enabled` is true, else `403 AGENTS_DISABLED` (`403 FORBIDDEN` without a session); `GET /api/auth/me`
+returns the same boolean as `user.agentsEnabled`, which opens the Agents tab in the top bar. An admin lists and opens
+every conversation of a project, anyone else only their own; the run routes need the conversation's owner, and
+another user's conversation or run is 404. The gateway
 opens starting a run and approving a quote only with its paid routes on (`paid_initial_routes`); the events feed,
 decline and cancel are always open.
 

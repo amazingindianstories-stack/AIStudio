@@ -1,5 +1,6 @@
 """Conversation persistence with explicit transactions for no-FK message rows."""
 from django.db import transaction
+from django.db.models import Q
 from apps.library.services.idempotency import now_ms
 from .models import AgentConversation, AgentConversationMessage
 
@@ -17,8 +18,12 @@ def message_json(row):
         'toolTrace': row.tool_trace if row.role == 'assistant' else None, 'createdAt': row.created_at}
 
 
-def list_conversations(project_id, kind):
-    return [conversation_json(row) for row in AgentConversation.objects.filter(project_id=project_id, agent_kind=kind).order_by('-updated_at')]
+def list_conversations(project_id, kind, owner=None):
+    """The project's conversations of ``kind``, newest first; with ``owner``, only that user's (``runs.owned_conversation``)."""
+    rows = AgentConversation.objects.filter(project_id=project_id, agent_kind=kind)
+    if owner is not None:
+        rows = rows.filter(Q(user_id=owner) | Q(user_id__isnull=True, created_by=owner))
+    return [conversation_json(row) for row in rows.order_by('-updated_at')]
 
 
 def get_conversation(identifier):

@@ -73,6 +73,80 @@ class AccessTests(RunsApiCase):
         self.assertEqual(self.post(self.base, {'content': 'x'}, self.admin).status_code, 404)
 
 
+class GateTests(RunsApiCase):
+    """Every agent-conversation route and the session's ``agentsEnabled`` follow ``limits.agents_enabled``."""
+    def setUp(self):
+        super().setUp()
+        self.member = self.make_user('member@example.invalid', 'Member', 'user')
+        AgentGrant.objects.all().delete()
+
+    def switch(self, value, user=None):
+        if user is None:
+            AppSetting.objects.update_or_create(key='agentsEnabled', defaults={'value': value, 'updated_at': 1})
+        else:
+            UserLimit.objects.update_or_create(user_id=user.id, key='agentsEnabled', defaults={'value': value, 'updated_at': 1})
+
+    def chat(self, owner):
+        return AgentConversation.objects.create(project_id=self.project.id, name=owner.name, agent_kind='image', user_id=owner.id,
+                                                created_by=owner.id, created_at=2, updated_at=2)
+
+    def reach(self, user):
+        """``(session agentsEnabled, conversations GET status, conversation create status, run POST status)`` for ``user``
+        on a conversation of their own."""
+        client = self.client_for(user)
+        own = self.chat(user)
+        me = client.get('/api/auth/me').json()['user']['agentsEnabled']
+        listed = client.get('/api/agent-conversations', {'projectId': str(self.project.id), 'agentKind': 'image'})
+        created = client.post('/api/agent-conversations', {'op': 'createConversation', 'projectId': str(self.project.id),
+                                                          'agentKind': 'image', 'name': 'New'}, content_type='application/json')
+        started = client.post(f'/api/agent-conversations/{own.id}/runs', {'content': 'Make a fox'}, content_type='application/json')
+        for response in (listed, created, started):
+            if response.status_code == 403:
+                self.assertEqual(response.json()['code'], 'AGENTS_DISABLED')
+        return me, listed.status_code, created.status_code, started.status_code
+
+    def test_with_no_rows_admins_only(self):
+        self.assertEqual(self.reach(self.user), (True, 200, 200, 201))
+        self.assertEqual(self.reach(self.member), (False, 403, 403, 403))
+
+    def test_a_global_1_opens_the_tab_for_everyone(self):
+        self.switch('1')
+        self.assertEqual(self.reach(self.member), (True, 200, 200, 201))
+
+    def test_a_global_0_is_off_for_everyone_even_with_a_per_user_1(self):
+        self.switch('0')
+        self.switch('1', self.user)
+        self.switch('1', self.member)
+        self.assertEqual(self.reach(self.user), (False, 403, 403, 403))
+        self.assertEqual(self.reach(self.member), (False, 403, 403, 403))
+
+    def test_a_per_user_row_decides_over_the_role_and_a_global_1(self):
+        self.switch('1', self.member)
+        self.switch('0', self.user)
+        self.assertEqual(self.reach(self.member), (True, 200, 200, 201))
+        self.assertEqual(self.reach(self.user), (False, 403, 403, 403))
+        self.switch('1')
+        self.assertEqual(self.reach(self.user)[0], False, 'a per-user 0 beats a global 1')
+
+    def test_a_member_sees_only_their_own_conversations_and_an_admin_sees_all(self):
+        self.switch('1', self.member)
+        mine, theirs = self.chat(self.member), self.conversation
+        member, admin = self.client_for(self.member), self.client_for(self.user)
+        query = {'projectId': str(self.project.id), 'agentKind': 'image'}
+        self.assertEqual([row['id'] for row in member.get('/api/agent-conversations', query).json()['conversations']], [str(mine.id)])
+        self.assertEqual({row['id'] for row in admin.get('/api/agent-conversations', query).json()['conversations']},
+                         {str(mine.id), str(theirs.id)})
+        self.assertEqual(member.get(f'/api/agent-conversations/{theirs.id}').status_code, 404)
+        renamed = member.post('/api/agent-conversations', {'op': 'renameConversation', 'id': str(theirs.id), 'name': 'Mine now'},
+                              content_type='application/json')
+        self.assertEqual(renamed.status_code, 404)
+        deleted = member.post('/api/agent-conversations', {'op': 'deleteConversation', 'id': str(theirs.id)}, content_type='application/json')
+        self.assertEqual(deleted.status_code, 404)
+        self.assertEqual(AgentConversation.objects.get(pk=theirs.id).name, 'Chat')
+        self.assertEqual(member.get(f'/api/agent-conversations/{mine.id}').json()['conversation']['id'], str(mine.id))
+        self.assertEqual(admin.get(f'/api/agent-conversations/{mine.id}').status_code, 200)
+
+
 class StartAndMessageTests(RunsApiCase):
     def test_the_first_message_starts_a_run_and_later_ones_go_to_its_inbox(self):
         AgentGrant.objects.all().delete()
@@ -115,10 +189,13 @@ class StartAndMessageTests(RunsApiCase):
         AgentConversation.objects.filter(pk=self.conversation.id).update(settings={'model': ADVANCED_LOOP_MODEL})
         self.assertEqual(self.started().model, ADVANCED_LOOP_MODEL)
 
-    def test_with_agents_off_no_run_starts_but_an_active_run_still_gets_messages(self):
+    def test_with_agents_off_every_run_route_refuses_even_with_a_run_active(self):
         run = self.started()
         AppSetting.objects.update_or_create(key='agentsEnabled', defaults={'value': '0', 'updated_at': 1})
-        self.assertEqual(self.post(self.base, {'content': 'And a wolf'}).status_code, 202)
+        for response in (self.post(self.base, {'content': 'And a wolf'}), self.get(f'{self.base}/{run.id}/events'),
+                         self.post(f'{self.base}/{run.id}/cancel', {'cancelJobs': True})):
+            self.assertEqual((response.status_code, response.json()['code']), (403, 'AGENTS_DISABLED'))
+        self.assertEqual((AgentInboxMessage.objects.count(), AgentRun.objects.get(pk=run.id).cancel_requested_at), (0, None))
         AgentRun.objects.filter(pk=run.id).update(status='completed')
         refused = self.post(self.base, {'content': 'Another'})
         self.assertEqual((refused.status_code, refused.json()['code']), (403, 'AGENTS_DISABLED'))

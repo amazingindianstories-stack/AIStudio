@@ -191,7 +191,7 @@ for (const role of ['admin', 'user']) {
     await page.route('**/api/auth/me', async route => {
       const response = await route.fetch();
       const body = await response.json();
-      await route.fulfill({ response, json: { ...body, user: { ...body.user, role, name: 'Desktop fixture with a long display name' } } });
+      await route.fulfill({ response, json: { ...body, user: { ...body.user, role, agentsEnabled: role === 'admin', name: 'Desktop fixture with a long display name' } } });
     });
     await login(page, context, baseURL, 1280);
     const nav = page.getByRole('navigation', { name: 'Sections' });

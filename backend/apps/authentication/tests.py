@@ -19,7 +19,7 @@ class CurrentUserTests(TransactionTestCase):
         self.cookie(age=172800000)
         response = self.client.get('/api/auth/me')
         self.assertEqual(response.status_code,200)
-        self.assertEqual(response.json()['user'],{'id':'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','email':'fixture@example.invalid','name':'Fixture','role':'user','color':None,'avatarUrl':None})
+        self.assertEqual(response.json()['user'],{'id':'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa','email':'fixture@example.invalid','name':'Fixture','role':'user','color':None,'avatarUrl':None,'agentsEnabled':False})
         self.assertEqual(response.cookies['veevee_session']['max-age'],2592000)
         self.cookie(version=1)
         self.assertEqual(self.client.get('/api/auth/me').json(),{'user':None})
