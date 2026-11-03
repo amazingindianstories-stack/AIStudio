@@ -8,6 +8,7 @@ import { boardStatus, defaultViewNode, FORMAT_STATUSES, MAX_HTML, newFormatNode,
 import { formatUrl, openFormat, patchFormat, setDefaultFormat } from "@/lib/canvas/formats/actions";
 import { WIREFRAMES, wireframeNode } from "@/lib/canvas/formats/wireframes";
 import { staticEmbedHtml } from "@/lib/canvas/formats/html-embed";
+import { useNodePayload } from "@/lib/canvas/formats/use-node-payload";
 import { DocContent } from "./DocContent";
 import { SlidesEditor } from "./SlidesEditor";
 import { MermaidEditor } from "./MermaidEditor";
@@ -28,6 +29,7 @@ export function FormatsPanel({ boardId, touchViewOnly }) {
   const dialog = useRef(null);
   const initialized = useRef(null);
   const focusNode = graph.nodes.find((n) => n.id === focusId);
+  const loadingPayload = useNodePayload(focusNode);
   const formats = graph.nodes.filter((n) => n.type === "format" || n.type === "diagram");
   const selected = graph.nodes.find((n) => selection.includes(n.id));
   useEffect(() => {
@@ -105,10 +107,11 @@ export function FormatsPanel({ boardId, touchViewOnly }) {
       </header>
       {notice && <p role="status" className="px-5 py-2 text-sm">{notice}</p>}
       <main className="min-h-0 flex-1 overflow-auto p-4 md:p-8"><div className="mx-auto max-w-6xl space-y-5">
-        {focusNode?.format === "doc" && <div className="mx-auto max-w-3xl rounded-xl border bg-white p-6 shadow-sm md:p-10"><DocContent node={focusNode} readOnly={!editable} /></div>}
+        {loadingPayload && <p className="text-slate-500">Loading…</p>}
+        {focusNode?.format === "doc" && !loadingPayload && <div className="mx-auto max-w-3xl rounded-xl border bg-white p-6 shadow-sm md:p-10"><DocContent node={focusNode} readOnly={!editable} /></div>}
         {focusNode?.format === "deck" && <SlidesEditor node={focusNode} graph={graph} readOnly={!editable} />}
-        {focusNode?.format === "drawio" && <DrawioEditor node={focusNode} readOnly={!editable} />}
-        {focusNode?.format === "html" && <>{editable && <label className="block text-sm">HTML source<textarea aria-label="HTML source" className="mt-2 h-48 w-full rounded border bg-white p-3 font-mono" maxLength={MAX_HTML} value={focusNode.html} onChange={(e) => patchFormat(focusNode.id, () => ({ html: e.target.value }), { coalesce: true })} /></label>}{editable && focusNode.html.length >= MAX_HTML && <p role="alert" className="text-sm text-red-700">HTML embeds hold up to {MAX_HTML.toLocaleString()} characters; text beyond that is not saved.</p>}<iframe title="HTML prototype preview" className="h-[60vh] w-full rounded border bg-white" sandbox="" referrerPolicy="no-referrer" srcDoc={staticEmbedHtml(focusNode.html)} /></>}
+        {focusNode?.format === "drawio" && !loadingPayload && <DrawioEditor node={focusNode} readOnly={!editable} />}
+        {focusNode?.format === "html" && !loadingPayload && <>{editable && <label className="block text-sm">HTML source<textarea aria-label="HTML source" className="mt-2 h-48 w-full rounded border bg-white p-3 font-mono" maxLength={MAX_HTML} value={focusNode.html} onChange={(e) => patchFormat(focusNode.id, () => ({ html: e.target.value }), { coalesce: true })} /></label>}{editable && focusNode.html.length >= MAX_HTML && <p role="alert" className="text-sm text-red-700">HTML embeds hold up to {MAX_HTML.toLocaleString()} characters; text beyond that is not saved.</p>}<iframe title="HTML prototype preview" className="h-[60vh] w-full rounded border bg-white" sandbox="" referrerPolicy="no-referrer" srcDoc={staticEmbedHtml(focusNode.html)} /></>}
         {(focusId === "new-mermaid" || focusNode?.sourceKind === "mermaid") && <MermaidEditor key={focusId} node={focusNode} readOnly={!editable} onCreated={(id) => setFocusId(id)} />}
         {focusNode && focusNode.type !== "format" && <FramePreview frame={focusNode} graph={graph} />}
         {focusId?.startsWith("prototype:") && <PrototypePreview key={focusId} initialId={focusId.slice(10)} graph={graph} />}

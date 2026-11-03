@@ -3,6 +3,8 @@
  * connector, and when. The server writes them on every save and ignores what a
  * client sends (backend/apps/canvas/activity.py), so the client only carries
  * them, adopts the ones a save returns, and leaves them out of edit decisions.
+ * A save's stamps on a format node also carry its payload reference, whose
+ * revision the save may have moved (formats/payloads.js).
  */
 import { STAMP_KEYS } from "./serialization";
 
@@ -19,7 +21,7 @@ function stampItems(items, stamps) {
   const next = items.map((item) => {
     const stamp = stamps[item.id];
     if (!stamp) return item;
-    if (STAMP_KEYS.every((key) => item[key] === stamp[key])) return item;
+    if (Object.keys(stamp).every((key) => item[key] === stamp[key] || JSON.stringify(item[key]) === JSON.stringify(stamp[key]))) return item;
     changed = true;
     return { ...unstamped(item), ...stamp };
   });

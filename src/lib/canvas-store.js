@@ -9,14 +9,17 @@ import { canEditRole, canShareRole } from "./board-access";
 import { emptyCanvasState, validateCanvasState } from "./canvas/serialization";
 import { mergeCanvasStates, rebaseHistory, sameValue } from "./canvas/merge";
 import { boardFromChanges, buildBoardPatch } from "./canvas/patch";
+import { carryPayloads, createPayloadLoader, needsPayload, slimGraph, withLoadedPayload, withPayload } from "./canvas/formats/payloads";
 import { unstamped, withNotesStamp, withServerStamps } from "./canvas/stamps";
 import { copyOrigin, holdsCopied, keepHiddenFrames, pasteDestinations, renameDuplicatedFrames, renestFrames } from "./canvas/frames";
 import { isLocked, unlockedIds, withoutLock } from "./canvas/locks";
 import { connectorShown, hiddenNodeIds, placeCopies, placeOnLayer } from "./canvas/layers";
 import { lockLayerActions } from "./canvas/lock-layer-actions";
 import { arrangeActions } from "./canvas/arrange-actions";
+import { writeClipboardText } from "./canvas/clipboard-export";
 import { transformActions } from "./canvas/transform-actions";
 import { boardViewActions } from "./canvas/board-view-actions";
+import { useBoardUi } from "./canvas/board-ui";
 import { withStartView } from "./canvas/start-view";
 import {
   MAX_ZOOM,
@@ -308,7 +311,7 @@ function buildClones(
 ) {
   const idSet = new Set(ids);
   const idMap = new Map();
-  for (const id of ids) idMap.set(id, crypto.randomUUID());
+  for (const id of idSet) idMap.set(id, crypto.randomUUID());
   const groupIdMap = new Map();
   const clones = [];
   for (const n of sourceNodes) {
@@ -332,6 +335,7 @@ function buildClones(
     if (n.slides) clone.slides = n.slides.map((slide) => (idMap.has(slide.frameId) ? { ...slide, frameId: idMap.get(slide.frameId) } : slide));
     delete clone.defaultView;
     delete clone.viewLocked;
+    delete clone.payload;
     clones.push(clone);
   }
   return { clones: placeCopies(present, clones, layerId), idMap };
@@ -429,7 +433,8 @@ function applyRemoteBoard(set, get, board, base = get().serverState) {
   const version = board?.version;
   if (typeof version !== "number" || version <= state.serverVersion) return false;
   if (textEditOpen(state)) return false;
-  const remote = validateCanvasState(board.data);
+  // Read without payloads: the ones this tab loaded stay on the nodes whose payload did not change.
+  const remote = carryPayloads(validateCanvasState(board.data), base);
   const cropped = croppedImageId(state);
   const held = Boolean(cropped) && !sameValue(nodeOf(base, cropped), nodeOf(remote, cropped));
   cropHold = held ? { id: cropped, remote: nodeOf(remote, cropped) } : null;
@@ -533,7 +538,7 @@ let patchSavesUnsupported = false;
 function savePatchOf(synced, sent, fullBody, opts) {
   if (patchSavesUnsupported || typeof synced.serverVersion !== "number") return null;
   if (opts?.keepalive && shouldUseKeepalive(fullBody())) return null;
-  return buildBoardPatch(synced.serverState, sent);
+  return buildBoardPatch(slimGraph(synced.serverState, synced.serverState), slimGraph(sent, synced.serverState));
 }
 
 /**
@@ -543,7 +548,7 @@ function savePatchOf(synced, sent, fullBody, opts) {
  */
 async function settleUnresolvedSave(set, get, boardId) {
   const save = unresolvedSave;
-  const res = await apiFetch(`/api/canvas-boards/${boardId}?saveId=${save.id}`, { cache: "no-store" });
+  const res = await apiFetch(`/api/canvas-boards/${boardId}?saveId=${save.id}&payloads=lazy`, { cache: "no-store" });
   if (!res.ok) throw new Error(`save lookup failed: ${res.status}`);
   const board = await res.json();
   if (get().boardId !== boardId || unresolvedSave !== save) return;
@@ -606,12 +611,12 @@ async function flushSaveImpl(
       const ownCropEdit = Boolean(hold) && !sameValue(nodeOf(sentPresent, hold.id), nodeOf(synced.serverState, hold.id));
       const sent = hold && !ownCropEdit ? withNodeFrom(sentPresent, { nodes: hold.remote ? [hold.remote] : [] }, hold.id) : sentPresent;
       const save = { id: crypto.randomUUID(), data: sentPresent };
-      const fullBody = () => JSON.stringify({ data: sent, baseVersion: synced.serverVersion, saveId: save.id });
+      const fullBody = () => JSON.stringify({ data: slimGraph(sent, synced.serverState), baseVersion: synced.serverVersion, saveId: save.id });
       // Only the objects changed since the synced version; the server applies them to that version's graph.
       const patch = savePatchOf(synced, sent, fullBody, opts);
       const send = (patched) => {
         const body = patched ? JSON.stringify({ patch, baseVersion: synced.serverVersion, saveId: save.id }) : fullBody();
-        return apiFetch(`/api/canvas-boards/${boardId}`, {
+        return apiFetch(`/api/canvas-boards/${boardId}?payloads=lazy`, {
           method: patched ? "PATCH" : "PUT",
           headers: { "Content-Type": "application/json" },
           body,
@@ -675,7 +680,7 @@ async function flushSaveImpl(
       }
       if (!res.ok) throw new Error(`save failed: ${res.status}`);
       const j = await res.json();
-      clearPendingDraft(boardId, sentPresent);
+      clearPendingDraft(boardId, sentPresent, synced.serverState);
       if (j.board && get().boardId === boardId) {
         // The server put back changes this person may not make (a protected lock, the start view): merge
         // the graph it saved like another person's save, measured from what this tab sent.
@@ -696,14 +701,14 @@ async function flushSaveImpl(
       // flight — an edit mid-flight already flipped status back to "dirty"
       // and scheduled its own retry timer; overwriting it here would make
       // that timer's guard wrongly bail and silently drop the edit.
-      const settled = get().history.present === synced.history.present;
+      const settled = rootGraph(get().history.present) === rootGraph(synced.history.present);
       if (get().boardId === boardId) {
         // What the server now holds, normalized the same way it normalizes saves; an image still held
         // keeps its base copy. The objects this save added or changed carry the server's stamps.
         if (gestureBaseline) gestureBaseline = historyWithStamps(gestureBaseline, j.stamps, j.notesStamp);
         set({
           serverVersion: j.version,
-          serverState: withNotesStamp(withServerStamps(validateCanvasState(cropHold ? sentPresent : sent), j.stamps), j.notesStamp),
+          serverState: carryPayloads(withNotesStamp(withServerStamps(validateCanvasState(cropHold ? sentPresent : sent), j.stamps), j.notesStamp), get().serverState),
           history: historyWithStamps(get().history, j.stamps, j.notesStamp),
         });
       }
@@ -776,10 +781,10 @@ async function loadBoardImpl(set, get, id) {
   get().loadLayerVisibility();
 
   const pending = readPendingDraft(id);
-  const saveLookup = pending?.save && draftSyncUsable(pending) ? `?saveId=${encodeURIComponent(pending.save.id)}` : "";
+  const saveLookup = pending?.save && draftSyncUsable(pending) ? `&saveId=${encodeURIComponent(pending.save.id)}` : "";
   let res;
   try {
-    res = await apiFetch(`/api/canvas-boards/${id}${saveLookup}`, { cache: "no-store" });
+    res = await apiFetch(`/api/canvas-boards/${id}?payloads=lazy${saveLookup}`, { cache: "no-store" });
   } catch (err) {
     if (myGeneration === loadGeneration) set({ boardId: null, loaded: true });
     throw err;
@@ -845,7 +850,7 @@ let pollInFlight = false;
 async function fetchNewerBoard(get, boardId) {
   const { serverVersion: since, serverState: base } = get();
   if (!cropHold && typeof since === "number") {
-    const res = await apiFetch(`/api/canvas-boards/${boardId}/changes?since=${since}`, { cache: "no-store" });
+    const res = await apiFetch(`/api/canvas-boards/${boardId}/changes?since=${since}&payloads=lazy`, { cache: "no-store" });
     if (res.ok) {
       const reply = await res.json();
       if (reply.data) return reply;
@@ -854,7 +859,7 @@ async function fetchNewerBoard(get, boardId) {
       if (data) return { version: reply.version, updatedAt: reply.updatedAt, data };
     }
   }
-  const full = await apiFetch(`/api/canvas-boards/${boardId}`, { cache: "no-store" });
+  const full = await apiFetch(`/api/canvas-boards/${boardId}?payloads=lazy`, { cache: "no-store" });
   return full.ok ? full.json() : null;
 }
 
@@ -913,6 +918,160 @@ function writeNodeText(set, get, id, text, marks, contentHeight, from) {
 let clipboard = [];
 // The corner the clipboard's offsets are measured from, so pasting into frames keeps each object's place in them.
 let clipboardOrigin = { x: 0, y: 0 };
+// While the copied objects' payloads load, the promise of the filled clipboard.
+let clipboardLoading = null;
+// The objects an alt-drag copies in place whose payloads had not loaded, filled when the drag started.
+let inPlacePayloads = new Map();
+
+// ---- format payloads, loaded on demand (formats/payloads.js) ----
+const payloadLoader = createPayloadLoader(async (boardId, nodeId) => {
+  const res = await apiFetch(`/api/canvas-boards/${boardId}/payloads/${encodeURIComponent(nodeId)}`, { cache: "no-store" });
+  if (!res.ok) throw new Error(`payload load failed: ${res.status}`);
+  return res.json();
+});
+/** The working graph a loaded payload was put on, mapped to the graph it replaced: a save in flight still knows its content. */
+const loadedInto = new WeakMap();
+const rootGraph = (graph) => loadedInto.get(graph) ?? graph;
+
+/**
+ * Loads `node`'s payload from board `boardId`, resolving with it, and puts it on every copy of the node at that
+ * revision: the synced graph and each undo/redo snapshot. Loading is not an edit, so nothing is marked unsaved.
+ */
+async function loadNodePayload(set, get, boardId, node) {
+  const loaded = await payloadLoader.load(boardId, node);
+  if (!loaded || get().boardId !== boardId) return loaded;
+  const fill = (graph) => withLoadedPayload(graph, node.id, loaded);
+  const filled = (history) => ({ ...history, past: history.past.map(fill), present: fill(history.present), future: history.future.map(fill) });
+  if (gestureBaseline) gestureBaseline = filled(gestureBaseline);
+  const { history, serverState } = get();
+  const next = filled(history);
+  if (next.present !== history.present) loadedInto.set(next.present, rootGraph(history.present));
+  set({ history: next, serverState: fill(serverState) });
+  return loaded;
+}
+
+const PAYLOAD_LOADS_AT_ONCE = 4;
+
+/**
+ * `nodes` with the payloads they lack, loaded from board `boardId` a few requests at a time. A copy takes the
+ * payload the server holds whatever its revision. Resolves null, after telling the person, when one cannot load:
+ * a copy never leaves an object out.
+ */
+async function withPayloads(set, get, boardId, nodes) {
+  const filled = [...nodes];
+  const missing = nodes.flatMap((node, index) => (needsPayload(node) ? [index] : []));
+  let next = 0;
+  let failed = false;
+  const loadNext = async () => {
+    while (!failed && next < missing.length) {
+      const index = missing[next++];
+      try {
+        filled[index] = withPayload(nodes[index], await loadNodePayload(set, get, boardId, nodes[index]));
+      } catch {
+        failed = true;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(PAYLOAD_LOADS_AT_ONCE, missing.length) }, loadNext));
+  if (!failed && !filled.some(needsPayload)) return filled;
+  useBoardUi.getState().notify("Some items could not be copied. Try again.");
+  return null;
+}
+
+/**
+ * Runs `action(filled)` with `nodes` and their payloads (withPayloads), at once when none is missing. When one
+ * cannot load, or the board changed or became read-only meanwhile, nothing runs.
+ */
+function afterPayloads(set, get, nodes, action) {
+  if (!nodes.some(needsPayload)) return void action(nodes);
+  const { boardId } = get();
+  void withPayloads(set, get, boardId, nodes).then((filled) => {
+    if (filled && get().boardId === boardId && !selectReadOnly(get())) action(filled);
+  });
+}
+
+/**
+ * Puts copies of `nodes` on the clipboard, which takes their payloads once those load and holds nothing when one
+ * cannot; the system clipboard, marked with the copy meanwhile, is then emptied too. Returns the loading promise
+ * (resolving with the filled copies, or null), or null when nothing loads.
+ */
+function holdClipboard(set, get, nodes, present) {
+  const copied = nodes.map((node) => ({ ...node }));
+  clipboard = copied;
+  clipboardOrigin = copyOrigin(copied, present.nodes);
+  clipboardLoading = null;
+  if (!copied.some(needsPayload)) return null;
+  const loading = withPayloads(set, get, get().boardId, copied).then((filled) => {
+    if (clipboard === copied) {
+      clipboard = filled ?? [];
+      if (!filled) void writeClipboardText("");
+    }
+    if (clipboardLoading === loading) clipboardLoading = null;
+    return filled;
+  });
+  clipboardLoading = loading;
+  return loading;
+}
+
+function selectedNodes(state) {
+  const wanted = new Set(state.selection);
+  return state.history.present.nodes.filter((node) => wanted.has(node.id));
+}
+
+/** Adds a copy of `source` (without its text) beside it on side `anchor`, connected to it, and selects it. */
+function linkedCopy(set, get, source, anchor) {
+  const GAP = 80;
+  let x = source.x + source.w + GAP;
+  let y = source.y;
+  let oppositeAnchor = "left";
+  if (anchor === "left") {
+    x = source.x - source.w - GAP;
+    y = source.y;
+    oppositeAnchor = "right";
+  } else if (anchor === "bottom") {
+    x = source.x;
+    y = source.y + source.h + GAP;
+    oppositeAnchor = "top";
+  } else if (anchor === "top") {
+    x = source.x;
+    y = source.y - source.h - GAP;
+    oppositeAnchor = "bottom";
+  }
+  const newId = crypto.randomUUID();
+  const clone = {
+    ...unstamped(source),
+    id: newId,
+    x,
+    y,
+    groupId: null,
+  };
+  if ("text" in clone) clone.text = "";
+  delete clone.marks;
+  delete clone.payload;
+  if (clone.type === "erd" && Array.isArray(clone.rows)) {
+    clone.name = `${source.name || "Entity"} Copy`;
+    clone.rows = clone.rows.map((r, i) => ({
+      ...r,
+      id: `row-${crypto.randomUUID().slice(0, 8)}-${i}`,
+    }));
+  }
+  const theme = getDiagramTheme(get().diagramThemeId);
+  const newConnector = {
+    id: crypto.randomUUID(),
+    from: { nodeId: source.id, anchor },
+    to: { nodeId: newId, anchor: oppositeAnchor },
+    kind: "arrow",
+    stroke: theme.connectorStroke ?? "rgba(255,255,255,0.7)",
+    strokeWidth: 2,
+  };
+  mutateGraph(set, get, (curr) => ({
+    ...curr,
+    nodes: [...curr.nodes, clone],
+    connectors: [...curr.connectors, newConnector],
+  }));
+  set({ selection: [newId], selectedConnectorIds: [] });
+  return newId;
+}
 
 export const useCanvasStore = create((set, get) => ({
   boardId: null,
@@ -943,7 +1102,12 @@ export const useCanvasStore = create((set, get) => ({
   orphanedTables: [],
 
   ...lockLayerActions(set, get, { mutateGraph }),
-  ...arrangeActions(set, get, { mutateGraph, buildClones, readOnly: selectReadOnly }),
+  ...arrangeActions(set, get, {
+    mutateGraph,
+    buildClones,
+    readOnly: selectReadOnly,
+    afterPayloads: (nodes, action) => afterPayloads(set, get, nodes, action),
+  }),
   ...transformActions(set, get, { mutateGraph }),
   ...boardViewActions(set, get, { mutateGraph }),
 
@@ -990,6 +1154,13 @@ export const useCanvasStore = create((set, get) => ({
   dismissOrphanedTables: () => set({ orphanedTables: [] }),
 
   flushSave: (opts) => flushSaveImpl(set, get, opts),
+
+  /** Loads format node `id`'s payload when it has not loaded yet (formats/payloads.js); rejects when the request fails. */
+  loadPayload: (id) => {
+    const { boardId, history } = get();
+    const node = nodeOf(history.present, id);
+    return needsPayload(node) ? loadNodePayload(set, get, boardId, node) : Promise.resolve();
+  },
 
   /** Keep a durable copy of edits that are not yet acknowledged by the server. */
   persistPendingDraft: () => {
@@ -1373,20 +1544,32 @@ export const useCanvasStore = create((set, get) => ({
     if (selectReadOnly(get())) return;
     const { selection } = get();
     if (!selection.length) return;
-    let idMap = new Map();
-    mutateGraph(set, get, (present) => {
-      const built = buildClones(present.nodes, selection, 20, 20, true, present, get().activeLayerId);
-      idMap = built.idMap;
-      // A duplicated frame takes the next date in its title.
-      return { ...present, nodes: [...present.nodes, ...renameDuplicatedFrames(built.clones, built.idMap, present.nodes)] };
+    afterPayloads(set, get, selectedNodes(get()), (nodes) => {
+      let idMap = new Map();
+      mutateGraph(set, get, (present) => {
+        const built = buildClones(nodes, selection, 20, 20, true, present, get().activeLayerId);
+        idMap = built.idMap;
+        // A duplicated frame takes the next date in its title.
+        return { ...present, nodes: [...present.nodes, ...renameDuplicatedFrames(built.clones, built.idMap, present.nodes)] };
+      });
+      set({ selection: Array.from(idMap.values()), selectedConnectorIds: [] });
     });
-    set({ selection: Array.from(idMap.values()), selectedConnectorIds: [] });
   },
 
+  /** Starts an alt-drag: loads the payloads its in-place duplicate needs (see duplicateSelectionInPlace). */
+  prepareInPlaceDuplicate: () => {
+    const prepared = (inPlacePayloads = new Map());
+    afterPayloads(set, get, selectedNodes(get()).filter(needsPayload), (filled) => {
+      for (const node of filled) prepared.set(node.id, node);
+    });
+  },
+
+  /** Returns false, copying nothing, while a selected object's payload has not loaded for the alt-drag. */
   duplicateSelectionInPlace: () => {
-    if (selectReadOnly(get())) return;
+    if (selectReadOnly(get())) return false;
     const { selection } = get();
-    if (!selection.length) return;
+    const nodes = selectedNodes(get()).map((n) => (needsPayload(n) ? inPlacePayloads.get(n.id) ?? n : n));
+    if (!selection.length || nodes.some(needsPayload)) return false;
     let idMap = new Map();
     mutateGraph(
       set,
@@ -1394,13 +1577,14 @@ export const useCanvasStore = create((set, get) => ({
       (present) => {
         // Zero offset — duplicates land exactly on the originals (alt-drag
         // then drags the duplicates; the originals are left untouched).
-        const built = buildClones(present.nodes, selection, 0, 0, true, present, get().activeLayerId);
+        const built = buildClones(nodes, selection, 0, 0, true, present, get().activeLayerId);
         idMap = built.idMap;
         return { ...present, nodes: [...present.nodes, ...built.clones] };
       },
       { coalesce: true }
     );
     set({ selection: Array.from(idMap.values()), selectedConnectorIds: [] });
+    return true;
   },
 
   group: () => {
@@ -1601,61 +1785,16 @@ export const useCanvasStore = create((set, get) => ({
     return newNode.id;
   },
 
+  /** Adds a linked copy of `nodeId` beside it; returns the copy's id, or null while the source's payload loads. */
   quickCreateFromNode: (nodeId, anchor = "right") => {
     if (selectReadOnly(get())) return null;
-    const { present } = get().history;
-    const source = present.nodes.find((n) => n.id === nodeId);
+    const source = nodeOf(get().history.present, nodeId);
     if (!source) return null;
-    const GAP = 80;
-    let x = source.x + source.w + GAP;
-    let y = source.y;
-    let oppositeAnchor = "left";
-    if (anchor === "left") {
-      x = source.x - source.w - GAP;
-      y = source.y;
-      oppositeAnchor = "right";
-    } else if (anchor === "bottom") {
-      x = source.x;
-      y = source.y + source.h + GAP;
-      oppositeAnchor = "top";
-    } else if (anchor === "top") {
-      x = source.x;
-      y = source.y - source.h - GAP;
-      oppositeAnchor = "bottom";
-    }
-    const newId = crypto.randomUUID();
-    const clone = {
-      ...unstamped(source),
-      id: newId,
-      x,
-      y,
-      groupId: null,
-    };
-    if ("text" in clone) clone.text = "";
-    delete clone.marks;
-    if (clone.type === "erd" && Array.isArray(clone.rows)) {
-      clone.name = `${source.name || "Entity"} Copy`;
-      clone.rows = clone.rows.map((r, i) => ({
-        ...r,
-        id: `row-${crypto.randomUUID().slice(0, 8)}-${i}`,
-      }));
-    }
-    const theme = getDiagramTheme(get().diagramThemeId);
-    const newConnector = {
-      id: crypto.randomUUID(),
-      from: { nodeId: source.id, anchor },
-      to: { nodeId: newId, anchor: oppositeAnchor },
-      kind: "arrow",
-      stroke: theme.connectorStroke ?? "rgba(255,255,255,0.7)",
-      strokeWidth: 2,
-    };
-    mutateGraph(set, get, (curr) => ({
-      ...curr,
-      nodes: [...curr.nodes, clone],
-      connectors: [...curr.connectors, newConnector],
-    }));
-    set({ selection: [newId], selectedConnectorIds: [] });
-    return newId;
+    if (!needsPayload(source)) return linkedCopy(set, get, source, anchor);
+    afterPayloads(set, get, [source], ([filled]) => {
+      if (nodeOf(get().history.present, nodeId)) linkedCopy(set, get, filled, anchor);
+    });
+    return null;
   },
 
   updateNodeFields: (nodeId, patch, opts) => {
@@ -1779,25 +1918,31 @@ export const useCanvasStore = create((set, get) => ({
     return diagramNode.id;
   },
 
-  /** Copies the selected objects; returns whether anything was copied. */
+  /** Copies the selected objects, with their payloads (holdClipboard); returns whether anything was copied. */
   copy: () => {
-    const { selection, history } = get();
-    if (!selection.length) return false;
-    const selSet = new Set(selection);
-    clipboard = history.present.nodes.filter((n) => selSet.has(n.id)).map((n) => ({ ...n }));
-    clipboardOrigin = copyOrigin(clipboard, history.present.nodes);
+    if (!get().selection.length) return false;
+    holdClipboard(set, get, selectedNodes(get()), get().history.present);
     return true;
   },
 
-  /** Copies and deletes the selected objects; returns whether anything was cut. */
+  /**
+   * Copies and deletes the selected objects; returns whether anything was cut or is being cut. Objects whose
+   * payloads have not loaded are deleted once those load, since a deleted object's payload may no longer be
+   * readable; when one cannot load they stay and nothing is left on either clipboard (holdClipboard).
+   */
   cut: () => {
-    const { selection, history } = get();
-    if (!selection.length) return false;
-    const selected = new Set(selection);
-    if (selectReadOnly(get())) return false;
-    clipboard = history.present.nodes.filter((node) => selected.has(node.id)).map((node) => ({ ...node }));
-    clipboardOrigin = copyOrigin(clipboard, history.present.nodes);
-    get().deleteSelected({ cut: true });
+    const { selection, selectedConnectorIds, history, boardId } = get();
+    if (!selection.length || selectReadOnly(get())) return false;
+    const loading = holdClipboard(set, get, selectedNodes(get()), history.present);
+    if (!loading) {
+      get().deleteSelected({ cut: true });
+      return true;
+    }
+    void loading.then((filled) => {
+      if (!filled || clipboard !== filled || get().boardId !== boardId || selectReadOnly(get())) return;
+      set({ selection, selectedConnectorIds });
+      get().deleteSelected({ cut: true });
+    });
     return true;
   },
 
@@ -1827,11 +1972,17 @@ export const useCanvasStore = create((set, get) => ({
     mutateGraph(set, get, (present) => (nodeOf(present, id) ? withCrop(present) : withNodeFrom(present, cropped, id)));
   },
 
+  /** Pastes the clipboard, once the payloads of objects just copied have loaded. */
   paste: () => {
     if (selectReadOnly(get())) return;
+    if (clipboardLoading) {
+      const { boardId } = get();
+      void clipboardLoading.then(() => get().boardId === boardId && get().paste());
+      return;
+    }
     if (!clipboard.length) return;
-    let idMap = new Map();
     const { selection } = get();
+    let idMap = new Map();
     mutateGraph(set, get, (present) => {
       // With frames selected, one copy goes into each of them at the same offsets from the frame's corner.
       const targets = present.nodes.filter((n) => selection.includes(n.id));
@@ -1847,7 +1998,7 @@ export const useCanvasStore = create((set, get) => ({
         return { ...present, nodes: [...present.nodes, ...all] };
       }
       // Cloned from the clipboard SNAPSHOT (taken at copy()-time), not from
-      // the live present — edits made after copying, or the original being
+      // the live present - edits made after copying, or the original being
       // deleted, don't affect what gets pasted, matching pre-refactor
       // behavior. `keepUnmappedParent: false` also matches paste's existing
       // behavior of dropping to no parent when the parent wasn't copied too.

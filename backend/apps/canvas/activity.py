@@ -86,9 +86,10 @@ def stamp(old_graph, new_graph, actor, now):
 
 
 def stamps_of(graph, changes):
-    """The stamps a save gave the objects it added or edited, keyed by id, for the saving editor."""
+    """The stamps a save gave the objects it added or edited, keyed by id, for the saving editor, with a format
+    node's payload reference (apps.canvas.payloads), whose revision the save may have moved."""
     changed = {item['id'] for action, item, _ in changes if action != 'delete'}
-    return {item['id']: {key: item[key] for key in STAMP_KEYS if key in item}
+    return {item['id']: {key: item[key] for key in (*STAMP_KEYS, 'payload') if key in item}
             for item in graph['nodes'] + graph['connectors'] if item['id'] in changed}
 
 

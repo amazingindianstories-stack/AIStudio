@@ -4,10 +4,10 @@ from django.conf import settings
 from django.http import HttpResponse
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from apps.authentication.session import lookup
-from . import access, hidden, limits, services
+from . import access, hidden, limits, payloads, services
 from . import patch as board_patch
 from .models import CanvasBoard
-from .serialization import JS_WHITESPACE, MAX_BOARD_JSON_UNITS, content_length, js_json, validate_state
+from .serialization import JS_WHITESPACE, MAX_BOARD_JSON_UNITS, js_json, validate_state
 
 UUID_PATTERN = re.compile(r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}')
 
@@ -177,7 +177,7 @@ def board_detail(request, identifier):
             save_id = save_id_of(request.GET.dict())
             if save_id is False:
                 return reply(request, {'error': 'Invalid save id.'}, 400)
-            board = services.get_board(identifier, save_id, viewer=user.id)
+            board = services.get_board(identifier, save_id, viewer=user.id, lazy=lazy_payloads(request))
             if board:
                 board = {**board, 'data': hidden.visible_data(board['data'], level)}
             return reply(request, {**board, 'role': access.LEVEL_NAMES[level]}) if board else reply(request, {'error': 'Board not found.'}, 404)
@@ -195,11 +195,12 @@ def board_detail(request, identifier):
         save_id = save_id_of(payload)
         if save_id is False:
             return reply(request, {'error': 'Invalid save id.'}, 400)
-        if patch is None and content_length(data) > MAX_BOARD_JSON_UNITS:
+        # The 2 Mi board limit applies to the board JSON without its format payloads (each has its own limit).
+        if patch is None and payloads.slim_length(data) > MAX_BOARD_JSON_UNITS:
             return reply(request, {'error': 'Board is too large to save.'}, 413)
         try:
             saved = services.save_board(identifier, None if patch is not None else validate_state(data), base_version,
-                                        save_id, user.id, patch=patch, level=level)
+                                        save_id, user.id, patch=patch, level=level, lazy=lazy_payloads(request))
         except board_patch.PatchError:
             return reply(request, {'error': 'INVALID_PATCH'}, 400)
         except services.VersionConflict as conflict:
@@ -207,6 +208,9 @@ def board_detail(request, identifier):
             return reply(request, {'error': 'VERSION_CONFLICT', 'board': seen}, 409)
         except services.BoardTooLarge:
             return reply(request, {'error': 'Board is too large to save.'}, 413)
+        except payloads.PayloadTooLarge as large:
+            return reply(request, {'error': f'A Doc, HTML embed or diagram holds up to {payloads.MAX_PAYLOAD_UNITS:,} characters in all. Shorten it or split it.',
+                                   'limit': 'payload', 'nodeId': large.node_id}, 413)
         except limits.BoardLimitExceeded as exceeded:
             return reply(request, {'error': exceeded.message, 'limit': exceeded.code}, 413)
         if saved is None:
@@ -214,6 +218,36 @@ def board_detail(request, identifier):
         if level is not None and 'board' in saved:
             saved = {**saved, 'board': hidden.visible_data(saved['board'], level)}
         return reply(request, {'ok': True, **saved})
+    except access.AccessError as error:
+        return reply(request, {'error': str(error)}, error.status)
+    except Exception:
+        return failure()
+
+
+def lazy_payloads(request):
+    """`?payloads=lazy`: the editor loads format payloads on demand (`board_payload`) instead of receiving them inline."""
+    return request.GET.get('payloads') == 'lazy'
+
+
+@node_route(['GET'])
+def board_payload(request, identifier, node_id):
+    """One format node's payload (Docs blocks, HTML, draw.io XML and preview) with its revision; readable by anyone who reads the node."""
+    user = lookup(request)
+    if user is None:
+        return reply(request, {'error': 'UNAUTHENTICATED'}, 401)
+    try:
+        existing = access.board_row(identifier) if UUID_PATTERN.fullmatch(identifier) else None
+        if existing is None:
+            return reply(request, {'error': 'Board not found.'}, 404)
+        level = access.require(user, existing, access.READ)
+        row = payloads.read(identifier, [node_id]).get(node_id)
+        if row is not None and not hidden.can_manage(level):
+            nodes = (CanvasBoard.objects.filter(pk=identifier).values_list('data', flat=True).first() or {}).get('nodes', [])
+            if not any(item['id'] == node_id for item in nodes) or node_id in hidden.hidden_ids({'nodes': nodes}):
+                row = None
+        if row is None:
+            return reply(request, {'error': 'Payload not found.'}, 404)
+        return reply(request, {'nodeId': node_id, 'kind': row['kind'], 'rev': row['rev'], 'size': row['size'], **row['body']})
     except access.AccessError as error:
         return reply(request, {'error': str(error)}, error.status)
     except Exception:
@@ -273,7 +307,7 @@ def board_changes(request, identifier):
         since = request.GET.get('since', '')
         if not re.fullmatch(r'[0-9]{1,16}', since):
             return reply(request, {'error': 'Invalid version.'}, 400)
-        changes = services.board_changes(identifier, int(since), level, viewer=user.id)
+        changes = services.board_changes(identifier, int(since), level, viewer=user.id, lazy=lazy_payloads(request))
         return reply(request, changes) if changes else reply(request, {'error': 'Board not found.'}, 404)
     except access.AccessError as error:
         return reply(request, {'error': str(error)}, error.status)

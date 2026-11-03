@@ -1,10 +1,11 @@
 """Canvas persistence preserves the shared-board ownership contract."""
+import copy
 import json
 import logging
 import time
 import uuid
 from django.db import connection, models, transaction
-from .models import (BoardActivity, BoardNotification, BoardPrivateMode, BoardTimer, CanvasBoard, CanvasBoardSave,
+from .models import (BoardActivity, BoardFormatPayload, BoardNotification, BoardPrivateMode, BoardTimer, CanvasBoard, CanvasBoardSave,
                      CustomShapePack, VotingSession)
 from .serialization import JS_WHITESPACE, MAX_BOARD_JSON_UNITS, content_length, empty_state, validate_state
 from .svg_sanitize import MAX_SHAPES_PER_PACK, SAFE_VIEWBOX_RE, sanitize_svg
@@ -35,15 +36,18 @@ def list_boards(project, user):
             for row in rows if levels[str(row['id'])] >= access.READ]
 
 
-def get_board(identifier, save_id=None, viewer=None):
+def get_board(identifier, save_id=None, viewer=None, lazy=False):
     """With a `save_id`, also the version that save landed at (None when it never landed or has expired).
-    With a `viewer`, the graph as that person may read it (private mode withholds other people's note text)."""
-    from . import private_mode
+    With a `viewer`, the graph as that person may read it (private mode withholds other people's note text).
+    Format payloads (apps.canvas.payloads) come inline unless `lazy`, where nodes keep their `payload` reference."""
+    from . import payloads, private_mode
     now = now_ms()
     mode = private_mode.settle(identifier, now)
     row = CanvasBoard.objects.filter(pk=identifier).values(*META_FIELDS, 'version', 'data').first()
     if row is None:
         return None
+    if not lazy:
+        row['data'] = payloads.hydrate(identifier, row['data'])
     data = row['data'] if viewer is None else private_mode.redact_graph(row['data'], viewer, now, mode)
     board = {**metadata(row), 'version': row['version'], 'data': data}
     if save_id is not None:
@@ -59,10 +63,17 @@ def board_version(identifier):
 
 
 def create_board(project, name, user, data=None):
-    """A new board holding `data` (an already validated graph, for a board started from a template) or nothing."""
+    """A new board holding `data` (an already validated graph, for a board started from a template) or nothing.
+    The graph's format payloads get their own rows (apps.canvas.payloads); `data` itself is left as given."""
+    from . import payloads
     now = now_ms()
-    row = CanvasBoard.objects.create(id=uuid.uuid4(), project_id=project, name=name, data=empty_state() if data is None else data,
-                                     created_by=user.id, created_at=now, updated_at=now, version=1)
+    identifier = uuid.uuid4()
+    graph = empty_state() if data is None else copy.deepcopy(data)
+    with transaction.atomic():
+        writes = payloads.split(identifier, graph)
+        row = CanvasBoard.objects.create(id=identifier, project_id=project, name=name, data=graph,
+                                         created_by=user.id, created_at=now, updated_at=now, version=1)
+        payloads.write(identifier, writes, graph, str(user.id), now)
     return {**metadata({**{field: getattr(row, field) for field in META_FIELDS}, 'team_role': 'edit'}), 'role': 'owner'}
 
 
@@ -83,6 +94,7 @@ def delete_board(identifier):
         CommentFollow.objects.filter(board_id=identifier).delete()
         Notification.objects.filter(board_id=identifier).delete()
         BoardTimer.objects.filter(board_id=identifier).delete()
+        BoardFormatPayload.objects.filter(board_id=identifier).delete()
         BoardPrivateMode.objects.filter(board_id=identifier).delete()
         VotingSession.objects.filter(board_id=identifier).delete()
         keys = talktrack.delete_board_talktracks(identifier)
@@ -105,7 +117,7 @@ def _graph(data):
     return {key: value for key, value in data.items() if key != 'viewport'} if isinstance(data, dict) else data
 
 
-def save_board(identifier, data, base_version, save_id, actor, patch=None, level=None):
+def save_board(identifier, data, base_version, save_id, actor, patch=None, level=None, lazy=False):
     """Write the graph only over the version the editor loaded, so concurrent editors never overwrite
     each other. A save without a base version or a save id is refused like a stale one. The board row is
     locked while the save is compared with the graph it replaces (apps.canvas.activity): changed objects
@@ -121,7 +133,7 @@ def save_board(identifier, data, base_version, save_id, actor, patch=None, level
     read, is kept as stored and the hidden flags cannot change (apps.canvas.hidden). None means everything.
     Changes the actor at access `level` may not make (apps.canvas.locks) are put back; the save then makes a
     new version and returns the graph it saved as `board`, which the editor merges like someone else's save."""
-    from . import activity, extras, hidden, limits, locks, patch as board_patch, private_mode
+    from . import activity, extras, hidden, limits, locks, patch as board_patch, payloads, private_mode
     now = now_ms()
     actor = str(actor)
     mode = private_mode.settle(identifier, now)
@@ -129,9 +141,13 @@ def save_board(identifier, data, base_version, save_id, actor, patch=None, level
         with transaction.atomic():
             row = CanvasBoard.objects.select_for_update().filter(pk=identifier).values('version', 'data').first()
             if row and row['version'] == base_version:
-                stored = validate_state(row['data'])
+                current = payloads.slim(identifier, row['data'])
+                stored = validate_state(current)
                 if patch is not None:
                     data = validate_state(board_patch.apply_patch(stored, patch))
+                # Payload fields leave the graph first: everything below sees the small board, and a payload
+                # change shows as a new `payload` revision on its node.
+                writes = payloads.split(identifier, data)
                 if level is not None:
                     data = hidden.preserve(stored, data, level)
                 # Other people's private note text is put back before the diff, so it is neither lost nor
@@ -144,8 +160,9 @@ def save_board(identifier, data, base_version, save_id, actor, patch=None, level
                 stamped, claimed = private_mode.claim(stored, stamped, actor, mode)
                 if content_length(stamped) > MAX_BOARD_JSON_UNITS:
                     raise BoardTooLarge()
-                version = base_version + 1 if corrected or _graph(stamped) != _graph(row['data']) else base_version
+                version = base_version + 1 if corrected or _graph(stamped) != _graph(current) else base_version
                 CanvasBoard.objects.filter(pk=identifier).update(data=stamped, updated_at=now, version=version)
+                payloads.write(identifier, writes, stamped, actor, now)
                 if version != base_version:
                     with connection.cursor() as cursor:
                         changed = board_patch.changed_ids(stored, stamped)
@@ -161,18 +178,30 @@ def save_board(identifier, data, base_version, save_id, actor, patch=None, level
                 if stamped.get('notes') and stamped['notes'] != stored.get('notes'):
                     # The author and time this save gave the visual notes, for the saving editor's panel.
                     result['notesStamp'] = {key: stamped['notes'][key] for key in ('updatedBy', 'updatedAt')}
-                return {**result, 'board': visible} if corrected else result
-    current = get_board(identifier, viewer=actor)
+                return {**result, 'board': visible if lazy else payloads.hydrate(identifier, visible)} if corrected else result
+    current = get_board(identifier, viewer=actor, lazy=lazy)
     if current is None:
         return None
     raise VersionConflict(current)
 
 
-def board_changes(identifier, since, level=None, viewer=None):
+def board_changes(identifier, since, level=None, viewer=None, lazy=False):
     """What an editor holding version `since` needs to reach the current version: the objects changed since
     then (apps.canvas.patch.changes_since), or the whole graph when a version in between recorded no ids,
     has been pruned, or is too far back. None when the board does not exist. `level` withholds hidden frames
-    (apps.canvas.hidden) and `viewer` other people's private notes (apps.canvas.private_mode)."""
+    (apps.canvas.hidden) and `viewer` other people's private notes (apps.canvas.private_mode). Format payloads
+    (apps.canvas.payloads) come inline unless `lazy`."""
+    found = _board_changes(identifier, since, level, viewer)
+    if found is None or lazy:
+        return found
+    from . import payloads
+    if 'data' in found:
+        return {**found, 'data': payloads.hydrate(identifier, found['data'])}
+    upsert = found['changes']['nodes']['upsert']
+    return {**found, 'changes': {**found['changes'], 'nodes': {**found['changes']['nodes'], 'upsert': payloads.hydrate(identifier, {'nodes': upsert})['nodes']}}}
+
+
+def _board_changes(identifier, since, level, viewer):
     from . import hidden, patch as board_patch, private_mode
     now = now_ms()
     mode = private_mode.settle(identifier, now)

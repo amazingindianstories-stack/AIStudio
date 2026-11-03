@@ -8,7 +8,7 @@ another save lands in between, the write is rebuilt over the new version (RETRIE
 import re
 import uuid
 
-from . import access, hidden, services
+from . import access, hidden, payloads, services
 from .serialization import connector as valid_connector, node as valid_node, validate_state
 
 RETRIES = 5
@@ -19,7 +19,8 @@ KINDS = {'items': 'nodes', 'connectors': 'connectors'}
 
 
 class ItemError(Exception):
-    """A refusal with a stable code (INVALID_ITEM, ITEM_NOT_FOUND, BOARD_BUSY, BOARD_TOO_LARGE, BOARD_NOT_FOUND)."""
+    """A refusal with a stable code (INVALID_ITEM, ITEM_NOT_FOUND, BOARD_BUSY, BOARD_TOO_LARGE, PAYLOAD_TOO_LARGE,
+    BOARD_NOT_FOUND)."""
     status = 400
 
     def __init__(self, code, message, status=None):
@@ -106,6 +107,9 @@ def _write(identifier, actor, level, build):
             continue
         except services.BoardTooLarge:
             raise ItemError('BOARD_TOO_LARGE', 'The board is at its size limit.', 413) from None
+        except payloads.PayloadTooLarge:
+            raise ItemError('PAYLOAD_TOO_LARGE', f'A Doc, HTML embed or diagram holds up to {payloads.MAX_PAYLOAD_UNITS:,} characters in all. '
+                                                 'Shorten it or split it.', 413) from None
         if saved is None:
             raise ItemError('BOARD_NOT_FOUND', 'Board not found.', 404)
         return outcome, saved

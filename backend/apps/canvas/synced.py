@@ -10,6 +10,7 @@ import re
 
 from . import access, hidden
 from .models import CanvasBoard
+from .payloads import hydrate
 from .serialization import validate_state
 from .views import failure, node_route, reply
 from apps.authentication.session import lookup
@@ -84,6 +85,7 @@ def board_frame(request, identifier, node_id):
         content = frame_content(graph, level, node_id) if row is not None and NODE_ID_PATTERN.fullmatch(node_id) else None
         if content is None:
             return reply(request, {'error': 'Frame not found.'}, 404)
+        content['nodes'] = hydrate(identifier, {'nodes': content['nodes']})['nodes']
         return reply(request, {'board': {'id': identifier, 'name': row['name'], 'projectId': str(row['project_id']) if row['project_id'] else None}, 'version': row['version'], **content})
     except Exception:
         return failure()

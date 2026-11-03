@@ -47,7 +47,8 @@ merge per node on the client and poll for other people's saves.
   (`extras.stamp_notes`), which the client adopts into its graph, sync base and undo snapshots without an
   undo step.
 - The size limit (2,097,152 UTF-16 units of the graph's JSON) counts content only: both the request check and
-  the check on the normalized graph leave out the stamps, so stamping never costs a board room. A patch is
+  the check on the normalized graph leave out the stamps, so stamping never costs a board room, and format
+  payloads, which have their own limit ([board-formats.md](../features/board-formats.md#payload-storage)). A patch is
   measured only as the whole board it produces, never by its own size. A save over it
   gets 413 and nothing is written; the editor says the board is too large to save and does not retry until the
   next edit, and the pending draft keeps the unsaved edits.
