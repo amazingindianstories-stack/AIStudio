@@ -92,7 +92,7 @@ for (const width of [1440, 1024, 390]) {
     const limits = page.getByRole('dialog', { name: 'Limits for Desktop fixture' });
     const toggle = limits.getByRole('switch', { name: 'Agent access (MCP)' });
     await expect(toggle).toHaveAttribute('aria-checked', 'false');
-    await expect(limits.getByText('Agent daily spend limit')).toBeVisible();
+    await expect(limits.getByText('Agent daily cap', { exact: true })).toBeVisible();
     await toggle.click();
     await expect(toggle).toHaveAttribute('aria-checked', 'true');
     // The switch animates its knob and colour; finish that transition so the screenshot shows the settled state.
