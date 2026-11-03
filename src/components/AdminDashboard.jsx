@@ -2059,8 +2059,9 @@ function GlobalLimitCard({
   };
 
   return (
-    <div className="rounded-xl border border-line p-4">
+    <div className={def.note ? "rounded-xl border border-amber-400/30 p-4" : "rounded-xl border border-line p-4"}>
       <label className="mb-1 block text-sm font-medium text-white">{def.label}</label>
+      {def.note && <p className="mb-1 text-xs font-medium leading-5 text-amber-300">{def.note}</p>}
       <p className="mb-3 text-xs leading-5 text-white/45">
         {def.description} This is the default for every user; give an
         individual user their own limit from the Users tab, which overrides

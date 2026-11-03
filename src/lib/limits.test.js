@@ -78,3 +78,42 @@ test("a feature switch is 0 or 1, defaults on, and a corrupted value falls back 
   assert.equal(parseLimitValue("junk", def), 1);
   assert.equal(isLimitValueAllowed(2, def), false);
 });
+
+test("agent limits: registered with the planned defaults and bounds", () => {
+  const expected = {
+    agentsEnabled: [0, 0, 1], agentActiveRuns: [2, 1, 8], agentMaxStepsPerRun: [40, 1, 200], agentMaxRunCostCents: [1000, 1, 100000],
+    agentGlobalDailyCapCents: [20000, 1, 10000000], agentMaxConcurrentRuns: [8, 1, 50], agentAttachMaxMb: [20, 1, 100],
+    agentAttachMaxVideoSeconds: [300, 1, 3600], agentAttachMaxAudioSeconds: [600, 1, 7200], agentAttachImages: [1, 0, 1],
+    agentAttachDocuments: [1, 0, 1], agentAttachVideo: [1, 0, 1], agentAttachAudio: [1, 0, 1],
+  };
+  for (const [key, [defaultValue, min, max]] of Object.entries(expected)) {
+    const def = limitDefinition(key);
+    assert.deepEqual([def.defaultValue, def.min, def.max], [defaultValue, min, max], key);
+    assert.equal(def.switch === true, max === 1, `${key}: switch flag`);
+  }
+});
+
+test("agent limits: global-only keys are absent from the per-user panel, the rest are present", () => {
+  const perUser = USER_LIMIT_DEFINITIONS.map((d) => d.key);
+  for (const key of ["agentGlobalDailyCapCents", "agentMaxConcurrentRuns"]) {
+    assert.equal(limitDefinition(key).globalOnly, true);
+    assert.ok(!perUser.includes(key), key);
+  }
+  for (const key of ["agentsEnabled", "agentActiveRuns", "agentAttachAudio", "agentAttachMaxMb"]) assert.ok(perUser.includes(key), key);
+});
+
+test("agentsEnabled: the kill switch is explained, and 0 is a valid stored value", () => {
+  const def = limitDefinition("agentsEnabled");
+  assert.match(def.description, /kill switch/);
+  assert.ok(def.note);
+  assert.equal(isLimitValueAllowed(0, def), true);
+  assert.equal(isLimitValueAllowed(2, def), false);
+  assert.equal(parseLimitValue("0", def), 0);
+});
+
+test("mcpDailyCapCents is relabelled Agent daily cap and says it covers the Agents tab and model cost", () => {
+  const def = limitDefinition("mcpDailyCapCents");
+  assert.equal(def.label, "Agent daily cap");
+  assert.match(def.description, /Agents tab/);
+  assert.match(def.description, /token cost/);
+});

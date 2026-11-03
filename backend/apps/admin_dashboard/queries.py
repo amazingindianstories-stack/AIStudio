@@ -130,7 +130,8 @@ def dashboard(request):
     if refused: return refused
     try:
         global_values = dict(AppSetting.objects.filter(key__in=LIMITS).values_list('key', 'value'))
-        limits = {key: parse(global_values.get(key), definition) for key, definition in LIMITS.items()}
+        limits = {key: parse(global_values.get(key), definition) for key, definition in LIMITS.items()
+                  if key != 'agentsEnabled' or key in global_values}   # no row means admins only, which no 1/0 value says
         overrides = {}
         for row in UserLimit.objects.filter(key__in=USER_LIMITS):
             overrides.setdefault(str(row.user_id), {})[row.key] = parse(row.value, LIMITS[row.key])
