@@ -113,12 +113,15 @@ Copying a board or template reads inline and re-splits; a template saved from a 
 payloads from the source board.
 
 Migration `canvas.0019_format_payloads` is an expand step: it copies inline payloads into rows and adds each
-node's reference, keeping the inline fields, so the previous release (which drops the reference and reads the
-fields) still shows and saves every payload while both serve. A node without a reference is read from its inline
-fields, and a save by this release takes them off. Removing the inline copies left by the migration is a later
-contract step. Unapplying 0019 puts every row back inline into a node without its fields and drops the reference
-before the table goes, so a rollback first unapplies canvas 0019 with the new image still deployed, then rolls back
-the image.
+node's reference, keeping the inline fields, so a board the previous release (which drops the reference and reads
+the fields) loads or saves after the migration keeps its payloads. A node without a reference is read from its
+inline fields. A save by this release takes the fields off every referenced node of the board, and a later save
+of that board by the previous release would store those payloads empty, so the two releases must never serve
+together: the release that ships 0019 deploys the API with no overlap, the old API stopping before the new one
+serves ([release-runbook.md](../operations/release-runbook.md#order-one-service-at-a-time-verify-before-the-next)).
+Removing the inline copies left by the migration is a later contract step. Unapplying 0019 puts every row back
+inline into a node without its fields and drops the reference before the table goes, so a rollback first unapplies
+canvas 0019 with the new image still deployed, then rolls back the image.
 
 ## Roles and history
 
