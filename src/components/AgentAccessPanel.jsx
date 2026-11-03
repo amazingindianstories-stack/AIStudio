@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Bot, Check, Copy, KeyRound, Loader2, Plug, Plus, ShieldOff, X } from "lucide-react";
 import { apiFetch } from "@/lib/api";
@@ -247,9 +247,10 @@ function CreateTokenForm({ access, onCancel, onCreated }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => nameRef.current?.focus());
-    return () => cancelAnimationFrame(frame);
+  // Focus the name as the form opens, at commit rather than on a later frame: a deferred focus can land after the
+  // person has already moved to another field and pull them back, sending their typing to the wrong input.
+  useLayoutEffect(() => {
+    nameRef.current?.focus({ preventScroll: true });
   }, []);
 
   // A correction clears the previous complaint.
