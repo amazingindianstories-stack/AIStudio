@@ -22,7 +22,7 @@ from .shapes import dollars
 
 TOOLS = {'image': 'generate_image', 'video': 'generate_video', 'upscale': 'upscale_media'}
 PROVIDERS = {'seedream': 'BytePlus Seedream', 'gemini': 'Google Gemini', 'kling': 'Kling', 'byteplus': 'BytePlus ModelArk',
-             'omnihuman': 'BytePlus Vision', 'omni': 'Google Gemini Omni', 'magnific': 'Magnific'}
+             'omnihuman': 'BytePlus Vision', 'omni': 'Google Gemini Omni', 'magnific': 'Magnific', 'openai': 'OpenAI'}
 OUTPUT_TYPES = {'image': ['image/png', 'image/jpeg', 'image/webp'], 'video': ['video/mp4', 'video/quicktime']}
 TYPICAL_WINDOW_MS = 7 * 86400 * 1000
 TYPICAL_TTL_SECONDS = 600

@@ -9,7 +9,7 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
-from django.db import connection, connections
+from django.db import connections
 from apps.common.leases import now_ms
 from apps.generation.models import Generation
 from apps.generation.model_registry import provider_model_id
@@ -76,6 +76,14 @@ def kling():
     if not os.environ.get('KLING_API') and getattr(settings, 'VEEVEE_KLING', False):
         return outcome('unknown', 'Enabled (VEEVEE_KLING); KLING_API is held by the generation worker, not this API process')
     return configured('KLING_API')
+
+
+def openai():
+    # Production gives OPENAI_API_KEY to the generation worker only; the API process that serves this page never holds it.
+    from django.conf import settings
+    if not os.environ.get('OPENAI_API_KEY') and getattr(settings, 'VEEVEE_OPENAI_IMAGE', False):
+        return outcome('unknown', 'Enabled (VEEVEE_OPENAI_IMAGE); OPENAI_API_KEY is held by the generation worker, not this API process')
+    return configured('OPENAI_API_KEY')
 
 
 def omnihuman():
@@ -153,6 +161,7 @@ CHECKS = [
     ('gemini-nano-banana-2-1', 'Gemini / Nano Banana 2.1', lambda: gemini(model='Nano Banana 2.1')),
     ('higgsfield', 'Higgsfield MCP', higgsfield),
     ('seedance', 'BytePlus ModelArk / Seedance', lambda: configured('ARK_API_KEY')), ('kling', 'KlingAI Image', kling),
+    ('openai', 'OpenAI / GPT Image 2.5', openai),
     ('omni', 'Gemini Omni Flash 1.1', omni), ('omnihuman', 'BytePlus Vision / OmniHuman 2.0', omnihuman), ('postgres', 'Postgres', postgres), ('generation-indexes', 'Generation Indexes', generation_indexes),
     ('stuck-generations', 'Stuck Generations', stuck_generations), ('storage', 'Media Storage', storage),
     ('ffmpeg-runtime', 'ffmpeg Runtime', ffmpeg), ('media-delivery', 'Media Delivery', media_delivery),

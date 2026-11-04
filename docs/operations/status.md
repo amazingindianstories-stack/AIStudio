@@ -36,6 +36,20 @@ admins only); see agent-access.md, Who may connect. No migration: the run tables
 from `agents.0005_agent_runs` (#150). The Agents tab UI sends every message to a run (the synchronous
 `POST .../messages` path is removed), so the tab needs this worker deployed with the API.
 
+## Not deployed yet - OpenAI GPT Image 2.5 (branch `fm/veevee-openai-image-2-5`)
+
+GPT Image 2.5 Sunburst and Flare (`gpt-image-2.5-sunburst-2026-09-08`, `gpt-image-2.5-flare-2026-09-08`) are image
+models behind `VEEVEE_OPENAI_IMAGE`, off unless `1`. With the switch off they are unavailable in every picker and
+refused at submission. Enabling them needs owner approval and:
+
+- `VEEVEE_OPENAI_IMAGE=1` on api and generation;
+- `OPENAI_API_KEY` on generation only (`deploy/legacy_config.py` `_openai`; the API, MCP and agent never receive it).
+
+The worker calls `https://api.openai.com/v1/images/generations` (or `/edits` with references) once per job, and the
+paid guard pins the snapshot, `n=1`, size, quality `high` and PNG. Cost is reconciled from the returned token usage
+at the admin per-million-token rows (`GPT Image 2.5 <name> · text input / image input / image output`). No migration.
+No live OpenAI call has been made, so provider acceptance is not claimed.
+
 ## Production release 2026-11-02 (second) - main `c4c56d23`
 
 Owner-approved release of the combined board PR (#139): every remaining board slice (formats, media, templates, comments and

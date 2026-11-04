@@ -137,6 +137,9 @@ VEEVEE_MAGNIFIC_UPSCALE = os.environ.get('VEEVEE_MAGNIFIC_UPSCALE') == '1'
 VEEVEE_GEMINI_OMNI = os.environ.get('VEEVEE_GEMINI_OMNI') == '1'
 # Paid Kling Image 3.0 / 2.1 through the paid guard (off unless '1'; the API and generation worker both need it).
 VEEVEE_KLING = os.environ.get('VEEVEE_KLING') == '1'
+# Paid OpenAI GPT Image 2.5 Sunburst / Flare through the paid guard (off unless '1'; the API and generation worker
+# both need it, and the generation worker alone holds OPENAI_API_KEY).
+VEEVEE_OPENAI_IMAGE = os.environ.get('VEEVEE_OPENAI_IMAGE') == '1'
 # Worker lease and filename-sequence namespaces (live Green state; see
 # apps/common/leases.py and apps/library/services/naming.py). Empty means no
 # namespace; the API process never uses them.

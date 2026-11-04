@@ -12,11 +12,11 @@ from apps.common.leases import now_ms
 from apps.generation.model_registry import model_definition, capability
 from apps.generation.prompting.assembler import assemble_prompt
 from apps.generation.prompting import image_prep, face_judge
-from apps.generation.providers import gemini, kling, seedream, higgsfield
+from apps.generation.providers import gemini, kling, openai_image, seedream, higgsfield
 from apps.media.persistence import measure_generated_media
 from apps.integrations.remote import get_media_fetcher
 from apps.media.storage import get_storage
-from .pricing import read_pricing, compute_cost, kling_units_to_cents
+from .pricing import read_pricing, compute_cost, kling_units_to_cents, openai_token_cost
 from .seedream_references import prepare_seedream_references
 
 
@@ -51,6 +51,7 @@ class Dependencies:
     kling_prepare = staticmethod(kling.prep_reference)
     kling_submit = staticmethod(kling.submit_image)
     kling_resolve = staticmethod(kling.resolve_image)
+    openai_generate = staticmethod(openai_image.generate_image)
     higgsfield_upload = staticmethod(higgsfield.mcp_upload_image)
     higgsfield_submit = staticmethod(higgsfield.mcp_generate_image)
     higgsfield_await = staticmethod(higgsfield.mcp_await_job)
@@ -197,6 +198,14 @@ def execute_image(item, *, signal, dependencies=None, env=None, on_task=None):
         if reconciled is not None:
             cost, basis = reconciled, 'reconciled'
         saved = save(fetch(done['url']), 'png')
+    elif provider == 'openai':
+        result = deps.openai_generate({'model': model, 'assembled': assemble(), 'aspectRatio': ratio,
+            'resolution': resolution}, signal=signal, env=env)
+        saved = save(result['content'], 'png')
+        pricing = deps.pricing if deps.pricing is not None else deps.read_pricing()
+        reconciled = openai_token_cost(model, result.get('usage'), pricing)
+        if reconciled is not None:
+            cost, basis = reconciled, 'reconciled'
     else:
         assembled = assemble()
         size = '4K' if resolution == '4K' else '2K' if resolution in ('2K', '1080p') else '1K'

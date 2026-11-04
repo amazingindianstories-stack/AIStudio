@@ -49,10 +49,10 @@ def gemini_video_models():
 
 
 def non_gemini_image_models():
-    """Image model names and ids billed by their own provider account (Seedream, Kling), never by the Gemini key:
+    """Image model names and ids billed by their own provider account (Seedream, Kling, OpenAI), never by the Gemini key:
     they neither spend nor wait on the Gemini window."""
     from apps.generation.model_registry import MODEL_REGISTRY
-    return sorted(name for model in MODEL_REGISTRY if model['kind'] == 'image' and model.get('provider') in ('seedream', 'kling')
+    return sorted(name for model in MODEL_REGISTRY if model['kind'] == 'image' and model.get('provider') in ('seedream', 'kling', 'openai')
                   for name in (model['id'], model['name']))
 
 

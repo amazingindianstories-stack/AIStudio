@@ -2,14 +2,12 @@ from testsupport.frozen_oracle import run as oracle_run
 import csv
 import io
 import json
-import subprocess
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor
 import uuid
 from pathlib import Path
 from unittest.mock import patch
-from django.db import connection, transaction
 from django.test import TransactionTestCase, SimpleTestCase, override_settings
 from apps.admin_dashboard import tests as fixtures
 from apps.authentication.models import User
@@ -148,7 +146,7 @@ class AdminContractTests(TransactionTestCase):
         self.assertEqual(result['users'][0]['genCount'],4)
         self.assertEqual(result['users'][0]['costCents'],50)
         self.assertEqual(result['limits'],{'maxPromptLength':30000,'maxConcurrentJobs':8,'seedanceConcurrency':3,'mcpDailyCapCents':2000,'mcpActiveJobs':4,'boardAiMonthlyCapCents':10000000,'boardAiEnabled':1,'agentActiveRuns':2,'agentMaxStepsPerRun':40,'agentMaxRunCostCents':1000,'agentGlobalDailyCapCents':20000,'agentMaxConcurrentRuns':8,'agentAttachMaxMb':20,'agentAttachMaxVideoSeconds':300,'agentAttachMaxAudioSeconds':600,'agentAttachImages':1,'agentAttachDocuments':1,'agentAttachVideo':1,'agentAttachAudio':1})
-        self.assertEqual(len(result['pricing']),33)  # 23 frozen rows + 4 Magnific video rows + Nano Banana 2.1 + Gemini Omni Flash 1.1 + 2 Board AI text + Board AI web search
+        self.assertEqual(len(result['pricing']),41)  # 23 frozen rows + 4 Magnific video rows + Nano Banana 2.1 + Gemini Omni Flash 1.1 + 2 Board AI text + Board AI web search + 8 GPT Image 2.5
         self.assertNotIn('private',json.dumps(result))
         self.assertEqual(Pricing.objects.get(pk='Nano Banana Pro').unit_cost_cents,777)
 
@@ -260,9 +258,12 @@ class AdminPureParityTests(SimpleTestCase):
         result=oracle_run(['node','--import','tsx','--input-type=module','-e',code],capture_output=True,text=True,check=True,cwd=Path(__file__).resolve().parents[3])
         from .default_pricing import DEFAULT_PRICING
         # Magnific video upscaler rates (2026-10-14), Nano Banana 2.1 (2026-10-16), Gemini Omni Flash 1.1 (2026-10-18) and
-        # Board AI text rows (2026-10-29) postdate the frozen Node table. The retired Gemini Omni Flash row stays for its historical rows.
-        added = [row for row in DEFAULT_PRICING if row['unit'] == 'per_1000_frames' or row['model'] in ('Nano Banana 2.1', 'Gemini Omni Flash 1.1', 'OmniHuman 2.0', 'Board AI text', 'Board AI text (advanced)', 'Board AI web search')]
-        self.assertEqual([row['model'] for row in added], ['OmniHuman 2.0', 'Nano Banana 2.1', 'Gemini Omni Flash 1.1', 'Magnific Video Creative',
+        # Board AI text rows (2026-10-29) and GPT Image 2.5 (2026-11-04) postdate the frozen Node table. The retired Gemini Omni Flash row stays for its historical rows.
+        added = [row for row in DEFAULT_PRICING if row['unit'] == 'per_1000_frames' or row['model'].startswith('GPT Image 2.5 ') or row['model'] in ('Nano Banana 2.1', 'Gemini Omni Flash 1.1', 'OmniHuman 2.0', 'Board AI text', 'Board AI text (advanced)', 'Board AI web search')]
+        self.assertEqual([row['model'] for row in added], ['OmniHuman 2.0', 'Nano Banana 2.1',
+                                                           *[f'GPT Image 2.5 {name}{suffix}' for name in ('Sunburst', 'Flare')
+                                                             for suffix in ('', ' · text input', ' · image input', ' · image output')],
+                                                           'Gemini Omni Flash 1.1', 'Magnific Video Creative',
                                                            'Magnific Video Creative Turbo', 'Magnific Video Precision', 'Magnific Video Topaz',
                                                            'Board AI text', 'Board AI text (advanced)', 'Board AI web search'])
         self.assertEqual(json.loads(result.stdout), [row for row in DEFAULT_PRICING if row not in added])

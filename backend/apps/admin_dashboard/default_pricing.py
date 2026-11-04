@@ -77,6 +77,48 @@ DEFAULT_PRICING = [{'model': 'OmniHuman 2.0', 'unitCostCents': 0, 'unit': 'per_s
   'unit': 'per_image',
   'notes': 'kling-v2-1 with a reference image — vendor list price 8 units ($0.028)/image, double the '
            'text-to-image rate'},
+ {'model': 'GPT Image 2.5 Sunburst',
+  'unitCostCents': 21,
+  'unit': 'per_image',
+  'notes': 'PLACEHOLDER enqueue-time estimate only, base = 1K, scaled by resolution factor. OpenAI publishes no per-image '
+           'price for gpt-image-2.5-sunburst (2026-11-04); 21 cents is GPT Image 2 high quality at 1024x1024. Replaced by the exact '
+           'token cost (the three per-token rows below) when the image succeeds.'},
+ {'model': 'GPT Image 2.5 Sunburst · text input',
+  'unitCostCents': 500,
+  'unit': 'per_million_tokens',
+  'notes': 'Official OpenAI Standard rate for gpt-image-2.5-sunburst text input tokens (the prompt): $5.00 per 1M tokens '
+           '(developers.openai.com/api/docs/pricing, read 2026-11-04).'},
+ {'model': 'GPT Image 2.5 Sunburst · image input',
+  'unitCostCents': 800,
+  'unit': 'per_million_tokens',
+  'notes': 'Official OpenAI Standard rate for gpt-image-2.5-sunburst image input tokens (reference images): $8.00 per 1M tokens '
+           '(developers.openai.com/api/docs/pricing, read 2026-11-04).'},
+ {'model': 'GPT Image 2.5 Sunburst · image output',
+  'unitCostCents': 3000,
+  'unit': 'per_million_tokens',
+  'notes': 'Official OpenAI Standard rate for gpt-image-2.5-sunburst image output tokens: $30.00 per 1M tokens '
+           '(developers.openai.com/api/docs/pricing, read 2026-11-04). Text output is not billed.'},
+ {'model': 'GPT Image 2.5 Flare',
+  'unitCostCents': 21,
+  'unit': 'per_image',
+  'notes': 'PLACEHOLDER enqueue-time estimate only, base = 1K, scaled by resolution factor. OpenAI publishes no per-image '
+           'price for gpt-image-2.5-flare (2026-11-04); 21 cents is GPT Image 2 high quality at 1024x1024. Replaced by the exact '
+           'token cost (the three per-token rows below) when the image succeeds.'},
+ {'model': 'GPT Image 2.5 Flare · text input',
+  'unitCostCents': 500,
+  'unit': 'per_million_tokens',
+  'notes': 'Official OpenAI Standard rate for gpt-image-2.5-flare text input tokens (the prompt): $5.00 per 1M tokens '
+           '(developers.openai.com/api/docs/pricing, read 2026-11-04).'},
+ {'model': 'GPT Image 2.5 Flare · image input',
+  'unitCostCents': 800,
+  'unit': 'per_million_tokens',
+  'notes': 'Official OpenAI Standard rate for gpt-image-2.5-flare image input tokens (reference images): $8.00 per 1M tokens '
+           '(developers.openai.com/api/docs/pricing, read 2026-11-04).'},
+ {'model': 'GPT Image 2.5 Flare · image output',
+  'unitCostCents': 3000,
+  'unit': 'per_million_tokens',
+  'notes': 'Official OpenAI Standard rate for gpt-image-2.5-flare image output tokens: $30.00 per 1M tokens '
+           '(developers.openai.com/api/docs/pricing, read 2026-11-04). Text output is not billed.'},
  {'model': 'Higgsfield Nano Banana Pro',
   'unitCostCents': 14,
   'unit': 'per_image',

@@ -1901,7 +1901,7 @@ export function stagedReferenceCount(state) {
 
 export function referenceSubmissionWarning(state) {
   const messages = [];
-  const maxImages = isProviderModel(state.model, "seedream") ? 10 : state.mode === "video" ? maxReferenceImagesForVideoModel(state.model) : null;
+  const maxImages = isProviderModel(state.model, "seedream") ? 10 : state.mode === "video" || isProviderModel(state.model, "openai") ? maxReferenceImagesForVideoModel(state.model) : null;
   const maxVideos = state.mode === "video" ? maxReferenceVideosForVideoModel(state.model) ?? MAX_REFERENCE_VIDEOS : 0;
   if (maxImages !== null && state.referenceImages?.length > maxImages) messages.push(`${state.model} accepts at most ${maxImages} image references per submission`);
   if (state.referenceVideos?.length > maxVideos || (state.referenceVideos?.length && !supportsVideoReference(state.model))) messages.push(`${state.model} cannot submit this many video references`);

@@ -113,7 +113,23 @@ def image_input(body, user_id):
         projectId=default(body.get('projectId'),UNDEFINED),folderId=default(body.get('folderId'),UNDEFINED),
         seed=body['seed'] if capability(model,'seed') and integer(body.get('seed')) else UNDEFINED)
     validate_prompt(item['prompt'],user_id)
+    if is_provider_model(model,'openai'):
+        validate_openai_image(item, body.get('referenceImages'))
     return clean(item)
+
+
+def validate_openai_image(item, references):
+    """GPT Image 2.5 accepts only its registry sizes and ratios and at most 16 reference images per request."""
+    from apps.generation.providers import openai_image
+    name, resolution = model_definition(item['model'])['name'], item['resolution']
+    resolutions, ratios = capability(item['model'],'resolutions',[]), capability(item['model'],'aspectRatios',[])
+    if resolution is not UNDEFINED and resolution not in resolutions:
+        raise InvalidRequest(f'{name} supports {"/".join(resolutions)} only (got {string(resolution)}).')
+    if item['aspectRatio'] not in ratios:
+        raise InvalidRequest(f'{name} does not support {string(item["aspectRatio"])}. Supported: {", ".join(ratios)}')
+    count = len(references) if isinstance(references, list) else 0
+    if count > openai_image.MAX_IMAGES:
+        raise InvalidRequest(f'{name} accepts at most {openai_image.MAX_IMAGES} reference images per request (got {count}).')
 
 
 def video_input(body, user_id=None):

@@ -3,6 +3,7 @@ export const DEPTH_MODEL_NAME = "Depth Anything (Local)";
 const IMAGE_ASPECTS = ["1:1", "3:4", "4:3", "9:16", "16:9", "21:9"];
 const VIDEO_ASPECTS = ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"];
 const KLING_ASPECTS = ["1:1", "3:4", "4:3", "9:16", "16:9", "3:2", "2:3", "21:9"];
+const OPENAI_IMAGE_ASPECTS = ["1:1", "3:4", "4:3", "4:5", "5:4", "2:3", "3:2", "9:16", "16:9", "21:9"];
 const SEEDANCE_20_DURATIONS = [4, 5, 8, 10, 15];
 const HIGGSFIELD_DURATIONS = [3, 4, 5, 6, 8, 10, 12];
 
@@ -93,6 +94,32 @@ export const MODEL_REGISTRY = [
       maxReferenceImages: 1,
       imagePriceScalesWithResolution: false,
     },
+  },
+  {
+    // developers.openai.com/api/docs/models/gpt-image-2.5-sunburst and -flare (read 2026-11-04): pinned
+    // snapshots, Images API generations/edits, up to 16 reference images, billed per token.
+    id: "gpt-image-2-5-sunburst",
+    name: "GPT Image 2.5 Sunburst",
+    kind: "image",
+    provider: "openai",
+    providerModelId: "gpt-image-2.5-sunburst-2026-09-08",
+    offered: true,
+    badge: "NEW",
+    hint: "OpenAI's most capable image model, precise edits · up to 16 references · 1K/2K/4K PNG",
+    pricingKey: "GPT Image 2.5 Sunburst",
+    capabilities: { aspectRatios: OPENAI_IMAGE_ASPECTS, resolutions: ["1K", "2K", "4K"], maxReferenceImages: 16, seed: false },
+  },
+  {
+    id: "gpt-image-2-5-flare",
+    name: "GPT Image 2.5 Flare",
+    kind: "image",
+    provider: "openai",
+    providerModelId: "gpt-image-2.5-flare-2026-09-08",
+    offered: true,
+    badge: "FAST",
+    hint: "Fast everyday OpenAI image model · up to 16 references · 1K/2K/4K PNG",
+    pricingKey: "GPT Image 2.5 Flare",
+    capabilities: { aspectRatios: OPENAI_IMAGE_ASPECTS, resolutions: ["1K", "2K", "4K"], maxReferenceImages: 16, seed: false },
   },
   {
     id: "seedance",

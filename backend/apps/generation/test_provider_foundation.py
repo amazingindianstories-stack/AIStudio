@@ -1,10 +1,8 @@
 from testsupport.frozen_oracle import run as oracle_run
 import json
 from pathlib import Path
-import subprocess
 import threading
 import time
-from unittest.mock import patch
 
 from django.test import SimpleTestCase
 from .model_registry import MODEL_REGISTRY, provider_model_id
@@ -19,9 +17,12 @@ class PureProviderParityTests(SimpleTestCase):
         # the frozen Node registry; compare the frozen entries and assert the additions explicitly.
         # Gemini Omni Flash 1.1 (2026-10-18) postdates it as well.
         added = [item for item in MODEL_REGISTRY if item.get('capabilities', {}).get('upscaleMedia') == 'video'
-                 or item['id'] in ('nano-banana-2-1', 'gemini-omni-1-1-flash', 'omnihuman-2')]
+                 or item['id'] in ('nano-banana-2-1', 'gemini-omni-1-1-flash', 'omnihuman-2', 'gpt-image-2-5-sunburst', 'gpt-image-2-5-flare')]
+        # GPT Image 2.5 Sunburst and Flare (2026-11-04) postdate it too.
         self.assertEqual([(item['name'], item['provider'], item['kind'], item['pricingKey']) for item in added], [
             ('Nano Banana 2.1', 'gemini', 'image', 'Nano Banana 2.1'),
+            ('GPT Image 2.5 Sunburst', 'openai', 'image', 'GPT Image 2.5 Sunburst'),
+            ('GPT Image 2.5 Flare', 'openai', 'image', 'GPT Image 2.5 Flare'),
             ('OmniHuman 2.0', 'omnihuman', 'video', 'OmniHuman 2.0'),
             ('Gemini Omni Flash 1.1', 'omni', 'video', 'Gemini Omni Flash 1.1'),
             *[(name, 'magnific', 'upscale', name) for name in ('Magnific Video Creative', 'Magnific Video Creative Turbo', 'Magnific Video Precision', 'Magnific Video Topaz')]])

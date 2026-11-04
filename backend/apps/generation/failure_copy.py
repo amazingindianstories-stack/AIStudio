@@ -65,7 +65,7 @@ _CURATED_PATTERNS = (
     r'Reference image could not be converted to JPEG for Seedance \(was [\w/.+\-]{1,40}\)\.',
     rf'{_MODEL} accepts (?:1|one) reference images?[,;] [^\n]{{1,400}}',
     rf'{_MODEL} cannot render 2K from a reference image [-\u2014] [^\n]{{1,300}}',
-    rf'{_MODEL} accepts prompts up to 2500 characters; this one is \d{{1,6}}\. [^\n]{{1,200}}',
+    rf'{_MODEL} accepts prompts up to (?:2500|32000) characters; this one is \d{{1,6}}\. [^\n]{{1,200}}',
     rf'{_MODEL} supports [\w/]{{1,40}} only; [\w.]{{1,20}} was requested\.[^\n]{{0,100}}',
     rf'{_MODEL} does not support [\w:]{{1,10}}\. Supported: [\w:, ]{{1,200}}',
     r'Kling needs reference images at least 300px on both sides; this one is \d{1,6}×\d{1,6}\.',
@@ -149,7 +149,7 @@ RULES = (
     (re.compile(r'returned no image', re.I), NO_IMAGE),
     (re.compile(r'returned no video|no output (?:video|image)', re.I), NO_VIDEO),
     (re.compile(r'^Gemini transcription failed \(4\d\d\)', re.I), AUDIO_REJECTED),
-    (re.compile(r'^Seedream rejected the request', re.I), IMAGE_REJECTED),
+    (re.compile(r'^(?:Seedream|OpenAI) rejected the request', re.I), IMAGE_REJECTED),
     (re.compile(r'^Reference clip could not be prepared', re.I), CLIP_PREPARE),
 )
 

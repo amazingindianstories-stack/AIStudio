@@ -172,9 +172,11 @@ class CoordinatorTests(TransactionTestCase):
             self.assertIsNone(admission.admit_job(fast.id, now=1000010))
 
     def test_kling_images_neither_spend_nor_wait_on_the_gemini_window(self):
-        # Kling bills its own account, like Seedream; it shares only the image concurrency and per-user limits.
-        self.assertEqual(admission.non_gemini_image_models(), ['Kling Image 2.1', 'Kling Image 3.0', 'Seedream 5.0 Pro',
-                                                                'kling-image-21', 'kling-image-3', 'seedream-5-pro'])
+        # Kling and OpenAI bill their own accounts, like Seedream; they share only the image concurrency and per-user limits.
+        self.assertEqual(admission.non_gemini_image_models(), ['GPT Image 2.5 Flare', 'GPT Image 2.5 Sunburst', 'Kling Image 2.1',
+                                                                'Kling Image 3.0', 'Seedream 5.0 Pro', 'gpt-image-2-5-flare',
+                                                                'gpt-image-2-5-sunburst', 'kling-image-21', 'kling-image-3',
+                                                                'seedream-5-pro'])
         kling = self.job(status='succeeded', model='Kling Image 3.0', cost_cents=140)
         self.assertFalse(admission.bills_gemini(kling))
         self.assertTrue(admission.bills_gemini(self.job(status='succeeded', model='Higgsfield Nano Banana Pro', cost_cents=0)))

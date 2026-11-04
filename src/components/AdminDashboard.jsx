@@ -1902,7 +1902,7 @@ function PricingTab({ data, reload }) {
             {pricingRows.map((p) => (
               <tr key={p.model} className="border-t border-line">
                 <td className="px-3 py-2 font-medium">{p.model}</td>
-                <td className="px-3 py-2 text-xs text-white/55">{{ per_1000_images: "per 1,000 images", per_1000_frames: "per 1,000 frames" }[p.unit] ?? p.unit}</td>
+                <td className="px-3 py-2 text-xs text-white/55">{{ per_1000_images: "per 1,000 images", per_1000_frames: "per 1,000 frames", per_million_tokens: "per 1M tokens" }[p.unit] ?? p.unit}</td>
                 <td className="px-3 py-2">
                   <div className="flex items-center gap-2">
                     <input

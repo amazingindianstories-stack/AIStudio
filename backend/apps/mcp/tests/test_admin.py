@@ -182,7 +182,7 @@ class AdminToolTests(McpCase):
             listed = self.call(self.raw, 'admin_provider_errors', arguments).structured_content
             self.assertEqual(([row['id'] for row in listed['rows']], listed['total']), ([str(i) for i in ids], len(ids)), arguments)
         for arguments, text in (({'since': 'yesterday'}, 'since: use an ISO-8601 time'), ({'cursor': 'nonsense'}, 'cursor:'),
-                                ({'limit': 101}, 'limit'), ({'provider': 'openai'}, 'provider')):
+                                ({'limit': 101}, 'limit'), ({'provider': 'midjourney'}, 'provider')):
             refused = self.assert_tool_error(self.call(self.raw, 'admin_provider_errors', arguments), errors.INVALID_INPUT)
             self.assertIn(text, refused['message'])
 
