@@ -55,6 +55,7 @@ import { UpscalerComposer } from "./UpscalerComposer";
 import { AssetLightbox } from "./AssetLightbox";
 import { useComposerCollapse } from "./useComposerCollapse";
 import { Dropdown, MenuItem } from "./Dropdown";
+import { ImageOptionsSettings, ImageOptionsSummary, ResolutionSegment } from "./ComposerControls";
 import { MentionTextarea, } from "./MentionTextarea";
 import {
 
@@ -1063,6 +1064,7 @@ export function PromptComposer() {
                   </span>
                 </>
               )}
+              <ImageOptionsSummary s={s} />
             </Chip>
           )}
         >
@@ -1119,12 +1121,14 @@ export function PromptComposer() {
                   </p>
                 </div>
               )}
-              <Segment
-                label="Resolution"
+              <ResolutionSegment
+                model={s.model}
+                aspectRatio={s.aspectRatio}
                 options={resolutionsForModel(s.model, s.mode, s.referenceImages.length > 0)}
                 value={s.resolution}
                 onChange={s.setResolution}
               />
+              <ImageOptionsSettings s={s} />
               {s.mode === "video" && (videoTaskMode === "edit" || inputDrivenVideo) && (
                 <div>
                   <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-white/40">
@@ -1901,7 +1905,7 @@ export function stagedReferenceCount(state) {
 
 export function referenceSubmissionWarning(state) {
   const messages = [];
-  const maxImages = isProviderModel(state.model, "seedream") ? 10 : state.mode === "video" ? maxReferenceImagesForVideoModel(state.model) : null;
+  const maxImages = isProviderModel(state.model, "seedream") ? 10 : state.mode === "video" || isProviderModel(state.model, "openai") ? maxReferenceImagesForVideoModel(state.model) : null;
   const maxVideos = state.mode === "video" ? maxReferenceVideosForVideoModel(state.model) ?? MAX_REFERENCE_VIDEOS : 0;
   if (maxImages !== null && state.referenceImages?.length > maxImages) messages.push(`${state.model} accepts at most ${maxImages} image references per submission`);
   if (state.referenceVideos?.length > maxVideos || (state.referenceVideos?.length && !supportsVideoReference(state.model))) messages.push(`${state.model} cannot submit this many video references`);

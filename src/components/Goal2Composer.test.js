@@ -101,6 +101,10 @@ test("mixed staging uses fifty total objects and model caps warn without discard
   assert.equal(state.referenceImages.length, 20);
   assert.equal(state.referenceVideos.length, 20);
   assert.equal(state.audioNotes.length, 10);
+  for (const model of ["GPT Image 2.5 Sunburst", "GPT Image 2.5 Flare"]) {
+    assert.equal(referenceSubmissionWarning({ mode: "image", model, referenceImages: Array(16).fill("image") }), null);
+    assert.match(referenceSubmissionWarning({ mode: "image", model, referenceImages: Array(17).fill("image") }), new RegExp(`${model} accepts at most 16 image references`));
+  }
   assert.equal(uploadContentType({ name: "Finder.JPG", type: "" }), "image/jpeg");
   assert.equal(uploadContentType({ name: "Explorer.MOV", type: "" }), "video/quicktime");
   assert.equal(uploadContentType({ name: "voice.MP3", type: "" }), "audio/mpeg");

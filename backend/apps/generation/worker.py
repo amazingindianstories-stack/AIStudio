@@ -77,12 +77,20 @@ def handle_cancel(identifier, stop):
         connections.close_all()
 
 
+def execution_deadline_ms(model):
+    """OmniHuman renders run long; GPT Image 2.5 gets its full POST timeout after reference assembly."""
+    from .model_registry import is_provider_model
+    from .providers.openai_image import WORKER_DEADLINE_MS
+    if is_provider_model(model, 'omnihuman'):
+        return 900000
+    return WORKER_DEADLINE_MS if is_provider_model(model, 'openai') else 270000
+
+
 def handle_generation(item, process, stop):
     try:
         if stop.is_set():
             return 'stopped'
-        from .model_registry import is_provider_model
-        cancellation = WorkerCancellation(stop, timeout_ms=900000 if is_provider_model(item.model, 'omnihuman') else 270000)
+        cancellation = WorkerCancellation(stop, timeout_ms=execution_deadline_ms(item.model))
         cancellation.check()
         return process(item.id, owner='python-generation:' + str(uuid4()), signal=cancellation)['kind']
     except Exception:

@@ -13,8 +13,10 @@ from .model_registry import MODEL_REGISTRY
 ALWAYS = ['seedream-5-pro', 'nano-banana-pro', 'nano-banana-2-1', 'seedance', 'seedance-25', 'depth-anything-local']
 SWITCHED = {'omnihuman': ['omnihuman-2'], 'kling': ['kling-image-3', 'kling-image-21'], 'omni': ['gemini-omni-1-1-flash'],
             'magnific': ['magnific-creative', 'magnific-precision-v2', 'magnific-precision-v1', 'magnific-video-creative',
-                         'magnific-video-creative-turbo', 'magnific-video-precision', 'magnific-video-topaz']}
-ALL_OFF = {'VEEVEE_OMNIHUMAN': False, 'VEEVEE_KLING': False, 'VEEVEE_GEMINI_OMNI': False, 'VEEVEE_MAGNIFIC_UPSCALE': False}
+                         'magnific-video-creative-turbo', 'magnific-video-precision', 'magnific-video-topaz'],
+            'openai': ['gpt-image-2-5-sunburst', 'gpt-image-2-5-flare']}
+ALL_OFF = {'VEEVEE_OMNIHUMAN': False, 'VEEVEE_KLING': False, 'VEEVEE_GEMINI_OMNI': False, 'VEEVEE_MAGNIFIC_UPSCALE': False,
+           'VEEVEE_OPENAI_IMAGE': False}
 ALL_ON = {name: True for name in ALL_OFF}
 
 
@@ -26,6 +28,9 @@ def valid_contract(model):
     """A new job on ``model`` that the paid guard admits while its switch is on."""
     if model['provider'] == 'kling':
         return contract(kind='image', model=model['name'], resolution='1K', aspect_ratio='1:1')
+    if model['provider'] == 'openai':
+        return contract(kind='image', model=model['name'], resolution='1K', aspect_ratio='1:1',
+                        submission_input={'quality': 'high', 'background': 'opaque'})
     if model['provider'] == 'omni':
         return contract(kind='video', model=model['name'], resolution='720p', duration=8, aspect_ratio='16:9')
     if model['provider'] == 'magnific':
@@ -102,7 +107,8 @@ class CurrentUserAvailabilityTests(TransactionTestCase):
     def test_availability_never_carries_configuration(self):
         self.cookie()
         secrets = {'KLING_API': 'sentinel-kling-key', 'KLING_API_HOST': 'https://sentinel.klingai.com',
-                   'MAGNIFIC_API_KEY': 'sentinel-magnific-key', 'GOOGLE_API_KEY': 'sentinel-google-key'}
+                   'MAGNIFIC_API_KEY': 'sentinel-magnific-key', 'GOOGLE_API_KEY': 'sentinel-google-key',
+                   'OPENAI_API_KEY': 'sentinel-openai-key'}
         with override_settings(**ALL_ON), patch.dict(os.environ, secrets):
             response = self.client.get('/api/auth/me')
         text = response.content.decode()

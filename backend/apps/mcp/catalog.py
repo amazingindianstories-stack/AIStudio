@@ -22,7 +22,7 @@ from .shapes import dollars
 
 TOOLS = {'image': 'generate_image', 'video': 'generate_video', 'upscale': 'upscale_media'}
 PROVIDERS = {'seedream': 'BytePlus Seedream', 'gemini': 'Google Gemini', 'kling': 'Kling', 'byteplus': 'BytePlus ModelArk',
-             'omnihuman': 'BytePlus Vision', 'omni': 'Google Gemini Omni', 'magnific': 'Magnific'}
+             'omnihuman': 'BytePlus Vision', 'omni': 'Google Gemini Omni', 'magnific': 'Magnific', 'openai': 'OpenAI'}
 OUTPUT_TYPES = {'image': ['image/png', 'image/jpeg', 'image/webp'], 'video': ['video/mp4', 'video/quicktime']}
 TYPICAL_WINDOW_MS = 7 * 86400 * 1000
 TYPICAL_TTL_SECONDS = 600
@@ -157,7 +157,10 @@ def price(model, pricing):
             for resolution in capabilities.get('resolutions') or []:
                 found['examples'].append({'resolution': resolution, 'cents': compute_cost({'model': model['name'], 'resolution': resolution,
                                                                                            'aspectRatio': '1:1'}, pricing)})
-            found['note'] = 'Charged per finished image; best-of face mode multiplies by its candidates.'
+            found['note'] = ('Estimated at 1:1 and high quality, scaled by the exact size\'s pixels over 1024x1024 and by quality; '
+                             'the provider-reported token cost replaces it when the image finishes.'
+                             if capabilities.get('imageSizes') else
+                             'Charged per finished image; best-of face mode multiplies by its candidates.')
         elif model['kind'] == 'video':
             chosen = defaults(model)
             seconds = chosen['durationSeconds'] or 10

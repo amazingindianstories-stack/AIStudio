@@ -1,6 +1,36 @@
 """Source-equivalent model/capability registry; stable IDs and legacy names."""
 import os
 
+# GPT Image 2.5 `size` per aspect ratio and tier (mirrored in src/lib/model-registry.js). OpenAI documents three sizes
+# (developers.openai.com/api/docs/guides/image-generation, read 2026-11-04), used exactly for 1K at 1:1, 3:2 and 2:3.
+# Every other entry is computed from OpenAI's documented size constraints, not taken from an OpenAI table: both edges
+# multiples of 16, longest edge at most 3840, long:short at most 3:1 and 655,360 to 8,294,400 pixels. Each is the valid
+# size nearest the exact ratio, then nearest the tier's target: about 1024x1024 pixels for 1K, a 2048 long edge for 2K
+# and a 3840 long edge for 4K (capped by the pixel limit). A tier missing here would have no valid size.
+OPENAI_IMAGE_SIZES = {
+    '1:1': {'1K': '1024x1024', '2K': '2048x2048', '4K': '2880x2880'},
+    '3:4': {'1K': '864x1152', '2K': '1536x2048', '4K': '2448x3264'},
+    '4:3': {'1K': '1152x864', '2K': '2048x1536', '4K': '3264x2448'},
+    '4:5': {'1K': '896x1120', '2K': '1664x2080', '4K': '2560x3200'},
+    '5:4': {'1K': '1120x896', '2K': '2080x1664', '4K': '3200x2560'},
+    '2:3': {'1K': '1024x1536', '2K': '1376x2064', '4K': '2336x3504'},
+    '3:2': {'1K': '1536x1024', '2K': '2064x1376', '4K': '3504x2336'},
+    '9:16': {'1K': '720x1280', '2K': '1152x2048', '4K': '2160x3840'},
+    '16:9': {'1K': '1280x720', '2K': '2048x1152', '4K': '3840x2160'},
+    '21:9': {'1K': '1568x672', '2K': '2016x864', '4K': '3808x1632'},
+}
+# OpenAI calls outputs above 2560x1440 pixels experimental. The enqueue estimate scales by the size's pixels over
+# 1024x1024 and by quality relative to high (basis in the default pricing notes).
+OPENAI_IMAGE_CAPABILITIES = {'aspectRatios': list(OPENAI_IMAGE_SIZES),
+                             'resolutions': ['1K', '2K', '4K'],
+                             'imageSizes': OPENAI_IMAGE_SIZES,
+                             'experimentalAbovePixels': 2560 * 1440,
+                             'maxReferenceImages': 16,
+                             'qualities': ['low', 'medium', 'high', 'xhigh', 'max'],
+                             'qualityPriceFactors': {'low': .03, 'medium': .25, 'high': 1, 'xhigh': 2, 'max': 4},
+                             'backgrounds': ['opaque', 'transparent'],
+                             'seed': False}
+
 MODEL_REGISTRY = [{'id': 'seedream-5-pro',
   'name': 'Seedream 5.0 Pro',
   'kind': 'image',
@@ -80,6 +110,28 @@ MODEL_REGISTRY = [{'id': 'seedream-5-pro',
                    'referenceResolutions': ['1K'],
                    'maxReferenceImages': 1,
                    'imagePriceScalesWithResolution': False}},
+ # developers.openai.com/api/docs/models/gpt-image-2.5-sunburst and -flare (read 2026-11-04): pinned snapshots,
+ # Images API generations/edits, up to 16 reference images, billed per token (see providers/openai_image.py).
+ {'id': 'gpt-image-2-5-sunburst',
+  'name': 'GPT Image 2.5 Sunburst',
+  'kind': 'image',
+  'provider': 'openai',
+  'providerModelId': 'gpt-image-2.5-sunburst-2026-09-08',
+  'offered': True,
+  'badge': 'NEW',
+  'hint': "OpenAI's most capable image model, precise edits · up to 16 references · 1K/2K/4K PNG",
+  'pricingKey': 'GPT Image 2.5 Sunburst',
+  'capabilities': OPENAI_IMAGE_CAPABILITIES},
+ {'id': 'gpt-image-2-5-flare',
+  'name': 'GPT Image 2.5 Flare',
+  'kind': 'image',
+  'provider': 'openai',
+  'providerModelId': 'gpt-image-2.5-flare-2026-09-08',
+  'offered': True,
+  'badge': 'FAST',
+  'hint': 'Fast everyday OpenAI image model · up to 16 references · 1K/2K/4K PNG',
+  'pricingKey': 'GPT Image 2.5 Flare',
+  'capabilities': OPENAI_IMAGE_CAPABILITIES},
  {'id': 'seedance',
   'name': 'Seedance 2.0',
   'kind': 'video',

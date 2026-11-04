@@ -342,6 +342,21 @@ class LegacyConfigTests(SimpleTestCase):
                 with self.subTest(host=host, component=component), self.assertRaises(self.legacy.LegacyConfigError):
                     self.legacy.translate(component, {**envs[component], 'VEEVEE_KLING': '1', 'KLING_API_HOST': host})
 
+    def test_openai_switch_and_key_reach_only_the_generation_worker(self):
+        envs = {'api': self.api_env(), 'mcp': self.api_env(), 'agent': self.api_env(),
+                **{kind: self.worker_env(kind) for kind in ('generation', 'export', 'scheduler')}}
+        for component, env in envs.items():
+            off = self.legacy.translate(component, {**env, 'OPENAI_API_KEY': 'ok'})
+            self.assertFalse({'VEEVEE_OPENAI_IMAGE', 'OPENAI_API_KEY'} & set(off), 'a key set ahead of the flag stays out of Django')
+            on = self.legacy.translate(component, {**env, 'OPENAI_API_KEY': 'ok', 'VEEVEE_OPENAI_IMAGE': '1'})
+            self.assertEqual(on['VEEVEE_OPENAI_IMAGE'], '1', component)
+            # Only the generation worker calls OpenAI; the API, MCP and agent quote and admit but never hold the key.
+            self.assertEqual(on.get('OPENAI_API_KEY'), 'ok' if component == 'generation' else None, component)
+            self.assertEqual(on.get('VEEVEE_PROVIDER_MEDIA_HOSTS'), off.get('VEEVEE_PROVIDER_MEDIA_HOSTS'), 'images come back inline')
+        self.assertIn('OPENAI_API_KEY', self.legacy.MCP_DENIED)
+        generation = self.legacy.translate('generation', {**envs['generation'], 'VEEVEE_OPENAI_IMAGE': '1'})
+        self.assertNotIn('OPENAI_API_KEY', generation, 'switched on without a key: OpenAI jobs fail as not configured')
+
     def test_web_push_keys_reach_only_the_api_and_the_scheduler(self):
         keys = {'VEEVEE_WEB_PUSH_PUBLIC_KEY': 'pub', 'VEEVEE_WEB_PUSH_PRIVATE_KEY': 'priv', 'VEEVEE_WEB_PUSH_SUBJECT': 'mailto:ops@example.invalid'}
         envs = {'api': self.api_env(), 'mcp': self.api_env(), **{kind: self.worker_env(kind) for kind in ('generation', 'export', 'scheduler')}}

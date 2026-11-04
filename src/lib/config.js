@@ -228,6 +228,53 @@ export function supportsBitrateMode(model) {
   return capability(model, "bitrate", false);
 }
 
+/** GPT Image 2.5 request options. A model without the capability returns []
+ *  and never sends the field; a choice the model does not take falls back to
+ *  the default, as the enqueue route does when the field is absent. */
+export const DEFAULT_IMAGE_QUALITY = "high";
+export const DEFAULT_IMAGE_BACKGROUND = "opaque";
+export const IMAGE_QUALITY_LABELS = { low: "Low", medium: "Medium", high: "High", xhigh: "X-High", max: "Max" };
+export const IMAGE_BACKGROUND_LABELS = { opaque: "Opaque", transparent: "Transparent" };
+
+export function imageQualitiesForModel(model) {
+  return capability(model, "qualities", []);
+}
+
+export function imageBackgroundsForModel(model) {
+  return capability(model, "backgrounds", []);
+}
+
+export function imageQualityFor(model, value) {
+  return imageQualitiesForModel(model).includes(value) ? value : DEFAULT_IMAGE_QUALITY;
+}
+
+export function imageBackgroundFor(model, value) {
+  return imageBackgroundsForModel(model).includes(value) ? value : DEFAULT_IMAGE_BACKGROUND;
+}
+
+/** The exact GPT Image 2.5 size a tier sends at this aspect ratio (registry
+ *  `imageSizes`); null for every other model. */
+export function imageSizeFor(model, aspectRatio, resolution) {
+  return capability(model, "imageSizes", null)?.[aspectRatio]?.[resolution] ?? null;
+}
+
+/** A resolution as the picker shows it: GPT Image 2.5 names the exact pixels
+ *  sent, e.g. "2K · 2048x2048"; other models show the plain resolution. */
+export function resolutionLabel(model, aspectRatio, resolution) {
+  const size = imageSizeFor(model, aspectRatio, resolution);
+  return size ? `${resolution} · ${size}` : resolution;
+}
+
+/** Whether the provider itself calls this size experimental (GPT Image 2.5
+ *  above 2560x1440 pixels). */
+export function isExperimentalImageSize(model, aspectRatio, resolution) {
+  const limit = capability(model, "experimentalAbovePixels", null);
+  const size = imageSizeFor(model, aspectRatio, resolution);
+  if (!limit || !size) return false;
+  const [width, height] = size.split("x").map(Number);
+  return width * height > limit;
+}
+
 /** The three task types Seedance 2.5's single endpoint supports, chosen through
  *  the explicit omni_reference_task_type request field (see
  *  providers/seedance.js createVideoTask). "generate" covers ordinary

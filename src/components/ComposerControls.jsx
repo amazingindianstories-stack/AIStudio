@@ -23,6 +23,12 @@ import {
   supportsAudio,
   supportsDraftMode,
   supportsBitrateMode,
+  imageQualitiesForModel,
+  imageBackgroundsForModel,
+  isExperimentalImageSize,
+  resolutionLabel,
+  IMAGE_QUALITY_LABELS,
+  IMAGE_BACKGROUND_LABELS,
   supportsFirstLastFrame,
   supportsVideoEditExtend,
   VIDEO_TASK_MODES,
@@ -134,6 +140,7 @@ export function SettingsToolbar() {
                   <span className="composer-secondary-setting">{s.bitrateMode === "standard" ? "Low" : "High"}</span>
                 </>
               )}
+              <ImageOptionsSummary s={s} />
             </Chip>
           )}
         >
@@ -186,12 +193,14 @@ export function SettingsToolbar() {
                   </p>
                 </div>
               )}
-              <Segment
-                label="Resolution"
+              <ResolutionSegment
+                model={s.model}
+                aspectRatio={s.aspectRatio}
                 options={resolutionOptions}
                 value={s.resolution}
                 onChange={s.setResolution}
               />
+              <ImageOptionsSettings s={s} />
               {s.mode === "video" && (videoTaskMode === "edit" || inputDrivenVideo) && (
                 <div>
                   <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-white/40">
@@ -459,6 +468,7 @@ export function Segment({
   options,
   value,
   onChange,
+  format,
 }
 
 ) {
@@ -478,10 +488,88 @@ export function Segment({
                 : "bg-ink-700 text-white/65 ring-1 ring-line hover:text-white"
             )}
           >
-            {opt}
+            {format ? format(opt) : opt}
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+/** GPT Image 2.5 quality and background (config.imageQualitiesForModel); both
+ *  composers render these, and they render nothing for any other model. */
+function imageOptions(s) {
+  return s.mode === "image"
+    ? { qualities: imageQualitiesForModel(s.model), backgrounds: imageBackgroundsForModel(s.model) }
+    : { qualities: [], backgrounds: [] };
+}
+
+export function ImageOptionsSummary({ s }) {
+  const { qualities, backgrounds } = imageOptions(s);
+  return (
+    <>
+      {qualities.length > 0 && (
+        <>
+          <span className="composer-secondary-setting text-white/35">·</span>
+          <span className="composer-secondary-setting">{IMAGE_QUALITY_LABELS[s.imageQuality]}</span>
+        </>
+      )}
+      {backgrounds.length > 0 && s.imageBackground === "transparent" && (
+        <>
+          <span className="composer-secondary-setting text-white/35">·</span>
+          <span className="composer-secondary-setting">Transparent</span>
+        </>
+      )}
+    </>
+  );
+}
+
+export function ImageOptionsSettings({ s }) {
+  const { qualities, backgrounds } = imageOptions(s);
+  return (
+    <>
+      {qualities.length > 0 && (
+        <div>
+          <Segment
+            label="Quality"
+            options={qualities.map((q) => IMAGE_QUALITY_LABELS[q])}
+            value={IMAGE_QUALITY_LABELS[s.imageQuality]}
+            onChange={(v) => s.setImageQuality(qualities.find((q) => IMAGE_QUALITY_LABELS[q] === v))}
+          />
+          <p className="mt-1 text-[11px] leading-snug text-white/35">Higher quality costs more and takes longer.</p>
+        </div>
+      )}
+      {backgrounds.length > 0 && (
+        <Segment
+          label="Background"
+          options={backgrounds.map((b) => IMAGE_BACKGROUND_LABELS[b])}
+          value={IMAGE_BACKGROUND_LABELS[s.imageBackground]}
+          onChange={(v) => s.setImageBackground(backgrounds.find((b) => IMAGE_BACKGROUND_LABELS[b] === v))}
+        />
+      )}
+    </>
+  );
+}
+
+/** The Resolution control. GPT Image 2.5 tiers show the exact pixels sent at
+ *  this aspect ratio, and a note names those OpenAI calls experimental; every
+ *  other model shows its plain resolutions. */
+export function ResolutionSegment({ model, aspectRatio, options, value, onChange }) {
+  const experimental = options.filter((resolution) => isExperimentalImageSize(model, aspectRatio, resolution));
+  return (
+    <div>
+      <Segment
+        label="Resolution"
+        options={options}
+        value={value}
+        onChange={onChange}
+        format={(resolution) => resolutionLabel(model, aspectRatio, resolution)}
+      />
+      {experimental.length > 0 && (
+        <p className="mt-1 text-[11px] leading-snug text-white/35">
+          {`${experimental.join(" and ")} ${experimental.length > 1 ? "are" : "is"} experimental at OpenAI (above 2560×1440 pixels).`}
+        </p>
+      )}
     </div>
   );
 }

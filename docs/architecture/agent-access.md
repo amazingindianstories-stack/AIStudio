@@ -223,7 +223,7 @@ draft and staged files and shows the API's message (`AGENTS_DISABLED`, `AGENT_GR
 The worker is its own Railway component, `python -m deploy.entrypoint agent`, which runs
 `agent_worker --interval 1 --concurrency N` (`VEEVEE_AGENT_WORKER_SLOTS`, 1 to 8, default 4). It uses the API's
 database role and API-style configuration (`deploy/legacy_config.py` `_agent`) with `GOOGLE_API_KEY` as its only
-provider key (`AGENT_KEYS`; no BytePlus, Kling or Magnific keys, portrait or Web Push settings, ingress secret or
+provider key (`AGENT_KEYS`; no BytePlus, Kling, Magnific or OpenAI keys, portrait or Web Push settings, ingress secret or
 port), plus its own `MCP_QUOTE_SECRET` (32+ characters), because it signs and checks quotes in-process. It advances a
 run only while it holds the run's lease and one of the first `agentMaxConcurrentRuns` (at most 8) global slot leases
 (`apps.common.leases`), renewed every 15 s

@@ -11,7 +11,8 @@ from .model_registry import MODEL_REGISTRY
 
 # The backend switch (a Railway service variable on the API and the generation worker) that admits new jobs for each
 # provider. A provider with no entry has no switch.
-SWITCHES = {'omnihuman': 'VEEVEE_OMNIHUMAN', 'kling': 'VEEVEE_KLING', 'omni': 'VEEVEE_GEMINI_OMNI', 'magnific': 'VEEVEE_MAGNIFIC_UPSCALE'}
+SWITCHES = {'omnihuman': 'VEEVEE_OMNIHUMAN', 'kling': 'VEEVEE_KLING', 'omni': 'VEEVEE_GEMINI_OMNI', 'magnific': 'VEEVEE_MAGNIFIC_UPSCALE',
+            'openai': 'VEEVEE_OPENAI_IMAGE'}
 
 
 def switched_on(provider):

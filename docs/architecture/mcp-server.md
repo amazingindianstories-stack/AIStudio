@@ -34,7 +34,7 @@ flowchart LR
   tool call holds at most 45 s. Readiness is `GET /healthz`.
 - `backend/deploy/legacy_config.py` gives the `mcp` component the API database role and storage, plus
   `VEEVEE_MCP`, `MCP_QUOTE_SECRET` and `MCP_MAX_HOLD_SECONDS`, and never any provider credential (Gemini,
-  ModelArk, BytePlus, Magnific, Kling) or the portrait lifecycle switches. Settings refuse to start the component
+  ModelArk, BytePlus, Magnific, Kling, OpenAI) or the portrait lifecycle switches. Settings refuse to start the component
   without `VEEVEE_MCP=1`, a quote secret of 32 or more characters and a hold of 1-45 s (default 45).
 - The service is stateless Streamable HTTP with JSON responses (`mcp==2.3.0`, `stateless_http`, `json_response`):
   no sessions and no server-initiated streams. One endpoint serves the 2025 handshake (`2025-06-18`,

@@ -30,7 +30,7 @@ PUBLIC_MESSAGE_LIMIT = 240
 PROVIDERS = {
     'omnihuman': 'OmniHuman 2.0',
     'seedance': 'Seedance', 'seedream': 'Seedream', 'gemini': 'Gemini', 'omni': 'Gemini Omni', 'kling': 'Kling',
-    'magnific': 'Magnific', 'higgsfield': 'Higgsfield', 'byteplus-assets': 'Portrait service',
+    'magnific': 'Magnific', 'higgsfield': 'Higgsfield', 'openai': 'OpenAI', 'byteplus-assets': 'Portrait service',
 }
 # Registry provider -> the adapter that records the error (Seedance runs on the registry's "byteplus" provider).
 _REGISTRY_PROVIDER = {'byteplus': 'seedance'}

@@ -34,7 +34,7 @@ BYTEPLUS_KEYS = {'BYTEPLUS_ACCESS_KEY_ID', 'BYTEPLUS_SECRET_ACCESS_KEY', 'BYTEPL
 PASS_THROUGH = ('PATH', 'RAILWAY_PROJECT_ID', 'RAILWAY_ENVIRONMENT_ID', 'RAILWAY_SERVICE_ID',
                 'RAILWAY_DEPLOYMENT_ID', 'RAILWAY_REPLICA_ID', 'DEPTH_WORKER_TOKEN', 'VEEVEE_PUBLIC_APP_URL_OVERRIDE',
                 'VEEVEE_MAGNIFIC_UPSCALE', 'VEEVEE_GEMINI_OMNI', 'VEEVEE_KLING', 'VEEVEE_OMNIHUMAN',
-                'VEEVEE_GENERATION_WORKER_SLOTS')
+                'VEEVEE_OPENAI_IMAGE', 'VEEVEE_GENERATION_WORKER_SLOTS')
 # Magnific output hosts, observed in live tasks; signed, expiring links. Video
 # results come from cdn-magnific.freepik.com (2026-10-14), image results from
 # ai-statics.magnific.com (2026-10-15).
@@ -47,7 +47,7 @@ KLING_MEDIA_HOSTS = ('h1.inkwai.com', 'cdn.klingai.com')
 OMNIHUMAN_MEDIA_HOSTS = ('v16m-default.tiktokcdn.com',)
 # The MCP service runs as the API role with the API's storage, never with provider credentials: only the generation
 # worker calls providers. These keys never reach it, whatever the API configuration carries.
-MCP_DENIED = PROVIDER_KEYS | BYTEPLUS_KEYS | {'MAGNIFIC_API_KEY', 'KLING_API'}
+MCP_DENIED = PROVIDER_KEYS | BYTEPLUS_KEYS | {'MAGNIFIC_API_KEY', 'KLING_API', 'OPENAI_API_KEY'}
 MCP_KEYS = ('VEEVEE_MCP', 'MCP_QUOTE_SECRET', 'MCP_MAX_HOLD_SECONDS')
 # Board notification Web Push (apps.canvas.push): the API offers subscriptions and the scheduler sends the pushes.
 WEB_PUSH_KEYS = ('VEEVEE_WEB_PUSH_PUBLIC_KEY', 'VEEVEE_WEB_PUSH_PRIVATE_KEY', 'VEEVEE_WEB_PUSH_SUBJECT')
@@ -133,6 +133,15 @@ def _kling(component, env, out):
     return out
 
 
+def _openai(component, env, out):
+    """``VEEVEE_OPENAI_IMAGE=1`` (a Railway service variable on the API and the generation worker) admits GPT Image 2.5.
+    Only the generation worker calls OpenAI, and the image comes back inline, so only it receives the
+    ``OPENAI_API_KEY`` service variable and no media host is added."""
+    if env.get('VEEVEE_OPENAI_IMAGE') == '1' and component == 'generation' and env.get('OPENAI_API_KEY'):
+        out['OPENAI_API_KEY'] = env['OPENAI_API_KEY']
+    return out
+
+
 def _portrait_reads(env):
     reads = json.loads(env['GOAL4_PREVIEW_PORTRAIT_CONFIGURATION'])['read_environment']
     need(set(reads) <= BYTEPLUS_KEYS and reads.get('BYTEPLUS_ACCESS_KEY_ID') and reads.get('BYTEPLUS_SECRET_ACCESS_KEY'), 'portrait environment')
@@ -209,7 +218,7 @@ def translate(component, env):
         if portraits:
             out.update(_portrait_reads(env))
             out['VEEVEE_PORTRAIT_LIFECYCLE'] = '1'
-        return _web_push(component, env, _omnihuman(component, env, _kling(component, env, _managed_portraits(component, env, out))))
+        return _web_push(component, env, _openai(component, env, _omnihuman(component, env, _kling(component, env, _managed_portraits(component, env, out)))))
     cfg = json.loads(env[WORKER_VARIABLE])
     need(cfg.get('kind') == component, 'configuration belongs to another worker')
     need(str(cfg.get('role', '')).startswith('goal4_') and cfg['role'].endswith('_worker'), 'unexpected worker role')
@@ -232,7 +241,7 @@ def translate(component, env):
     out['VEEVEE_PROVIDER_MEDIA_HOSTS'] = ','.join(hosts)
     if cfg.get('new_exports'):
         out['VEEVEE_EXPORT_ADMISSION'] = '1'
-    return _web_push(component, env, _omnihuman(component, env, _kling(component, env, _managed_portraits(component, env, out))))
+    return _web_push(component, env, _openai(component, env, _omnihuman(component, env, _kling(component, env, _managed_portraits(component, env, out)))))
 
 
 def preflight_contract(component, env):

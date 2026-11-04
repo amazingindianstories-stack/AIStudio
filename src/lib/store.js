@@ -27,6 +27,11 @@ import {
   supportsAudio,
   supportsDraftMode,
   supportsBitrateMode,
+  imageQualitiesForModel,
+  imageQualityFor,
+  imageBackgroundFor,
+  DEFAULT_IMAGE_QUALITY,
+  DEFAULT_IMAGE_BACKGROUND,
   supportsFirstFrameContinuation,
   supportsFirstLastFrame,
   supportsVideoReference,
@@ -491,6 +496,10 @@ export const useStore = create((set, get) => ({
   generateAudio: true,
   draftMode: false,
   bitrateMode: "high",
+  // GPT Image 2.5 only (config.imageQualitiesForModel); setModel clamps both
+  // and generate omits them for any other model.
+  imageQuality: DEFAULT_IMAGE_QUALITY,
+  imageBackground: DEFAULT_IMAGE_BACKGROUND,
   videoTaskMode: "generate",
   // Reproducibility seed (Phase 3.1). null for an ordinary "Generate" click —
   // the enqueue route only honours it for models config.supportsSeed
@@ -682,6 +691,8 @@ export const useStore = create((set, get) => ({
       generateAudio: mode === "video" && supportsAudio(d.model),
       draftMode: supportsDraftMode(d.model) ? get().draftMode : false,
       bitrateMode: supportsBitrateMode(d.model) ? get().bitrateMode : "high",
+      imageQuality: imageQualityFor(d.model, get().imageQuality),
+      imageBackground: imageBackgroundFor(d.model, get().imageBackground),
       ...(mode !== "video" ? { firstFrame: null, lastFrame: null, continuationFrame: null, firstFrameMode: false } : {}),
     });
   },
@@ -729,7 +740,9 @@ export const useStore = create((set, get) => ({
       const videoTaskMode = supportsVideoEditExtend(model) ? s.videoTaskMode : "generate";
       const retainsFrames = supportsFirstLastFrame(model) || supportsFirstFrameContinuation(model);
       const frames = retainsFrames ? {} : { firstFrame: null, lastFrame: null, continuationFrame: null, firstFrameMode: false };
-      return { model, duration, resolution, aspectRatio, generateAudio, draftMode, bitrateMode, referenceVideos, videoTaskMode, ...frames };
+      const imageQuality = imageQualityFor(model, s.imageQuality);
+      const imageBackground = imageBackgroundFor(model, s.imageBackground);
+      return { model, duration, resolution, aspectRatio, generateAudio, draftMode, bitrateMode, imageQuality, imageBackground, referenceVideos, videoTaskMode, ...frames };
     }),
   setAspectRatio: (aspectRatio) => set({ aspectRatio }),
   setResolution: (resolution) => set((s) => ({
@@ -745,6 +758,8 @@ export const useStore = create((set, get) => ({
   setBitrateMode: (bitrateMode) => set({
     bitrateMode: bitrateMode === "standard" ? "standard" : "high",
   }),
+  setImageQuality: (imageQuality) => set((s) => ({ imageQuality: imageQualityFor(s.model, imageQuality) })),
+  setImageBackground: (imageBackground) => set((s) => ({ imageBackground: imageBackgroundFor(s.model, imageBackground) })),
   setVideoTaskMode: (videoTaskMode) => set({
     videoTaskMode: VIDEO_TASK_MODES.includes(videoTaskMode) ? videoTaskMode : "generate",
   }),
@@ -1228,6 +1243,9 @@ export const useStore = create((set, get) => ({
       generateAudio: s.generateAudio,
       draftMode: s.draftMode,
       bitrateMode: s.bitrateMode,
+      ...(s.mode === "image" && imageQualitiesForModel(s.model).length
+        ? { imageQuality: s.imageQuality, imageBackground: s.imageBackground }
+        : {}),
       videoTaskMode,
       // Only ever non-null when regenerateWithSameSeed set it deliberately —
       // the enqueue route re-checks config.supportsSeed itself and drops it
@@ -1998,6 +2016,8 @@ export const useStore = create((set, get) => ({
       draftMode: item.draftMode === true && supportsDraftMode(item.model),
       bitrateMode:
         supportsBitrateMode(item.model) && item.bitrateMode === "standard" ? "standard" : "high",
+      imageQuality: imageQualityFor(composerModel(item.model), item.imageQuality),
+      imageBackground: imageBackgroundFor(composerModel(item.model), item.imageBackground),
       videoTaskMode: supportsVideoEditExtend(item.model)
         ? item.videoTaskMode ?? "generate"
         : "generate",
@@ -3105,6 +3125,8 @@ export function restoreComposerDraft() {
       if (["standard", "high"].includes(d.bitrateMode)) {
         patch.bitrateMode = supportsBitrateMode(effModel) ? d.bitrateMode : "high";
       }
+      patch.imageQuality = imageQualityFor(effModel, d.imageQuality);
+      patch.imageBackground = imageBackgroundFor(effModel, d.imageBackground);
       if (["project", "history", "favorites"].includes(d.rightTab)) {
         patch.rightTab = d.rightTab;
       }
@@ -3292,6 +3314,8 @@ if (typeof window !== "undefined") {
       s.generateAudio !== prev.generateAudio ||
       s.draftMode !== prev.draftMode ||
       s.bitrateMode !== prev.bitrateMode ||
+      s.imageQuality !== prev.imageQuality ||
+      s.imageBackground !== prev.imageBackground ||
       s.rightTab !== prev.rightTab ||
       s.activeProjectId !== prev.activeProjectId ||
       s.projectScopeSelected !== prev.projectScopeSelected ||
@@ -3311,6 +3335,8 @@ if (typeof window !== "undefined") {
             generateAudio: s.generateAudio,
             draftMode: s.draftMode,
             bitrateMode: s.bitrateMode,
+            imageQuality: s.imageQuality,
+            imageBackground: s.imageBackground,
             audioDefault: true,
             rightTab: s.rightTab,
             activeProjectId: s.activeProjectId,

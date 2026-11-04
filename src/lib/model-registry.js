@@ -3,6 +3,32 @@ export const DEPTH_MODEL_NAME = "Depth Anything (Local)";
 const IMAGE_ASPECTS = ["1:1", "3:4", "4:3", "9:16", "16:9", "21:9"];
 const VIDEO_ASPECTS = ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"];
 const KLING_ASPECTS = ["1:1", "3:4", "4:3", "9:16", "16:9", "3:2", "2:3", "21:9"];
+// GPT Image 2.5 size per aspect ratio and tier, mirroring OPENAI_IMAGE_SIZES in
+// backend/apps/generation/model_registry.py (see its comment for how each size is derived).
+const OPENAI_IMAGE_SIZES = {
+  "1:1": { "1K": "1024x1024", "2K": "2048x2048", "4K": "2880x2880" },
+  "3:4": { "1K": "864x1152", "2K": "1536x2048", "4K": "2448x3264" },
+  "4:3": { "1K": "1152x864", "2K": "2048x1536", "4K": "3264x2448" },
+  "4:5": { "1K": "896x1120", "2K": "1664x2080", "4K": "2560x3200" },
+  "5:4": { "1K": "1120x896", "2K": "2080x1664", "4K": "3200x2560" },
+  "2:3": { "1K": "1024x1536", "2K": "1376x2064", "4K": "2336x3504" },
+  "3:2": { "1K": "1536x1024", "2K": "2064x1376", "4K": "3504x2336" },
+  "9:16": { "1K": "720x1280", "2K": "1152x2048", "4K": "2160x3840" },
+  "16:9": { "1K": "1280x720", "2K": "2048x1152", "4K": "3840x2160" },
+  "21:9": { "1K": "1568x672", "2K": "2016x864", "4K": "3808x1632" },
+};
+const OPENAI_IMAGE_CAPABILITIES = {
+  aspectRatios: Object.keys(OPENAI_IMAGE_SIZES),
+  resolutions: ["1K", "2K", "4K"],
+  imageSizes: OPENAI_IMAGE_SIZES,
+  // OpenAI calls outputs above 2560x1440 pixels experimental.
+  experimentalAbovePixels: 2560 * 1440,
+  maxReferenceImages: 16,
+  qualities: ["low", "medium", "high", "xhigh", "max"],
+  qualityPriceFactors: { low: 0.03, medium: 0.25, high: 1, xhigh: 2, max: 4 },
+  backgrounds: ["opaque", "transparent"],
+  seed: false,
+};
 const SEEDANCE_20_DURATIONS = [4, 5, 8, 10, 15];
 const HIGGSFIELD_DURATIONS = [3, 4, 5, 6, 8, 10, 12];
 
@@ -93,6 +119,32 @@ export const MODEL_REGISTRY = [
       maxReferenceImages: 1,
       imagePriceScalesWithResolution: false,
     },
+  },
+  {
+    // developers.openai.com/api/docs/models/gpt-image-2.5-sunburst and -flare (read 2026-11-04): pinned
+    // snapshots, Images API generations/edits, up to 16 reference images, billed per token.
+    id: "gpt-image-2-5-sunburst",
+    name: "GPT Image 2.5 Sunburst",
+    kind: "image",
+    provider: "openai",
+    providerModelId: "gpt-image-2.5-sunburst-2026-09-08",
+    offered: true,
+    badge: "NEW",
+    hint: "OpenAI's most capable image model, precise edits · up to 16 references · 1K/2K/4K PNG",
+    pricingKey: "GPT Image 2.5 Sunburst",
+    capabilities: OPENAI_IMAGE_CAPABILITIES,
+  },
+  {
+    id: "gpt-image-2-5-flare",
+    name: "GPT Image 2.5 Flare",
+    kind: "image",
+    provider: "openai",
+    providerModelId: "gpt-image-2.5-flare-2026-09-08",
+    offered: true,
+    badge: "FAST",
+    hint: "Fast everyday OpenAI image model · up to 16 references · 1K/2K/4K PNG",
+    pricingKey: "GPT Image 2.5 Flare",
+    capabilities: OPENAI_IMAGE_CAPABILITIES,
   },
   {
     id: "seedance",

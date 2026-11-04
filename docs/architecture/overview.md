@@ -20,7 +20,7 @@ flowchart LR
     AgentW[Agent worker] --> PG
     API --> PG
   end
-  Gen --> Providers[Gemini, Seedream, Seedance, Kling, Magnific, ...]
+  Gen --> Providers[Gemini, Seedream, Seedance, Kling, OpenAI, Magnific, ...]
   AgentW -->|agent loop only| Gemini[Gemini]
   API -->|signs URLs| GCS[(GCS media bucket)]
   Browser -->|media bytes| GCS
@@ -72,7 +72,7 @@ message, blamed field, request id and task id (redacted, raw body capped at 4 KB
 or a portrait asset's `receipt.lastError`. `generation/failure_copy.py` shows the user a plain sentence followed by
 that exact detail, and the admin Errors tab reads the same records (older rows are parsed from their raw body).
 
-Model switches (`VEEVEE_OMNIHUMAN`, `VEEVEE_KLING`, `VEEVEE_GEMINI_OMNI`, `VEEVEE_MAGNIFIC_UPSCALE`) live in `generation/availability.py`:
+Model switches (`VEEVEE_OMNIHUMAN`, `VEEVEE_KLING`, `VEEVEE_GEMINI_OMNI`, `VEEVEE_MAGNIFIC_UPSCALE`, `VEEVEE_OPENAI_IMAGE`) live in `generation/availability.py`:
 submission refuses new jobs on an unknown, unoffered, retired or switched-off model (with or without the paid guard),
 and signed-in `GET /api/auth/me` returns `availability.models` (registry ids of offered, unretired, switched-on models).
 The frontend pickers filter the registry with it (`isModelAvailable`/`pickerModels`), so flipping a switch and

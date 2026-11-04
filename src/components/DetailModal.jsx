@@ -32,7 +32,7 @@ import { stepViewer } from "@/lib/viewer-step";
 import { useViewerPreload } from "@/lib/viewer-media";
 import { useStore } from "@/lib/store";
 import { cn, thumbUrl, referenceDisplayUrl, generationDownloadUrl } from "@/lib/utils";
-import { DEPTH_ENCODER_LABELS } from "@/lib/config";
+import { DEPTH_ENCODER_LABELS, IMAGE_BACKGROUND_LABELS, IMAGE_QUALITY_LABELS } from "@/lib/config";
 import {
   supportsFirstFrameContinuation,
   supportsFirstLastFrame,
@@ -525,6 +525,12 @@ export function DetailModal() {
                     value={item.bitrateMode === "standard" ? "Low" : "High"}
                   />
                 )}
+                {IMAGE_QUALITY_LABELS[item.imageQuality] && (
+                  <Param label="Quality" value={IMAGE_QUALITY_LABELS[item.imageQuality]} />
+                )}
+                {IMAGE_BACKGROUND_LABELS[item.imageBackground] && (
+                  <Param label="Background" value={IMAGE_BACKGROUND_LABELS[item.imageBackground]} />
+                )}
               </div>
 
               {item.referenceImages && item.referenceImages.length > 0 && (
@@ -772,9 +778,9 @@ function Param({
   return (
     <div className="rounded-lg border border-line bg-ink-800 px-3 py-2">
       <p className="text-[10px] uppercase tracking-wide text-white/35">{label}</p>
-      <p className="mt-0.5 flex items-center gap-1.5 truncate text-sm text-white/85">
-        {icon}
-        {value}
+      <p className="mt-0.5 flex items-start gap-1.5 text-sm text-white/85">
+        {icon && <span className="flex h-5 shrink-0 items-center">{icon}</span>}
+        <span className="min-w-0 break-words">{value}</span>
       </p>
     </div>
   );
