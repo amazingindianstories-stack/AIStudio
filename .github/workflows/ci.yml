@@ -66,6 +66,8 @@ jobs:
         working-directory: backend
         run: |
           if python -m pyflakes apps config deploy parity testsupport 2>&1 | grep -v "/migrations/" | grep "undefined name "; then exit 1; fi
+      - name: Release tooling tests
+        run: python -m unittest discover -s scripts/release -p 'test_*.py'
       - name: Django suite
         working-directory: backend
         run: python manage.py test --noinput --parallel 1

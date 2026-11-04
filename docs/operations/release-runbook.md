@@ -33,8 +33,13 @@ the preconditions below are its record.
    the real entrypoint (paid guard, export admission, portrait lifecycle, gateway), workers via
    `rehearsal_worker.py` (fake provider network behind the paid guard's check; the API's own
    Gemini host, used by the admin agent, is faked by `scripts/release/rehearsal_api/`). The probe
-   drives Nano Banana, Seedream, Seedance draft → final, Magnific, an audio transcription, an admin
-   agent message, admin user/limit changes and a ZIP export through the gateway.
+   drives Nano Banana, Seedream, Seedance draft → final, Magnific, an audio transcription, admin
+   user/limit changes and a ZIP export through the gateway. One agent worker (`manage.py agent_worker`, API role,
+   fake Gemini host, throwaway `MCP_QUOTE_SECRET`) runs too: the probe turns Agents on for a rehearsal admin account
+   (and restores it), advances one small run to `completed` with one `agent_llm_usage` row and its events read by
+   cursor, and stops a second run. It checks the runtime-role grants on every table added by canvas 0018-0019 and
+   agents 0003-0005, and when `canvas.0019_format_payloads` is pending it applies it alone first and prints the
+   data step's duration.
    Verified to fail on the 2026-10-13 missing-import regression.
 3. `stage_railway_deploy.py` refuses a commit without both pass records.
 4. Proposed, not built (needs owner budget approval): a tiny real paid canary per provider right
@@ -147,12 +152,16 @@ switch is a write barrier; re-establish a verified quiet window before proceedin
 
 ## Staging an upload
 ```
-python3 scripts/release/stage_railway_deploy.py <commit> <component> <empty-dir>
+python3 scripts/release/stage_railway_deploy.py [--no-overlap] <commit> <component> <empty-dir>
 railway up <dir> --path-as-root -p <project> -e <environment> -s <service-id> -c
 ```
 The staged directory holds only `backend/` from `git archive` and a generated `railway.json`
 (Dockerfile `backend/Dockerfile`, start command, health/overlap). Any `railway.toml` an older
 commit carries is dropped, so the generated file is the only service configuration.
+`<component>` is `api`, `mcp`, `generation`, `export`, `scheduler` or `agent`. `api` and `mcp` get the readiness
+health check and a 20 s overlap; `generation` and `agent` overlap 0; `agent` serves no HTTP, so it has no health
+check, port or domain. `--no-overlap` (`api` and `mcp` only) stages `overlapSeconds` 0 for the no-overlap pause
+below; without it nothing changes.
 
 **Learned on the API cutover (2026-10-13):** Railway ignored the uploaded `railway.json` start
 command (deployment meta had no file manifest), so the new image first ran the old launcher and
@@ -179,14 +188,17 @@ deployment's `meta.serviceManifest`.
    logs, draining over); only then apply `canvas.0019_format_payloads` (never before the pause: an
    old-image edit saved after it lands next to a stale reference, and the new release serves the
    stale payload row and drops the edit on its next save); then `railway up` the API with
-   `overlapSeconds` 0 in the staged `railway.json`, and deploy MCP from the same commit with no
-   overlap before it serves again. The API and agent tools are unavailable for that pause. Promote the frontend that reads payloads
+   `overlapSeconds` 0 in the staged `railway.json` (`stage_railway_deploy.py --no-overlap`), and deploy MCP
+   from the same commit the same way before it serves again. The API and agent tools are unavailable for that pause. Promote the frontend that reads payloads
    lazily only after the new API serves: against the old API it would save format objects without
    their payloads. Later releases use the overlap above.
 2. **Generation worker** (overlap 0, drain 120 s): only with no queued/running jobs. Verify the
    startup log reaches the worker loop (preflight passed) and the next real job is claimed once.
 3. **Export worker**, then **scheduler**: verify startup, then an export ZIP (filenames, MOV
    bytes) and the scheduler lease.
+   **Agent worker** (new service, `agent`, overlap 0, no health check or domain; stage it with
+   `stage_railway_deploy.py <commit> agent`): after the scheduler, so a stale run is re-queued. Verify the startup
+   log reaches the worker loop and a run started by an admin account reaches `completed`.
 4. Watch the rollback thresholds in `status.md` for a full reconciliation window.
 
 Separate later single-variable steps: `DEPTH_WORKER_TOKEN` on the API (F-04),

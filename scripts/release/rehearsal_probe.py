@@ -281,36 +281,101 @@ if isinstance(ready, dict) and ready.get('ref'):
         check('audio: listed in the project history', status == 200 and any(item.get('id') == transcribed['id'] for item in history.get('items', [])),
               f'{status} {str(history)[:160]}')
 
-# Agents tab: a run (the API only queues it; no agent worker runs here) for an account the copy turns Agents on for,
-# and the answer the rehearsal session gets, both from limits.agents_enabled (the global switch, a per-user override,
-# else admins only).
-from apps.agents.limits import agents_enabled  # noqa: E402
+# Agents tab: the agent worker (vr-agent) advances runs the API queues. The probe turns Agents on for a rehearsal admin account
+# (a per-user override; a global kill switch is lifted for the probe) and restores both afterwards, then checks one small run
+# end to end (queued, advanced to completed, one model-usage row, events read as a feed by cursor) and a second run that is stopped.
+from apps.admin_dashboard.models import AppSetting, UserLimit  # noqa: E402
+from apps.agents.limits import ENABLED as AGENTS_ENABLED, agents_enabled  # noqa: E402
+from apps.agents.models import ACTIVE_RUN_STATUSES, AgentLlmUsage, AgentRun, AgentRunEvent  # noqa: E402
+from apps.common.leases import now_ms  # noqa: E402
 admin = User.objects.filter(role='admin', is_active=True).order_by('created_at').first()
-agent_account = next((account for account in (admin, user) if account is not None and agents_enabled(account)), None)
-if agent_account is None:
-    print('     agent run checks skipped: Agents are off for the admin and the rehearsal user in this copy', flush=True)
-else:
-    agent_session = sign_session(agent_account)
+check('agent: a rehearsal admin account exists in the copy', admin is not None)
+
+
+def agent_conversation(session, name):
     status, created, _ = call('POST', '/api/agent-conversations', {'op': 'createConversation', 'projectId': str(project.id), 'agentKind': 'image',
-                                                                   'name': 'rehearsal'}, session=agent_session)
-    check('agent: conversation created', status == 200 and created.get('conversation', {}).get('id'), f'{status} {str(created)[:160]}')
-    if status == 200:
-        conversation = created['conversation']['id']
-        status, started, _ = call('POST', f'/api/agent-conversations/{conversation}/runs', {'content': 'A quiet courtyard at dawn'},
-                                  session=agent_session)
-        run = (started.get('run') or {}).get('id') if isinstance(started, dict) else None
-        check('agent: run queued through the gateway', status == 201 and started.get('delivery') == 'run' and run, f'{status} {str(started)[:200]}')
-        if run:
-            status, feed, _ = call('GET', f'/api/agent-conversations/{conversation}/runs/{run}/events?after=0', session=agent_session)
-            check('agent: run event feed readable', status == 200 and [event['kind'] for event in feed.get('events', [])] == ['run_queued'],
-                  f'{status} {str(feed)[:200]}')
-            status, stopped, _ = call('POST', f'/api/agent-conversations/{conversation}/runs/{run}/cancel', {'cancelJobs': False}, session=agent_session)
-            check('agent: stop requested', status == 202 and stopped.get('run', {}).get('cancelRequestedAt'), f'{status} {str(stopped)[:200]}')
-            # No agent worker finishes it here; close it so the copy keeps no active run (local copy only).
-            from apps.agents.models import AgentRun  # noqa: E402
-            from apps.common.leases import now_ms  # noqa: E402
-            AgentRun.objects.filter(pk=run).update(status='cancelled', finished_at=now_ms(), updated_at=now_ms())
-        call('POST', '/api/agent-conversations', {'op': 'deleteConversation', 'id': conversation}, session=agent_session)
+                                                                   'name': name}, session=session)
+    check(f'agent: {name} conversation created', status == 200 and created.get('conversation', {}).get('id'), f'{status} {str(created)[:160]}')
+    return created['conversation']['id'] if status == 200 else None
+
+
+def agent_follow(session, conversation, run, seconds=90):
+    """Read the run's events by cursor, as the Agents tab does, until it reaches a terminal status."""
+    after, seen, deadline, feed = 0, [], time.time() + seconds, {}
+    while time.time() < deadline:
+        status, feed, _ = call('GET', f'/api/agent-conversations/{conversation}/runs/{run}/events?after={after}', session=session)
+        if status != 200:
+            break
+        seen.extend(feed['events'])
+        after = feed['nextAfter']
+        if feed['run']['status'] in ('completed', 'failed', 'cancelled') and not feed['more']:
+            break
+        time.sleep(1)
+    return feed.get('run', {}), seen
+
+
+if admin is not None:
+    agent_session = sign_session(admin)
+    global_row = AppSetting.objects.filter(key=AGENTS_ENABLED).first()
+    own_row = UserLimit.objects.filter(user_id=admin.id, key=AGENTS_ENABLED).first()
+    own_before = own_row.value if own_row else None
+    conversations = []
+    try:
+        if global_row is not None and global_row.value.strip() == '0':
+            AppSetting.objects.filter(key=AGENTS_ENABLED).delete()
+        UserLimit.objects.update_or_create(user_id=admin.id, key=AGENTS_ENABLED, defaults={'value': '1', 'updated_at': now_ms()})
+        check('agent: Agents enabled for the rehearsal admin account', agents_enabled(admin))
+        conversation = agent_conversation(agent_session, 'rehearsal run')
+        if conversation:
+            conversations.append(conversation)
+            status, started, _ = call('POST', f'/api/agent-conversations/{conversation}/runs', {'content': 'A quiet courtyard at dawn'},
+                                      session=agent_session)
+            run = (started.get('run') or {}).get('id') if isinstance(started, dict) else None
+            check('agent: run queued through the gateway', status == 201 and started.get('delivery') == 'run' and run, f'{status} {str(started)[:200]}')
+            if run:
+                final, seen = agent_follow(agent_session, conversation, run)
+                kinds = [event['kind'] for event in seen]
+                check('agent: the agent worker advanced the run to completed', final.get('status') == 'completed', f'{final.get("status")} {kinds}')
+                check('agent: events streamed in order from run_queued to completed', kinds[:1] == ['run_queued'] and kinds[-1:] == ['completed']
+                      and 'assistant_text' in kinds and [event['seq'] for event in seen] == list(range(1, len(seen) + 1)), str(kinds))
+                usage = list(AgentLlmUsage.objects.filter(run_id=run).values_list('purpose', 'user_id'))
+                check('agent: one agent_llm_usage row for the run', usage == [('step', admin.id)], str(usage))
+                check('agent: run kept no paid tool cost', AgentRun.objects.get(pk=run).cost_cents == 0)
+        stopped_run = None
+        for attempt in range(3):     # the worker could finish a run before the stop lands; a stop that lands first is the check
+            stop_conversation = agent_conversation(agent_session, f'rehearsal stop {attempt}')
+            if not stop_conversation:
+                break
+            conversations.append(stop_conversation)
+            status, started, _ = call('POST', f'/api/agent-conversations/{stop_conversation}/runs', {'content': 'Another courtyard at dusk'},
+                                      session=agent_session)
+            stopped_run = (started.get('run') or {}).get('id') if isinstance(started, dict) else None
+            if not stopped_run:
+                check('agent: second run queued', False, f'{status} {str(started)[:200]}')
+                break
+            status, stopped, _ = call('POST', f'/api/agent-conversations/{stop_conversation}/runs/{stopped_run}/cancel', {'cancelJobs': False},
+                                      session=agent_session)
+            if status == 202:
+                check('agent: stop requested', bool(stopped.get('run', {}).get('cancelRequestedAt')), str(stopped)[:200])
+                final, seen = agent_follow(agent_session, stop_conversation, stopped_run)
+                check('agent: the agent worker stopped the second run', final.get('status') == 'cancelled' and [event['kind'] for event in seen][-1:] == ['cancelled'],
+                      f'{final.get("status")} {[event["kind"] for event in seen]}')
+                check('agent: the stopped run left no active run behind', not AgentRun.objects.filter(conversation_id=stop_conversation,
+                                                                                                    status__in=ACTIVE_RUN_STATUSES).exists())
+                break
+        else:
+            check('agent: stop requested', False, 'the run finished before every stop request in three attempts')
+    finally:
+        for conversation in conversations:
+            call('POST', '/api/agent-conversations', {'op': 'deleteConversation', 'id': conversation}, session=agent_session)
+        AgentRun.objects.filter(conversation_id__in=conversations, status__in=ACTIVE_RUN_STATUSES).update(status='cancelled', finished_at=now_ms(),
+                                                                                                           updated_at=now_ms())
+        if own_before is None:
+            UserLimit.objects.filter(user_id=admin.id, key=AGENTS_ENABLED).delete()
+        else:
+            UserLimit.objects.update_or_create(user_id=admin.id, key=AGENTS_ENABLED, defaults={'value': own_before, 'updated_at': now_ms()})
+        if global_row is not None and not AppSetting.objects.filter(key=AGENTS_ENABLED).exists():
+            AppSetting.objects.create(key=AGENTS_ENABLED, value=global_row.value, updated_at=global_row.updated_at)
 allowed = agents_enabled(user)
 status, refused, _ = call('POST', f'/api/agent-conversations/{uuid.uuid4()}/runs', {'content': 'x'})
 check('agent: unknown conversation answered by Django' if allowed else 'agent: refused where Agents are off for the session',
@@ -392,6 +457,27 @@ if os.environ.get('REHEARSAL_MCP', '1') == '1':
     finally:
         tokens.revoke_family(token.family_id)
         policy.set_enabled(user.id, enabled_before, now_ms())
+
+# Grants on every new table (canvas 0018-0019, agents 0003-0005, generation 0011-0012 add no table): production has no default privileges,
+# so each migration grants the runtime roles itself. Read as the copy's owner; the API role's own use is shown by the checks above.
+import psycopg  # noqa: E402
+NEW_TABLES = ('canvas_board_captions', 'canvas_board_format_payloads', 'agent_grants', 'agent_runs', 'agent_run_steps', 'agent_run_events',
+              'agent_inbox', 'agent_chat_assets', 'agent_llm_usage')
+with psycopg.connect(os.environ['REHEARSAL_OBSERVER_URL']) as observer:
+    roles = {name for (name,) in observer.execute('SELECT rolname FROM pg_roles')}
+    for role in ('goal4_green_preview_api', 'goal4_green_preview_worker'):
+        if role not in roles:
+            print(f'     role {role} is not in this copy: its table grants not checked', flush=True)
+            continue
+        for table in NEW_TABLES:
+            missing = [privilege for privilege in ('SELECT', 'INSERT', 'UPDATE', 'DELETE')
+                       if not observer.execute('SELECT has_table_privilege(%s, %s, %s)', [role, table, privilege]).fetchone()[0]]
+            check(f'grants: {role} on {table}', not missing, 'missing ' + ', '.join(missing))
+    if 'goal4_green_history_writer' in roles:
+        for table in NEW_TABLES:
+            granted = observer.execute('SELECT has_table_privilege(%s, %s, %s), has_table_privilege(%s, %s, %s)',
+                                       ['goal4_green_history_writer', table, 'SELECT', 'goal4_green_history_writer', table, 'INSERT']).fetchone()
+            check(f'grants: goal4_green_history_writer reads only {table}', granted == (True, False), str(granted))
 
 print(json.dumps({'failures': failures, 'checked': len(results)}), flush=True)
 sys.exit(1 if failures else 0)
