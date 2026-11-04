@@ -26,8 +26,11 @@ def registry_order(ids):
 
 def valid_contract(model):
     """A new job on ``model`` that the paid guard admits while its switch is on."""
-    if model['provider'] in ('kling', 'openai'):
+    if model['provider'] == 'kling':
         return contract(kind='image', model=model['name'], resolution='1K', aspect_ratio='1:1')
+    if model['provider'] == 'openai':
+        return contract(kind='image', model=model['name'], resolution='1K', aspect_ratio='1:1',
+                        submission_input={'quality': 'high', 'background': 'opaque'})
     if model['provider'] == 'omni':
         return contract(kind='video', model=model['name'], resolution='720p', duration=8, aspect_ratio='16:9')
     if model['provider'] == 'magnific':
