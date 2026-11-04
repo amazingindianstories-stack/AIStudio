@@ -3,6 +3,7 @@ import { uploadOriginalReference, uploadFileDirect, uploadContentType } from "@/
 
 
 import {
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -21,13 +22,13 @@ import {
   Wand2,
   X,
 } from "lucide-react";
-import { useStore } from "@/lib/store";
+import { uploadInlineReferences, useStore } from "@/lib/store";
 
 import { supportsVideoReference } from "@/lib/config";
 import { measureAudioDuration } from "@/lib/audio-duration";
 import { extractFrame } from "@/lib/video-frame";
 import { ATTACH_ACCEPT, MAX_DOCUMENTS, documentType, uploadAgentDocument } from "@/lib/agent-attachments";
-import { afterFailedSend } from "@/lib/agent-send";
+import { runView, threadEntries } from "@/lib/agent-run";
 import { insertTranscript, startVoiceNote, transcribeVoiceNote, voiceCaps, voiceErrorMessage } from "@/lib/voice-note";
 import { formatTime } from "@/lib/canvas/talktrack";
 
@@ -43,8 +44,9 @@ import { Dropdown, MenuItem } from "./Dropdown";
 import { normalizePromptMentions } from "@/lib/mentions";
 import { cn } from "@/lib/utils";
 import { apiErrorMessage } from "@/lib/api-error";
+import { AgentRunPanel } from "./AgentRunPanel";
+import { useAgentRun } from "./useAgentRun";
 
-const GENERATE_TOOLS = new Set(["generate_image", "generate_video"]);
 const IDLE_VOICE = { phase: "idle", elapsedMs: 0, maxMs: 0 };
 
 /**
@@ -53,12 +55,13 @@ const IDLE_VOICE = { phase: "idle", elapsedMs: 0, maxMs: 0 };
  * controls (ComposerControls) alongside it rather than stacked as a
  * separate block. Replaces ChatColumn + PromptComposer in page.tsx.
  *
- * The single input always goes to the orchestrator (POST
- * /api/agent-conversations/[id]/messages, scoped by agentKind=s.mode) —
- * the model decides whether to just talk, call design_prompt, or call
- * generate_{image,video}. A generate_* tool call is picked up here and
- * fires the exact same s.generate() the real Generate button always used,
- * so the result goes through the one existing queue/cost/polling path.
+ * The single input posts to the conversation's durable run (POST
+ * /api/agent-conversations/[id]/runs): with no active run it starts one,
+ * otherwise the message waits in that run's inbox and shows as queued until
+ * the run reads it. The agent worker runs the model and its tools; useAgentRun
+ * polls the run's event feed and AgentRunPanel renders its text, tool steps,
+ * jobs, quote, pause and Stop controls. Jobs the run queues land in the chat's
+ * folder like any generation, so their cards come from the same item pools.
  *
  * `conversationId` is owned by StudioView (the parent) rather than here, so
  * ChatSidebar's thread list and this feed can't disagree about which thread
@@ -67,6 +70,7 @@ const IDLE_VOICE = { phase: "idle", elapsedMs: 0, maxMs: 0 };
 export function StudioChat({ conversationId }) {
   const s = useStore();
   const mode = useStore((s) => s.mode);
+  const subject = mode === "image" ? "idea" : "shot";
   const model = useStore((s) => s.model);
   const setPrompt = useStore((s) => s.setPrompt);
   const generate = useStore((s) => s.generate);
@@ -76,27 +80,31 @@ export function StudioChat({ conversationId }) {
   const addReferenceFromVideo = useStore((s) => s.addReferenceFromVideo);
   const items = useStore((s) => s.items);
   const threadItems = useStore((s) => s.threadItems);
+  const looseItems = useStore((s) => s.looseItems);
 
   const [messages, setMessages] = useState([]);
   const [loadingThread, setLoadingThread] = useState(true);
+  const requestIdRef = useRef(0);
+  // A run that ended re-reads the thread, so the saved messages (its replies and the messages it read) are authoritative.
+  const refreshThread = useCallback(async () => {
+    const id = conversationId;
+    const requestId = requestIdRef.current;
+    const res = await fetch(`/api/agent-conversations/${id}`, { cache: "no-store" }).catch(() => null);
+    const json = res?.ok ? await res.json().catch(() => null) : null;
+    if (json?.messages && requestIdRef.current === requestId) setMessages(json.messages);
+  }, [conversationId]);
+  const agentRun = useAgentRun(conversationId, { onSettled: refreshThread });
+  const run = agentRun.state ? runView(agentRun.state) : null;
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(null);
   const input = s.prompt;
   const setInput = s.setPrompt;
   const [pendingUploads, setPendingUploads] = useState(0);
   const [generatedItemIds, setGeneratedItemIds] = useState({});
-  // Which messages we actually fired a generation for THIS page load — the
-  // "Starting generation…" spinner is only honest for these. A message
-  // loaded from history with a generate trace but no generatedItemId isn't
-  // necessarily still running — it may be one from before generatedItemId
-  // existed at all (nothing ever linked it), or a session that closed before
-  // the PATCH landed. Either way we can't tell "running" from "orphaned", so
-  // it must NOT spin forever claiming the former.
-  const [liveMessageIds, setLiveMessageIds] = useState({});
   const [dragging, setDragging] = useState(false);
   const [extractingFrames, setExtractingFrames] = useState(0);
-  // Documents staged for the next message, sent as `attachments` upload ids. /messages reads each one into the turn
-  // as untrusted text (a PDF through one media sub-call) and records it on the conversation.
+  // Documents staged for the next message, sent as `attachments` upload ids. The run's model is told each one's id,
+  // kind and filename and opens it with read_document; the conversation records it.
   const [documents, setDocuments] = useState([]);
   const documentsRef = useRef(documents);
   documentsRef.current = documents;
@@ -105,9 +113,11 @@ export function StudioChat({ conversationId }) {
   const voiceRef = useRef(null);
 
   const scrollRef = useRef(null);
+  const feedRef = useRef(null);
+  // Whether the feed follows its newest content; reading further up turns it off.
+  const stickRef = useRef(true);
   const mentionRef = useRef(null);
   const fileRef = useRef(null);
-  const requestIdRef = useRef(0);
   const { collapsed, shellProps: collapseProps, openFilePicker, collapseOnSend, reopenAfterFailedSend } = useComposerCollapse({ dragging });
 
   useEffect(() => {
@@ -116,7 +126,6 @@ export function StudioChat({ conversationId }) {
     // messages under the new one's name.
     setMessages([]);
     setGeneratedItemIds({});
-    setLiveMessageIds({});
     setDocuments([]);
     if (!conversationId) return;
     const requestId = ++requestIdRef.current;
@@ -128,7 +137,7 @@ export function StudioChat({ conversationId }) {
       const loaded = json.messages ?? [];
       setMessages(loaded);
       // A reload has no in-memory record of which generation a past
-      // generate_{image,video}/design_prompt message produced — read it back
+      // design_prompt message produced (or an older generate_* one) - read it back
       // from what the server persisted (see attachGeneratedItem), so a
       // finished generation shows its result instead of "Starting…" forever.
       const seeded = {};
@@ -141,13 +150,35 @@ export function StudioChat({ conversationId }) {
   }, [conversationId]);
 
   useEffect(() => {
+    stickRef.current = true;
+  }, [conversationId]);
+
+  useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
-  }, [messages, sending]);
+  }, [messages, sending, agentRun.state]);
+
+  // Run feeds and job media arrive after the thread renders, so keep the
+  // newest content in view while it grows unless the reader scrolled up.
+  useEffect(() => {
+    const feed = feedRef.current;
+    if (!feed || typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(() => {
+      if (stickRef.current) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+    });
+    observer.observe(feed);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => () => voiceRef.current?.cancel(), []);
 
   const findItem = (id) =>
-    items.find((i) => i.id === id) ?? threadItems.find((i) => i.id === id);
+    items.find((i) => i.id === id) ?? threadItems.find((i) => i.id === id) ?? looseItems.find((i) => i.id === id);
+
+  // The thread: saved messages, with each run's activity after the message that started it (see threadEntries). Runs
+  // that ended were read once when the chat opened; the current one follows its feed.
+  const runs = agentRun.earlier.map((state) => ({ view: runView(state), synced: true, live: false }));
+  if (run) runs.push({ view: run, synced: agentRun.synced, live: true });
+  const thread = threadEntries(messages, runs);
 
   const fireGeneration = async (prompt, messageId) => {
     setPrompt(prompt);
@@ -168,46 +199,69 @@ export function StudioChat({ conversationId }) {
     }
   };
 
+  // Reference images the draft still holds inline (data URLs) are uploaded first: the run only takes stored media.
+  const storedReferenceImages = async () => {
+    const state = useStore.getState();
+    const references = state.referenceImages;
+    const uploadOne = async (ref, label) => {
+      const blob = await (await fetch(ref)).blob();
+      return uploadOriginalReference(new File([blob], label, { type: blob.type }));
+    };
+    const stored = await uploadInlineReferences(references.map((value, i) => ({ value, label: state.referenceLabels?.[i] || "reference" })), uploadOne);
+    if (useStore.getState().referenceImages === references && stored.some((value, i) => value !== references[i])) {
+      useStore.setState({ referenceImages: stored });
+    }
+    return stored;
+  };
+
   const send = async () => {
     const content = input.trim();
     if (!content || sending || pendingUploads || !conversationId) return;
+    const id = conversationId;
     const optimistic = {
       id: `pending-${Date.now()}`,
-      conversationId,
+      conversationId: id,
       role: "user",
       content,
       toolTrace: null,
       createdAt: Date.now(),
     };
     const sentDocuments = documentsRef.current;
-    setMessages((cur) => [...cur, optimistic]);
+    const requestId = requestIdRef.current;
+    const moved = () => requestIdRef.current !== requestId;
     setError(null);
     setSending(true);
     collapseOnSend();
+    let shown = false;
     try {
-      const res = await fetch(`/api/agent-conversations/${conversationId}/messages`, {
+      const images = await storedReferenceImages();
+      if (moved()) {
+        reopenAfterFailedSend();
+        return;
+      }
+      setMessages((cur) => [...cur, optimistic]);
+      shown = true;
+      const res = await fetch(`/api/agent-conversations/${id}/runs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content, images: referenceImages,
+        body: JSON.stringify({ content, images,
           ...(sentDocuments.length ? { attachments: sentDocuments.map((d) => d.uploadId) } : {}) }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || data.error) {
-        const kept = afterFailedSend({ status: res.status, data, optimisticId: optimistic.id, sentDocuments });
-        setMessages(kept.messages);
-        setDocuments(kept.documents);
-        throw new Error(apiErrorMessage(data, res.status));
-      }
-      const assistantMessage = data.assistantMessage;
+      if (!res.ok || data.error) throw new Error(apiErrorMessage(data, res.status));
+      if (moved()) return;
       setDocuments((cur) => cur.filter((d) => !sentDocuments.includes(d)));
-      setMessages((cur) => [...cur.filter((m) => m.id !== optimistic.id), data.userMessage, assistantMessage]);
-      if (assistantMessage.toolTrace && GENERATE_TOOLS.has(assistantMessage.toolTrace.tool)) {
-        setLiveMessageIds((cur) => ({ ...cur, [assistantMessage.id]: true }));
-        const prompt = (assistantMessage.toolTrace.result )?.prompt;
-        if (prompt) await fireGeneration(prompt, assistantMessage.id);
+      if (data.delivery === "inbox") {
+        setMessages((cur) => cur.filter((m) => m.id !== optimistic.id));
+        agentRun.queue(data.inbox, data.run);
+      } else {
+        setMessages((cur) => cur.map((m) => (m.id === optimistic.id ? data.message : m)));
+        agentRun.adopt(data.run, { fresh: true });
       }
     } catch (err) {
       reopenAfterFailedSend();
+      if (moved()) return;
+      if (shown) setMessages((cur) => cur.filter((m) => m.id !== optimistic.id));
       setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
       setSending(false);
@@ -356,40 +410,61 @@ export function StudioChat({ conversationId }) {
       )}
 
       {/* message feed */}
-      <div ref={scrollRef} className="scroll-thin flex-1 overflow-y-auto px-4 py-6 sm:px-8">
-        {!conversationId || loadingThread ? (
-          <div className="mx-auto flex max-w-3xl items-center gap-2 text-sm text-white/40">
-            <Loader2 className="h-4 w-4 animate-spin" /> Loading chat…
-          </div>
-        ) : messages.length === 0 ? (
-          <div className="mx-auto max-w-3xl text-sm leading-relaxed text-white/40">
-            <p className="mb-1 flex items-center gap-1.5 font-medium text-white/60">
-              <Sparkles className="h-4 w-4 text-brand" /> New chat
-            </p>
-            Talk through what you want to {mode === "image" ? "make" : "shoot"}. Attach reference
-            images or documents if you have them, and say &quot;generate that&quot; when you are ready, or design a
-            prompt first and generate it from here.
-          </div>
-        ) : (
-          <div className="mx-auto flex max-w-3xl flex-col gap-4">
-            {messages.map((m) => (
-              <MessageBubble
-                key={m.id}
-                message={m}
-                isLive={!!liveMessageIds[m.id]}
-                generatedItemId={generatedItemIds[m.id]}
-                generatedItem={generatedItemIds[m.id] ? findItem(generatedItemIds[m.id]) : undefined}
-                onGenerate={(prompt) => fireGeneration(prompt, m.id)}
-                onEditAndGenerate={(prompt) => setInput(prompt)}
-              />
-            ))}
-            {sending && (
-              <div className="mr-auto flex items-center gap-1.5 text-xs text-white/40">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Thinking…
-              </div>
-            )}
-          </div>
-        )}
+      <div
+        ref={scrollRef}
+        data-testid="studio-chat-feed"
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+        }}
+        className="scroll-thin flex-1 overflow-y-auto px-4 py-6 sm:px-8"
+      >
+        <div ref={feedRef}>
+          {!conversationId || loadingThread ? (
+            <div className="mx-auto flex max-w-3xl items-center gap-2 text-sm text-white/40">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading chat…
+            </div>
+          ) : messages.length === 0 && !run ? (
+            <div className="mx-auto max-w-3xl text-sm leading-relaxed text-white/40">
+              <p className="mb-1 flex items-center gap-1.5 font-medium text-white/60">
+                <Sparkles className="h-4 w-4 text-brand" /> New chat
+              </p>
+              Talk through what you want to {mode === "image" ? "make" : "shoot"}. Attach reference
+              images or documents if you have them, and say &quot;generate that&quot; when you are ready, or design a
+              prompt first and generate it from here.
+            </div>
+          ) : (
+            <div className="mx-auto flex max-w-3xl flex-col gap-4">
+              {thread.map((entry) => (entry.panel ? (
+                <AgentRunPanel
+                  key={`run-${entry.key}`}
+                  view={entry.run.view}
+                  items={entry.items}
+                  last={entry.last}
+                  synced={entry.run.synced}
+                  findItem={findItem}
+                  onDecide={(action, stepIndex) => agentRun.act(action, { stepIndex })}
+                  onStop={(cancelJobs) => agentRun.act("cancel", { cancelJobs })}
+                  pollError={entry.run.live && entry.last ? agentRun.pollError : null}
+                />
+              ) : (
+                <MessageBubble
+                  key={entry.message.id}
+                  message={entry.message}
+                  generatedItemId={generatedItemIds[entry.message.id]}
+                  generatedItem={generatedItemIds[entry.message.id] ? findItem(generatedItemIds[entry.message.id]) : undefined}
+                  onGenerate={(prompt) => fireGeneration(prompt, entry.message.id)}
+                  onEditAndGenerate={(prompt) => setInput(prompt)}
+                />
+              )))}
+              {sending && (
+                <div className="mr-auto flex items-center gap-1.5 text-xs text-white/40">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Thinking…
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* composer: the same floating rounded/blurred shell the pre-redesign
@@ -482,11 +557,11 @@ export function StudioChat({ conversationId }) {
               references={referenceImages}
               videoRefs={s.referenceVideos}
               audioRefs={s.audioNotes}
-              placeholder={
-                mode === "image"
-                  ? "Talk through your idea, or type @ to reference an upload…"
-                  : "Talk through your shot, or type @ to reference an upload…"
-              }
+              placeholder={[
+                `Talk through your ${subject}, or type @ to reference an upload…`,
+                `Talk through your ${subject}, or @ an upload…`,
+                `Talk through your ${subject}…`,
+              ]}
             />
           </div>
 
@@ -545,7 +620,6 @@ export function StudioChat({ conversationId }) {
 
 function MessageBubble({
   message,
-  isLive,
   generatedItemId,
   generatedItem,
   onGenerate,
@@ -606,13 +680,12 @@ function MessageBubble({
         </div>
       )}
 
-      {/* Inline result — covers both ways a generation can start from this
-          message: the model calling generate_{image,video} itself
-          (isGenerateTrace), or the user clicking the Generate button above
+      {/* Inline result - covers both ways a generation could start from this
+          message: an older reply where the model called generate_{image,video}
+          itself (isGenerateTrace; runs show their jobs in AgentRunPanel), or the user clicking the Generate button above
           on a design_prompt reply (generating/generatedItem). Four states:
           resolved (card); known-but-not-loaded-locally (say so, don't spin);
-          genuinely in flight THIS session (spinner — generating, or a fresh
-          generate_* reply just received via send()); and — the case that
+          genuinely in flight THIS session (spinner - generating); and - the case that
           was still broken — an OLD message with a generate trace but no
           generatedItemId that we did NOT just trigger ourselves. That isn't
           "still running", it's one from before generatedItemId existed (or
@@ -626,7 +699,7 @@ function MessageBubble({
             <div className="rounded-lg bg-ink-750 px-2.5 py-2 text-xs text-white/50">
               Generated — check your library to view it.
             </div>
-          ) : generating || isLive ? (
+          ) : generating ? (
             <GenerationStatus status="running" compact className="rounded-lg ring-1 ring-line" />
           ) : (
             <div className="rounded-lg bg-ink-750 px-2.5 py-2 text-xs text-white/50">

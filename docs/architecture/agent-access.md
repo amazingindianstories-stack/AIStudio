@@ -19,9 +19,8 @@ endpoints.
   its per-user lock and checks; `agentGlobalDailyCapCents` (all users' agent generations plus all LLM cost) is
   enforced only by the worker's `check_step` and by `check_budget`, so MCP admission has no account-wide
   serialization point. `check_budget` runs before each Agents tab Gemini call outside a run step (voice
-  transcription, PDF describe, `view_media`, `read_document`) against the user, grant and global daily caps; once
-  one has no cent left, nothing is sent and the call fails `BUDGET_EXCEEDED` (HTTP 429 from `.../messages` and
-  `.../transcribe`).
+  transcription, `view_media`, `read_document`) against the user, grant and global daily caps; once one has no cent
+  left, nothing is sent and the call fails `BUDGET_EXCEEDED` (HTTP 429 from `.../transcribe`).
   Settings, Agent access shows the same `spent_cents` total as the user's spent today.
 - Agents tab limits (`apps/agents/limits.py`, all in `LIMITS` and `src/lib/limits.js`): `agentActiveRuns` (2),
   `agentMaxStepsPerRun` (40), `agentMaxRunCostCents` (1000), global-only `agentGlobalDailyCapCents` (20000) and
@@ -34,9 +33,9 @@ endpoints.
 - `agentsEnabled` (1/0): a global 0 is a kill switch, off for everyone including admins and per-user overrides.
   Otherwise a per-user row decides, then a global 1 (on for all), and with nothing set it is on for admins only.
   The dashboard omits the key while no global row exists, and `POST /api/admin/limits` with `value: null` deletes
-  the global row to return to admins only (the Limits tab's "Reset to default"). The same switch gates the direct
-  Gemini endpoints: `POST .../messages` and `POST .../transcribe` answer `403 AGENTS_DISABLED` before any PDF read,
-  transcription or chat turn.
+  the global row to return to admins only (the Limits tab's "Reset to default"). The same switch gates every
+  agent-conversation route, so `POST .../transcribe` answers `403 AGENTS_DISABLED` before any transcription (see
+  Agents tab runs).
 - Mid-run, `check_step` returns a `LimitHit` (`disabled`, `steps`, `run_cost`, `daily_cap`, `grant_daily_cap` for
   the Agents tab grant's own `daily_cap_cents`, `global_daily_cap`).
   `apply_limit_hit` pauses the run (`paused_limit`, `pause_reason` = kind, `resume_after` from the oldest rows
@@ -76,9 +75,10 @@ Users manage tokens and connected apps in Account settings, Agent access (`/api/
 
 ## Agents tab runs
 
-An Agents tab chat turn can run as a durable run (`agent_runs`) that the `agent` worker advances in the background,
-so a turn survives a closed tab, a deploy or a worker crash. The old synchronous path (`POST .../messages`, one short
-tool loop inside the request) still serves the current UI; the run endpoints below are for the new tab. Code lives in
+Every Agents tab message goes to a durable run (`agent_runs`) that the `agent` worker advances in the background,
+so a turn survives a closed tab, a deploy or a worker crash. The old synchronous turn (`POST .../messages`, one short
+tool loop inside the request) is gone; only `PATCH .../messages/<id>` remains, which links a generated item to an
+older `design_prompt` reply. Code lives in
 `apps/agents`: `runs.py` (the services the views adapt), `runner.py` (the state machine), `worker.py` (claim,
 heartbeat and the scheduler's resume pass), `events.py`, `limits.py` and `design.py`.
 
@@ -118,6 +118,13 @@ queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed
   message still waiting the same way, so it stays in the chat; no new run starts for it. A message wakes a run waiting
   on jobs or paused at a limit, and a run does not complete while a delivered message is newer than the model's last
   turn.
+- **Attachments.** A run message may carry `attachments` (up to 10 document upload ids, each the caller's ready
+  document upload) and `images` (stored reference image URLs that resolve to the caller's ready upload or to any
+  finished image generation of the shared library, a teammate's included, as `view_media` reads it; a data URL is
+  refused, so the composer uploads it first, and so is a protected key). Each file is loaded once to validate it, recorded
+  in `agent_chat_assets` with the run, and stored as `{id, kind, name}` on the chat message or inbox row (`attachments`
+  in the message and inbox JSON). Nothing is read for the model at send time: its turn gets one note naming each file
+  by kind, id and quoted filename, and it opens them with `read_document` or `view_media`.
 - **Step boundaries.** Before each step the runner stops if its lease was lost or the worker is stopping (the run goes
   back to `queued`), honours a cancel request, re-checks the grant (`AgentGrantInvalid` fails the run), delivers the
   inbox, and checks the limits with `limits.check_step`, read at call time (the `agentsEnabled` switch, which is how to
@@ -140,6 +147,9 @@ queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed
 - **Cancel.** A stop request sets `cancel_requested_at`; the run ends `cancelled` at its next step boundary, and jobs
   already queued finish normally. "Stop and cancel jobs" (`cancel_jobs`) also cancels every active linked job through
   `generation/services/cancellation.cancel_generation` (deferred, so the generation worker sends any provider cancel).
+  Deleting a conversation deletes its runs with it (the database cascade), so a run still active stops counting and is
+  not advanced again; jobs it already queued finish into the library. A step in flight at the delete ends quietly in the
+  worker, and its Gemini call is still recorded in `agent_llm_usage`, without its conversation and run.
 - **Events.** `agent_run_events` carries a gapless, strictly increasing per-run `seq`, allocated under the run row lock:
   `run_queued`, `run_started`, `resumed`, `step_started`, `tool_called`, `job_queued`, `job_finished`, `waiting_jobs`,
   `quote_required`, `quote_approved`, `quote_declined`, `message_queued`, `message_delivered`, `assistant_text`,
@@ -149,14 +159,66 @@ queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed
 | Method and path (under `/api/agent-conversations/<id>`) | Purpose |
 |---|---|
 | `GET .../runs` | The chat's 20 most recent runs |
-| `POST .../runs` `{content, model?}` | Starts a run with the message (201), or writes it to the active run's inbox (202). One active run per conversation is a database constraint. When no run is active: `403 AGENTS_DISABLED` when `agentsEnabled` is off for the user, `429 AGENT_LIMIT` (with `kind` `active_runs`) at the `agentActiveRuns` cap |
+| `POST .../runs` `{content, model?, attachments?, images?}` | Starts a run with the message (201), or writes it to the active run's inbox (202). One active run per conversation is a database constraint. `403 AGENTS_DISABLED` when the Agents tab is off for the caller, even with a run active; when no run is active, `429 AGENT_LIMIT` (with `kind` `active_runs`) at the `agentActiveRuns` cap |
 | `GET .../runs/<run>/events?after=<seq>&limit=` | Up to 100 events after `seq`, with the run, `nextAfter`, `more` and the undelivered messages |
 | `POST .../runs/<run>/approve`, `.../decline` `{stepIndex}` | Answers the waiting quote; `409 NO_PENDING_QUOTE` otherwise |
 | `POST .../runs/<run>/cancel` `{cancelJobs?}` | Stop (202), or stop and cancel the run's active jobs; `409 RUN_FINISHED` once it ended |
 
-Every route needs an admin session, like the old agent chat; another user's conversation or run is 404. The gateway
+Every agent-conversation route (conversations, messages, transcription and runs) needs a session for which
+`limits.agents_enabled` is true, else `403 AGENTS_DISABLED` (`403 FORBIDDEN` without a session); `GET /api/auth/me`
+returns the same boolean as `user.agentsEnabled`, which opens the Agents tab in the top bar. Everyone, admins
+included, lists and opens only their own conversations; another user's conversation or run is 404. The gateway
 opens starting a run and approving a quote only with its paid routes on (`paid_initial_routes`); the events feed,
 decline and cancel are always open.
+
+### Agents tab UI
+
+`src/components/StudioChat.jsx` sends every message to `POST .../runs` with `content`, the staged document upload ids
+(`attachments`) and the reference images (`images`; data-URL references are uploaded first and written back to the
+draft). Voice notes are transcribed into the composer before sending, so they take the same path. A 201 shows the
+saved message and follows the new run; a 202 shows the inbox row as a dashed "Queued" bubble until `message_delivered`
+arrives, or a `pendingMessages` snapshot read after its `message_queued` no longer lists it. A refused send keeps the
+draft and staged files and shows the API's message (`AGENTS_DISABLED`, `AGENT_GRANT_INVALID` and the rest).
+
+- **Feed.** `src/lib/agent-run.js` is pure: `applyPage` keeps events by `seq` (duplicate, out-of-order and repeated
+  pages change nothing; the cursor only advances over gapless seqs), `drainFeed` follows `more`, and `runView` builds
+  the timeline (model text, tool steps keyed by `stepIndex` with their status, outcome code and summary, the jobs each
+  step queued, delivered messages), the pending quote, the pause, the stop request and the outcome. A stop that
+  cancelled jobs marks them cancelled. `src/components/useAgentRun.js` polls `events?after=<cursor>` every 1.5 s while
+  the run works and every 5 s while it waits for approval or a limit, doubling per failure up to 30 s; after three
+  failures in a row it says it lost touch, and a 403 or 404 stops it. Once the run is terminal and `more` is false it
+  re-reads the conversation, so the saved thread becomes authoritative.
+- **Thread.** `threadEntries` in `src/lib/agent-run.js` places each run's activity after the message that started it
+  (`run_queued` `messageId`); `src/components/AgentRunPanel.jsx` renders it. A run's saved replies (assistant messages
+  with `toolTrace.runId` and `stepIndex`) and the messages it read from its inbox (user messages with `runId` and
+  `deliveredStep` in the conversation JSON) show as saved messages, so the feed items they repeat are left out and the
+  activity between them is split into segments, each after the saved message it follows. The activity is tool steps,
+  jobs (a succeeded job shows its `MediaCard`, read by id through the store's `loadItem` when no loaded scope holds it;
+  a running one shows `GenerationStatus`, a failed or cancelled one its text), non-final text, and, in the run's last
+  segment, queued messages, the quote, pause card, status line and how a failed or stopped run ended. While the run is
+  live and the thread has not been re-read, its replies and the messages it read come from the feed.
+- **Reconnect.** Opening a conversation reads `GET .../runs` (the 20 most recent). An active run resumes from the state
+  saved in `sessionStorage` (`veevee.agentRun.<run id>`: the gapless events, cursor and queued rows, written after every
+  poll in try/catch), so a reload polls from the last seq with nothing duplicated; a missing or damaged save reads from
+  0. Every run that ended is read once from its feed (`drainFeed`, at most 20 pages) and never polled; the tab keeps
+  ended feeds in memory, so switching back to a chat reads nothing again. A send follows the run it started (or shows
+  the message it queued) only while its chat is still open, and a run it replaces before that run's feed was drained
+  is drained once and stays in the thread.
+- **Quote card.** Shows the tool, the cost (`display`, else dollars from `costCents`), the summary, the prompt and the
+  scalar arguments, with Approve and Decline. Approving is always a click; at 100 cents or more it first asks for
+  "Confirm $X" and only then sends `{stepIndex}` (the API needs no confirm field; the worker adds `confirmedByUser`).
+  `409 NO_PENDING_QUOTE` shows "This quote is no longer waiting for approval."
+- **Pause, failure and stop.** The pause card gives the `pause_reason` in plain words and when the run tries again
+  ("in N minutes" within the hour, else the local time). A failed run shows its error message; a cancelled one says
+  whether its jobs keep running or how many the stop cancelled. While a run is active the status line offers "Stop"
+  (`cancelJobs: false`) and "Stop and cancel jobs" (`true`), then shows "Stopping…" after `cancel_requested` until
+  the run ends; `409 RUN_FINISHED` is not shown as an error.
+- **Tests.** `src/lib/agent-run.test.js` covers the reducer and helpers. `tests/browser/agents-runs.spec.mjs` drives
+  the tab against Django with no agent worker: the composer starts a real run and the spec writes the worker's events
+  and run status through `fixture-db.mjs` (feed rendering, delivered message, reload from the last seq, quote approve
+  with the second confirmation and decline including a 409, the pause card, Stop and cancel jobs, a failed run, a succeeded job's media card read by id, and the activity of a completed run and an earlier failed run in order
+  after a reload, each feed read once, a run replaced before its feed was read, and a send answered after a chat
+  switch).
 
 The worker is its own Railway component, `python -m deploy.entrypoint agent`, which runs
 `agent_worker --interval 1 --concurrency N` (`VEEVEE_AGENT_WORKER_SLOTS`, 1 to 8, default 4). It uses the API's

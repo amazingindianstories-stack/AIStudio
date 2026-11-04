@@ -183,6 +183,7 @@ export function patchEverywhere(
     items: s.items.map((i) => (i.id === id ? patch(i) : i)),
     threadItems: s.threadItems.map((i) => (i.id === id ? patch(i) : i)),
     pendingItems: s.pendingItems.map((i) => (i.id === id ? patch(i) : i)),
+    looseItems: s.looseItems.map((i) => (i.id === id ? patch(i) : i)),
   }));
 }
 
@@ -196,6 +197,7 @@ export function dropEverywhere(
     items: s.items.filter((i) => i.id !== id),
     threadItems: s.threadItems.filter((i) => i.id !== id),
     pendingItems: s.pendingItems.filter((i) => i.id !== id),
+    looseItems: s.looseItems.filter((i) => i.id !== id),
   }));
 }
 
@@ -320,7 +322,8 @@ export function findItem(s, id) {
   return (
     s.items.find((i) => i.id === id) ??
     s.threadItems.find((i) => i.id === id) ??
-    s.pendingItems.find((i) => i.id === id)
+    s.pendingItems.find((i) => i.id === id) ??
+    s.looseItems.find((i) => i.id === id)
   );
 }
 
@@ -366,6 +369,8 @@ function insertNewItem(
 }
 
 // Gallery bookkeeping that is not rendered: request ordering, ids being deleted, and the status poll.
+// In-flight loadItem reads by id, so cards asking for the same row share one request.
+const itemReads = new Map();
 const portraitRuntime = { token: 0, refreshing: false, deleting: new Map(), listSeq: 0, uploadSeq: 0, registrationTail: Promise.resolve(), timer: null, attempt: 0 };
 
 /** Poll only while the gallery is open and something is preparing, waiting or uploading. */
@@ -536,6 +541,8 @@ export const useStore = create((set, get) => ({
   threadScopeKey: null,
   threadLoading: true,
   pendingItems: [],
+  // Rows read by id (loadItem) for a card shown outside every loaded scope, such as an agent run's finished job.
+  looseItems: [],
   feedPinned: true,
   rightPanelOpen: false,
   mobileHistoryOpen: false,
@@ -1519,6 +1526,32 @@ export const useStore = create((set, get) => ({
     } catch (error) {
       return { ok: false, error: error.message || "Cancellation could not be confirmed. Try again." };
     }
+  },
+
+  /**
+   * A row by id from whichever pool holds it, else read from the server into `looseItems`. Resolves to null when
+   * the row is gone or the read fails; a later call reads again.
+   */
+  loadItem: async (id) => {
+    const held = findItem(get(), id);
+    if (held) return held;
+    let read = itemReads.get(id);
+    if (!read) {
+      read = (async () => {
+        const res = await apiFetch(`/api/history?ids=${encodeURIComponent(id)}`, { cache: "no-store" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return (await res.json()).items?.[0] ?? null;
+      })();
+      itemReads.set(id, read);
+      read.catch(() => {}).finally(() => itemReads.delete(id));
+    }
+    const item = await read.catch(() => null);
+    if (!item) return null;
+    // A pool may have picked the row up during the read (or a concurrent call stored it); that copy stays.
+    const current = findItem(get(), id);
+    if (current) return current;
+    set((s) => ({ looseItems: [...s.looseItems, item] }));
+    return item;
   },
 
   removeItem: async (id, { refresh = true } = {}) => {
@@ -2860,7 +2893,9 @@ export function mergeLiveItems(
     const threadById = new Map(s.threadItems.map((i) => [i.id, i]));
     const lastLoaded = s.items.at(-1);
     const pendingById = new Map(s.pendingItems.map((i) => [i.id, i]));
+    const looseById = new Map(s.looseItems.map((i) => [i.id, i]));
     let changed = false;
+    let looseChanged = false;
     let threadChanged = false;
     let pendingChanged = false;
     let unseen = false;
@@ -2872,6 +2907,11 @@ export function mergeLiveItems(
       // The project conversation owns a separate copy of each row. Live
       // completion used to update only the right-hand asset feed, leaving the
       // chat copy permanently `running` until a full thread reload.
+      const looseItem = looseById.get(inc.id);
+      if (looseItem && inc.updatedAt > looseItem.updatedAt) {
+        looseById.set(inc.id, { ...looseItem, ...inc });
+        looseChanged = true;
+      }
       const threadItem = threadById.get(inc.id);
       if (threadItem && inc.updatedAt > threadItem.updatedAt) {
         if (matchesThread(inc, s)) {
@@ -2928,6 +2968,7 @@ export function mergeLiveItems(
     }
     if (threadChanged) patch.threadItems = Array.from(threadById.values());
     if (pendingChanged) patch.pendingItems = Array.from(pendingById.values());
+    if (looseChanged) patch.looseItems = Array.from(looseById.values());
     if (unseen) staleCached(scopeKey(scope));
     return patch;
   });
@@ -2970,7 +3011,7 @@ async function liveTick(
     // Transient: back off instead of hammering a failing backend. 401 already redirects in apiFetch.
     if (epoch === storeRuntime.epoch) storeRuntime.liveFailures += 1;
   }
-  const busy = hasRecentActiveWork([...get().items, ...get().threadItems, ...get().pendingItems]);
+  const busy = hasRecentActiveWork([...get().items, ...get().threadItems, ...get().pendingItems, ...get().looseItems]);
   scheduleLive(set, get, liveDelay({ more, busy, failures: storeRuntime.liveFailures }));
 }
 

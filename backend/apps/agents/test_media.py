@@ -107,16 +107,23 @@ class MediaCase(StorageMixin, TestCase):
 
 
 class OwnershipTests(MediaCase):
-    def test_the_users_ready_uploads_and_finished_generations_resolve(self):
+    def test_the_users_ready_uploads_and_any_finished_library_generation_resolve(self):
         image = png_bytes(8, 8)
         upload, made = self.upload('image/png', image), self.generation('image', image, 'image/png')
         self.assertEqual(media.load(self.user, upload), media.Asset(upload, 'image', 'image/png', image))
         self.assertEqual(media.load(self.user, made.upper()), media.Asset(made, 'image', 'image/png', image))
+        # The library is shared: a teammate's succeeded generation reads like the user's own.
+        teammate = self.generation('image', image, 'image/png', user=self.other)
+        self.assertEqual(media.load(self.user, teammate), media.Asset(teammate, 'image', 'image/png', image))
 
-    def test_another_users_unknown_unfinished_and_deleted_assets_are_the_same_not_found(self):
+    def test_another_users_upload_unknown_unfinished_protected_and_deleted_assets_are_the_same_not_found(self):
         image = png_bytes(8, 8)
+        protected = uuid.uuid4()
+        Generation.objects.create(id=protected, kind='image', status='succeeded', prompt='a fox', model='Nano Banana 2.1',
+                                  aspect_ratio='1:1', user_id=self.other, url=self.store('settings/logo.png', image, 'image/png'),
+                                  created_at=1, updated_at=1)
         theirs = {'upload': self.upload('image/png', image, user=self.other),
-                  'generation': self.generation('image', image, 'image/png', user=self.other),
+                  'protected generation': str(protected),
                   'unfinished upload': self.upload('image/png', image, state='uploading'),
                   'cancelled upload': self.upload('image/png', image, state='cancelled'),
                   'running generation': self.generation('video', b'', 'video/mp4', status='running', ext='mp4'),
@@ -322,9 +329,9 @@ class ChatAssetTests(MediaCase):
     def test_an_attachment_is_recorded_once_with_its_kind(self):
         conversation = AgentConversation.objects.create(project_id=uuid.uuid4(), name='Brief', created_at=1, updated_at=1).id
         identifier = self.upload('application/pdf', PDF, purpose='document-reference')
-        asset = media.load(self.user, identifier)
-        first = media.record_attachment(conversation, asset, now=5)
-        again = media.record_attachment(conversation, asset, now=9)
+        attachment = media.attachment_json(media.load(self.user, identifier), 'brief.pdf')
+        first = media.record_attachment(conversation, attachment, now=5)
+        again = media.record_attachment(conversation, attachment, now=9)
         self.assertEqual(first.pk, again.pk)
         self.assertEqual(list(AgentChatAsset.objects.values_list('conversation_id', 'asset_id', 'source', 'kind', 'run_id', 'created_at')),
                          [(conversation, uuid.UUID(identifier), 'attachment', 'document', None, 5)])

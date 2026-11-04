@@ -187,14 +187,16 @@ def canonical_id(value):
         return None
 
 
-def get_generations(identifiers):
+def get_generations(identifiers, *, media_only=False):
     """Up to MAX_BATCH generations by id: ``items`` in the order asked, each generation once, and ``missing``,
-    the ids that are malformed or name no generation."""
+    the ids that are malformed or name no generation. ``media_only`` leaves out board text jobs, as every library
+    scope does (``base_query``)."""
     identifiers = list(dict.fromkeys(str(value) for value in identifiers))
     if len(identifiers) > MAX_BATCH:
         raise ValueError(f'At most {MAX_BATCH} generations can be read at once.')
     wanted = {value: canonical_id(value) for value in identifiers}
-    rows = {str(row.id): row for row in Generation.objects.filter(pk__in=[value for value in wanted.values() if value])}
+    source = Generation.objects.exclude(kind='text') if media_only else Generation.objects
+    rows = {str(row.id): row for row in source.filter(pk__in=[value for value in wanted.values() if value])}
     names = batch_resolve_generation_filenames(list(rows))
     items, missing, seen = [], [], set()
     for value in identifiers:

@@ -12,7 +12,7 @@
 # REHEARSAL_KLING=0 rehearses with Kling images off (the paid guard must then refuse them at enqueue).
 # REHEARSAL_MCP=0 skips the MCP service (vr-mcp: the real entrypoint in mcp mode, API role, no provider keys).
 # API runs the real entrypoint (paid guard, export admission, portrait lifecycle, gateway); only its Gemini host
-# (the admin chat agent) is answered by the fake provider network (scripts/release/rehearsal_api/sitecustomize.py).
+# (such as Agents voice transcription) is answered by the fake provider network (scripts/release/rehearsal_api/sitecustomize.py).
 # Workers run scripts/release/rehearsal_worker.py: the production code with the provider
 # network replaced by testsupport.fake_providers before the paid guard is installed.
 set -eu

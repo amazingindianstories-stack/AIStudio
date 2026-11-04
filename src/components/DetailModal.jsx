@@ -196,6 +196,7 @@ export function DetailModal() {
   const activeSource = useStore((s) => s.activeSource);
   const items = useStore((s) => s.items);
   const threadItems = useStore((s) => s.threadItems);
+  const looseItems = useStore((s) => s.looseItems);
   const rightTab = useStore((s) => s.rightTab);
   const activeProjectId = useStore((s) => s.activeProjectId);
   // search and library filters are not read here: the feed arrives
@@ -233,6 +234,7 @@ export function DetailModal() {
     (activeSource === "thread" ? threadItems : items).find((i) => i.id === activeId) ||
     items.find((i) => i.id === activeId) ||
     threadItems.find((i) => i.id === activeId) ||
+    looseItems.find((i) => i.id === activeId) ||
     null;
   const navigableItems = useMemo(
     () =>

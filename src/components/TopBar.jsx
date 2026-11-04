@@ -38,13 +38,14 @@ const DESTINATIONS = [
 
 /**
  * Horizontal nav lives in the top bar now (was the left-edge Sidebar rail
- * before this pass) — same three destinations plus the new admin-only
+ * before this pass) — same three destinations plus the new
  * Agents tab, laid out across the header instead of down the side.
  *
- * Agents is visible to every signed-in user but only clickable for admins —
- * this is cosmetic only, the real access control is the 403 the
- * /api/agent-conversations routes return for a non-admin (see adminOrNull
- * in those routes). Never rely on this lock alone.
+ * Agents is visible to every signed-in user but only clickable when the
+ * session's `agentsEnabled` is true (apps.agents.limits.agents_enabled: admins
+ * by default, or as the admin Limits switch decides). This is cosmetic only,
+ * the real access control is the 403 the /api/agent-conversations routes
+ * return from the same check. Never rely on this lock alone.
  */
 export function TopBar() {
   const [accountOpen, setAccountOpen] = useState(false);
@@ -65,7 +66,7 @@ export function TopBar() {
   const depthWorkerStatus = useStore((s) => s.depthWorkerStatus);
   const loadDepthWorkerStatus = useStore((s) => s.loadDepthWorkerStatus);
 
-  const isAdmin = user?.role === "admin";
+  const agentsEnabled = user?.agentsEnabled === true;
   const initial = (user?.name || user?.email || "?").charAt(0).toUpperCase();
   const activeDestination = view === "canvas" ? "board" : view === "agents" ? "agents" : mode;
 
@@ -113,7 +114,7 @@ export function TopBar() {
 
         <span className="hidden h-6 w-px shrink-0 bg-line sm:block" aria-hidden />
 
-        <nav aria-label="Sections" data-agents-locked={!isAdmin || undefined} className="topbar-sections flex min-w-0 flex-1 items-center sm:gap-1">
+        <nav aria-label="Sections" data-agents-locked={!agentsEnabled || undefined} className="topbar-sections flex min-w-0 flex-1 items-center sm:gap-1">
           {DESTINATIONS.filter((d) => d.id === "board" || modeAvailable(d.id, availableModelIds)).map((d) => {
             const active = d.id === activeDestination;
             return (
@@ -172,7 +173,7 @@ export function TopBar() {
 
           <span className="mx-0.5 hidden h-5 w-px shrink-0 bg-line sm:block" aria-hidden />
 
-          {isAdmin ? (
+          {agentsEnabled ? (
             <button
               onClick={() => setView("agents")}
               aria-label="Agents"
@@ -196,7 +197,7 @@ export function TopBar() {
             </button>
           ) : (
             <span
-              title="Agents — admins only"
+              title="Agents are turned off for your account"
               aria-disabled="true"
               className="flex cursor-not-allowed items-center gap-1 rounded-lg px-1.5 py-1.5 text-sm font-medium text-white/25 sm:px-2.5"
             >

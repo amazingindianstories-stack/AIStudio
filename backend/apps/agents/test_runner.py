@@ -7,11 +7,14 @@ tools only queue rows, as in the MCP tests. No network is used.
 import json
 import os
 import threading
+import uuid
+from datetime import timedelta
 from types import SimpleNamespace
 from threading import Event
 from unittest.mock import Mock, patch
 
 from django.db import connection
+from django.utils import timezone
 
 from apps.admin_dashboard.models import AppSetting, Pricing, UserLimit
 from apps.generation.models import Generation
@@ -21,7 +24,8 @@ from apps.mcp import server
 from apps.mcp_auth import controls, policy
 from apps.mcp.tests.support import McpCase
 from apps.mcp.tests.test_paid_tools import mid_minute
-from apps.mcp.tests.test_results import StorageMixin
+from apps.mcp.tests.test_results import StorageMixin, png_bytes
+from apps.media.models import UploadSession
 from apps.projects.models import Project
 from apps.workers import scheduler
 from . import design, events, grants, limits, runner, runs, worker
@@ -508,6 +512,21 @@ class CancelTests(RunnerCase):
         self.assertEqual(self.refresh(run).error['code'], 'grant_invalid')
         self.assert_message_kept(run, 'failed')
 
+    def test_a_message_sent_after_stop_keeps_its_text_and_attachments_in_the_chat(self):
+        run = self.waiting_run()
+        runs.request_cancel(run.id, cancel_jobs=False, now=30)
+        attachments = [{'id': str(uuid.uuid4()), 'kind': 'document', 'name': 'brief.pdf'}]
+        sent = runs.post_message(self.conversation, self.user, 'Also make it blue', attachments=attachments, now=31)
+        self.assertEqual((sent['delivery'], sent['run']['id']), ('inbox', str(run.id)), 'the stopping run still takes the message')
+        self.assertEqual(self.advance(run), 'cancelled')
+        run = self.refresh(run)
+        message = AgentConversationMessage.objects.get(conversation_id=self.conversation.id, content='Also make it blue')
+        self.assertEqual((message.role, message.tool_trace),
+                         ('user', {'runId': str(run.id), 'deliveredStep': run.step_count, 'attachments': attachments}))
+        self.assertEqual(self.kinds(run)[-2:], ['message_delivered', 'cancelled'])
+        self.assertEqual(runs.feed(run, after=0, limit=100)['pendingMessages'], [])
+        self.assertEqual(AgentRun.objects.filter(conversation_id=self.conversation.id).count(), 1, 'no new run starts for the message')
+
     def test_a_job_with_no_provider_task_is_cancelled_by_the_shared_service(self):
         run = self.waiting_run()
         AgentRun.objects.filter(pk=run.id).update(cancel_requested_at=99, cancel_jobs=True)
@@ -676,6 +695,26 @@ class BoundaryTests(RunnerCase):
         self.assertEqual(message.role, 'user')
         self.assertEqual(self.kinds(run), ['paused', 'message_queued', 'message_delivered', 'failed'])
 
+    def test_a_message_sent_while_a_per_run_bound_ends_the_run_lands_in_the_chat_history(self):
+        run = self.start_run(step_count=5)
+        self.setting('agentMaxStepsPerRun', 5)
+        self.assertEqual(self.advance(run), 'paused')
+        real = runner.step_verdict
+
+        def verdict(*args, **kwargs):
+            # The artist writes after the step boundary read the inbox, while the bound is checked again.
+            runs.deliver(self.refresh(run), self.user, 'Keep going', now=20)
+            return real(*args, **kwargs)
+        with patch.object(runner, 'step_verdict', verdict):
+            self.assertEqual(self.advance(run), 'failed')
+        run = self.refresh(run)
+        inbox = AgentInboxMessage.objects.get(run_id=run.id)
+        self.assertEqual((inbox.delivered_at is not None, inbox.delivered_step), (True, run.step_count))
+        message = AgentConversationMessage.objects.get(conversation_id=self.conversation.id, content='Keep going')
+        self.assertEqual((message.role, message.tool_trace), ('user', {'runId': str(run.id), 'deliveredStep': run.step_count}))
+        self.assertEqual(self.kinds(run), ['paused', 'message_queued', 'message_delivered', 'failed'])
+        self.assertEqual(AgentRun.objects.filter(conversation_id=self.conversation.id).count(), 1, 'no new run starts for the message')
+
     def test_a_paid_call_past_the_cost_bound_is_refused_with_cost_limit_and_never_sent(self):
         sent = self.dispatched()
         answer = 'That would go past what this run may spend. Shall I try a smaller size?'
@@ -692,6 +731,8 @@ class BoundaryTests(RunnerCase):
             'message': 'Nothing was charged: this call would take the run past its spending bound. Suggest a cheaper option or ask the artist.'})
         self.assertEqual(bodies[1]['contents'][-1], {'role': 'user', 'parts': [{'functionResponse': {
             'name': 'generate_image', 'response': steps[1].result['response'], 'id': 'c1'}}]})
+        called = AgentRunEvent.objects.get(run_id=run.id, kind='tool_called').payload
+        self.assertEqual((called['outcome'], called['ok']), ('COST_LIMIT', False))
         message = AgentConversationMessage.objects.get(conversation_id=self.conversation.id, role='assistant')
         self.assertEqual(message.content, answer)
         self.assertNotIn('paused', self.kinds(run))
@@ -864,6 +905,26 @@ class EventTests(RunnerCase):
         self.assertEqual(len(events.page(run.id, after=0, limit=3)), 3)
 
 
+class StepSummaryTests(RunnerCase):
+    def test_a_file_the_agent_read_is_described_for_the_artist_without_its_id(self):
+        document, image = uuid.uuid4(), uuid.uuid4()
+        key = f'uploads/document-reference/{self.user.id}-{document}'
+        self.store(key, b'Shot list: fox, snow.', 'text/plain')
+        UploadSession.objects.create(id=document, actor_id=self.user.id, key=key, purpose='document-reference', content_type='text/plain',
+                                     byte_size=21, expires_at=timezone.now() + timedelta(hours=1), state='ready',
+                                     finalized_at=timezone.now())
+        Generation.objects.create(id=image, kind='image', status='succeeded', prompt='a fox', model='Nano Banana 2.1', aspect_ratio='1:1',
+                                  user_id=self.user.id, url=self.store(f'generations/{image}.png', png_bytes(), 'image/png'),
+                                  created_at=1, updated_at=1)
+        self.gemini([call('read_document', {'assetId': str(document)}), call('view_media', {'assetId': str(image)})],
+                    [text('An orange fox.')], [text('Both read.')])
+        run = self.start_run()
+        self.assertEqual(self.advance(run), 'completed')
+        called = [row.payload for row in AgentRunEvent.objects.filter(run_id=run.id, kind='tool_called').order_by('seq')]
+        self.assertEqual([(row['tool'], row['ok'], row['summary']) for row in called],
+                         [('read_document', True, 'Read the document.'), ('view_media', True, 'Looked at the image.')])
+
+
 class DesignPromptTests(RunnerCase):
     """The harness's own design_prompt: a prompt-design sub-call through the loop transport, never the dispatcher."""
 
@@ -897,9 +958,15 @@ class DesignPromptTests(RunnerCase):
         self.assertEqual(Generation.objects.get().prompt, 'A red fox steps through fresh snow, low golden dawn light.')
         self.assertEqual(list(AgentLlmUsage.objects.filter(run_id=run.id).order_by('step_index').values_list('step_index', 'purpose')),
                          [(0, 'step'), (1, 'design_prompt'), (2, 'step')])
-        called = AgentRunEvent.objects.filter(run_id=run.id, kind='tool_called').order_by('seq').first().payload
-        self.assertEqual(called, {'stepIndex': 1, 'tool': 'design_prompt', 'outcome': 'ok',
-                                  'summary': 'A red fox steps through fresh snow, low golden dawn light.'})
+        designed, submitted = [row.payload for row in AgentRunEvent.objects.filter(run_id=run.id, kind='tool_called').order_by('seq')]
+        self.assertEqual(designed, {'stepIndex': 1, 'tool': 'design_prompt', 'outcome': 'ok', 'ok': True,
+                                    'summary': 'A red fox steps through fresh snow, low golden dawn light.'})
+        # A submitted job is a success the tab shows as done, described for the artist rather than for an MCP client.
+        generation = steps[3].result['response']['generation']
+        self.assertEqual(generation['status'], 'queued')
+        self.assertTrue(generation['name'])
+        self.assertEqual(submitted, {'stepIndex': 3, 'tool': 'generate_image', 'outcome': 'running', 'ok': True,
+                                     'summary': f"Queued {generation['name']}."})
 
     def test_reference_and_edit_modes_brief_the_model_with_ordered_citations_and_its_limits(self):
         notes = ['the fox character, keep its face', 'the snowy pine forest', 'the warm dawn palette']

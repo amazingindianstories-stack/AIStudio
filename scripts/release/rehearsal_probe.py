@@ -262,7 +262,7 @@ def upload(data, purpose, content_type, filename):
 # Audio transcription: the gateway admits it, the API registers the intent in the paid ledger (the worker role sees
 # only registered rows), and the worker claims its single Gemini call exactly once.
 import struct  # noqa: E402
-from testsupport.fake_providers import AGENT_REPLY, TRANSCRIPT  # noqa: E402
+from testsupport.fake_providers import TRANSCRIPT  # noqa: E402
 pcm = b'\x00\x00' * 8000
 wav = (b'RIFF' + struct.pack('<I', 36 + len(pcm)) + b'WAVEfmt ' + struct.pack('<IHHIIHH', 16, 1, 1, 8000, 16000, 2, 16)
        + b'data' + struct.pack('<I', len(pcm)) + pcm)
@@ -281,24 +281,45 @@ if isinstance(ready, dict) and ready.get('ref'):
         check('audio: listed in the project history', status == 200 and any(item.get('id') == transcribed['id'] for item in history.get('items', [])),
               f'{status} {str(history)[:160]}')
 
-# Admin: agent chat (its own transport and endpoint allowlist, no job row) and admin mutations through the gateway.
+# Agents tab: a run (the API only queues it; no agent worker runs here) for an account the copy turns Agents on for,
+# and the answer the rehearsal session gets, both from limits.agents_enabled (the global switch, a per-user override,
+# else admins only).
+from apps.agents.limits import agents_enabled  # noqa: E402
 admin = User.objects.filter(role='admin', is_active=True).order_by('created_at').first()
-check('admin: an admin account exists in the copy', admin is not None)
-if admin is not None:
-    admin_session = sign_session(admin)
+agent_account = next((account for account in (admin, user) if account is not None and agents_enabled(account)), None)
+if agent_account is None:
+    print('     agent run checks skipped: Agents are off for the admin and the rehearsal user in this copy', flush=True)
+else:
+    agent_session = sign_session(agent_account)
     status, created, _ = call('POST', '/api/agent-conversations', {'op': 'createConversation', 'projectId': str(project.id), 'agentKind': 'image',
-                                                                   'name': 'rehearsal'}, session=admin_session)
+                                                                   'name': 'rehearsal'}, session=agent_session)
     check('agent: conversation created', status == 200 and created.get('conversation', {}).get('id'), f'{status} {str(created)[:160]}')
     if status == 200:
         conversation = created['conversation']['id']
-        status, turn, _ = call('POST', f'/api/agent-conversations/{conversation}/messages', {'content': 'A quiet courtyard at dawn', 'images': []},
-                               session=admin_session)
-        check('agent: reply through the gateway and the agent transport',
-              status == 200 and (turn.get('assistantMessage') or {}).get('content') == AGENT_REPLY, f'{status} {str(turn)[:200]}')
-        call('POST', '/api/agent-conversations', {'op': 'deleteConversation', 'id': conversation}, session=admin_session)
-    status, refused, _ = call('POST', f'/api/agent-conversations/{uuid.uuid4()}/messages', {'content': 'x'})
-    check('agent: refused for the non-admin session' if user.role != 'admin' else 'agent: unknown conversation answered by Django',
-          status == (404 if user.role == 'admin' else 403), f'{status} {str(refused)[:120]}')
+        status, started, _ = call('POST', f'/api/agent-conversations/{conversation}/runs', {'content': 'A quiet courtyard at dawn'},
+                                  session=agent_session)
+        run = (started.get('run') or {}).get('id') if isinstance(started, dict) else None
+        check('agent: run queued through the gateway', status == 201 and started.get('delivery') == 'run' and run, f'{status} {str(started)[:200]}')
+        if run:
+            status, feed, _ = call('GET', f'/api/agent-conversations/{conversation}/runs/{run}/events?after=0', session=agent_session)
+            check('agent: run event feed readable', status == 200 and [event['kind'] for event in feed.get('events', [])] == ['run_queued'],
+                  f'{status} {str(feed)[:200]}')
+            status, stopped, _ = call('POST', f'/api/agent-conversations/{conversation}/runs/{run}/cancel', {'cancelJobs': False}, session=agent_session)
+            check('agent: stop requested', status == 202 and stopped.get('run', {}).get('cancelRequestedAt'), f'{status} {str(stopped)[:200]}')
+            # No agent worker finishes it here; close it so the copy keeps no active run (local copy only).
+            from apps.agents.models import AgentRun  # noqa: E402
+            from apps.common.leases import now_ms  # noqa: E402
+            AgentRun.objects.filter(pk=run).update(status='cancelled', finished_at=now_ms(), updated_at=now_ms())
+        call('POST', '/api/agent-conversations', {'op': 'deleteConversation', 'id': conversation}, session=agent_session)
+allowed = agents_enabled(user)
+status, refused, _ = call('POST', f'/api/agent-conversations/{uuid.uuid4()}/runs', {'content': 'x'})
+check('agent: unknown conversation answered by Django' if allowed else 'agent: refused where Agents are off for the session',
+      status == (404 if allowed else 403), f'{status} {str(refused)[:120]}')
+
+# Admin: admin mutations through the gateway.
+check('admin: an admin account exists in the copy', admin is not None)
+if admin is not None:
+    admin_session = sign_session(admin)
     email = f'rehearsal-{uuid.uuid4().hex[:12]}@example.invalid'
     status, made, _ = call('POST', '/api/admin/users', {'email': email, 'password': 'rehearsal-password', 'name': 'Rehearsal'}, session=admin_session)
     check('admin: user created through the gateway', status == 200 and made.get('user', {}).get('email') == email, f'{status} {str(made)[:160]}')

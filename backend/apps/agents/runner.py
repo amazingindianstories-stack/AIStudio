@@ -44,7 +44,7 @@ from apps.integrations.transport import ProviderError
 from apps.mcp import errors, paid, server
 from apps.mcp.registry import REGISTRY, visible
 from apps.mcp.tools.generate import PREPARE
-from . import events, grants, limits
+from . import events, grants, limits, media
 from .declarations import HARNESS_FIELDS, harness_arguments
 from .design import DESIGN_TOOL, design_body, design_brief, read_prompt
 from .llm import PART_METADATA
@@ -246,7 +246,9 @@ def drain_inbox(run, step_index, *, now=None):
         for row in rows:
             AgentInboxMessage.objects.filter(pk=row.pk).update(delivered_at=now, delivered_step=step_index)
             AgentConversationMessage.objects.create(conversation_id=run.conversation_id, role='user', content=row.content,
-                                                    tool_trace={'runId': str(run.id), 'deliveredStep': step_index}, created_at=now)
+                                                    tool_trace={'runId': str(run.id), 'deliveredStep': step_index,
+                                                                **({'attachments': row.attachments} if row.attachments else {})},
+                                                    created_at=now)
             events.emit(run.id, 'message_delivered', {'inboxId': str(row.id), 'stepIndex': step_index}, now=now)
     return len(rows)
 
@@ -271,8 +273,14 @@ def history_turns(run):
     rows = list(AgentConversationMessage.objects.filter(conversation_id=run.conversation_id, created_at__lte=run.created_at,
                                                         role__in=('user', 'assistant'))
                 .order_by('-created_at', '-id')[:HISTORY_MESSAGES])
-    return [{'role': 'model' if row.role == 'assistant' else 'user', 'parts': [{'text': row.content}]}
+    return [{'role': 'model' if row.role == 'assistant' else 'user', 'parts': [{'text': row.content}] + sent_files(row)}
             for row in reversed(rows) if row.content]
+
+
+def sent_files(row):
+    """The note naming the files a user message was sent with: a run's attachments, or an older chat turn's documents."""
+    trace = row.tool_trace if row.role == 'user' and isinstance(row.tool_trace, dict) else {}
+    return media.attachment_note(trace.get('attachments') or trace.get('documents'))
 
 
 def note_parts(notes):
@@ -311,7 +319,7 @@ def build_contents(run, steps, step):
         nonlocal pending, placed
         parts = pending + note_parts(notes)
         while placed < len(inbox) and inbox[placed].delivered_step <= before:
-            parts.append({'text': inbox[placed].content})
+            parts.extend([{'text': inbox[placed].content}] + media.attachment_note(inbox[placed].attachments))
             placed += 1
         pending = []
         if parts:
@@ -501,7 +509,7 @@ def design_step(run, step, stop, *, now=now_ms):
     payload, retryable = ask(run, step, key, design_body(brief), purpose=DESIGN_TOOL)
     prompt = read_prompt(payload) if payload is not None else ''
     if prompt:
-        return finish_tool_result(run, step, 'ok', {'prompt': prompt}, prompt, now=now())
+        return finish_tool_result(run, step, 'ok', {'prompt': prompt}, prompt, ok=True, now=now())
     if retry(step, retryable, stop):
         return None
     failed = {'code': 'DESIGN_FAILED', 'message': 'The prompt could not be designed this time; write the prompt yourself.'}
@@ -578,9 +586,30 @@ def finish_tool_result(run, step, outcome, structured, sentence, *, now, record=
         AgentRunStep.objects.filter(pk=step.pk).update(status='finished', outcome=outcome, cost_cents=cost, finished_at=now,
                                                        result={**step.result, 'response': model_response(structured)})
         _set(locked, now, cost_cents=locked.cost_cents + cost)
-        events.emit(run.id, 'tool_called', {'stepIndex': step.step_index, 'tool': call['name'], 'outcome': outcome,
-                                            'summary': sentence[:300]}, now=now)
+        events.emit(run.id, 'tool_called', {'stepIndex': step.step_index, 'tool': call['name'], 'outcome': outcome, 'ok': ok,
+                                            'summary': step_summary(call['name'], structured, sentence)[:300]}, now=now)
     return None
+
+
+def step_summary(tool, structured, sentence):
+    """A tool step's line in the Agents tab: the tool's sentence, except where that sentence is written for the model.
+    Submitted work is named plainly in words that stay true once it finishes (its card follows it), and a file the agent
+    read says what it did, without the asset id or the note that its text is quoted data."""
+    if not isinstance(structured, dict):
+        return sentence
+    if tool in READ_SUMMARIES and structured.get('kind'):
+        return READ_SUMMARIES[tool].get(structured['kind'], sentence)
+    generation = structured.get('generation') if structured.get('outcome') == 'running' else None
+    if not generation:
+        return sentence
+    label = generation.get('name') or 'the job'
+    return f"{'Queued' if generation.get('status') == 'queued' else 'Started'} {label}."
+
+
+READ_SUMMARIES = {
+    'read_document': {'document': 'Read the document.'},
+    'view_media': {'image': 'Looked at the image.', 'video': 'Watched the video.', 'audio': 'Listened to the audio.'},
+}
 
 
 def link_job(run, generation_id, *, now):
@@ -632,6 +661,7 @@ def limit_stop(run, hit, *, now):
         status = limits.apply_limit_hit(run, hit, now=now)
         AgentConversation.objects.filter(pk=run.conversation_id).update(status=status)
         if status == 'failed':
+            drain_inbox(before, before.step_count, now=now)
             events.emit(run.id, 'failed', run.error, now=now)
             return 'failed'
         if (before.status, before.pause_reason) != (status, run.pause_reason):

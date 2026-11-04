@@ -17,10 +17,13 @@ def current_user(request):
         response.set_cookie('veevee_session', '', max_age=0, httponly=True,
                             samesite='Lax', secure=settings.SESSION_COOKIE_SECURE, path='/')
         return response
+    from apps.agents.limits import agents_enabled
     # The composer's pickers offer only what a new job may use right now; enqueue still refuses the rest.
+    # ``agentsEnabled`` opens the Agents tab; the agent-conversation routes check the same switch.
     response = Response({'user': {'id': str(user.id), 'email': user.email,
                                  'name': user.name, 'role': user.role,
-                                 'color': user.color, 'avatarUrl': user.avatar_url},
+                                 'color': user.color, 'avatarUrl': user.avatar_url,
+                                 'agentsEnabled': agents_enabled(user)},
                          'availability': availability()})
     if hasattr(request, 'renewed_session'):
         response.set_cookie('veevee_session', request.renewed_session, max_age=2592000,

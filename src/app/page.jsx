@@ -78,13 +78,13 @@ export default function Page() {
   const mobileDrawerRef = useRef(null);
   const mobileCloseRef = useRef(null);
 
-  // The Agents nav tab is only reachable via TopBar's own admin check, but a
-  // role can change (or resolve async on load) out from under an open tab —
-  // bounce back to Studio rather than leave a non-admin sitting on a panel
+  // The Agents nav tab is only reachable via TopBar's own `agentsEnabled`
+  // check, but the switch can change (or resolve async on load) out from under
+  // an open tab - bounce back to Studio rather than leave the user on a panel
   // whose backing API now 403s. Cosmetic only; api/agent-conversations/* is
   // the real access control.
   useEffect(() => {
-    if (view === "agents" && currentUser && currentUser.role !== "admin") {
+    if (view === "agents" && currentUser && currentUser.agentsEnabled !== true) {
       setView("studio");
     }
   }, [view, currentUser, setView]);

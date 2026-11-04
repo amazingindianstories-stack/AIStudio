@@ -24,6 +24,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from urllib.parse import parse_qs, urlsplit
 
+from django.db import IntegrityError, transaction
+
 from apps.common.leases import now_ms
 from apps.integrations.transport import HttpTransport, ProviderError
 from apps.mcp.registry import AGENT_TOOLS, REGISTRY
@@ -259,16 +261,20 @@ def cost_microcents(model, counts, at_ms):
 def record_usage(model, context, usage, *, now=None):
     now = now_ms() if now is None else now
     counts = usage_counts(usage)
-    return AgentLlmUsage.objects.create(
-        user_id=context.user_id, grant_id=context.grant_id, conversation_id=context.conversation_id, run_id=context.run_id,
-        step_index=context.step_index, model=model, purpose=context.purpose, cost_microcents=cost_microcents(model, counts, now),
-        created_at=now, **counts)
+    row = dict(user_id=context.user_id, grant_id=context.grant_id, step_index=context.step_index, model=model,
+               purpose=context.purpose, cost_microcents=cost_microcents(model, counts, now), created_at=now, **counts)
+    try:
+        with transaction.atomic():
+            return AgentLlmUsage.objects.create(conversation_id=context.conversation_id, run_id=context.run_id, **row)
+    except IntegrityError:
+        return AgentLlmUsage.objects.create(conversation_id=None, run_id=None, **row)
 
 
 class AgentLoopTransport(HttpTransport):
     """An Agents tab step's, design, media or transcription sub-call's only provider call; exempt from the paid guard
     and bounded by the allowlist of its usage purpose (``PAYLOADS``, else ``loop_payload_allowed``). Every call Gemini
-    answers writes one usage row, so the ledger holds every billed call."""
+    answers writes one usage row, so the ledger holds every billed call; a call whose conversation was deleted meanwhile is
+    recorded without its conversation and run."""
     paid_guard_exempt = True
 
     def __init__(self, model, usage, *, timeout=90):

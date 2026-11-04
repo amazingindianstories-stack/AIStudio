@@ -1,5 +1,6 @@
 """Conversation persistence with explicit transactions for no-FK message rows."""
 from django.db import transaction
+from django.db.models import Q
 from apps.library.services.idempotency import now_ms
 from .models import AgentConversation, AgentConversationMessage
 
@@ -12,18 +13,19 @@ def conversation_json(row):
 
 
 def message_json(row):
+    user_trace = row.tool_trace if row.role == 'user' and isinstance(row.tool_trace, dict) else {}
     return {'id': str(row.id), 'conversationId': str(row.conversation_id),
         'role': 'assistant' if row.role == 'assistant' else 'user', 'content': row.content,
-        'toolTrace': row.tool_trace if row.role == 'assistant' else None, 'createdAt': row.created_at}
+        'toolTrace': row.tool_trace if row.role == 'assistant' else None, 'createdAt': row.created_at,
+        **({'attachments': user_trace['attachments']} if user_trace.get('attachments') else {}),
+        # A message a run read from its inbox: the thread shows it where the run read it (before step ``deliveredStep``).
+        **({'runId': user_trace['runId'], 'deliveredStep': user_trace.get('deliveredStep')} if user_trace.get('runId') else {})}
 
 
-def list_conversations(project_id, kind):
-    return [conversation_json(row) for row in AgentConversation.objects.filter(project_id=project_id, agent_kind=kind).order_by('-updated_at')]
-
-
-def get_conversation(identifier):
-    row = AgentConversation.objects.filter(pk=identifier).first()
-    return conversation_json(row) if row else None
+def list_conversations(project_id, kind, owner):
+    """``owner``'s conversations of ``kind`` in the project, newest first (``runs.owned_conversation``)."""
+    rows = AgentConversation.objects.filter(Q(user_id=owner) | Q(user_id__isnull=True, created_by=owner), project_id=project_id, agent_kind=kind)
+    return [conversation_json(row) for row in rows.order_by('-updated_at')]
 
 
 def create_conversation(project_id, kind, name, created_by):
@@ -47,15 +49,6 @@ def delete_conversation(identifier):
 
 def list_messages(identifier):
     return [message_json(row) for row in AgentConversationMessage.objects.filter(conversation_id=identifier).order_by('created_at')]
-
-
-def list_turns(identifier):
-    """The chat so far for its next turn, oldest first: each message's role and content, and the documents ``{id, text}``
-    a user message was sent with, which only the server sees."""
-    rows = AgentConversationMessage.objects.filter(conversation_id=identifier).order_by('created_at')
-    return [{'role': 'assistant' if row.role == 'assistant' else 'user', 'content': row.content,
-             'documents': row.tool_trace.get('documents', []) if row.role == 'user' and isinstance(row.tool_trace, dict) else []}
-            for row in rows]
 
 
 @transaction.atomic

@@ -1,4 +1,6 @@
-"""GET /api/history: a library page from services.reads, including composite keysets and canonical filenames."""
+"""GET /api/history: a library page from services.reads, including composite keysets and canonical filenames, or with
+``ids=a,b`` those library media generations by id (``{'items', 'missing'}``), for a card shown outside every loaded
+scope."""
 import logging
 from django.core.exceptions import ValidationError
 from django.db import DataError
@@ -7,7 +9,7 @@ from django.conf import settings
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
 from apps.authentication.session import lookup
-from .services.reads import query_history
+from .services.reads import MAX_BATCH, get_generations, query_history
 
 
 @api_view(['GET', 'PATCH', 'DELETE'])
@@ -21,6 +23,11 @@ def history_reads(request):
         from .history_writes import history_mutation
         from apps.common.responses import renew_session
         return renew_session(request, history_mutation(request, user))
+    if 'ids' in request.query_params:
+        identifiers = [value for value in request.query_params.get('ids', '').split(',') if value]
+        if not identifiers or len(identifiers) > MAX_BATCH:
+            return Response({'error': f'Ask for 1 to {MAX_BATCH} generation ids.'}, status=400)
+        return renewed(request, Response(get_generations(identifiers, media_only=True)))
     try:
         page = query_history(request.query_params)
     except (ValidationError, DataError) as error:
@@ -33,7 +40,10 @@ def history_reads(request):
         response = HttpResponse(b'', status=500)
         del response['Content-Type']
         return response
-    response = Response(page)
+    return renewed(request, Response(page))
+
+
+def renewed(request, response):
     if hasattr(request, 'renewed_session'):
         response.set_cookie('veevee_session', request.renewed_session, max_age=2592000,
             httponly=True, samesite='Lax', secure=settings.SESSION_COOKIE_SECURE, path='/')

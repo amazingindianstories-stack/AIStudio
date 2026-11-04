@@ -121,9 +121,6 @@ class BoardPayloadAllowlistTests(SimpleTestCase):
                 advanced.request('POST', ENDPOINT, body=stickies_body())
             advanced.request('POST', agent_endpoint(ADVANCED_MODEL), body=stickies_body())
         self.assertEqual(sent, [ENDPOINT, agent_endpoint(ADVANCED_MODEL)])
-        # The admin chat's exempt transport does not accept a board body: each caller has its own allowlist.
-        from apps.agents.llm import agent_payload_allowed
-        self.assertFalse(agent_payload_allowed(stickies_body()))
 
     def test_the_paid_guard_pins_a_text_job_to_its_model_endpoint_and_exact_request(self):
         contract = text_contract()

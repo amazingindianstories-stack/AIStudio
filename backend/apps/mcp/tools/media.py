@@ -1,4 +1,4 @@
-"""view_media and read_document: the Agents tab looks at one library file the user owns (``registry.AGENT_ONLY``).
+"""view_media and read_document: the Agents tab looks at one library file the user may read (``registry.AGENT_ONLY``).
 
 One bounded Gemini sub-call per call (``apps.agents.media.describe``, usage purpose 'media'), except read_document on
 plain text, markdown or docx, which returns the file's own text. Either way the text comes back as quoted untrusted

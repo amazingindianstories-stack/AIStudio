@@ -18,6 +18,7 @@ import { Dropdown, MenuItem } from "./Dropdown";
 import { ProjectMenu } from "./ProjectMenu";
 
 const COLLAPSE_KEY = "veevee-chat-sidebar-collapsed";
+const DESKTOP_QUERY = "(min-width: 768px)";
 
 /**
  * Left sidebar for the studio view: which project you're in, and the list
@@ -25,6 +26,8 @@ const COLLAPSE_KEY = "veevee-chat-sidebar-collapsed";
  * dropdown-shaped ThreadSwitcher, which didn't leave the thread list visible
  * while you worked. Collapsible, and the collapsed state persists (unlike
  * the assets drawer, this is core workflow state, not a transient panel).
+ * Below md the list never takes width from the chat: it opens as an overlay
+ * with a scrim and closes on choosing a chat.
  */
 export function ChatSidebar({
   agentKind,
@@ -36,6 +39,7 @@ export function ChatSidebar({
   const activeProjectId = useStore((s) => s.activeProjectId);
   const projects = useStore((s) => s.projects);
   const [collapsed, setCollapsed] = useState(false);
+  const [overlayOpen, setOverlayOpen] = useState(false);
   const [conversations, setConversations] = useState([]);
   const [loading, setLoading] = useState(false);
   const [renamingRowId, setRenamingRowId] = useState(null);
@@ -48,6 +52,24 @@ export function ChatSidebar({
       setCollapsed(localStorage.getItem(COLLAPSE_KEY) === "1");
     } catch {}
   }, []);
+
+  useEffect(() => {
+    if (!overlayOpen) return;
+    const desktop = window.matchMedia(DESKTOP_QUERY);
+    const close = () => setOverlayOpen(false);
+    // Escape inside an open menu, the rename field or the delete dialog
+    // belongs to that control, not to the overlay.
+    const onKeyDown = (e) => {
+      if (e.key !== "Escape" || e.defaultPrevented || e.target.closest?.("input, [role=menu], [role=alertdialog]")) return;
+      close();
+    };
+    desktop.addEventListener("change", close);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      desktop.removeEventListener("change", close);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [overlayOpen]);
 
   const toggleCollapsed = () => {
     setCollapsed((c) => {
@@ -140,31 +162,53 @@ export function ChatSidebar({
 
   const project = projects.find((p) => p.id === activeProjectId) ?? null;
 
-  if (collapsed) {
-    return (
-      <aside className="flex h-full w-11 shrink-0 flex-col items-center gap-2 border-r border-line bg-ink-900 py-2.5">
-        <button
-          onClick={toggleCollapsed}
-          aria-label="Expand chat list"
-          title="Expand chat list"
-          className="grid h-8 w-8 place-items-center rounded-lg text-white/50 transition hover:bg-white/5 hover:text-white"
-        >
-          <ChevronsRight className="h-4 w-4" />
-        </button>
-        <button
-          onClick={createConversation}
-          aria-label="New chat"
-          title="New chat"
-          className="grid h-8 w-8 place-items-center rounded-lg text-white/50 transition hover:bg-white/5 hover:text-white"
-        >
-          <MessageSquarePlus className="h-4 w-4" />
-        </button>
-      </aside>
-    );
-  }
+  const chooseConversation = (id) => {
+    onConversationIdChange(id);
+    setOverlayOpen(false);
+  };
 
-  return (
-    <aside className="flex h-full w-64 shrink-0 flex-col border-r border-line bg-ink-900">
+  // Below md the chat column needs the full width, so the expanded list is a
+  // CSS-hidden in-flow panel plus an overlay opened from the rail; the saved
+  // expanded preference only applies at md and up.
+  const expand = () => {
+    if (window.matchMedia(DESKTOP_QUERY).matches) toggleCollapsed();
+    else setOverlayOpen(true);
+  };
+
+  const rail = (
+    <aside
+      className={cn(
+        "flex h-full w-11 shrink-0 flex-col items-center gap-2 border-r border-line bg-ink-900 py-2.5",
+        !collapsed && "md:hidden"
+      )}
+    >
+      <button
+        onClick={expand}
+        aria-label="Expand chat list"
+        title="Expand chat list"
+        aria-expanded={overlayOpen}
+        className="grid h-8 w-8 place-items-center rounded-lg text-white/50 transition hover:bg-white/5 hover:text-white"
+      >
+        <ChevronsRight className="h-4 w-4" />
+      </button>
+      <button
+        onClick={createConversation}
+        aria-label="New chat"
+        title="New chat"
+        className="grid h-8 w-8 place-items-center rounded-lg text-white/50 transition hover:bg-white/5 hover:text-white"
+      >
+        <MessageSquarePlus className="h-4 w-4" />
+      </button>
+    </aside>
+  );
+
+  const panel = (overlay) => (
+    <aside
+      className={cn(
+        "h-full w-64 flex-col border-r border-line bg-ink-900",
+        overlay ? "absolute inset-y-0 left-0 z-30 flex max-w-[85%] shadow-pop md:hidden" : "hidden shrink-0 md:flex"
+      )}
+    >
       <div className="flex shrink-0 items-center gap-1 border-b border-line p-2">
         <Dropdown
           className="min-w-0 flex-1"
@@ -185,7 +229,7 @@ export function ChatSidebar({
           {(close) => <ProjectMenu close={close} />}
         </Dropdown>
         <button
-          onClick={toggleCollapsed}
+          onClick={overlay ? () => setOverlayOpen(false) : toggleCollapsed}
           aria-label="Collapse chat list"
           title="Collapse chat list"
           className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-white/45 transition hover:bg-white/5 hover:text-white"
@@ -230,7 +274,7 @@ export function ChatSidebar({
             ) : (
               <div key={c.id} className="group relative">
                 <button
-                  onClick={() => onConversationIdChange(c.id)}
+                  onClick={() => chooseConversation(c.id)}
                   className={cn(
                     "mb-0.5 flex w-full items-center rounded-lg py-2 pl-2.5 pr-8 text-left text-sm transition-colors",
                     c.id === conversationId
@@ -242,11 +286,13 @@ export function ChatSidebar({
                 </button>
                 <Dropdown
                   align="right"
+                  className="absolute right-1 top-1/2 -translate-y-1/2"
+                  label={`Options for ${c.name}`}
                   trigger={(open) => (
                     <span
                       className={cn(
-                        "absolute right-1 top-1/2 hidden h-6 w-6 -translate-y-1/2 place-items-center rounded-md text-white/45 hover:bg-white/10 hover:text-white group-hover:grid",
-                        open && "grid bg-white/10 text-white"
+                        "grid h-6 w-6 place-items-center rounded-md text-white/45 hover:bg-white/10 hover:text-white md:hidden md:group-hover:grid md:group-focus-within:grid",
+                        open && "bg-white/10 text-white md:grid"
                       )}
                     >
                       <MoreHorizontal className="h-3.5 w-3.5" />
@@ -280,7 +326,19 @@ export function ChatSidebar({
           )
         )}
       </div>
+    </aside>
+  );
 
+  return (
+    <>
+      {rail}
+      {!collapsed && panel(false)}
+      {overlayOpen && (
+        <>
+          <div aria-hidden="true" className="absolute inset-0 z-20 bg-black/50 md:hidden" onClick={() => setOverlayOpen(false)} />
+          {panel(true)}
+        </>
+      )}
       {deleteTarget &&
         typeof document !== "undefined" &&
         createPortal(
@@ -294,7 +352,7 @@ export function ChatSidebar({
           />,
           document.body
         )}
-    </aside>
+    </>
   );
 }
 

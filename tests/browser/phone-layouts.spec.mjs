@@ -70,6 +70,57 @@ for (const width of [390, 1440]) {
     await noPageOverflow(page);
   });
 }
+test('Phone layouts Agents chat 390', async ({ page, context, baseURL }, info) => {
+  // A saved expanded chat list (the desktop default) must not take width from the chat on a phone.
+  await login(page, context, baseURL, 390);
+  const created = await context.request.post('/api/projects', { data: { op: 'createProject', name: `Phone agents ${Date.now()}` }, headers: { Origin: baseURL } });
+  expect(created.ok()).toBeTruthy();
+  const { project } = await created.json();
+  await page.evaluate((projectId) => {
+    localStorage.setItem('veevee-chat-sidebar-collapsed', '0');
+    // The widest settings pill: a 21:9 1080p video with audio, a batch and the bitrate.
+    localStorage.setItem('veevee-draft-settings-v1', JSON.stringify({ activeProjectId: projectId, mode: 'video', aspectRatio: '21:9',
+      resolution: '1080p', duration: 5, batchCount: 4, audioDefault: true, generateAudio: true, bitrateMode: 'high' }));
+  }, project.id);
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'D', exact: true })).toBeVisible();
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Agents', exact: true }).click();
+  await expect(page.getByText('Loading chat…', { exact: true })).not.toBeVisible();
+  const send = page.getByRole('button', { name: 'Send', exact: true });
+  const expand = page.getByRole('button', { name: 'Expand chat list', exact: true });
+  await contained(send);
+  await contained(expand);
+  // The longest video settings pill stays inside its row: the mic beside it is whole and takes the tap.
+  const mic = page.getByRole('button', { name: 'Record a voice note', exact: true });
+  const settings = page.getByRole('button', { name: 'Generation settings', exact: true });
+  await contained(mic);
+  await contained(settings);
+  await separate(settings, mic);
+  await expect.poll(() => mic.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return el.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2));
+  })).toBe(true);
+  await page.screenshot({ path: info.outputPath('agents-composer.png') });
+  const composer = page.getByPlaceholder(/Talk through your/);
+  await contained(composer);
+  // The empty composer shows a placeholder short enough for its visible line, never a clipped second one.
+  await expect.poll(() => composer.evaluate((el) => el.scrollHeight - el.clientHeight < parseFloat(getComputedStyle(el).lineHeight) / 2)).toBe(true);
+  await expect(page.getByRole('button', { name: 'Collapse chat list', exact: true })).toBeHidden();
+  await noPageOverflow(page);
+  await expand.click();
+  const list = page.getByRole('button', { name: 'Collapse chat list', exact: true });
+  await contained(list);
+  // The list is an overlay: the composer keeps its place underneath it.
+  expect((await send.boundingBox()).x + (await send.boundingBox()).width).toBeLessThanOrEqual(390);
+  await noPageOverflow(page);
+  await page.locator('aside').filter({ has: list }).locator('.scroll-thin button').first().click();
+  await expect(list).toBeHidden();
+  await expand.click();
+  await page.keyboard.press('Escape');
+  await expect(list).toBeHidden();
+  await contained(send);
+  await noPageOverflow(page);
+});
 for (const [width, height] of [[390, 844], [844, 390], [768, 1024], [1440, 1000]]) {
   test(`Phone layouts library ${width}x${height}`, async ({ page, context, baseURL }, info) => {
     await login(page, context, baseURL, width, height);
@@ -191,7 +242,7 @@ for (const role of ['admin', 'user']) {
     await page.route('**/api/auth/me', async route => {
       const response = await route.fetch();
       const body = await response.json();
-      await route.fulfill({ response, json: { ...body, user: { ...body.user, role, name: 'Desktop fixture with a long display name' } } });
+      await route.fulfill({ response, json: { ...body, user: { ...body.user, role, agentsEnabled: role === 'admin', name: 'Desktop fixture with a long display name' } } });
     });
     await login(page, context, baseURL, 1280);
     const nav = page.getByRole('navigation', { name: 'Sections' });

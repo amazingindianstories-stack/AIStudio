@@ -2,17 +2,23 @@
 one, the event feed, quote answers and cancel. The worker side runs through ``runner.advance`` with Gemini faked below
 the transport, as in test_runner; no network is used."""
 import uuid
+from datetime import timedelta
+from threading import Event
 
 from django.db import IntegrityError, transaction
 from django.test import Client
+from django.utils import timezone
 
 from apps.admin_dashboard.models import AppSetting, UserLimit
 from apps.authentication.models import User
 from apps.authentication.session import sign_session
 from apps.generation.models import Generation
-from . import runs
+from apps.mcp.tests.test_results import png_bytes
+from apps.media.models import UploadSession
+from . import runs, worker
 from .loop_llm import ADVANCED_LOOP_MODEL, LOOP_MODEL
-from .models import AgentConversation, AgentConversationMessage, AgentGrant, AgentInboxMessage, AgentRun, AgentRunEvent
+from .models import (ACTIVE_RUN_STATUSES, AgentChatAsset, AgentConversation, AgentConversationMessage, AgentGrant, AgentInboxMessage,
+                     AgentLlmUsage, AgentRun, AgentRunEvent)
 from .test_runner import RunnerCase, call, text
 
 
@@ -20,6 +26,7 @@ class RunsApiCase(RunnerCase):
     def setUp(self):
         super().setUp()
         User.objects.filter(pk=self.user.id).update(role='admin')         # the tab is admin-only, like the old path
+        AppSetting.objects.filter(key='agentsEnabled').delete()
         self.user.refresh_from_db()
         self.base = f'/api/agent-conversations/{self.conversation.id}/runs'
 
@@ -73,6 +80,82 @@ class AccessTests(RunsApiCase):
         self.assertEqual(self.post(self.base, {'content': 'x'}, self.admin).status_code, 404)
 
 
+class GateTests(RunsApiCase):
+    """Every agent-conversation route and the session's ``agentsEnabled`` follow ``limits.agents_enabled``."""
+    def setUp(self):
+        super().setUp()
+        self.member = self.make_user('member@example.invalid', 'Member', 'user')
+        AgentGrant.objects.all().delete()
+
+    def switch(self, value, user=None):
+        if user is None:
+            AppSetting.objects.update_or_create(key='agentsEnabled', defaults={'value': value, 'updated_at': 1})
+        else:
+            UserLimit.objects.update_or_create(user_id=user.id, key='agentsEnabled', defaults={'value': value, 'updated_at': 1})
+
+    def chat(self, owner):
+        return AgentConversation.objects.create(project_id=self.project.id, name=owner.name, agent_kind='image', user_id=owner.id,
+                                                created_by=owner.id, created_at=2, updated_at=2)
+
+    def reach(self, user):
+        """``(session agentsEnabled, conversations GET status, conversation create status, run POST status)`` for ``user``
+        on a conversation of their own."""
+        client = self.client_for(user)
+        own = self.chat(user)
+        me = client.get('/api/auth/me').json()['user']['agentsEnabled']
+        listed = client.get('/api/agent-conversations', {'projectId': str(self.project.id), 'agentKind': 'image'})
+        created = client.post('/api/agent-conversations', {'op': 'createConversation', 'projectId': str(self.project.id),
+                                                          'agentKind': 'image', 'name': 'New'}, content_type='application/json')
+        started = client.post(f'/api/agent-conversations/{own.id}/runs', {'content': 'Make a fox'}, content_type='application/json')
+        for response in (listed, created, started):
+            if response.status_code == 403:
+                self.assertEqual(response.json()['code'], 'AGENTS_DISABLED')
+        return me, listed.status_code, created.status_code, started.status_code
+
+    def test_with_no_rows_admins_only(self):
+        self.assertEqual(self.reach(self.user), (True, 200, 200, 201))
+        self.assertEqual(self.reach(self.member), (False, 403, 403, 403))
+
+    def test_a_global_1_opens_the_tab_for_everyone(self):
+        self.switch('1')
+        self.assertEqual(self.reach(self.member), (True, 200, 200, 201))
+
+    def test_a_global_0_is_off_for_everyone_even_with_a_per_user_1(self):
+        self.switch('0')
+        self.switch('1', self.user)
+        self.switch('1', self.member)
+        self.assertEqual(self.reach(self.user), (False, 403, 403, 403))
+        self.assertEqual(self.reach(self.member), (False, 403, 403, 403))
+
+    def test_a_per_user_row_decides_over_the_role_and_a_global_1(self):
+        self.switch('1', self.member)
+        self.switch('0', self.user)
+        self.assertEqual(self.reach(self.member), (True, 200, 200, 201))
+        self.assertEqual(self.reach(self.user), (False, 403, 403, 403))
+        self.switch('1')
+        self.assertEqual(self.reach(self.user)[0], False, 'a per-user 0 beats a global 1')
+
+    def test_everyone_admins_included_lists_and_opens_only_their_own_conversations(self):
+        self.switch('1', self.member)
+        mine, theirs = self.chat(self.member), self.conversation
+        member, admin = self.client_for(self.member), self.client_for(self.user)
+        query = {'projectId': str(self.project.id), 'agentKind': 'image'}
+        self.assertEqual([row['id'] for row in member.get('/api/agent-conversations', query).json()['conversations']], [str(mine.id)])
+        self.assertEqual([row['id'] for row in admin.get('/api/agent-conversations', query).json()['conversations']], [str(theirs.id)])
+        for client, other in ((member, theirs), (admin, mine)):
+            with self.subTest(other=other.name):
+                self.assertEqual(client.get(f'/api/agent-conversations/{other.id}').status_code, 404)
+                renamed = client.post('/api/agent-conversations', {'op': 'renameConversation', 'id': str(other.id), 'name': 'Mine now'},
+                                      content_type='application/json')
+                self.assertEqual(renamed.status_code, 404)
+                deleted = client.post('/api/agent-conversations', {'op': 'deleteConversation', 'id': str(other.id)},
+                                      content_type='application/json')
+                self.assertEqual(deleted.status_code, 404)
+        self.assertEqual(sorted(AgentConversation.objects.values_list('name', flat=True)), sorted(['Chat', self.member.name]))
+        self.assertEqual(member.get(f'/api/agent-conversations/{mine.id}').json()['conversation']['id'], str(mine.id))
+        self.assertEqual(admin.get(f'/api/agent-conversations/{theirs.id}').json()['conversation']['id'], str(theirs.id))
+
+
 class StartAndMessageTests(RunsApiCase):
     def test_the_first_message_starts_a_run_and_later_ones_go_to_its_inbox(self):
         AgentGrant.objects.all().delete()
@@ -115,10 +198,13 @@ class StartAndMessageTests(RunsApiCase):
         AgentConversation.objects.filter(pk=self.conversation.id).update(settings={'model': ADVANCED_LOOP_MODEL})
         self.assertEqual(self.started().model, ADVANCED_LOOP_MODEL)
 
-    def test_with_agents_off_no_run_starts_but_an_active_run_still_gets_messages(self):
+    def test_with_agents_off_every_run_route_refuses_even_with_a_run_active(self):
         run = self.started()
         AppSetting.objects.update_or_create(key='agentsEnabled', defaults={'value': '0', 'updated_at': 1})
-        self.assertEqual(self.post(self.base, {'content': 'And a wolf'}).status_code, 202)
+        for response in (self.post(self.base, {'content': 'And a wolf'}), self.get(f'{self.base}/{run.id}/events'),
+                         self.post(f'{self.base}/{run.id}/cancel', {'cancelJobs': True})):
+            self.assertEqual((response.status_code, response.json()['code']), (403, 'AGENTS_DISABLED'))
+        self.assertEqual((AgentInboxMessage.objects.count(), AgentRun.objects.get(pk=run.id).cancel_requested_at), (0, None))
         AgentRun.objects.filter(pk=run.id).update(status='completed')
         refused = self.post(self.base, {'content': 'Another'})
         self.assertEqual((refused.status_code, refused.json()['code']), (403, 'AGENTS_DISABLED'))
@@ -145,7 +231,7 @@ class StartAndMessageTests(RunsApiCase):
             with self.subTest(attempt=attempt):
                 run = self.started()
                 AgentRun.objects.filter(pk=run.id).update(status='completed')
-        AppSetting.objects.filter(key='agentsEnabled').update(value='0')
+        AppSetting.objects.create(key='agentsEnabled', value='0', updated_at=1)
         refused = self.post(self.base, {'content': 'Another'})
         self.assertEqual((refused.status_code, refused.json()['code']), (403, 'AGENTS_DISABLED'))
         self.assertEqual(AgentRun.objects.count(), 3)
@@ -279,3 +365,152 @@ class CancelApiTests(RunsApiCase):
         self.assertEqual(self.advance(run), 'cancelled')
         self.assertEqual(Generation.objects.get().status, 'queued')
         self.assertEqual(runs.request_cancel(run.id, cancel_jobs=True), None)
+
+
+class DeleteWhileRunningTests(RunsApiCase):
+    def test_deleting_the_chat_ends_its_active_run_and_its_jobs_still_finish(self):
+        self.gemini([call('generate_image', {'prompt': 'red fox'})])
+        run = self.started()
+        self.assertEqual(self.advance(run), 'waiting')
+        deleted = self.post('/api/agent-conversations', {'op': 'deleteConversation', 'id': str(self.conversation.id)})
+        self.assertEqual(deleted.status_code, 200)
+        self.assertFalse(AgentRun.objects.filter(pk=run.id).exists())
+        self.assertFalse(AgentRunEvent.objects.filter(run_id=run.id).exists())
+        self.assertEqual(self.advance(run), 'finished')
+        self.assertEqual(Generation.objects.get().status, 'queued')
+        # Nothing counts toward the active-run cap any more, so the artist can start again in another chat.
+        self.assertFalse(AgentRun.objects.filter(status__in=ACTIVE_RUN_STATUSES).exists())
+
+    def test_deleting_the_chat_mid_step_keeps_the_billed_call_and_the_worker_ends_quietly(self):
+        def delete_mid_step():
+            deleted = self.post('/api/agent-conversations', {'op': 'deleteConversation', 'id': str(self.conversation.id)})
+            self.assertEqual(deleted.status_code, 200)
+            return [text('Done.')]
+        self.gemini(delete_mid_step)
+        run = self.started()
+        with self.assertNoLogs('veevee.agents', 'ERROR'):
+            self.assertEqual(worker.handle_run(run.id, worker.default_process, Event()), 'finished')
+        self.assertFalse(AgentRun.objects.filter(pk=run.id).exists())
+        self.assertEqual(list(AgentLlmUsage.objects.values_list('user_id', 'grant_id', 'conversation_id', 'run_id')),
+                         [(run.user_id, run.grant_id, None, None)])
+
+
+class RunAttachmentTests(RunsApiCase):
+    """A run message's document uploads and reference images are validated as /messages validates documents, stored by
+    id, kind and filename on the message or inbox row, recorded on the chat, and named to the model in a note, so
+    read_document and view_media open them. Nothing is read for the model at send time."""
+
+    def upload(self, mime, data, *, name, purpose='document-reference', user=None):
+        identifier, owner = uuid.uuid4(), user or self.user
+        key = f'uploads/{purpose}/{owner.id}-{identifier}'
+        url = self.store(key, data, mime)
+        UploadSession.objects.create(id=identifier, actor_id=owner.id, key=key, purpose=purpose, content_type=mime, filename=name,
+                                     byte_size=len(data), expires_at=timezone.now() + timedelta(hours=1), state='ready',
+                                     finalized_at=timezone.now())
+        return str(identifier), url
+
+    def generation(self, user=None):
+        identifier = uuid.uuid4()
+        url = self.store(f'generations/{identifier}.png', png_bytes(), 'image/png')
+        Generation.objects.create(id=identifier, kind='image', status='succeeded', prompt='a fox', model='Nano Banana 2.1',
+                                  aspect_ratio='1:1', user_id=(user or self.user).id, url=url, created_at=1, updated_at=1)
+        return str(identifier), url
+
+    def note(self, *named):
+        listed = '; '.join(f'{kind} {identifier}' + (f' named "{name}"' if name else '') for kind, identifier, name in named)
+        return {'text': f'Veevee: the artist attached {listed}. Open documents with read_document and images, video and audio '
+                        'with view_media, by id, before you rely on them.'}
+
+    def recorded(self):
+        return sorted(AgentChatAsset.objects.values_list('asset_id', 'source', 'kind', 'run_id'))
+
+    def test_a_new_run_and_an_inbox_message_carry_their_files_by_id_to_the_model(self):
+        notes, _ = self.upload('text/plain', b'Shot list: fox, snow.', name='notes.txt')
+        image, image_url = self.upload('image/png', png_bytes(), name='fox.png', purpose='image-reference')
+        made, made_url = self.generation()
+        response = self.post(self.base, {'content': 'Use these', 'attachments': [notes, f' {notes} '], 'images': [image_url, made_url, image_url]})
+        self.assertEqual(response.status_code, 201, response.content)
+        stored = [{'id': notes, 'kind': 'document', 'name': 'notes.txt'}, {'id': image, 'kind': 'image', 'name': 'fox.png'},
+                  {'id': made, 'kind': 'image', 'name': ''}]
+        self.assertEqual(response.json()['message']['attachments'], stored)
+        run = AgentRun.objects.get(pk=response.json()['run']['id'])
+        self.assertEqual(AgentConversationMessage.objects.get().tool_trace, {'attachments': stored})
+        self.assertEqual(self.recorded(), sorted((uuid.UUID(identifier), 'attachment', kind, run.id)
+                                                 for identifier, kind in ((notes, 'document'), (image, 'image'), (made, 'image'))))
+
+        brief, _ = self.upload('text/markdown', b'# Brief', name='brief.md')
+        queued = self.post(self.base, {'content': 'And this', 'attachments': [brief]})
+        self.assertEqual(queued.status_code, 202, queued.content)
+        self.assertEqual(queued.json()['inbox']['attachments'], [{'id': brief, 'kind': 'document', 'name': 'brief.md'}])
+        pending = self.get(f'{self.base}/{run.id}/events').json()['pendingMessages']
+        self.assertEqual([item['attachments'] for item in pending], [[{'id': brief, 'kind': 'document', 'name': 'brief.md'}]])
+
+        bodies = self.gemini([text('On it.')])
+        self.assertEqual(self.advance(run), 'completed')
+        self.assertEqual(len(bodies), 1)                                     # no media sub-call: the model opens files itself
+        self.assertEqual(bodies[0]['contents'][-1]['parts'], [
+            {'text': 'Use these'}, self.note(('document', notes, 'notes.txt'), ('image', image, 'fox.png'), ('image', made, '')),
+            {'text': 'And this'}, self.note(('document', brief, 'brief.md'))])
+        thread = self.client_for(self.user).get(f'/api/agent-conversations/{self.conversation.id}').json()['messages']
+        self.assertEqual([(item['content'], item.get('attachments')) for item in thread if item['role'] == 'user'],
+                         [('Use these', stored), ('And this', [{'id': brief, 'kind': 'document', 'name': 'brief.md'}])])
+        # The message the run read from its inbox names the run and the step it was read before; the first one does not.
+        users = [item for item in thread if item['role'] == 'user']
+        self.assertNotIn('runId', users[0])
+        self.assertEqual((users[1]['runId'], users[1]['deliveredStep']), (str(run.id), 0))
+        self.assertEqual([item['toolTrace'] for item in users], [None, None])
+
+        # The next run's history names the earlier files again, and a plain message carries no note.
+        self.post(self.base, {'content': 'Now a wolf'})
+        later = AgentRun.objects.exclude(pk=run.id).get()
+        bodies = self.gemini([text('A wolf.')])
+        self.assertEqual(self.advance(later), 'completed')
+        users = [turn['parts'] for turn in bodies[0]['contents'] if turn['role'] == 'user']
+        self.assertEqual(users[0][1], self.note(('document', notes, 'notes.txt'), ('image', image, 'fox.png'), ('image', made, '')))
+        self.assertEqual(users[-1], [{'text': 'Now a wolf'}])
+
+    def test_a_teammates_library_image_is_a_reference(self):
+        made, made_url = self.generation(user=self.make_user('other@example.invalid', 'Other', 'user'))
+        response = self.post(self.base, {'content': 'Match this', 'images': [made_url]})
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.json()['message']['attachments'], [{'id': made, 'kind': 'image', 'name': ''}])
+        run = AgentRun.objects.get(pk=response.json()['run']['id'])
+        self.assertEqual(self.recorded(), [(uuid.UUID(made), 'attachment', 'image', run.id)])
+        bodies = self.gemini([text('On it.')])
+        self.assertEqual(self.advance(run), 'completed')
+        self.assertEqual(bodies[0]['contents'][-1]['parts'], [{'text': 'Match this'}, self.note(('image', made, ''))])
+
+    def test_refused_files_store_nothing(self):
+        mine, _ = self.upload('text/plain', b'notes', name='notes.txt')
+        other = self.make_user('other@example.invalid', 'Other', 'user')
+        theirs, _ = self.upload('text/plain', b'notes', name='theirs.txt', user=other)
+        _, teammate_upload_url = self.upload('image/png', png_bytes(), name='theirs.png', purpose='image-reference', user=other)
+        image, image_url = self.upload('image/png', png_bytes(), name='fox.png', purpose='image-reference')
+        document_url = self.store(f'uploads/document-reference/{uuid.uuid4()}', b'notes', 'text/plain')
+        unknown = str(uuid.uuid4())
+        cases = [
+            ({'attachments': 'nope'}, 400, 'attachments must be a list of at most 10 upload ids.'),
+            ({'attachments': [str(uuid.uuid4()) for _ in range(11)]}, 400, 'attachments must be a list of at most 10 upload ids.'),
+            ({'attachments': [mine, unknown]}, 404, f'Attachment {unknown} is not in your library. Remove it and attach the file again.'),
+            ({'attachments': [theirs]}, 404, f'Attachment {theirs} is not in your library. Remove it and attach the file again.'),
+            ({'attachments': [image]}, 400, f'Attachment {image} is image/png; attach images as reference images.'),
+            ({'images': 'nope'}, 400, 'images must be an array of data URLs.'),
+            ({'images': ['data:image/png;base64,YQ==']}, 400, 'Upload reference images before you send them to the agent.'),
+            ({'images': ['https://example.invalid/fox.png']}, 400, 'Use stored reference images.'),
+            ({'images': ['/api/media/settings/secret.png']}, 400, 'Use stored reference images.'),
+            ({'images': ['/api/media/thumbs/poster/settings/secret.png.webp']}, 400, 'Use stored reference images.'),
+            ({'images': [document_url]}, 404, 'A reference image is not in the library. Remove it and attach it again.'),
+            ({'images': [image_url, '/api/media/uploads/image-reference/missing.png']}, 404,
+             'A reference image is not in the library. Remove it and attach it again.'),
+            ({'images': [teammate_upload_url]}, 404, 'A reference image is not in the library. Remove it and attach it again.'),
+        ]
+        for extra, status, error in cases:
+            with self.subTest(extra=extra):
+                response = self.post(self.base, {'content': 'Use these', **extra})
+                self.assertEqual((response.status_code, response.json()['error']), (status, error))
+        self.assertFalse(AgentRun.objects.exists() or AgentConversationMessage.objects.exists() or AgentChatAsset.objects.exists())
+        run = self.started()
+        refused = self.post(self.base, {'content': 'And this', 'attachments': [unknown]})
+        self.assertEqual(refused.status_code, 404)
+        self.assertFalse(AgentInboxMessage.objects.exists() or AgentChatAsset.objects.exists())
+        self.assertEqual(list(AgentRunEvent.objects.filter(run_id=run.id).values_list('kind', flat=True)), ['run_queued'])

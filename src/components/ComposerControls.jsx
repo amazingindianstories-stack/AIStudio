@@ -87,51 +87,51 @@ export function SettingsToolbar() {
               <Settings2 className="h-4 w-4 text-white/55" />
               {editExtendApplies && videoTaskMode !== "generate" && (
                 <>
-                  <span className="font-medium capitalize text-brand">{videoTaskMode}</span>
-                  <span className="text-white/35">·</span>
+                  <span className="composer-setting-value font-medium capitalize text-brand">{videoTaskMode}</span>
+                  <span className="composer-setting-separator text-white/35">·</span>
                 </>
               )}
-              <span className="font-medium">
+              <span className="composer-setting-value font-medium">
                 {videoTaskMode === "generate" && !s.firstFrameMode && !s.firstFrame && !s.continuationFrame
                   ? s.aspectRatio
                   : "Adaptive"}
               </span>
-              <span className="text-white/35">·</span>
-              <span>{s.resolution}</span>
+              <span className="composer-setting-separator text-white/35">·</span>
+              <span className="composer-secondary-setting">{s.resolution}</span>
               {s.mode === "video" && (
                 <>
-                  <span className="text-white/35">·</span>
-                  <span>{inputDrivenVideo ? "Audio length" : videoTaskMode === "edit" ? "Auto" : `${s.duration}s`}</span>
+                  <span className="composer-secondary-setting text-white/35">·</span>
+                  <span className="composer-secondary-setting">{inputDrivenVideo ? "Audio length" : videoTaskMode === "edit" ? "Auto" : `${s.duration}s`}</span>
                 </>
               )}
               {firstLastFrameApplies && (s.firstFrameMode || s.firstFrame || s.continuationFrame) && (
                 <>
-                  <span className="text-white/35">·</span>
-                  <span className="font-medium text-brand">1st Frame</span>
+                  <span className="composer-secondary-setting text-white/35">·</span>
+                  <span className="composer-secondary-setting font-medium text-brand">1st Frame</span>
                 </>
               )}
               {s.batchCount > 1 && (
                 <>
-                  <span className="text-white/35">·</span>
-                  <span className="text-brand">{s.batchCount}×</span>
+                  <span className="composer-secondary-setting text-white/35">·</span>
+                  <span className="composer-secondary-setting text-brand">{s.batchCount}×</span>
                 </>
               )}
               {audioApplies && s.generateAudio && (
                 <>
-                  <span className="text-white/35">·</span>
-                  <Volume2 className="h-3.5 w-3.5 text-brand" />
+                  <span className="composer-secondary-setting text-white/35">·</span>
+                  <Volume2 className="composer-secondary-setting h-3.5 w-3.5 text-brand" />
                 </>
               )}
               {draftApplies && (
                 <>
-                  <span className="text-white/35">·</span>
-                  <span>{s.draftMode ? "Draft" : "Final"}</span>
+                  <span className="composer-secondary-setting text-white/35">·</span>
+                  <span className="composer-secondary-setting">{s.draftMode ? "Draft" : "Final"}</span>
                 </>
               )}
               {bitrateApplies && (
                 <>
-                  <span className="text-white/35">·</span>
-                  <span>{s.bitrateMode === "standard" ? "Low" : "High"}</span>
+                  <span className="composer-secondary-setting text-white/35">·</span>
+                  <span className="composer-secondary-setting">{s.bitrateMode === "standard" ? "Low" : "High"}</span>
                 </>
               )}
             </Chip>
