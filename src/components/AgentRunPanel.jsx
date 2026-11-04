@@ -163,22 +163,22 @@ function StatusLine({ view, onStop }) {
 }
 
 /**
- * One agent run in the thread. Live, it renders the run's feed: model text, tool steps with the jobs they queued, the
- * messages it read, queued messages, the quote, pause and outcome cards, and the Stop controls. Once the persisted
- * thread is refreshed (`synced`), the saved messages carry the conversation and this keeps only the run's activity
- * (tool steps, jobs, text that was not a reply) and how a failed or stopped run ended.
+ * One segment of an agent run in the thread (see threadEntries): `items` are its model text, tool steps with the jobs
+ * they queued, and messages it read that the saved thread does not hold yet. The `last` segment also renders the run's
+ * state: queued messages (until the thread is re-read, `synced`), the quote, pause and outcome cards, and Stop.
  */
-export function AgentRunPanel({ view, synced, findItem, onDecide, onStop, pollError }) {
+export function AgentRunPanel({ view, items, last, synced, findItem, onDecide, onStop, pollError }) {
   const jobsByStep = {};
   for (const job of view.jobs) (jobsByStep[job.stepIndex] ??= []).push(job);
-  const items = synced ? view.timeline.filter((item) => item.type === "tool" || (item.type === "text" && !item.final)) : view.timeline;
   const failed = view.outcome?.status === "failed";
-  const ended = view.outcome && view.outcome.status !== "completed";
-  // A finished run whose reply is all in the saved thread has nothing left to add (and an empty block would still
-  // take a gap in the thread).
-  if (!items.length && (synced || !view.queued.length) && !view.quote && !view.paused && !view.active && !ended && !pollError) return null;
+  const ended = last && view.outcome && view.outcome.status !== "completed";
+  const queued = last && !synced ? view.queued : [];
+  const quote = last ? view.quote : null;
+  const paused = last ? view.paused : null;
+  // A segment with nothing to add (a finished run whose reply is all in the saved thread) would still take a gap.
+  if (!items.length && !queued.length && !quote && !paused && !(last && view.active) && !ended && !pollError) return null;
   return (
-    <div data-testid="agent-run" data-run-status={view.status} className="flex flex-col gap-3">
+    <div data-testid="agent-run" data-run-id={view.runId} data-run-status={view.status} className="flex flex-col gap-3">
       {items.map((item) => {
         if (item.type === "tool") return <ToolStep key={`step-${item.stepIndex}`} step={item} jobs={jobsByStep[item.stepIndex] || []} findItem={findItem} />;
         if (item.type === "message") {
@@ -190,23 +190,23 @@ export function AgentRunPanel({ view, synced, findItem, onDecide, onStop, pollEr
           </div>
         );
       })}
-      {!synced && view.queued.map((row) => (
+      {queued.map((row) => (
         <div key={`queued-${row.id}`} data-testid="agent-queued-message" className="flex flex-col items-end gap-1">
           <div className={cn(BUBBLE, "border border-dashed border-brand/40 bg-transparent text-white/70")}>{row.content}</div>
           <span className="flex items-center gap-1 text-[11px] text-white/40"><Clock className="h-3 w-3" /> Queued. The agent reads it after its current step.</span>
         </div>
       ))}
-      {view.quote && <QuoteCard quote={view.quote} onDecide={onDecide} />}
-      {view.paused && (
+      {quote && <QuoteCard quote={quote} onDecide={onDecide} />}
+      {paused && (
         <section aria-label="Run paused" className="flex max-w-[85%] items-start gap-2 rounded-xl border border-line bg-ink-800/80 px-3 py-2.5 text-xs text-white/70">
           <PauseCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-200" />
           <div>
-            <p className="text-sm font-medium text-white">{pauseReasonText(view.paused.reason)}</p>
-            <p>{resumeText(view.paused.resumeAfter)}</p>
+            <p className="text-sm font-medium text-white">{pauseReasonText(paused.reason)}</p>
+            <p>{resumeText(paused.resumeAfter)}</p>
           </div>
         </section>
       )}
-      {view.active && <StatusLine view={view} onStop={onStop} />}
+      {last && view.active && <StatusLine view={view} onStop={onStop} />}
       {ended && (
         <section aria-label={failed ? "Run failed" : "Run stopped"} className={cn(
           "flex max-w-[85%] items-start gap-2 rounded-xl border px-3 py-2.5 text-xs",

@@ -186,15 +186,20 @@ draft and staged files and shows the API's message (`AGENTS_DISABLED`, `AGENT_GR
   the run works and every 5 s while it waits for approval or a limit, doubling per failure up to 30 s; after three
   failures in a row it says it lost touch, and a 403 or 404 stops it. Once the run is terminal and `more` is false it
   re-reads the conversation, so the saved thread becomes authoritative.
-- **Thread.** `src/components/AgentRunPanel.jsx` renders each run after the message that started it (`run_queued`
-  `messageId`). While the run is live, saved messages after that point are hidden because the feed shows them; once
-  the thread is re-read the panel keeps only tool steps, jobs (a succeeded job shows its `MediaCard`, read by id through
-  the store's `loadItem` when no loaded scope holds it; a running one shows `GenerationStatus`, a failed or cancelled
-  one its text), non-final text and how a failed or stopped run ended.
-- **Reconnect.** Opening a conversation reads `GET .../runs`. An active latest run resumes from the state saved in
-  `sessionStorage` (`veevee.agentRun.<run id>`: the gapless events, cursor and queued rows, written after every poll
-  in try/catch), so a reload polls from the last seq with nothing duplicated; a missing or damaged save reads from 0.
-  A latest run that failed or was cancelled is read once from its feed to show its steps and ending.
+- **Thread.** `threadEntries` in `src/lib/agent-run.js` places each run's activity after the message that started it
+  (`run_queued` `messageId`); `src/components/AgentRunPanel.jsx` renders it. A run's saved replies (assistant messages
+  with `toolTrace.runId` and `stepIndex`) and the messages it read from its inbox (user messages with `runId` and
+  `deliveredStep` in the conversation JSON) show as saved messages, so the feed items they repeat are left out and the
+  activity between them is split into segments, each after the saved message it follows. The activity is tool steps,
+  jobs (a succeeded job shows its `MediaCard`, read by id through the store's `loadItem` when no loaded scope holds it;
+  a running one shows `GenerationStatus`, a failed or cancelled one its text), non-final text, and, in the run's last
+  segment, queued messages, the quote, pause card, status line and how a failed or stopped run ended. While the run is
+  live and the thread has not been re-read, its replies and the messages it read come from the feed.
+- **Reconnect.** Opening a conversation reads `GET .../runs` (the 20 most recent). An active run resumes from the state
+  saved in `sessionStorage` (`veevee.agentRun.<run id>`: the gapless events, cursor and queued rows, written after every
+  poll in try/catch), so a reload polls from the last seq with nothing duplicated; a missing or damaged save reads from
+  0. Every run that ended is read once from its feed (`drainFeed`, at most 20 pages) and never polled; the tab keeps
+  ended feeds in memory, so switching back to a chat reads nothing again.
 - **Quote card.** Shows the tool, the cost (`display`, else dollars from `costCents`), the summary, the prompt and the
   scalar arguments, with Approve and Decline. Approving is always a click; at 100 cents or more it first asks for
   "Confirm $X" and only then sends `{stepIndex}` (the API needs no confirm field; the worker adds `confirmedByUser`).
@@ -207,7 +212,8 @@ draft and staged files and shows the API's message (`AGENTS_DISABLED`, `AGENT_GR
 - **Tests.** `src/lib/agent-run.test.js` covers the reducer and helpers. `tests/browser/agents-runs.spec.mjs` drives
   the tab against Django with no agent worker: the composer starts a real run and the spec writes the worker's events
   and run status through `fixture-db.mjs` (feed rendering, delivered message, reload from the last seq, quote approve
-  with the second confirmation and decline including a 409, the pause card, Stop and cancel jobs, a failed run, and a succeeded job's media card read by id).
+  with the second confirmation and decline including a 409, the pause card, Stop and cancel jobs, a failed run, a succeeded job's media card read by id, and the activity of a completed run and an earlier failed run in order
+  after a reload, each feed read once).
 
 The worker is its own Railway component, `python -m deploy.entrypoint agent`, which runs
 `agent_worker --interval 1 --concurrency N` (`VEEVEE_AGENT_WORKER_SLOTS`, 1 to 8, default 4). It uses the API's

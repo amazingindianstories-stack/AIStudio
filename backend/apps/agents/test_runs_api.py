@@ -421,6 +421,11 @@ class RunAttachmentTests(RunsApiCase):
         thread = self.client_for(self.user).get(f'/api/agent-conversations/{self.conversation.id}').json()['messages']
         self.assertEqual([(item['content'], item.get('attachments')) for item in thread if item['role'] == 'user'],
                          [('Use these', stored), ('And this', [{'id': brief, 'kind': 'document', 'name': 'brief.md'}])])
+        # The message the run read from its inbox names the run and the step it was read before; the first one does not.
+        users = [item for item in thread if item['role'] == 'user']
+        self.assertNotIn('runId', users[0])
+        self.assertEqual((users[1]['runId'], users[1]['deliveredStep']), (str(run.id), 0))
+        self.assertEqual([item['toolTrace'] for item in users], [None, None])
 
         # The next run's history names the earlier files again, and a plain message carries no note.
         self.post(self.base, {'content': 'Now a wolf'})

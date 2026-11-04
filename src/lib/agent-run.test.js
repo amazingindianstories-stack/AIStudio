@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   addQueuedMessage, applyPage, drainFeed, forgetRunState, isSettled, needsSecondConfirmation, outcomeText, pauseReasonText,
   pollDelay, quoteCardStep, quoteCost, quoteDetails, restoreRunState, resumeText, runAction, runState, runView, saveRunState,
-  sentenceCase, statusLine, stepStatusText, withRun,
+  sentenceCase, statusLine, stepStatusText, threadEntries, withRun,
 } from "./agent-run.js";
 
 const RUN = { id: "run-1", conversationId: "c-1", status: "running", costCents: 0, stepCount: 0, cancelRequestedAt: null, cancelJobs: false,
@@ -171,7 +171,8 @@ test("a message sent during a run shows as queued until message_delivered", () =
     event(7, "message_delivered", { inboxId: "i-1", stepIndex: 1 })], { pendingMessages: [inbox] }));
   const view = runView(state);
   assert.deepEqual(view.queued, []);
-  assert.deepEqual(view.timeline.at(-1), { type: "message", seq: 7, inboxId: "i-1", content: "Make it blue", attachments: [], createdAt: 1007 });
+  assert.deepEqual(view.timeline.at(-1), { type: "message", seq: 7, inboxId: "i-1", stepIndex: 1, content: "Make it blue", attachments: [],
+    createdAt: 1007 });
 });
 
 test("a queued message the snapshot no longer lists has been read even before message_delivered is seen", () => {
@@ -418,4 +419,79 @@ test("quoteDetails labels arguments as the composer does and leaves out the prom
   assert.deepEqual(quoteDetails(undefined), []);
   assert.equal(sentenceCase("generate_video"), "Generate video");
   assert.equal(sentenceCase("AspectRatio"), "Aspect ratio");
+});
+
+const said = (id, role, content, fields = {}) => ({ id, role, content, toolTrace: null, createdAt: 0, ...fields });
+// What threadEntries returns, in words: a saved message's text, or a run segment's run id and items.
+const shape = (entries) => entries.map((entry) => (entry.panel
+  ? [entry.run.view.runId, entry.items.map((item) => item.text ?? item.content ?? `${item.tool}:${item.status}`), entry.last]
+  : entry.message.content));
+
+test("threadEntries shows each run's activity after its start message and before its saved reply", () => {
+  const completed = runView(applyPage(runState(run()), page(FULL, { run: run({ status: "completed", updatedAt: 99 }) })));
+  const failed = runView(applyPage(runState(run({ id: "run-0" })), page([
+    event(1, "run_queued", { messageId: "m-0" }),
+    event(2, "step_started", { stepIndex: 0, kind: "tool", tool: "generate_image" }),
+    event(3, "tool_called", { stepIndex: 0, tool: "generate_image", outcome: "error", summary: "The provider refused it." }),
+    event(4, "failed", { code: "model_error", message: "The model stopped answering." }),
+  ], { run: run({ id: "run-0", status: "failed", updatedAt: 50 }) })));
+  const messages = [
+    said("m-0", "user", "Make a fox."),
+    said("m-1", "user", "Make a fox video."),
+    said("a-1", "assistant", "Your fox video is ready.", { toolTrace: { runId: "run-1", stepIndex: 3 } }),
+    said("m-2", "user", "Thanks."),
+  ];
+  const entries = threadEntries(messages, [{ view: failed, live: false }, { view: completed, live: false }]);
+  assert.deepEqual(shape(entries), [
+    "Make a fox.",
+    ["run-0", ["generate_image:error"], true],
+    "Make a fox video.",
+    ["run-1", ["Let me look.", "search_generations:done", "generate_video:done"], false],
+    "Your fox video is ready.",
+    ["run-1", [], true],
+    "Thanks.",
+  ]);
+  assert.equal(entries[1].run.view.outcome.status, "failed", "the failed run's last segment carries how it ended");
+  assert.equal(new Set(entries.filter((entry) => entry.panel).map((entry) => entry.key)).size, 3, "segment keys are unique");
+});
+
+test("threadEntries places a message the run read where it read it, once, and keeps a live run's unsaved reply", () => {
+  const events = [
+    event(1, "run_queued", { messageId: "m-1" }),
+    event(2, "step_started", { stepIndex: 0, kind: "tool", tool: "search_generations" }),
+    event(3, "tool_called", { stepIndex: 0, tool: "search_generations", outcome: "ok" }),
+    event(4, "message_queued", { inboxId: "i-1" }),
+    event(5, "message_delivered", { inboxId: "i-1", stepIndex: 1 }),
+    event(6, "assistant_text", { stepIndex: 1, text: "Making it blue.", final: true }),
+  ];
+  const inbox = { id: "i-1", runId: "run-1", content: "Make it blue", attachments: [], createdAt: 50 };
+  const live = runView(applyPage(runState(run()), page(events, { pendingMessages: [inbox] })));
+  const start = [said("m-1", "user", "Find my foxes.")];
+  // Live, before the thread is re-read: the feed shows what the run read and its reply.
+  assert.deepEqual(shape(threadEntries(start, [{ view: live, live: true }])), [
+    "Find my foxes.", ["run-1", ["search_generations:done", "Make it blue", "Making it blue."], true],
+  ]);
+  // Re-read (or after a reload, when this tab never saw the message queued): the saved copies take their places.
+  const saved = [...start, said("u-1", "user", "Make it blue", { runId: "run-1", deliveredStep: 1 }),
+    said("a-1", "assistant", "Making it blue.", { toolTrace: { runId: "run-1", stepIndex: 1 } })];
+  const reloaded = runView(applyPage(runState(run({ status: "completed" })), page([...events, event(7, "completed", { steps: 2 })],
+    { run: run({ status: "completed", updatedAt: 99 }) })));
+  for (const view of [live, reloaded]) {
+    assert.deepEqual(shape(threadEntries(saved, [{ view, live: view === live }])), [
+      "Find my foxes.", ["run-1", ["search_generations:done"], false], "Make it blue", "Making it blue.", ["run-1", [], true],
+    ]);
+  }
+  // A delivered message whose text this tab never saw and the thread does not hold yet is left out, not shown blank.
+  assert.deepEqual(shape(threadEntries(start, [{ view: reloaded, live: false }])), [
+    "Find my foxes.", ["run-1", ["search_generations:done", "Making it blue."], true],
+  ]);
+});
+
+test("threadEntries puts a live run without a loaded start message at the end and drops an ended one", () => {
+  const view = runView(applyPage(runState(run()), page(FULL.slice(0, 6))));
+  const messages = [said("m-9", "user", "Older.")];
+  assert.deepEqual(shape(threadEntries(messages, [{ view: { ...view, startMessageId: "gone" }, live: true }])), [
+    "Older.", ["run-1", ["Let me look.", "search_generations:done"], true],
+  ]);
+  assert.deepEqual(shape(threadEntries(messages, [{ view: { ...view, startMessageId: "gone" }, live: false }])), ["Older."]);
 });

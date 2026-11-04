@@ -15,14 +15,38 @@ async function fetchEvents(conversationId, runId, after) {
   if (!response.ok) throw Object.assign(new Error(apiErrorMessage(data, response.status)), { status: response.status });
   return data;
 }
+/** Feeds of runs that ended, read once per tab: a finished run's events never change. */
+const ENDED = new Map();
+const MAX_ENDED = 200;
+
+function remember(state) {
+  ENDED.delete(state.run.id);
+  ENDED.set(state.run.id, state);
+  if (ENDED.size > MAX_ENDED) ENDED.delete(ENDED.keys().next().value);
+  return state;
+}
+
+/** The drained feed of a run that ended; a feed that cannot be read leaves the run JSON alone (and is read again later). */
+async function readEnded(conversationId, run) {
+  const known = ENDED.get(run.id);
+  if (known && known.run.updatedAt === run.updatedAt) return known;
+  try {
+    const state = await drainFeed(runState(run), (after) => fetchEvents(conversationId, run.id, after));
+    return remember({ ...state, more: false });
+  } catch {
+    return { ...runState(run), more: false };
+  }
+}
+
 /** Consecutive failed polls before the panel says it lost touch with the run (it keeps retrying with backoff). */
 const QUIET_FAILURES = 3;
 
 /**
- * The conversation's current agent run, kept in step with its event feed. On open it reads `GET .../runs` and resumes
- * polling an active run from the seq this tab saved; a send hands it the run it started (`adopt`) or the message it
- * queued (`queue`). Once the run ends and its feed is drained, `onSettled(state)` refreshes the persisted thread and
- * `synced` turns true, so the thread shows the saved messages and the panel keeps only the run's activity.
+ * The conversation's current agent run, kept in step with its event feed. On open it reads `GET .../runs` (the 20 most
+ * recent), resumes polling an active run from the seq this tab saved and reads each run that ended into `earlier`
+ * (oldest first) once, without polling it; a send hands it the run it started (`adopt`) or the message it queued
+ * (`queue`). Once the run ends and its feed is drained, `onSettled(state)` refreshes the persisted thread and `synced`
+ * turns true, so the saved messages carry its replies and the messages it read (see threadEntries).
  */
 export function useAgentRun(conversationId, { onSettled } = {}) {
   const [state, setState] = useState(null);
@@ -55,6 +79,7 @@ export function useAgentRun(conversationId, { onSettled } = {}) {
 
   const settle = useCallback(async (settled, token) => {
     forgetRunState(settled.run.id);
+    remember(settled);
     try {
       await onSettledRef.current?.(settled);
     } finally {
@@ -131,24 +156,24 @@ export function useAgentRun(conversationId, { onSettled } = {}) {
     (async () => {
       const response = await fetch(`/api/agent-conversations/${conversationId}/runs`, { cache: "no-store" }).catch(() => null);
       const data = response ? await response.json().catch(() => ({})) : {};
+      if (token !== tokenRef.current || !response?.ok) return;
+      const runs = data.runs || [];
+      const active = runs.find((run) => isActiveStatus(run.status));
       // A send that answered first already adopted the run.
-      if (token !== tokenRef.current || !response?.ok || stateRef.current) return;
-      const latest = data.runs?.[0];
-      if (!latest) return;
-      if (isActiveStatus(latest.status)) {
-        commit(restoreRunState(latest));
+      if (active && !stateRef.current) {
+        commit(restoreRunState(active));
         pollRef.current?.();
-        return;
       }
-      forgetRunState(latest.id);
-      // The thread already holds what a finished run wrote; a failed or stopped one still shows its steps and how it
-      // ended, read from its feed (the run JSON alone does not say which jobs a stop cancelled).
-      if (latest.status !== "completed") {
-        const ended = await drainFeed(runState(latest), (after) => fetchEvents(conversationId, latest.id, after)).catch(() => runState(latest));
-        if (token !== tokenRef.current || stateRef.current) return;
-        commit({ ...ended, more: false });
-        setSyncedRunId(latest.id);
-      }
+      // Every run that ended shows its steps, jobs, text and how it ended, read from its feed once (the run JSON alone
+      // does not say which jobs a stop cancelled).
+      const ended = runs.filter((run) => !isActiveStatus(run.status)).reverse();
+      for (const run of ended) forgetRunState(run.id);
+      const states = await Promise.all(ended.map((run) => readEnded(conversationId, run)));
+      if (token !== tokenRef.current) return;
+      setEarlier((list) => {
+        const shown = new Set([...list.map((state) => state.run.id), stateRef.current?.run?.id]);
+        return [...states.filter((state) => !shown.has(state.run.id)), ...list];
+      });
     })();
     return () => {
       tokenRef.current += 1;

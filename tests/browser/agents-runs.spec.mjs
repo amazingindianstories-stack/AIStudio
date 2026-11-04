@@ -68,9 +68,10 @@ function worker(runId) {
     INSERT INTO agent_run_steps (run_id, step_index, kind, tool_name, input_hash, status, outcome, result, started_at, finished_at)
     VALUES (${runId}, ${stepIndex}, 'tool', ${tool}, 'browser-fixture', 'finished', 'quote_required',
       ${JSON.stringify({ call: { name: tool, args }, quote: { token: 'browser-fixture', ...quote } })}::jsonb, ${tick()}, ${tick()})`;
-  const message = (conversationId, role, content) => db.statement`
+  /** A saved message as the runner writes it: a reply carries its `stepIndex`, a message read from the inbox its `deliveredStep`. */
+  const message = (conversationId, role, content, trace) => db.statement`
     INSERT INTO agent_conversation_messages (conversation_id, role, content, tool_trace, created_at)
-    VALUES (${conversationId}, ${role}, ${content}, ${JSON.stringify({ runId })}::jsonb, ${tick()})`;
+    VALUES (${conversationId}, ${role}, ${content}, ${JSON.stringify({ runId, ...trace })}::jsonb, ${tick()})`;
   return { db, emit, status, quoteStep, message, write: (statements) => db.transaction(statements), tick };
 }
 
@@ -130,8 +131,8 @@ test('Agents runs: the feed renders model text, tool steps, jobs and a delivered
     fixture.emit('step_started', { stepIndex: 3, kind: 'llm' }),
     fixture.emit('assistant_text', { stepIndex: 3, text: 'Your warm close-up is ready.', final: true }),
     // The worker saves what the run read and its reply in the thread, which the tab re-reads once the run ends.
-    fixture.message(run.conversationId, 'user', 'Use a warmer palette.'),
-    fixture.message(run.conversationId, 'assistant', 'Your warm close-up is ready.'),
+    fixture.message(run.conversationId, 'user', 'Use a warmer palette.', { deliveredStep: 0 }),
+    fixture.message(run.conversationId, 'assistant', 'Your warm close-up is ready.', { stepIndex: 3 }),
     fixture.status('completed', { steps: 4 }),
     fixture.emit('completed', { steps: 4, costCents: 12 }),
   ]);
@@ -143,6 +144,89 @@ test('Agents runs: the feed renders model text, tool steps, jobs and a delivered
   await expect(feed.getByText('Use a warmer palette.', { exact: true })).toHaveCount(1);
   await expect(panel.getByText('I will draft a warm close-up first.', { exact: true })).toBeVisible();
   await expect(panel.getByTestId('agent-run-step')).toHaveCount(2);
+});
+
+/** Asserts that `texts` appear in the chat feed in this order (each at least once). */
+async function expectInOrder(feed, texts) {
+  await expect.poll(async () => {
+    const shown = await feed.innerText();
+    let from = 0;
+    for (const text of texts) {
+      const at = shown.indexOf(text, from);
+      if (at < 0) return `missing in order: ${text}`;
+      from = at + text.length;
+    }
+    return 'in order';
+  }).toBe('in order');
+}
+
+test('Agents runs: every ended run keeps its activity in order after its message, live and after a reload, read once', async ({ page, context, baseURL }) => {
+  test.setTimeout(120000);
+  await openAgents(page, context, baseURL, 'Agents run history');
+  const other = await context.request.post('/api/projects', { data: { op: 'createProject', name: `Agents history elsewhere ${randomUUID()}` },
+    headers: { Origin: baseURL } });
+  expect(other.ok()).toBeTruthy();
+  const elsewhere = (await other.json()).project.id;
+  const feed = page.getByTestId('studio-chat-feed');
+
+  const first = (await send(page, 'Make a moonlit harbour.', 201)).run;
+  const failing = worker(first.id);
+  const error = { code: 'MODEL_ERROR', message: 'The model could not answer. Try again in a minute.' };
+  await failing.write([
+    failing.emit('run_started'),
+    failing.emit('step_started', { stepIndex: 0, kind: 'tool', tool: 'generate_image' }),
+    failing.emit('tool_called', { stepIndex: 0, tool: 'generate_image', outcome: 'error', summary: 'The provider refused the prompt.' }),
+    failing.status('failed', { error, steps: 1 }),
+    failing.emit('failed', error),
+  ]);
+  await expect(feed.getByRole('region', { name: 'Run failed' })).toHaveText(error.message);
+
+  const second = (await send(page, 'Try a softer harbour.', 201)).run;
+  const fixture = worker(second.id);
+  const made = randomUUID();
+  await fixture.write([
+    fixture.db.statement`INSERT INTO generations (id, kind, status, model, prompt, aspect_ratio, url, user_id, project_id, created_at, updated_at)
+      SELECT ${made}, 'image', 'succeeded', 'Nano Banana Pro', 'Soft harbour', '1:1', url, ${USER_ID}, ${elsewhere}, 1000, 1000
+      FROM generations WHERE id = '10000000-0000-4000-8000-000000000000'`,
+    fixture.emit('run_started'),
+    fixture.emit('step_started', { stepIndex: 0, kind: 'llm' }),
+    fixture.emit('assistant_text', { stepIndex: 0, text: 'Trying a softer palette.', final: false }),
+    fixture.emit('step_started', { stepIndex: 1, kind: 'tool', tool: 'generate_image' }),
+    fixture.emit('job_queued', { generationId: made, kind: 'image', tool: 'generate_image', stepIndex: 1 }),
+    fixture.emit('tool_called', { stepIndex: 1, tool: 'generate_image', outcome: 'ok', summary: 'Queued one image.' }),
+    fixture.emit('job_finished', { generationId: made, kind: 'image', status: 'succeeded', stepIndex: 2 }),
+    fixture.emit('step_started', { stepIndex: 2, kind: 'llm' }),
+    fixture.emit('assistant_text', { stepIndex: 2, text: 'Your softer harbour is ready.', final: true }),
+    fixture.message(second.conversationId, 'assistant', 'Your softer harbour is ready.', { stepIndex: 2 }),
+    fixture.status('completed', { steps: 3 }),
+    fixture.emit('completed', { steps: 3, costCents: 12 }),
+  ]);
+  const order = ['Make a moonlit harbour.', 'Generate image', 'Failed', 'The provider refused the prompt.', error.message,
+    'Try a softer harbour.', 'Trying a softer palette.', 'Generate image', 'Done', 'Queued one image.', 'Your softer harbour is ready.'];
+  const expectHistory = async () => {
+    await expect(feed.getByTestId('agent-run-status')).toHaveCount(0);
+    await expectInOrder(feed, order);
+    await expect(feed.getByText('Your softer harbour is ready.', { exact: true })).toHaveCount(1);
+    await expect(feed.getByRole('region', { name: 'Run failed' })).toHaveText(error.message);
+    await expect(feed.locator(`[data-run-id="${first.id}"]`).getByTestId('agent-run-step')).toHaveAttribute('data-status', 'error');
+    const done = feed.locator(`[data-run-id="${second.id}"]`).getByTestId('agent-run-step');
+    await expect(done).toHaveAttribute('data-status', 'done');
+    await expect(done.getByTestId(`media-card-${made}`).getByRole('img', { name: 'Soft harbour' })).toBeVisible();
+  };
+  await expectHistory();
+
+  // After a reload each ended run's feed is read once and never polled.
+  const reads = [];
+  page.on('request', (request) => {
+    const match = request.url().match(/\/runs\/([^/]+)\/events/);
+    if (match) reads.push(match[1]);
+  });
+  await page.reload();
+  await expect(page.getByRole('button', { name: /Desktop fixture/ })).toBeVisible();
+  await agentsTab(page);
+  await expectHistory();
+  await page.waitForTimeout(4000);
+  expect(reads.sort()).toEqual([first.id, second.id].sort());
 });
 
 test('Agents runs: a succeeded job shows its media card even when the library has not loaded it, live and after a reload', async ({ page, context, baseURL }) => {

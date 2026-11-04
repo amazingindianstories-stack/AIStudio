@@ -188,8 +188,10 @@ export function runView(state) {
         break;
       case "message_delivered": {
         delivered.add(payload.inboxId);
+        // The text is known only for a message this tab saw queued; the thread shows the saved copy otherwise.
         const row = state.inbox[payload.inboxId];
-        if (row) timeline.push({ type: "message", seq, inboxId: row.id, content: row.content, attachments: row.attachments || [], createdAt });
+        timeline.push({ type: "message", seq, inboxId: payload.inboxId, stepIndex: payload.stepIndex, content: row?.content ?? null,
+          attachments: row?.attachments || [], createdAt });
         break;
       }
       case "paused":
@@ -242,6 +244,66 @@ export function runView(state) {
     costCents: run.costCents ?? 0, timeline, jobs: Object.values(jobs).sort((left, right) => (left.seq ?? 0) - (right.seq ?? 0)),
     waitingOn: run.status === "waiting_jobs" ? waitingOn : [], quote, paused, stopping, outcome, finalText, queued, startMessageId,
   };
+}
+
+// Where a saved message sits in a run: its reply at a step, or a message it read from its inbox before a step.
+function savedAnchor(message) {
+  if (message.role === "assistant" && message.toolTrace?.runId) return `${message.toolTrace.runId}:reply:${message.toolTrace.stepIndex}`;
+  if (message.role === "user" && message.runId) return `${message.runId}:read:${message.deliveredStep}`;
+  return null;
+}
+
+function feedAnchor(runId, item) {
+  if (item.type === "text" && item.final) return `${runId}:reply:${item.stepIndex}`;
+  if (item.type === "message") return `${runId}:read:${item.stepIndex}`;
+  return null;
+}
+
+/**
+ * The thread in order: the saved messages, each run's activity right after the message that started it. A run's saved
+ * replies and the messages it read from its inbox show as saved messages, so the feed items they repeat are left out
+ * and the activity between them is split into segments, each placed after the saved message it follows. The last
+ * segment of a run also carries its state (queued messages, quote, pause, status line, how it ended).
+ *
+ * `runs` is `[{ view, ...fields }]`, oldest first. Entries are `{ message }` or `{ panel: true, key, run, items, last }`
+ * (`run` is the runs entry). A run whose start message is not loaded shows at the end when `live`, else not at all.
+ */
+export function threadEntries(messages, runs) {
+  const lastAt = new Map();
+  messages.forEach((message, index) => {
+    lastAt.set(`start:${message.id}`, index);
+    const anchor = savedAnchor(message);
+    if (anchor) lastAt.set(anchor, index);
+  });
+  const placed = new Map();
+  const unplaced = [];
+  for (const run of runs) {
+    const { view } = run;
+    const segments = [{ key: `start:${view.startMessageId}`, items: [] }];
+    for (const item of view.timeline) {
+      const anchor = feedAnchor(view.runId, item);
+      if (anchor && lastAt.has(anchor)) {
+        if (segments.at(-1).key !== anchor) segments.push({ key: anchor, items: [] });
+      } else if (item.type !== "message" || item.content !== null) segments.at(-1).items.push(item);
+    }
+    segments.forEach((segment, index) => {
+      const last = index === segments.length - 1;
+      if (!segment.items.length && !last) return;
+      const entry = { panel: true, key: `${view.runId}:${segment.key}`, run, items: segment.items, last };
+      if (lastAt.has(segment.key)) {
+        if (!placed.has(segment.key)) placed.set(segment.key, []);
+        placed.get(segment.key).push(entry);
+      } else if (run.live) unplaced.push(entry);
+    });
+  }
+  const thread = [];
+  messages.forEach((message, index) => {
+    thread.push({ message });
+    for (const key of [`start:${message.id}`, savedAnchor(message)]) {
+      if (key && lastAt.get(key) === index) thread.push(...(placed.get(key) || []));
+    }
+  });
+  return [...thread, ...unplaced];
 }
 
 /** Whether approving `costCents` needs the card's second confirmation before the approve request is sent. */

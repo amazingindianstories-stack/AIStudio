@@ -28,7 +28,7 @@ import { supportsVideoReference } from "@/lib/config";
 import { measureAudioDuration } from "@/lib/audio-duration";
 import { extractFrame } from "@/lib/video-frame";
 import { ATTACH_ACCEPT, MAX_DOCUMENTS, documentType, uploadAgentDocument } from "@/lib/agent-attachments";
-import { runView } from "@/lib/agent-run";
+import { runView, threadEntries } from "@/lib/agent-run";
 import { insertTranscript, startVoiceNote, transcribeVoiceNote, voiceCaps, voiceErrorMessage } from "@/lib/voice-note";
 import { formatTime } from "@/lib/canvas/talktrack";
 
@@ -154,27 +154,11 @@ export function StudioChat({ conversationId }) {
   const findItem = (id) =>
     items.find((i) => i.id === id) ?? threadItems.find((i) => i.id === id) ?? looseItems.find((i) => i.id === id);
 
-  // The thread: saved messages, with each run's panel after the message that started it. While the current run is
-  // live its feed shows everything it wrote, so the saved messages after its start (all of them belong to it) wait
-  // until the run ends and the thread is re-read.
-  const thread = [];
-  const panels = {};
-  for (const state of agentRun.earlier) {
-    const view = runView(state);
-    if (view.startMessageId) panels[view.startMessageId] = { panel: true, view, synced: true, live: false };
-  }
-  const current = run ? { panel: true, view: run, synced: agentRun.synced, live: true } : null;
-  if (current && run.startMessageId) panels[run.startMessageId] = current;
-  let placed = !current;
-  for (const message of messages) {
-    if (placed === "hiding") continue;
-    thread.push({ message });
-    const panel = panels[message.id];
-    if (!panel) continue;
-    thread.push(panel);
-    if (panel === current) placed = current.synced ? true : "hiding";
-  }
-  if (!placed) thread.push(current);
+  // The thread: saved messages, with each run's activity after the message that started it (see threadEntries). Runs
+  // that ended were read once when the chat opened; the current one follows its feed.
+  const runs = agentRun.earlier.map((state) => ({ view: runView(state), synced: true, live: false }));
+  if (run) runs.push({ view: run, synced: agentRun.synced, live: true });
+  const thread = threadEntries(messages, runs);
 
   const fireGeneration = async (prompt, messageId) => {
     setPrompt(prompt);
@@ -416,13 +400,15 @@ export function StudioChat({ conversationId }) {
           <div className="mx-auto flex max-w-3xl flex-col gap-4">
             {thread.map((entry) => (entry.panel ? (
               <AgentRunPanel
-                key={`run-${entry.view.runId}`}
-                view={entry.view}
-                synced={entry.synced}
+                key={`run-${entry.key}`}
+                view={entry.run.view}
+                items={entry.items}
+                last={entry.last}
+                synced={entry.run.synced}
                 findItem={findItem}
                 onDecide={(action, stepIndex) => agentRun.act(action, { stepIndex })}
                 onStop={(cancelJobs) => agentRun.act("cancel", { cancelJobs })}
-                pollError={entry.live ? agentRun.pollError : null}
+                pollError={entry.run.live && entry.last ? agentRun.pollError : null}
               />
             ) : (
               <MessageBubble

@@ -13,11 +13,13 @@ def conversation_json(row):
 
 
 def message_json(row):
+    user_trace = row.tool_trace if row.role == 'user' and isinstance(row.tool_trace, dict) else {}
     return {'id': str(row.id), 'conversationId': str(row.conversation_id),
         'role': 'assistant' if row.role == 'assistant' else 'user', 'content': row.content,
         'toolTrace': row.tool_trace if row.role == 'assistant' else None, 'createdAt': row.created_at,
-        **({'attachments': row.tool_trace['attachments']} if row.role == 'user' and isinstance(row.tool_trace, dict)
-           and row.tool_trace.get('attachments') else {})}
+        **({'attachments': user_trace['attachments']} if user_trace.get('attachments') else {}),
+        # A message a run read from its inbox: the thread shows it where the run read it (before step ``deliveredStep``).
+        **({'runId': user_trace['runId'], 'deliveredStep': user_trace.get('deliveredStep')} if user_trace.get('runId') else {})}
 
 
 def list_conversations(project_id, kind, owner=None):
