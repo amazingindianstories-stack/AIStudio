@@ -22,17 +22,10 @@ def message_json(row):
         **({'runId': user_trace['runId'], 'deliveredStep': user_trace.get('deliveredStep')} if user_trace.get('runId') else {})}
 
 
-def list_conversations(project_id, kind, owner=None):
-    """The project's conversations of ``kind``, newest first; with ``owner``, only that user's (``runs.owned_conversation``)."""
-    rows = AgentConversation.objects.filter(project_id=project_id, agent_kind=kind)
-    if owner is not None:
-        rows = rows.filter(Q(user_id=owner) | Q(user_id__isnull=True, created_by=owner))
+def list_conversations(project_id, kind, owner):
+    """``owner``'s conversations of ``kind`` in the project, newest first (``runs.owned_conversation``)."""
+    rows = AgentConversation.objects.filter(Q(user_id=owner) | Q(user_id__isnull=True, created_by=owner), project_id=project_id, agent_kind=kind)
     return [conversation_json(row) for row in rows.order_by('-updated_at')]
-
-
-def get_conversation(identifier):
-    row = AgentConversation.objects.filter(pk=identifier).first()
-    return conversation_json(row) if row else None
 
 
 def create_conversation(project_id, kind, name, created_by):

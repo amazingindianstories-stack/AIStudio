@@ -227,12 +227,18 @@ export function StudioChat({ conversationId }) {
       createdAt: Date.now(),
     };
     const sentDocuments = documentsRef.current;
+    const requestId = requestIdRef.current;
+    const moved = () => requestIdRef.current !== requestId;
     setError(null);
     setSending(true);
     collapseOnSend();
     let shown = false;
     try {
       const images = await storedReferenceImages();
+      if (moved()) {
+        reopenAfterFailedSend();
+        return;
+      }
       setMessages((cur) => [...cur, optimistic]);
       shown = true;
       const res = await fetch(`/api/agent-conversations/${id}/runs`, {
@@ -243,6 +249,7 @@ export function StudioChat({ conversationId }) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.error) throw new Error(apiErrorMessage(data, res.status));
+      if (moved()) return;
       setDocuments((cur) => cur.filter((d) => !sentDocuments.includes(d)));
       if (data.delivery === "inbox") {
         setMessages((cur) => cur.filter((m) => m.id !== optimistic.id));
@@ -252,8 +259,9 @@ export function StudioChat({ conversationId }) {
         agentRun.adopt(data.run, { fresh: true });
       }
     } catch (err) {
-      if (shown) setMessages((cur) => cur.filter((m) => m.id !== optimistic.id));
       reopenAfterFailedSend();
+      if (moved()) return;
+      if (shown) setMessages((cur) => cur.filter((m) => m.id !== optimistic.id));
       setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
       setSending(false);

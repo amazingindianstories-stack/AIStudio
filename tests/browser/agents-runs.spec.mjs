@@ -428,3 +428,52 @@ test('Agents runs: a failed run shows its error, during the run and after a relo
   // The next message starts a new run.
   await send(page, 'Try again.', 201);
 });
+
+test('Agents runs: a run replaced before its feed was read keeps its activity, and a send answered after a chat switch stays in its chat', async ({ page, context, baseURL }) => {
+  test.setTimeout(120000);
+  await openAgents(page, context, baseURL, 'Agents run handover');
+  const feed = page.getByTestId('studio-chat-feed');
+  // The first run's feed reads hang until the next message, so the run it ends with was never drained in the tab.
+  const held = [];
+  let holding = true;
+  await page.route(/\/runs\/[^/]+\/events/, (route) => (holding ? held.push(route) : route.continue()));
+  const first = (await send(page, 'Make a lighthouse.', 201)).run;
+  const fixture = worker(first.id);
+  const error = { code: 'MODEL_ERROR', message: 'The model could not answer. Try again in a minute.' };
+  await fixture.write([
+    fixture.emit('run_started'),
+    fixture.emit('step_started', { stepIndex: 0, kind: 'llm' }),
+    fixture.status('failed', { error, steps: 1 }),
+    fixture.emit('failed', error),
+  ]);
+  await expect.poll(() => held.length).toBeGreaterThan(0);
+  holding = false;
+  await send(page, 'Try a calmer lighthouse.', 201);
+  for (const route of held) await route.abort().catch(() => {});
+  await expect(feed.getByRole('region', { name: 'Run failed' })).toHaveText(error.message);
+  await expectInOrder(feed, ['Make a lighthouse.', error.message, 'Try a calmer lighthouse.']);
+
+  // A message whose answer arrives after the artist opened another chat is queued on its own chat's run only.
+  await page.unroute(/\/runs\/[^/]+\/events/);
+  let release;
+  const answered = new Promise((resolve) => { release = resolve; });
+  await page.route(/\/runs$/, async (route) => {
+    if (route.request().method() !== 'POST') return route.continue();
+    await answered;
+    return route.continue();
+  });
+  const input = page.getByPlaceholder(/Talk through your/);
+  await expect(input).toBeEnabled();
+  await input.fill('Paint the lighthouse at dawn.');
+  const started = page.waitForResponse((response) => response.url().endsWith('/runs') && response.request().method() === 'POST');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await page.getByRole('button', { name: 'New chat' }).first().click();
+  await expect(feed.getByText('Make a lighthouse.', { exact: true })).toHaveCount(0);
+  release();
+  const response = await started;
+  expect(response.status()).toBe(202);
+  expect((await response.json()).run.conversationId).toBe(first.conversationId);
+  await page.waitForTimeout(1500);
+  await expect(feed.getByText('Paint the lighthouse at dawn.', { exact: true })).toHaveCount(0);
+  await expect(feed.getByTestId('agent-run')).toHaveCount(0);
+});

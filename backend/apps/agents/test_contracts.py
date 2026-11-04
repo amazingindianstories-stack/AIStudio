@@ -1,5 +1,3 @@
-from copy import deepcopy
-import json
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
@@ -7,49 +5,12 @@ from django.db import connections
 from django.test import SimpleTestCase, TransactionTestCase, override_settings
 from apps.admin_dashboard.tests import SettingsTests
 from apps.authentication.models import User
-from apps.integrations.transport import HttpResult
 from .images import parse_message_body
-from .llm import GeminiAgentClient
 from .models import AgentConversation, AgentConversationMessage
 from . import services
 
 
-class SequenceTransport:
-    def __init__(self, responses):
-        self.responses, self.calls = responses, []
-    def request(self, *args, **kwargs):
-        self.calls.append((args, deepcopy(kwargs)))
-        response = self.responses[min(len(self.calls) - 1, len(self.responses) - 1)]
-        return response if isinstance(response, HttpResult) else HttpResult(200, json.dumps(response).encode())
-
-
-def result(parts, **extra):
-    return {'candidates': [{'content': {'parts': parts}}], **extra}
-
-
-class AgentClientTests(SimpleTestCase):
-    def llm_client(self, responses):
-        transport = SequenceTransport(responses)
-        return GeminiAgentClient(transport, env={'GOOGLE_API_KEY': 'fixture-key'}), transport
-
-    def test_text_roles_provider_headers_usage_and_failures(self):
-        client, transport = self.llm_client([result([{'text': 'Sure.'}], usageMetadata={'promptTokenCount': 12, 'candidatesTokenCount': 5})])
-        messages = [{'role': 'system', 'content': 'ignore'}, {'role': 'user', 'content': 'Earlier'}, {'role': 'assistant', 'content': 'Answer'}]
-        self.assertEqual(client.text(system_prompt='S', messages=messages), {'text': 'Sure.', 'usage': {'tokensIn': 12, 'tokensOut': 5}})
-        args, options = transport.calls[0]
-        self.assertIn('gemini-flash-latest:generateContent', args[1])
-        self.assertEqual(options['headers']['x-goog-api-key'], 'fixture-key')
-        self.assertEqual(options['body'], {'systemInstruction': {'parts': [{'text': 'S'}]},
-            'contents': [{'role': 'user', 'parts': [{'text': 'Earlier'}]}, {'role': 'model', 'parts': [{'text': 'Answer'}]}]})
-        empty, _ = self.llm_client([{'candidates': [{'finishReason': 'SAFETY'}]}])
-        with self.assertRaisesMessage(ValueError, 'SAFETY'):
-            empty.text(system_prompt='S', messages=messages)
-        failed, _ = self.llm_client([HttpResult(429, b'quota')])
-        with self.assertRaisesMessage(ValueError, 'Agent LLM error (429): quota'):
-            failed.raw(system_prompt='S', contents=[])
-        with self.assertRaisesMessage(ValueError, 'GOOGLE_API_KEY is not set.'):
-            GeminiAgentClient(env={}, mock=False).raw(system_prompt='', contents=[])
-
+class MessageBodyTests(SimpleTestCase):
     def test_message_validation_utf16_and_image_count(self):
         self.assertEqual(parse_message_body({}), {'error': 'content is required.'})
         self.assertIn('too long', parse_message_body({'content': '😀' * 4001})['error'])

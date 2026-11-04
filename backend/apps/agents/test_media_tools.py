@@ -152,11 +152,18 @@ class MediaToolTests(StorageMixin, McpCase):
         self.assertEqual(sent, [('POST', FLASH, HEADERS, media_body([part]), None)])
         self.assertEqual(AgentLlmUsage.objects.get().purpose, 'media')
 
+    def test_a_teammates_generation_is_read_under_the_shared_library_rule(self):
+        theirs = self.generation('image', png_bytes(8, 8), 'image/png', 'png', user=self.admin)
+        done, sent = self.call('view_media', {'assetId': theirs}, [answer("A teammate's fox.")])
+        self.assertEqual((self.ok(done)['assetId'], self.ok(done)['text'], len(sent)), (theirs, media.untrusted("A teammate's fox."), 1))
+        done, sent = self.call('read_document', {'assetId': theirs})
+        self.assertEqual((done.error.code, sent), (errors.INVALID_INPUT, []))
+        self.assertIn('read it with view_media', done.error.message)
+
     def test_refusals(self):
         image = png_bytes(8, 8)
-        theirs = self.generation('image', image, 'image/png', 'png', user=self.admin)
         unknown = str(uuid.uuid4())
-        for name, identifier in (('view_media', theirs), ('view_media', unknown), ('read_document', theirs)):
+        for name, identifier in (('view_media', unknown), ('read_document', unknown)):
             with self.subTest(name=name, identifier=identifier):
                 done, sent = self.call(name, {'assetId': identifier})
                 self.assertEqual((done.error.code, done.error.message, sent), (errors.NOT_FOUND, media.not_found(identifier).message, []))

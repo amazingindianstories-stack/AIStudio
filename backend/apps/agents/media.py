@@ -7,8 +7,9 @@
     finally:
         release()
 
-Only the user's own assets resolve: another user's, a deleted or unfinished one and an unknown id are the same
-NOT_FOUND. Images, video, audio and PDFs go inline up to ``INLINE_BYTES`` (``INLINE_TOTAL`` per call, so the base64
+An upload resolves for the user who made it; a generation under the shared library read rule
+(``apps.generation.services.reads``), so a teammate's succeeded generation does too. Another user's upload, a deleted,
+unfinished or protected file and an unknown id are the same NOT_FOUND. Images, video, audio and PDFs go inline up to ``INLINE_BYTES`` (``INLINE_TOTAL`` per call, so the base64
 body stays under ``loop_llm.MAX_BODY_BYTES``), else through the Files API, and ``release`` deletes those files
 whatever happened. Plain text, markdown and docx become text parts. Every text from a file is ``untrusted``: a fixed
 delimiter block, cut to a character budget. Size and duration caps are admin limit keys read at call time.
@@ -94,7 +95,7 @@ class Deadline:
 
 @dataclass(frozen=True)
 class Asset:
-    """A ready library file the user owns, with its bytes."""
+    """A ready library file the user may read, with its bytes."""
     id: str
     kind: str                           # 'image', 'video', 'audio' or 'document'
     mime: str
@@ -102,7 +103,7 @@ class Asset:
 
 
 def not_found(asset_id):
-    return errors.ToolError(errors.NOT_FOUND, f'No file {asset_id} of yours is in the library. Use an id the artist attached '
+    return errors.ToolError(errors.NOT_FOUND, f'No file {asset_id} is in the library. Use an id the artist attached '
                                               'or a tool returned.')
 
 
@@ -155,7 +156,8 @@ def _read(storage, key, max_bytes, asset_id):
 
 
 def load(user_id, asset_id, *, storage=None):
-    """The user's ready upload or finished image, video or audio generation ``asset_id``, within the attachment caps."""
+    """The user's ready upload, or any finished image, video or audio generation of the shared library, ``asset_id``,
+    within the user's attachment caps."""
     try:
         identifier = uuid.UUID(str(asset_id))
     except ValueError:
@@ -165,7 +167,7 @@ def load(user_id, asset_id, *, storage=None):
     if upload:
         key, declared = upload['key'], upload['content_type']
     else:
-        row = (Generation.objects.filter(id=identifier, user_id=user_id, status='succeeded', kind__in=('image', 'video', 'audio'))
+        row = (Generation.objects.filter(id=identifier, status='succeeded', kind__in=('image', 'video', 'audio'))
                .values('url').first())
         key = media_key_from_ref(row['url'], getattr(settings, 'GCP_MEDIA_CDN_URL', '')) if row else None
         if not key or is_protected_key(key):

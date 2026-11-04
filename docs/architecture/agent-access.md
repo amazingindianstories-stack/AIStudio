@@ -120,8 +120,9 @@ queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed
   on jobs or paused at a limit, and a run does not complete while a delivered message is newer than the model's last
   turn.
 - **Attachments.** A run message may carry `attachments` (up to 10 document upload ids, each the caller's ready
-  document upload) and `images` (stored reference image URLs that resolve to the caller's ready upload or finished image
-  generation; a data URL is refused, so the composer uploads it first). Each file is loaded once to validate it, recorded
+  document upload) and `images` (stored reference image URLs that resolve to the caller's ready upload or to any
+  finished image generation of the shared library, a teammate's included, as `view_media` reads it; a data URL is
+  refused, so the composer uploads it first, and so is a protected key). Each file is loaded once to validate it, recorded
   in `agent_chat_assets` with the run, and stored as `{id, kind, name}` on the chat message or inbox row (`attachments`
   in the message and inbox JSON). Nothing is read for the model at send time: its turn gets one note naming each file
   by kind, id and quoted filename, and it opens them with `read_document` or `view_media`.
@@ -147,6 +148,8 @@ queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed
 - **Cancel.** A stop request sets `cancel_requested_at`; the run ends `cancelled` at its next step boundary, and jobs
   already queued finish normally. "Stop and cancel jobs" (`cancel_jobs`) also cancels every active linked job through
   `generation/services/cancellation.cancel_generation` (deferred, so the generation worker sends any provider cancel).
+  Deleting a conversation deletes its runs with it (the database cascade), so a run still active stops counting and is
+  not advanced again; jobs it already queued finish into the library.
 - **Events.** `agent_run_events` carries a gapless, strictly increasing per-run `seq`, allocated under the run row lock:
   `run_queued`, `run_started`, `resumed`, `step_started`, `tool_called`, `job_queued`, `job_finished`, `waiting_jobs`,
   `quote_required`, `quote_approved`, `quote_declined`, `message_queued`, `message_delivered`, `assistant_text`,
@@ -163,9 +166,8 @@ queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed
 
 Every agent-conversation route (conversations, messages, transcription and runs) needs a session for which
 `limits.agents_enabled` is true, else `403 AGENTS_DISABLED` (`403 FORBIDDEN` without a session); `GET /api/auth/me`
-returns the same boolean as `user.agentsEnabled`, which opens the Agents tab in the top bar. An admin lists and opens
-every conversation of a project, anyone else only their own; the run routes need the conversation's owner, and
-another user's conversation or run is 404. The gateway
+returns the same boolean as `user.agentsEnabled`, which opens the Agents tab in the top bar. Everyone, admins
+included, lists and opens only their own conversations; another user's conversation or run is 404. The gateway
 opens starting a run and approving a quote only with its paid routes on (`paid_initial_routes`); the events feed,
 decline and cancel are always open.
 
@@ -199,7 +201,9 @@ draft and staged files and shows the API's message (`AGENTS_DISABLED`, `AGENT_GR
   saved in `sessionStorage` (`veevee.agentRun.<run id>`: the gapless events, cursor and queued rows, written after every
   poll in try/catch), so a reload polls from the last seq with nothing duplicated; a missing or damaged save reads from
   0. Every run that ended is read once from its feed (`drainFeed`, at most 20 pages) and never polled; the tab keeps
-  ended feeds in memory, so switching back to a chat reads nothing again.
+  ended feeds in memory, so switching back to a chat reads nothing again. A send follows the run it started (or shows
+  the message it queued) only while its chat is still open, and a run it replaces before that run's feed was drained
+  is drained once and stays in the thread.
 - **Quote card.** Shows the tool, the cost (`display`, else dollars from `costCents`), the summary, the prompt and the
   scalar arguments, with Approve and Decline. Approving is always a click; at 100 cents or more it first asks for
   "Confirm $X" and only then sends `{stepIndex}` (the API needs no confirm field; the worker adds `confirmedByUser`).
@@ -213,7 +217,8 @@ draft and staged files and shows the API's message (`AGENTS_DISABLED`, `AGENT_GR
   the tab against Django with no agent worker: the composer starts a real run and the spec writes the worker's events
   and run status through `fixture-db.mjs` (feed rendering, delivered message, reload from the last seq, quote approve
   with the second confirmation and decline including a 409, the pause card, Stop and cancel jobs, a failed run, a succeeded job's media card read by id, and the activity of a completed run and an earlier failed run in order
-  after a reload, each feed read once).
+  after a reload, each feed read once, a run replaced before its feed was read, and a send answered after a chat
+  switch).
 
 The worker is its own Railway component, `python -m deploy.entrypoint agent`, which runs
 `agent_worker --interval 1 --concurrency N` (`VEEVEE_AGENT_WORKER_SLOTS`, 1 to 8, default 4). It uses the API's

@@ -10,7 +10,7 @@ from apps.generation.models import Generation
 from apps.generation.watermark import WHITESPACE
 from apps.library.views import body_or_empty
 from apps.mcp import errors
-from apps.media.keys import is_protected_key, media_key_from_ref
+from apps.media.keys import media_key_from_ref
 from apps.media.models import UploadSession
 from . import limits, media, runner, runs, services
 from .events import PAGE_SIZE
@@ -41,9 +41,7 @@ def agent_user(request):
 
 
 def visible(user, conversation_id):
-    """The conversation's JSON when ``user`` may see it: an admin sees every conversation, anyone else only their own."""
-    if user.role == 'admin':
-        return services.get_conversation(conversation_id)
+    """The conversation's JSON when ``user`` owns it; admins included, nobody sees another user's conversation."""
     row = runs.owned_conversation(conversation_id, user)
     return services.conversation_json(row) if row is not None else None
 
@@ -64,14 +62,13 @@ def conversations(request):
     user, refused = agent_user(request)
     if refused is not None:
         return refused
-    owner = None if user.role == 'admin' else user.id
     if request.method == 'GET':
         project, kind = first(request, 'projectId'), first(request, 'agentKind')
         if not project:
             return Response({'error': 'projectId required.'}, status=400)
         if kind not in ('image', 'video'):
             return Response({'error': "agentKind must be 'image' or 'video'."}, status=400)
-        return renew_session(request, Response({'conversations': services.list_conversations(project, kind, owner=owner)}))
+        return renew_session(request, Response({'conversations': services.list_conversations(project, kind, owner=user.id)}))
     body = body_or_empty(request)
     operation = body.get('op')
     if operation == 'createConversation':
@@ -83,7 +80,7 @@ def conversations(request):
         if not name:
             return Response({'error': 'Name required.'}, status=400)
         conversation = services.create_conversation(project, kind, name, user.id)
-        return renew_session(request, Response({'conversations': services.list_conversations(project, kind, owner=owner), 'conversation': conversation}))
+        return renew_session(request, Response({'conversations': services.list_conversations(project, kind, owner=user.id), 'conversation': conversation}))
     if operation in ('renameConversation', 'deleteConversation'):
         if not body.get('id'):
             return Response({'error': 'id required.'}, status=400)
@@ -94,7 +91,7 @@ def conversations(request):
             services.rename_conversation(body['id'], name_value(body.get('name')))
         else:
             services.delete_conversation(body['id'])
-        return renew_session(request, Response({'conversations': services.list_conversations(existing['projectId'], existing['agentKind'], owner=owner)}))
+        return renew_session(request, Response({'conversations': services.list_conversations(existing['projectId'], existing['agentKind'], owner=user.id)}))
     return Response({'error': 'Unknown op.'}, status=400)
 
 
@@ -239,21 +236,22 @@ def transcribe(request, id):
 
 
 def reference_asset(user_id, ref):
-    """The user's stored reference image ``ref`` (a ready upload or a finished image generation, by its media URL) as
-    a ``media.Asset``. A data URL is refused: a run keeps ids, not bytes, so the composer uploads it first."""
+    """The stored reference image ``ref`` (by its media URL) as a ``media.Asset``: the user's ready upload, or any
+    finished image generation the shared library holds, as ``media.load`` reads them. A data URL is refused: a run keeps
+    ids, not bytes, so the composer uploads it first."""
     if ref.startswith('data:'):
         raise media.invalid('Upload reference images before you send them to the agent.')
     cdn = getattr(settings, 'GCP_MEDIA_CDN_URL', '')
     key = media_key_from_ref(ref, cdn)
-    if not key or is_protected_key(key):
+    if not key:
         raise media.invalid('Use stored reference images.')
     identifier = (UploadSession.objects.filter(key=key, actor_id=user_id, state='ready', finalized_at__isnull=False)
                   .values_list('id', flat=True).first())
     if identifier is None:
-        rows = Generation.objects.filter(user_id=user_id, status='succeeded', kind='image', url__endswith=key).values_list('id', 'url')
+        rows = Generation.objects.filter(status='succeeded', kind='image', url__endswith=key).values_list('id', 'url')
         identifier = next((generation for generation, url in rows if media_key_from_ref(url, cdn) == key), None)
     if identifier is None:
-        raise errors.ToolError(errors.NOT_FOUND, 'A reference image is not in your library. Remove it and attach it again.')
+        raise errors.ToolError(errors.NOT_FOUND, 'A reference image is not in the library. Remove it and attach it again.')
     asset = media.load(user_id, identifier)
     if asset.kind != 'image':
         raise media.invalid(f'Reference {asset.id} is {asset.mime}; attach it as a file instead.')

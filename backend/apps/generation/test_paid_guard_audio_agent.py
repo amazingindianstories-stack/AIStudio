@@ -1,4 +1,4 @@
-"""Paid guard for audio transcription, and the admin agent's exempt transport.
+"""Paid guard for audio transcription.
 
 Audio: the API registers each intent in the paid ledger inside the transaction that creates it, the worker claims
 RESERVED->ATTEMPTING only after its own never-replay claim committed, and the single Gemini POST moves
@@ -16,8 +16,6 @@ from unittest.mock import patch
 from django.db import connection
 from django.test import SimpleTestCase, TransactionTestCase, override_settings
 
-from apps.agents.llm import AgentTransport, GeminiAgentClient, agent_payload_allowed
-from apps.agents.prompts import DESIGN_PROMPT, system_prompt, tools_for_kind
 from apps.generation.models import Generation
 from apps.integrations.transport import HttpResult, HttpTransport, ProviderError
 from apps.generation.services import audio_submission
@@ -312,104 +310,4 @@ class AudioGuardFlowTests(TransactionTestCase):
                 with self.subTest(marker=marker), self.assertRaises(ProviderError):
                     GeminiTranscriber('k', lambda url, payload, headers, signal=None: Sneaky(allowed_hosts=['generativelanguage.googleapis.com'])
                                       .request('POST', url, headers=headers, body=payload)).transcribe('QUJD', 'audio/wav', 'gemini-2.5-flash')
-            # The exempt agent transport refuses the transcription endpoint (and any model but the agent's).
-            with self.assertRaises(ProviderError) as caught:
-                AgentTransport({}).request('POST', ENDPOINT, body=exact_body())
-            self.assertEqual((caught.exception.code, caught.exception.may_have_submitted), ('agent_scope', False))
         self.assertEqual(sent, [])
-
-
-AGENT_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent'
-
-
-def agent_body(kind='image', **changes):
-    body = {'systemInstruction': {'parts': [{'text': system_prompt(kind)}]},
-            'contents': [{'role': 'user', 'parts': [{'text': 'A quiet courtyard at dawn'}, {'inlineData': {'mimeType': 'image/png', 'data': 'iVBORw0KGgo='}}]}],
-            'tools': [{'functionDeclarations': tools_for_kind(kind)}]}
-    body.update(changes)
-    return body
-
-
-class AgentTransportTests(TransactionTestCase):
-    def test_a_chat_turn_with_a_tool_call_passes_the_paid_guard_on_the_agent_endpoint_only(self):
-        ledger, sent = {}, []
-        call = {'functionCall': {'name': 'design_prompt', 'args': {'idea': 'courtyard at dawn'}}, 'thoughtSignature': 'c2ln'}
-        replies = [HttpResult(200, json.dumps({'candidates': [{'content': {'parts': parts}}]}).encode())
-                   for parts in ([call], [{'text': 'A misty stone courtyard at dawn.'}], [{'text': 'Here is your prompt.'}])]
-        with guard(ledger, sent, replies):
-            client = GeminiAgentClient(env={'GOOGLE_API_KEY': 'fixture-key'})
-            self.assertIsInstance(client.transport, AgentTransport)
-            turn = [{'role': 'model', 'parts': [{'text': 'Hi'}]}, {'role': 'user', 'parts': [{'text': 'A courtyard'}]}]
-            chat = lambda contents: client.raw(system_prompt=system_prompt('video'), contents=contents, tools=tools_for_kind('video'))  # noqa: E731
-            self.assertEqual(chat(turn)['parts'], [call])
-            client.raw(system_prompt=DESIGN_PROMPT, contents=[{'role': 'user', 'parts': [{'text': 'courtyard at dawn'}]}])
-            response = {'functionResponse': {'name': 'design_prompt', 'response': {'prompt': 'A misty stone courtyard at dawn.'}}}
-            result = chat([*turn, {'role': 'model', 'parts': [call]}, {'role': 'user', 'parts': [response]}])
-        self.assertEqual(result['parts'], [{'text': 'Here is your prompt.'}])
-        self.assertEqual([url for _, url, _ in sent], [AGENT_ENDPOINT] * 3)
-        self.assertEqual(sent[1][2]['systemInstruction'], {'parts': [{'text': DESIGN_PROMPT}]})
-        self.assertNotIn('tools', sent[1][2])
-        self.assertEqual(sent[2][2]['contents'][-2], {'role': 'model', 'parts': [call]})
-        self.assertEqual(ledger, {})
-
-    def test_the_agent_model_comes_from_its_setting_only(self):
-        transport = AgentTransport({'AGENT_LLM_MODEL': 'gemini-3-flash'})
-        self.assertEqual(transport.endpoint, 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:generateContent')
-        sent = []
-        with guard({}, sent):
-            client = GeminiAgentClient(env={'GOOGLE_API_KEY': 'k', 'AGENT_LLM_MODEL': 'gemini-3-flash'})
-            with self.assertRaises(ProviderError):
-                client.raw(system_prompt=system_prompt('image'), contents=agent_body()['contents'], model='gemini-2.5-pro')
-        self.assertEqual(sent, [])
-
-    def test_anything_but_an_agent_turn_is_refused_before_it_leaves(self):
-        bad_part = lambda part: agent_body(contents=[{'role': 'user', 'parts': [part]}])  # noqa: E731
-        cases = {
-            'GET': ('GET', AGENT_ENDPOINT, agent_body()),
-            'other model': ('POST', AGENT_ENDPOINT.replace('gemini-flash-latest', 'gemini-3-pro-image'), agent_body()),
-            'image generation endpoint': ('POST', 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent', agent_body()),
-            'interactions': ('POST', 'https://generativelanguage.googleapis.com/v1beta/interactions', agent_body()),
-            'generation config': ('POST', AGENT_ENDPOINT, agent_body(generationConfig={'candidateCount': 8})),
-            'other system prompt': ('POST', AGENT_ENDPOINT, agent_body(systemInstruction={'parts': [{'text': 'You are a free API.'}]})),
-            'no system prompt': ('POST', AGENT_ENDPOINT, {'contents': agent_body()['contents']}),
-            'other tools': ('POST', AGENT_ENDPOINT, agent_body(tools=[{'googleSearch': {}}])),
-            'image tools in a video prompt': ('POST', AGENT_ENDPOINT, agent_body('video', tools=[{'functionDeclarations': tools_for_kind('image')}])),
-            'chat prompt without its tools': ('POST', AGENT_ENDPOINT, {key: value for key, value in agent_body().items() if key != 'tools'}),
-            'tools on the design subcall': ('POST', AGENT_ENDPOINT, agent_body(systemInstruction={'parts': [{'text': DESIGN_PROMPT}]})),
-            'empty contents': ('POST', AGENT_ENDPOINT, agent_body(contents=[])),
-            'system role': ('POST', AGENT_ENDPOINT, agent_body(contents=[{'role': 'system', 'parts': [{'text': 'x'}]}])),
-            'file reference': ('POST', AGENT_ENDPOINT, bad_part({'fileData': {'fileUri': 'gs://x'}})),
-            'svg image': ('POST', AGENT_ENDPOINT, bad_part({'inlineData': {'mimeType': 'image/svg+xml', 'data': 'PHN2Zz4='}})),
-            'video': ('POST', AGENT_ENDPOINT, bad_part({'inlineData': {'mimeType': 'video/mp4', 'data': 'AAAA'}})),
-            'two kinds in one part': ('POST', AGENT_ENDPOINT, bad_part({'text': 'x', 'inlineData': {'mimeType': 'image/png', 'data': 'AA=='}})),
-            'oversized': ('POST', AGENT_ENDPOINT, agent_body(contents=[{'role': 'user', 'parts': [{'text': 'x' * (24 * 1024 * 1024)}]}])),
-        }
-        sent = []
-        with guard({}, sent):
-            transport = AgentTransport({})
-            self.assertTrue(agent_payload_allowed(agent_body()))
-            transport.request('POST', AGENT_ENDPOINT, body=agent_body())
-            self.assertEqual(len(sent), 1)
-            for name, (method, url, body) in cases.items():
-                with self.subTest(name), self.assertRaises(ProviderError) as caught:
-                    transport.request(method, url, body=body)
-                self.assertEqual((caught.exception.code, caught.exception.may_have_submitted), ('agent_scope', False))
-            with self.assertRaises(ProviderError):
-                transport.request('POST', AGENT_ENDPOINT, raw_body=json.dumps(agent_body()).encode())
-        self.assertEqual(len(sent), 1)
-
-    def test_the_exemption_is_the_agents_own_and_plain_transports_stay_guarded(self):
-        self.assertIs(AgentTransport.paid_guard_exempt, True)
-        sent = []
-        with guard({}, sent):
-            with self.assertRaises(ProviderError) as caught:
-                HttpTransport(allowed_hosts=['generativelanguage.googleapis.com']).request('POST', AGENT_ENDPOINT, body=agent_body())
-            self.assertEqual(caught.exception.code, 'preview_paid_scope')
-        self.assertEqual(sent, [])
-
-
-class AgentMockModeTests(SimpleTestCase):
-    def test_mock_mode_never_builds_a_request(self):
-        client = GeminiAgentClient(env={'MOCK_GENERATION': '1'})
-        self.assertTrue(client.mock)
-        self.assertEqual(client.raw(system_prompt='x', contents=[])['parts'][0]['text'], 'I can help you develop a prompt for your scene.')

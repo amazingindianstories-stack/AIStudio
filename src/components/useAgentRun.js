@@ -181,22 +181,44 @@ export function useAgentRun(conversationId, { onSettled } = {}) {
     };
   }, [conversationId, commit]);
 
-  /** Follows `run` from now on; the run this replaces stays in `earlier` when its activity was read. */
+  /** Keeps a run that `adopt` replaced in `earlier`: one it had not drained yet is drained once, then settles. */
+  const keep = useCallback(async (previous) => {
+    const token = tokenRef.current;
+    const put = (kept) => {
+      if (token !== tokenRef.current || !Object.keys(kept.events).length) return;
+      setEarlier((list) => (list.some((item) => item.run.id === kept.run.id)
+        ? list.map((item) => (item.run.id === kept.run.id ? kept : item)) : [...list, kept]));
+    };
+    put(previous);
+    if (isSettled(previous)) return;
+    const conversation = conversationRef.current;
+    const drained = await drainFeed(previous, (after) => fetchEvents(conversation, previous.run.id, after)).catch(() => previous);
+    if (token !== tokenRef.current) return;
+    put(drained);
+    if (!isSettled(drained)) return;
+    forgetRunState(drained.run.id);
+    remember(drained);
+    await onSettledRef.current?.(drained);
+  }, []);
+
+  /** Follows `run` from now on when it belongs to the open conversation; the run this replaces stays in `earlier`. */
   const adopt = useCallback((run, { fresh = false } = {}) => {
+    if (run.conversationId !== conversationRef.current) return;
     const previous = stateRef.current;
     if (previous?.run?.id === run.id) {
       commit(withRun(previous, run));
     } else {
-      if (previous && isSettled(previous) && Object.keys(previous.events).length) setEarlier((list) => [...list, previous]);
+      if (previous) keep(previous);
       commit(fresh ? runState(run) : restoreRunState(run));
       failuresRef.current = 0;
       setPollError(null);
     }
     poll();
-  }, [commit, poll]);
+  }, [commit, keep, poll]);
 
   /** Shows a message the run's inbox accepted (a 202) until the run reads it. */
   const queue = useCallback((inbox, run) => {
+    if (run.conversationId !== conversationRef.current) return;
     if (stateRef.current?.run?.id !== run.id) adopt(run);
     commit((current) => addQueuedMessage(current, inbox, run));
     poll();

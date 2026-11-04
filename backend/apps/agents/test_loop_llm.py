@@ -14,7 +14,6 @@ from apps.mcp_auth.principal import McpCaps, McpPrincipal
 from . import design, loop_llm
 from .declarations import HARNESS_FIELDS, KEYWORDS, function_declarations, gemini_schema, harness_arguments
 from .grants import AGENT_SCOPES
-from .llm import AgentTransport, agent_payload_allowed
 from .loop_llm import (ADVANCED_LOOP_MODEL, FILES_UPLOAD, GENERATION_CONFIG, LOOP_MODEL, MEDIA_CONFIG, MEDIA_PROMPT, SYSTEM_PROMPT,
                        TRANSCRIBE_CONFIG, TRANSCRIBE_PROMPT, AgentLoopTransport, GeminiFilesTransport, UsageContext, cost_microcents,
                        loop_body, loop_payload_allowed, media_body, media_payload_allowed, transcribe_body, usage_counts)
@@ -275,11 +274,6 @@ class LoopTransportTests(TestCase):
             with self.assertRaises(ProviderError):
                 transport.request('POST', FLASH, raw_body=json.dumps(self.body()).encode())
         self.assertEqual((sent, AgentLlmUsage.objects.count()), ([], 0))
-        # Neither Gemini transport carries the other's requests.
-        self.assertFalse(agent_payload_allowed(self.body()))
-        self.assertEqual(SYSTEM_PROMPT, self.body()['systemInstruction']['parts'][0]['text'])
-        with guard({}, sent), self.assertRaises(ProviderError):
-            AgentTransport({'AGENT_LLM_MODEL': LOOP_MODEL}).request('POST', FLASH, body=self.body())
 
 
 IMAGE = {'inlineData': {'mimeType': 'image/png', 'data': 'iVBORw0KGgo='}}
