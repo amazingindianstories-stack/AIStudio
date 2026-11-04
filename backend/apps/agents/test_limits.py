@@ -141,6 +141,7 @@ class StepTests(LimitsCase):
         self.setting('agentMaxStepsPerRun', 5)
         run.step_count = 5
         self.assertEqual(limits.check_step(run, now=NOW).kind, 'steps')
+        self.assertIsNone(limits.check_step(run, count_step=False, now=NOW), 'a replayed step is not counted again')
         run.step_count = 4
         self.setting('agentMaxRunCostCents', 100)
         run.cost_cents = 60
@@ -150,7 +151,8 @@ class StepTests(LimitsCase):
         self.assertEqual((hit.kind, hit.resume_after_ms, hit.scope), ('run_cost', None, 'user'))
         self.setting('agentMaxRunCostCents', 100000)
         self.setting('agentsEnabled', 0)
-        self.assertEqual(limits.check_step(run, now=NOW).kind, 'disabled')
+        hit = limits.check_step(run, now=NOW)
+        self.assertEqual((hit.kind, hit.resume_after_ms), ('disabled', NOW + limits.SWITCH_RETRY_MS), 'retried until switched back on')
 
     def test_daily_caps_report_when_the_window_frees_capacity(self):
         self.override(self.user, 'agentsEnabled', 1)
@@ -168,6 +170,14 @@ class StepTests(LimitsCase):
         self.setting('agentGlobalDailyCapCents', 1000)
         hit = limits.check_step(run, cost_cents=100, now=NOW)
         self.assertEqual((hit.kind, hit.scope, hit.resume_after_ms), ('global_daily_cap', 'global', NOW - 20 * HOUR + 24 * HOUR))
+
+    def test_a_cap_the_step_fits_always_has_a_resume_time_even_when_token_spend_rounds_up(self):
+        self.override(self.user, 'agentsEnabled', 1)
+        self.override(self.user, 'mcpDailyCapCents', 1)
+        run = self.run_for(self.user)
+        self.usage(self.user, 1_500_000, created_at=NOW - 2 * HOUR)        # 1.5 cents counts as 2: the 2 to shed is more than the row
+        hit = limits.check_step(run, cost_cents=1, now=NOW)
+        self.assertEqual((hit.kind, hit.resume_after_ms), ('daily_cap', NOW - 2 * HOUR + 24 * HOUR), 'free once the row ages out')
 
     def test_the_agents_tab_grant_cap_pauses_before_the_user_cap(self):
         self.override(self.user, 'agentsEnabled', 1)
@@ -206,6 +216,22 @@ class StepTests(LimitsCase):
         self.assertEqual(limits.apply_limit_hit(run, capped, now=NOW + 2), 'failed', 'a finished run is left alone')
         self.assertEqual(AgentRun.objects.get(pk=run.pk).error['code'], 'limit')
 
+    def test_a_waiting_limit_always_pauses_and_never_fails_the_run(self):
+        run = self.run_for(self.user)
+        limits.apply_limit_hit(run, limits.LimitHit('daily_cap', 'Over.', NOW + HOUR), now=NOW)
+        self.assertEqual(limits.apply_limit_hit(run, limits.LimitHit('daily_cap', 'Still over.', NOW + 2 * HOUR), now=NOW + 1), 'paused_limit')
+        saved = AgentRun.objects.get(pk=run.pk)
+        self.assertEqual((saved.pause_reason, saved.resume_after, saved.error['message'], saved.error['hits']),
+                         ('daily_cap', NOW + 2 * HOUR, 'Still over.', []))
+        AgentRun.objects.filter(pk=run.pk).update(status='running')
+        self.assertEqual(limits.apply_limit_hit(run, limits.LimitHit('disabled', 'Off.', NOW + HOUR), now=NOW + 1), 'paused_limit')
+        AgentRun.objects.filter(pk=run.pk).update(status='running')
+        self.assertEqual(limits.apply_limit_hit(run, limits.LimitHit('disabled', 'Off again.', NOW + HOUR), now=NOW + 1), 'paused_limit',
+                         'a wait recurring after the run resumed still only pauses it')
+        steps = limits.LimitHit('steps', 'At the step limit.')
+        self.assertEqual(limits.apply_limit_hit(run, steps, now=NOW + 2), 'paused_limit')
+        self.assertEqual(limits.apply_limit_hit(run, steps, now=NOW + 3), 'failed', 'a per-run bound is not waited out')
+
     def test_resume_only_when_capacity_is_back(self):
         self.override(self.user, 'agentsEnabled', 1)
         self.setting('agentMaxStepsPerRun', 5)
@@ -243,6 +269,31 @@ class StepTests(LimitsCase):
         self.assertEqual(limits.resume_run(run.id, now=NOW + 2), (True, None))
 
 
+class BudgetTests(LimitsCase):
+    def test_check_budget_refuses_once_a_daily_cap_has_no_cent_left_counting_model_tokens(self):
+        grant = ensure_grant(self.user.id)
+        self.assertIsNone(limits.check_budget(self.user.id, grant.id, now=NOW))
+        self.usage(self.user, 2_000_000, created_at=NOW, grant=grant.id)
+        self.setting('agentGlobalDailyCapCents', 3)
+        self.assertIsNone(limits.check_budget(self.user.id, grant.id, now=NOW), 'two of three cents are spent')
+        self.setting('agentGlobalDailyCapCents', 2)
+        hit = limits.check_budget(self.user.id, grant.id, now=NOW)
+        self.assertEqual((hit.kind, hit.scope, hit.resume_after_ms), (limits.GLOBAL_DAILY_CAP, 'global', NOW + 24 * HOUR))
+        self.assertIsNone(limits.check_budget(self.user.id, grant.id, now=NOW + 24 * HOUR + 1), 'the window rolled')
+
+    def test_check_budget_reads_the_user_then_the_grant_cap_at_call_time(self):
+        grant = ensure_grant(self.user.id)
+        self.usage(self.user, 2_000_000, created_at=NOW, grant=grant.id)
+        AgentGrant.objects.filter(pk=grant.id).update(daily_cap_cents=2)
+        self.assertEqual(limits.check_budget(self.user.id, grant.id, now=NOW).kind, limits.GRANT_DAILY_CAP)
+        self.assertIsNone(limits.check_budget(self.user.id, None, now=NOW), 'no grant, no grant cap')
+        self.override(self.user, 'mcpDailyCapCents', 2)
+        self.assertEqual(limits.check_budget(self.user.id, grant.id, now=NOW).kind, limits.DAILY_CAP)
+        self.override(self.user, 'mcpDailyCapCents', 50)
+        AgentGrant.objects.filter(pk=grant.id).update(daily_cap_cents=50)
+        self.assertIsNone(limits.check_budget(self.user.id, grant.id, now=NOW))
+
+
 class AdmissionTests(LimitsCase):
     def test_admission_checks_switch_and_active_runs_and_leaves_global_concurrency_to_the_claim(self):
         with transaction.atomic():
@@ -260,7 +311,3 @@ class AdmissionTests(LimitsCase):
         self.run_for(self.admin)
         with transaction.atomic():
             self.assertIsNone(limits.check_run_admission(self.admin), 'a busy account still creates the run, queued')
-        hit = limits.check_global_concurrency()
-        self.assertEqual((hit.kind, hit.scope), ('global_concurrency', 'global'))
-        AgentRun.objects.filter(user_id=self.admin.id).update(status='completed')
-        self.assertIsNone(limits.check_global_concurrency())

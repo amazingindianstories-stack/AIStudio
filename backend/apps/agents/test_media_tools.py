@@ -11,6 +11,8 @@ from unittest.mock import patch
 from django.utils import timezone
 from jsonschema import Draft202012Validator
 
+from apps.admin_dashboard.models import AppSetting
+from apps.common.leases import now_ms
 from apps.generation.models import Generation
 from apps.integrations.transport import HttpResult
 from apps.mcp import errors, server
@@ -24,7 +26,7 @@ from . import media, services
 from .declarations import function_declarations, harness_arguments
 from .grants import agent_principal, ensure_grant
 from .loop_llm import FILES_UPLOAD, MEDIA_CONFIG, MEDIA_PROMPT, media_body
-from .models import AgentLlmUsage, AgentRun
+from .models import AgentGrant, AgentLlmUsage, AgentRun
 from .test_media import DOCX, FILE, PDF, docx, provider, started, uploaded
 
 PROTOCOL = '2025-11-25'
@@ -171,6 +173,29 @@ class MediaToolTests(StorageMixin, McpCase):
                           {'assetId': mine, 'quoteToken': 'q-1'}):
             self.assertEqual(self.call('view_media', arguments)[0].error.code, errors.INVALID_INPUT)
         self.assertFalse(AgentLlmUsage.objects.exists())
+
+    def spend(self):
+        AgentLlmUsage.objects.create(user_id=self.user.id, grant_id=self.principal.token_id, model='m', purpose='step', prompt_tokens=1,
+                                     cached_tokens=0, output_tokens=1, thoughts_tokens=0, tool_prompt_tokens=0, total_tokens=2,
+                                     cost_microcents=3_000_000, created_at=now_ms())
+
+    def test_a_spent_daily_budget_refuses_both_tools_before_any_gemini_call_and_records_no_usage(self):
+        made = self.generation('image', png_bytes(8, 8), 'image/png', 'png')
+        pdf_id = self.upload('application/pdf', PDF)
+        self.spend()
+        usage, original = AgentLlmUsage.objects.count(), AgentGrant.objects.get(pk=self.principal.token_id).daily_cap_cents
+        scenarios = (('global', lambda: AppSetting.objects.update_or_create(key='agentGlobalDailyCapCents', defaults={'value': '3', 'updated_at': 1})),
+                     ('grant', lambda: AgentGrant.objects.filter(pk=self.principal.token_id).update(daily_cap_cents=3)))
+        for label, arrange in scenarios:
+            arrange()
+            for name, identifier in (('view_media', made), ('read_document', pdf_id)):
+                with self.subTest(cap=label, tool=name):
+                    done, sent = self.call(name, {'assetId': identifier}, [answer('never')])
+                    self.assertEqual((done.error.code, sent), (errors.BUDGET_EXCEEDED, []))
+                    self.assertIn('limit', done.error.message)
+                    self.assertEqual(AgentLlmUsage.objects.count(), usage)
+            AppSetting.objects.filter(key='agentGlobalDailyCapCents').delete()
+            AgentGrant.objects.filter(pk=self.principal.token_id).update(daily_cap_cents=original)
 
     def test_instructions_in_a_file_stay_quoted_data_and_never_reach_harness_fields(self):
         document = self.upload('text/plain', INJECTION.encode())

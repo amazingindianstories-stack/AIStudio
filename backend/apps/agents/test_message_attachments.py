@@ -13,7 +13,9 @@ from unittest.mock import patch
 from django.test import TransactionTestCase
 from django.utils import timezone
 
+from apps.admin_dashboard.models import AppSetting, UserLimit
 from apps.authentication.session import sign_session
+from apps.common.leases import now_ms
 from apps.canvas.test_roles import make_user
 from apps.integrations.errors import ProviderError
 from apps.integrations.transport import HttpResult, HttpTransport
@@ -151,6 +153,33 @@ class MessageAttachmentTests(StorageMixin, TransactionTestCase):
         self.assertEqual((response.status_code, len(sent)), (502, 1))
         self.assertEqual(response.json(), {'error': f'Veevee could not read file {pdf} for the agent. Try again in a minute.'})
         self.assertNothingStored()
+
+    def test_a_spent_daily_budget_refuses_a_pdf_before_any_call_and_stores_nothing(self):
+        pdf = self.upload('application/pdf', PDF)
+        AppSetting.objects.create(key='agentGlobalDailyCapCents', value='1', updated_at=1)
+        AgentLlmUsage.objects.create(user_id=self.admin.id, model='m', purpose='step', prompt_tokens=1, cached_tokens=0, output_tokens=1,
+                                     thoughts_tokens=0, tool_prompt_tokens=0, total_tokens=2, cost_microcents=2_000_000, created_at=now_ms())
+        response, sent = self.post({'content': 'Read the brief', 'attachments': [pdf]}, [answer('never')])
+        self.assertEqual((response.status_code, sent), (429, []))
+        self.assertIn('daily limit', response.json()['error'])
+        self.assertEqual(AgentLlmUsage.objects.count(), 1)
+        self.assertNothingStored()
+
+    def test_agents_turned_off_globally_or_for_the_user_refuse_before_any_pdf_read_or_turn_and_store_nothing(self):
+        pdf = self.upload('application/pdf', PDF)
+        cases = ((lambda: AppSetting.objects.create(key='agentsEnabled', value='0', updated_at=1), AppSetting),
+                 (lambda: UserLimit.objects.create(user_id=self.admin.id, key='agentsEnabled', value='0', updated_at=1), UserLimit))
+        for switch_off, model in cases:
+            with self.subTest(switch=model.__name__):
+                switch_off()
+                response, sent = self.post({'content': 'Read the brief', 'attachments': [pdf]}, [answer('never'), answer('never')])
+                self.assertEqual((response.status_code, response.json(), sent),
+                                 (403, {'error': 'Agents are turned off.', 'code': 'AGENTS_DISABLED'}, []))
+                self.assertFalse(AgentLlmUsage.objects.exists())
+                self.assertNothingStored()
+                model.objects.filter(key='agentsEnabled').delete()
+        response, sent = self.post({'content': 'Read the brief', 'attachments': [pdf]}, [answer('A shot list.'), answer('Read it.')])
+        self.assertEqual((response.status_code, len(sent)), (200, 2))
 
     def test_another_users_and_unknown_ids_are_the_same_refusal_and_no_message_is_stored(self):
         mine, theirs, unknown = self.upload('text/plain', b'notes'), self.upload('text/plain', b'theirs', user=self.other), str(uuid.uuid4())

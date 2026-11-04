@@ -2,19 +2,23 @@
 
     enabled = agents_enabled(user)                        # the switch, with the global kill
     hit = check_run_admission(user)                       # API run creation, inside transaction.atomic()
-    hit = check_global_concurrency()                      # worker claim: leave the run queued while this is a hit
     hit = check_step(run, cost_cents=estimate)            # worker, before every LLM or paid tool step
-    if hit: status = apply_limit_hit(run, hit)            # pause once per kind, fail on the second refusal
+    if hit: status = apply_limit_hit(run, hit)            # pause; a second refusal of a per-run bound fails
+    hit = check_budget(user_id, grant_id)                 # a paid Gemini call outside a step: voice, PDF, view_media
     ok, hit = resume_run(run_id)                          # the Resume action, only when capacity is back
 
 Limit values follow the other admin limits: a per-user ``UserLimit`` row overrides the global ``AppSetting`` row, and
 both parse against ``admin_dashboard.views.LIMITS``. ``agentsEnabled`` resolves differently, see ``agents_enabled``.
-Global-only keys (``agentGlobalDailyCapCents``, ``agentMaxConcurrentRuns``) ignore per-user rows.
+Global-only keys (``agentGlobalDailyCapCents``, ``agentMaxConcurrentRuns``) ignore per-user rows. The worker's claim
+enforces ``agentMaxConcurrentRuns`` through its global slot leases (``apps.agents.worker.claim``).
 
-A limit is never retried into: the first refusal of a kind pauses the run (``paused_limit``), the second refusal of the
-same kind in the same run ends it ``failed`` with ``error = {'code': 'limit', 'kind': ...}``. Pauses are recorded in
-``agent_runs.error`` as ``{'code': 'limit_paused', 'kind', 'hits': [kinds], 'costCents', ...}``, where ``costCents`` is the
-refused step's estimate that Resume re-checks; no schema change is needed.
+A limit is never retried into. The switch and the daily caps (``WAIT_KINDS``) are waits, never refusals: each hit
+pauses the run (``paused_limit``) with a fresh ``resume_after``, however often it recurs, and never fails it. A run
+paused by the switch is retried every ``SWITCH_RETRY_MS``, so it resumes once an admin turns agents back on. A per-run
+bound (steps, run cost) is a refusal: the first pauses the run, the second of the same kind in the same run ends it
+``failed`` with ``error = {'code': 'limit', 'kind': ...}``. Pauses are recorded in ``agent_runs.error`` as
+``{'code': 'limit_paused', 'kind', 'hits': [refusal kinds], 'costCents', ...}``, where ``costCents`` is the refused
+step's estimate that Resume re-checks; no schema change is needed.
 """
 from dataclasses import dataclass
 from typing import Optional
@@ -33,17 +37,20 @@ ATTACH_KEYS = {'maxMb': 'agentAttachMaxMb', 'maxVideoSeconds': 'agentAttachMaxVi
 ATTACH_SWITCHES = ('images', 'documents', 'video', 'audio')
 MICROCENTS_PER_CENT = 1_000_000
 PAUSED = 'paused_limit'
+SWITCH_RETRY_MS = 60_000
 
 # LimitHit.kind values
 DISABLED, ACTIVE_RUNS, STEPS, RUN_COST = 'disabled', 'active_runs', 'steps', 'run_cost'
-DAILY_CAP, GRANT_DAILY_CAP, GLOBAL_DAILY_CAP, GLOBAL_CONCURRENCY = 'daily_cap', 'grant_daily_cap', 'global_daily_cap', 'global_concurrency'
+DAILY_CAP, GRANT_DAILY_CAP, GLOBAL_DAILY_CAP = 'daily_cap', 'grant_daily_cap', 'global_daily_cap'
+DAILY_CAPS = frozenset((DAILY_CAP, GRANT_DAILY_CAP, GLOBAL_DAILY_CAP))
+WAIT_KINDS = DAILY_CAPS | {DISABLED}   # lifted by time or an admin, not by the run
 
 
 @dataclass(frozen=True)
 class LimitHit:
     kind: str
     message: str
-    resume_after_ms: Optional[int] = None      # earliest epoch ms the trailing window frees capacity; None for a cap only an admin lifts
+    resume_after_ms: Optional[int] = None      # earliest epoch ms to try again; None for a cap only an admin or the artist lifts
     scope: str = 'user'                        # 'user' or 'global'
     cost_cents: int = 0                        # the refused step's estimated cost, which Resume checks again
 
@@ -136,8 +143,8 @@ def _dollars(cents):
 
 
 def _window_resume(excess_cents, *, user_id=None, grant_id=None, now):
-    """Earliest epoch ms at which the trailing window has shed ``excess_cents``, from the oldest counted rows; None when
-    it never will (the excess is more than everything in the window)."""
+    """Earliest epoch ms at which the trailing window has shed ``excess_cents``, from the oldest counted rows, and at the
+    latest once every row has aged out; None when the window holds no rows."""
     from apps.generation.models import Generation
     from apps.mcp_auth import controls, policy
     rows = Generation.objects.filter(created_via__in=policy.AGENT_ORIGINS, created_at__gt=now - policy.DAY_MS)
@@ -155,7 +162,7 @@ def _window_resume(excess_cents, *, user_id=None, grant_id=None, now):
         freed += cents
         if freed >= excess_cents:
             return created + policy.DAY_MS
-    return None
+    return max(created for created, _ in events) + policy.DAY_MS if events else None
 
 
 _CAP_NAMES = {DAILY_CAP: 'your daily agent limit', GRANT_DAILY_CAP: 'the Agents tab\'s own daily limit',
@@ -168,15 +175,6 @@ def _cap_hit(kind, scope, spent, upcoming, cap, *, user_id=None, grant_id=None, 
     resume = _window_resume(spent + upcoming - cap, user_id=user_id, grant_id=grant_id, now=now) if upcoming <= cap else None
     return LimitHit(kind, f'The next step would pass {_CAP_NAMES[kind]} of {_dollars(cap)} ({_dollars(spent)} used in the last 24 hours).',
                     resume, scope, upcoming)
-
-
-def check_global_concurrency():
-    """A hit when ``agentMaxConcurrentRuns`` runs are already running across everyone, else None."""
-    cap = global_limits()['agentMaxConcurrentRuns']
-    running = AgentRun.objects.filter(status='running').count()
-    if running >= cap:
-        return LimitHit(GLOBAL_CONCURRENCY, f'{running} agent runs are running (limit {cap}). Try again shortly.', None, 'global')
-    return None
 
 
 def check_run_admission(user):
@@ -198,19 +196,20 @@ def check_run_admission(user):
     return None
 
 
-def check_step(run, *, cost_cents=0, now=None):
+def check_step(run, *, cost_cents=0, count_step=True, now=None):
     """Evaluated before each LLM or paid tool step: None, or the first ``LimitHit`` that refuses it.
 
-    ``cost_cents`` is the step's estimated cost (0 for a free tool). Order: switch, steps, run cost, user daily cap,
-    the grant's own daily cap, global daily cap. Reads are unlocked; ``controls.admit_paid_submission`` is the atomic
-    check for paid jobs. The global daily cap is enforced here only, never in MCP admission.
+    ``cost_cents`` is the step's estimated cost (0 for a free tool). Order: switch, steps (skipped with ``count_step``
+    False, for a step already journaled that is replayed), run cost, user daily cap, the grant's own daily cap, global
+    daily cap. Reads are unlocked; ``controls.admit_paid_submission`` is the atomic check for paid jobs. The global daily
+    cap is enforced here only, never in MCP admission.
     """
     from apps.mcp_auth import controls, policy
     now = now_ms() if now is None else now
     if not agents_enabled(run.user_id):
-        return LimitHit(DISABLED, 'Agents were turned off by an admin.', None, 'user', cost_cents)
+        return LimitHit(DISABLED, 'Agents were turned off by an admin.', now + SWITCH_RETRY_MS, 'user', cost_cents)
     limits = run_limits(run.user_id)
-    if run.step_count >= limits['agentMaxStepsPerRun']:
+    if count_step and run.step_count >= limits['agentMaxStepsPerRun']:
         return LimitHit(STEPS, f'This run reached its limit of {limits["agentMaxStepsPerRun"]} steps.', None, 'user', cost_cents)
     run_spent = run.cost_cents + _run_llm_cents(run.id)
     if run_spent + cost_cents > limits['agentMaxRunCostCents']:
@@ -225,12 +224,31 @@ def check_step(run, *, cost_cents=0, now=None):
                            global_limits()['agentGlobalDailyCapCents'], now=now)
 
 
+def check_budget(user_id, grant_id=None, *, now=None):
+    """Before a paid Gemini call outside a run step (voice note, PDF read, view_media, read_document): the first daily cap
+    already spent, or None. Checks the user's cap, the grant's own cap when ``grant_id`` is given, then the global cap,
+    all counting model token spend; the call itself is not estimated, so it is refused only once a cap has no cent left.
+    """
+    from apps.mcp_auth import controls, policy
+    now = now_ms() if now is None else now
+    hit = _cap_hit(DAILY_CAP, 'user', controls.spent_cents(user_id, now=now), 1, policy.user_limits(user_id)['dailyCapCents'],
+                   user_id=user_id, now=now)
+    if hit is None and grant_id is not None:
+        grant_cap = AgentGrant.objects.values_list('daily_cap_cents', flat=True).filter(pk=grant_id).first()
+        if grant_cap is not None:
+            hit = _cap_hit(GRANT_DAILY_CAP, 'user', controls.spent_cents(user_id, token_id=grant_id, now=now), 1, grant_cap,
+                           grant_id=grant_id, now=now)
+    return hit or _cap_hit(GLOBAL_DAILY_CAP, 'global', controls.global_spent_cents(now=now), 1,
+                           global_limits()['agentGlobalDailyCapCents'], now=now)
+
+
 def apply_limit_hit(run, hit, *, now=None):
     """Record a refusal on the run and return its new status.
 
-    The first refusal of a kind pauses the run (``paused_limit``, ``pause_reason`` = the kind, ``resume_after`` from the
-    hit); a second refusal of the same kind ends it ``failed`` with ``error = {'code': 'limit', 'kind': ...}``. A run
-    that is already finished is left alone. The caller must stop stepping either way and never retry the refused step.
+    A hit pauses the run (``paused_limit``, ``pause_reason`` = the kind, ``resume_after`` from the hit). A ``WAIT_KINDS``
+    hit always pauses and is not recorded in ``hits``; a second hit of the same per-run bound ends the run ``failed`` with
+    ``error = {'code': 'limit', 'kind': ...}``. A run that is already finished is left alone. The caller must stop
+    stepping either way and never retry the refused step.
     """
     now = now_ms() if now is None else now
     with transaction.atomic():
@@ -243,8 +261,8 @@ def apply_limit_hit(run, hit, *, now=None):
             locked.error = {'code': 'limit', 'kind': hit.kind, 'message': hit.message, 'scope': hit.scope, 'hits': hits}
         else:
             locked.status, locked.pause_reason, locked.resume_after = PAUSED, hit.kind, hit.resume_after_ms
-            locked.error = {'code': 'limit_paused', 'kind': hit.kind, 'message': hit.message, 'scope': hit.scope, 'hits': hits + [hit.kind],
-                            'costCents': hit.cost_cents}
+            locked.error = {'code': 'limit_paused', 'kind': hit.kind, 'message': hit.message, 'scope': hit.scope,
+                            'hits': hits if hit.kind in WAIT_KINDS else hits + [hit.kind], 'costCents': hit.cost_cents}
         locked.updated_at = now
         locked.save(update_fields=['status', 'pause_reason', 'resume_after', 'finished_at', 'error', 'updated_at'])
     for field in ('status', 'pause_reason', 'resume_after', 'finished_at', 'error', 'updated_at'):
@@ -257,7 +275,7 @@ def resume_run(run_id, *, now=None):
     refused step's recorded cost.
 
     Returns ``(True, None)`` once requeued, else ``(False, hit)`` with the limit still in the way (or ``(False, None)``
-    when the run is not paused on a limit). The refused kind stays in ``error['hits']``, so refusing again fails the run.
+    when the run is not paused on a limit). A refused per-run bound stays in ``error['hits']``, so refusing it again fails the run.
     """
     now = now_ms() if now is None else now
     with transaction.atomic():

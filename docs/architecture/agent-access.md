@@ -17,7 +17,11 @@ endpoints.
   the user's `agent_llm_usage` cost for the trailing 24 hours (microcents summed, rounded up once to whole cents); a
   per-token total adds LLM rows only for an Agents tab grant, matched by `grant_id`. `admit_paid_submission` keeps
   its per-user lock and checks; `agentGlobalDailyCapCents` (all users' agent generations plus all LLM cost) is
-  enforced only by the worker's `check_step`, so MCP admission has no account-wide serialization point.
+  enforced only by the worker's `check_step` and by `check_budget`, so MCP admission has no account-wide
+  serialization point. `check_budget` runs before each Agents tab Gemini call outside a run step (voice
+  transcription, PDF describe, `view_media`, `read_document`) against the user, grant and global daily caps; once
+  one has no cent left, nothing is sent and the call fails `BUDGET_EXCEEDED` (HTTP 429 from `.../messages` and
+  `.../transcribe`).
   Settings, Agent access shows the same `spent_cents` total as the user's spent today.
 - Agents tab limits (`apps/agents/limits.py`, all in `LIMITS` and `src/lib/limits.js`): `agentActiveRuns` (2),
   `agentMaxStepsPerRun` (40), `agentMaxRunCostCents` (1000), global-only `agentGlobalDailyCapCents` (20000) and
@@ -25,16 +29,23 @@ endpoints.
   `agentAttachMaxAudioSeconds` plus 1/0 switches `agentAttachImages`, `agentAttachDocuments`, `agentAttachVideo`,
   `agentAttachAudio`. A per-user row overrides the global value. They are not composer settings.
 - Run creation (`check_run_admission`) checks only `agentsEnabled` and `agentActiveRuns`; a run is created queued
-  even when `agentMaxConcurrentRuns` runs are running, and `check_global_concurrency` is the worker claim's check.
+  even when `agentMaxConcurrentRuns` runs are running. The worker claim enforces that cap atomically: it claims only
+  the first `agentMaxConcurrentRuns` global slot leases (at most 8), read at each claim.
 - `agentsEnabled` (1/0): a global 0 is a kill switch, off for everyone including admins and per-user overrides.
   Otherwise a per-user row decides, then a global 1 (on for all), and with nothing set it is on for admins only.
   The dashboard omits the key while no global row exists, and `POST /api/admin/limits` with `value: null` deletes
-  the global row to return to admins only (the Limits tab's "Reset to default").
+  the global row to return to admins only (the Limits tab's "Reset to default"). The same switch gates the direct
+  Gemini endpoints: `POST .../messages` and `POST .../transcribe` answer `403 AGENTS_DISABLED` before any PDF read,
+  transcription or chat turn.
 - Mid-run, `check_step` returns a `LimitHit` (`disabled`, `steps`, `run_cost`, `daily_cap`, `grant_daily_cap` for
   the Agents tab grant's own `daily_cap_cents`, `global_daily_cap`).
   `apply_limit_hit` pauses the run (`paused_limit`, `pause_reason` = kind, `resume_after` from the oldest rows
-  that free enough of the trailing window, none for step, run-cost and disabled) and records the kind in
-  `agent_runs.error.hits`; a second refusal of the same kind ends the run `failed` with
+  that free enough of the trailing window, at the latest when every counted row has aged out; one minute later for
+  disabled; none for step and run-cost). The switch and the daily caps are waits, never refusals: each hit pauses the
+  run (again, with a fresh `resume_after`, however often it recurs, before or after a resume) and never fails it, so a
+  run paused by the switch resumes within a minute of an admin turning agents back on. A paid call that alone costs
+  more than a daily cap is refused to the model instead (see Step boundaries). Per-run bounds (`steps`, `run_cost`)
+  are refusals, recorded in `agent_runs.error.hits`: a second one of the same kind ends the run `failed` with
   `error = {code: 'limit', kind}`. The pause records the refused step's estimate in `error.costCents`, and
   `resume_run` requeues only when that same step fits again.
 - Each grant (a personal access token or one connected app) has its own daily cap (default $10, never above
@@ -69,7 +80,7 @@ An Agents tab chat turn can run as a durable run (`agent_runs`) that the `agent`
 so a turn survives a closed tab, a deploy or a worker crash. The old synchronous path (`POST .../messages`, one short
 tool loop inside the request) still serves the current UI; the run endpoints below are for the new tab. Code lives in
 `apps/agents`: `runs.py` (the services the views adapt), `runner.py` (the state machine), `worker.py` (claim,
-heartbeat and the scheduler's resume pass), `events.py`, `step_limits.py` and `design.py`.
+heartbeat and the scheduler's resume pass), `events.py`, `limits.py` and `design.py`.
 
 ```
 queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed | failed | cancelled
@@ -109,22 +120,23 @@ queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed
   turn.
 - **Step boundaries.** Before each step the runner stops if its lease was lost or the worker is stopping (the run goes
   back to `queued`), honours a cancel request, re-checks the grant (`AgentGrantInvalid` fails the run), delivers the
-  inbox, and checks the
-  bounds: the global `agentsEnabled` setting (`0` pauses the run as `paused_limit`, `agents_disabled`, retried every
-  minute; unset, `1` or an unparsable value is on; the runner does not observe the maintenance write freeze yet, so
-  setting `agentsEnabled` to `0` is how to stop runs during a freeze), the per-run bounds in `runner.py`, and
-  `step_limits.check_limits(run, step_kind)`, which allows everything today; a non-ok verdict pauses the run as
-  `paused_limit` with its `pause_reason` and `resume_after`. The per-run bounds (module constants until the admin
-  limits replace them) also pause the run as `paused_limit`, with no `resume_after`, so it waits for the artist instead
-  of retrying into the bound: `step_limit` at 40 steps; `cost_limit` once spent paid estimates reach 1000 estimator
-  cents; and `time_limit` at 2 hours spent inside steps, where each step counts from its latest attempt to its outcome,
-  so waiting for approval, jobs or a limit is not counted. A message wakes such a run, which delivers it and pauses
-  again at the same bound; stopping it keeps its jobs. A paid call whose price (or approved quote) would take the run
-  past 1000 cents is never sent and not retried: it is journaled as its own tool step with outcome `COST_LIMIT` and a
-  `COST_LIMIT` function response (nothing was charged; suggest a cheaper option or ask the artist), and the model's
-  next turn can explain or offer a cheaper option. Every over-bound call in one model turn is refused this way; one in
-  a later turn, after the model was told, fails the run with error code `limit` (`kind` `cost`). A step already sent
-  is replayed with its key rather than refused, so a job it submitted is never lost.
+  inbox, and checks the limits with `limits.check_step`, read at call time (the `agentsEnabled` switch, which is how to
+  stop runs during a maintenance write freeze since the runner does not observe it yet; `agentMaxStepsPerRun`;
+  `agentMaxRunCostCents` with the run's model token spend; and the user, grant and global daily caps), then the
+  active-time bound. A hit goes through `apply_limit_hit` (above). `time_limit` pauses the run at 2 hours spent inside
+  steps, where each step counts from its latest attempt to its outcome, so waiting for approval, jobs or a limit is not
+  counted. A message wakes a paused run and is delivered to the chat; a run still at `steps` or `run_cost` then fails
+  as a second refusal, while a run at `disabled` or a daily cap only ever pauses again. Stopping it keeps its jobs. A paid
+  call whose price (or approved quote) would alone take the run past `agentMaxRunCostCents` is never sent and not
+  retried: it is journaled as its own tool step with outcome `COST_LIMIT` and a `COST_LIMIT` function response
+  (nothing was charged; suggest a cheaper option or ask the artist), and the model's next turn can explain or offer a
+  cheaper option. Every over-bound call in one model turn is refused this way; one in a later turn, after the model
+  was told, fails the run with error code `limit` (`kind` `cost`). A paid call (or approved quote) that alone costs
+  more than the user, grant or global daily cap, so no wait in the trailing window frees it, is refused the same way
+  with outcome and response code `BUDGET_EXCEEDED`; asking again after being told fails the run with `limit` and the
+  cap's kind. The run pauses only for a daily cap the window frees. A step already sent is replayed with its key rather
+  than refused, so a job it submitted is never lost; a replay adds no step to the step limit, and every other limit
+  still applies to it.
 - **Cancel.** A stop request sets `cancel_requested_at`; the run ends `cancelled` at its next step boundary, and jobs
   already queued finish normally. "Stop and cancel jobs" (`cancel_jobs`) also cancels every active linked job through
   `generation/services/cancellation.cancel_generation` (deferred, so the generation worker sends any provider cancel).
@@ -137,7 +149,7 @@ queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed
 | Method and path (under `/api/agent-conversations/<id>`) | Purpose |
 |---|---|
 | `GET .../runs` | The chat's 20 most recent runs |
-| `POST .../runs` `{content, model?}` | Starts a run with the message (201), or writes it to the active run's inbox (202). One active run per conversation is a database constraint. `403 AGENTS_DISABLED` when the global `agentsEnabled` is `0` and no run is active |
+| `POST .../runs` `{content, model?}` | Starts a run with the message (201), or writes it to the active run's inbox (202). One active run per conversation is a database constraint. When no run is active: `403 AGENTS_DISABLED` when `agentsEnabled` is off for the user, `429 AGENT_LIMIT` (with `kind` `active_runs`) at the `agentActiveRuns` cap |
 | `GET .../runs/<run>/events?after=<seq>&limit=` | Up to 100 events after `seq`, with the run, `nextAfter`, `more` and the undelivered messages |
 | `POST .../runs/<run>/approve`, `.../decline` `{stepIndex}` | Answers the waiting quote; `409 NO_PENDING_QUOTE` otherwise |
 | `POST .../runs/<run>/cancel` `{cancelJobs?}` | Stop (202), or stop and cancel the run's active jobs; `409 RUN_FINISHED` once it ended |
@@ -151,7 +163,8 @@ The worker is its own Railway component, `python -m deploy.entrypoint agent`, wh
 database role and API-style configuration (`deploy/legacy_config.py` `_agent`) with `GOOGLE_API_KEY` as its only
 provider key (`AGENT_KEYS`; no BytePlus, Kling or Magnific keys, portrait or Web Push settings, ingress secret or
 port), plus its own `MCP_QUOTE_SECRET` (32+ characters), because it signs and checks quotes in-process. It advances a
-run only while it holds the run's lease and one of 8 global slot leases (`apps.common.leases`), renewed every 15 s
+run only while it holds the run's lease and one of the first `agentMaxConcurrentRuns` (at most 8) global slot leases
+(`apps.common.leases`), renewed every 15 s
 with the run's `last_heartbeat_at`. The scheduler's `agent_runs` pass re-queues a `running` run whose heartbeat is
 older than 60 s, and the next worker resumes it from its journal. The worker never blocks on a provider.
 
