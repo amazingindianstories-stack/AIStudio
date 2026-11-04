@@ -11,6 +11,9 @@
 # REHEARSAL_MAGNIFIC=0 rehearses with Magnific upscaling off (the gateway must then refuse it).
 # REHEARSAL_KLING=0 rehearses with Kling images off (the paid guard must then refuse them at enqueue).
 # REHEARSAL_MCP=0 skips the MCP service (vr-mcp: the real entrypoint in mcp mode, API role, no provider keys).
+# One agent worker (vr-agent: `manage.py agent_worker`, API role, no lease prefix, a throwaway MCP_QUOTE_SECRET) advances the
+# probe's Agents tab runs against the fake Gemini host; the probe turns Agents on for a rehearsal admin account and restores it.
+# A pending canvas.0019_format_payloads is applied on its own first, and its duration is printed.
 # API runs the real entrypoint (paid guard, export admission, portrait lifecycle, gateway); only its Gemini host
 # (such as Agents voice transcription) is answered by the fake provider network (scripts/release/rehearsal_api/sitecustomize.py).
 # Workers run scripts/release/rehearsal_worker.py: the production code with the provider
@@ -21,7 +24,7 @@ ROOT=$(git rev-parse --show-toplevel)
 : "${REHEARSAL_OBSERVER_URL:?}" "${REHEARSAL_DB:?}" "${REHEARSAL_DB_HOST:?}" "${REHEARSAL_API_PASSWORD:?}" "${REHEARSAL_WORKER_PASSWORD:?}" "${REHEARSAL_USER:?}" "${REHEARSAL_PREFIX:?}"
 NET=veevee-rehearsal; IMAGE="veevee-backend:rehearse-$SHORT"; VOL="veevee-rehearsal-media-$SHORT"
 BASE=$(mktemp -d "${TMPDIR:-/tmp}/veevee-rehearse-$SHORT.XXXX"); WORK="$BASE/src"
-NAMES="vr-api vr-mcp vr-gen vr-export vr-sched"
+NAMES="vr-api vr-mcp vr-gen vr-export vr-sched vr-agent"
 cleanup() { for n in $NAMES; do docker rm -f "$n" >/dev/null 2>&1 || true; done; docker volume rm "$VOL" >/dev/null 2>&1 || true
   git -C "$ROOT" worktree remove --force "$WORK" >/dev/null 2>&1 || true; rm -rf "$BASE"; }
 trap cleanup EXIT INT TERM
@@ -43,6 +46,19 @@ COMMON="-e DJANGO_SECRET_KEY=rehearsal-django-secret-$(openssl rand -hex 16) -e 
  -e VEEVEE_MEDIA_BACKEND=filesystem -e VEEVEE_MEDIA_ROOT=/media -e MOCK_GENERATION=0 -e MOCK_ASSET_PROVIDER=0
  -e ARK_API_KEY=rehearsal-fake-key -e GOOGLE_API_KEY=rehearsal-fake-key -e AWS_EC2_METADATA_DISABLED=true -e PYTHONUNBUFFERED=1
  -e MAGNIFIC_API_KEY=rehearsal-fake-key -e VEEVEE_MAGNIFIC_UPSCALE=${REHEARSAL_MAGNIFIC:-1} -e VEEVEE_KLING=${REHEARSAL_KLING:-1}"
+# canvas.0019 moves every board's Docs/HTML/draw.io payloads into rows: when it is pending, apply it alone first and time it
+# (Django start-up included), so the release notes the data step's real duration on this copy.
+# shellcheck disable=SC2086
+docker run --rm --network "$NET" $COMMON -e DATABASE_URL="$REHEARSAL_OBSERVER_URL" -w /app "$IMAGE" python manage.py showmigrations canvas \
+  > "$BASE/showmigrations.txt" 2>&1 || { cat "$BASE/showmigrations.txt"; echo "== showmigrations failed"; exit 1; }
+if grep -q '^ \[ \] 0019_format_payloads' "$BASE/showmigrations.txt"; then
+  # shellcheck disable=SC2086
+  docker run --rm --network "$NET" $COMMON -e DATABASE_URL="$REHEARSAL_OBSERVER_URL" -w /app "$IMAGE" sh -c \
+    'python manage.py migrate --noinput canvas 0018_boardcaption >/dev/null 2>&1 && s=$(date +%s%N) && python manage.py migrate --noinput canvas 0019_format_payloads >/dev/null 2>&1 && e=$(date +%s%N) && echo "canvas.0019_format_payloads data step: $(( (e - s) / 1000000 )) ms (Django start-up included)"' \
+    || { echo "== canvas.0019 migration failed"; exit 1; }
+else
+  echo "canvas.0019_format_payloads already applied in this copy: data step not timed"
+fi
 # shellcheck disable=SC2086
 docker run --rm --network "$NET" $COMMON -e DATABASE_URL="$REHEARSAL_OBSERVER_URL" -w /app "$IMAGE" python manage.py migrate --noinput \
   > "$BASE/migrate.txt" 2>&1 || { cat "$BASE/migrate.txt"; echo "== migration failed"; exit 1; }
@@ -61,6 +77,11 @@ if [ "$MCP" = 1 ]; then
     -e DATABASE_URL="$API_DB" -e VEEVEE_INGRESS_SECRET="$SECRET" -e PORT=18083 -e VEEVEE_MCP=1 \
     -e MCP_QUOTE_SECRET="rehearsal-mcp-quote-$(openssl rand -hex 24)" -e "VEEVEE_PAID_GUARD=$PAID" "$IMAGE" python -m deploy.entrypoint mcp >/dev/null
 fi
+# The agent worker: the API's database role and no lease prefix, GOOGLE_API_KEY (fake) as its only provider key, its own quote secret.
+# shellcheck disable=SC2086
+docker run -d --name vr-agent --network "$NET" -v "$VOL:/media" -v "$WORK/scripts:/scripts:ro" $COMMON -e ARK_API_KEY= -e MAGNIFIC_API_KEY= \
+  -e DATABASE_URL="$API_DB" -e MCP_QUOTE_SECRET="rehearsal-agent-quote-$(openssl rand -hex 24)" -e VEEVEE_REHEARSAL=1 \
+  "$IMAGE" python /scripts/release/rehearsal_worker.py agent >/dev/null
 # shellcheck disable=SC2086
 docker run -d --name vr-gen --network "$NET" -v "$VOL:/media" -v "$WORK/scripts:/scripts:ro" $COMMON $MANAGED $NS -e DATABASE_URL="$WORKER_DB" \
   -e KLING_API=rehearsal-fake-key -e VEEVEE_REHEARSAL=1 -e "VEEVEE_PAID_GUARD=$PAID" "$IMAGE" python /scripts/release/rehearsal_worker.py generation >/dev/null
@@ -77,7 +98,7 @@ STATUS=0
 # shellcheck disable=SC2086
 docker exec $COMMON $MANAGED -e DATABASE_URL="$API_DB" -e REHEARSAL_OBSERVER_URL="$REHEARSAL_OBSERVER_URL" -e REHEARSAL_MCP="$MCP" -e PYTHONPATH=/app -w /app vr-api python /scripts/release/rehearsal_probe.py "$SECRET" "$REHEARSAL_USER" > "$BASE/probe.txt" 2>&1 || STATUS=$?
 grep -v '^{"event": "request"' "$BASE/probe.txt" || true
-for n in vr-gen vr-export vr-sched $([ "$MCP" = 1 ] && echo vr-mcp); do
+for n in vr-gen vr-export vr-sched vr-agent $([ "$MCP" = 1 ] && echo vr-mcp); do
   if [ "$(docker inspect -f '{{.State.Running}}' "$n")" != true ]; then echo "FAIL $n exited"; STATUS=1; fi
   docker logs "$n" 2>&1 | grep -E "Traceback|Error|rehearsal_worker_ready" | sed "s/^/  [$n] /" | head -5
 done
