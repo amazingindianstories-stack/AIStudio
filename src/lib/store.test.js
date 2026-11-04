@@ -26,6 +26,7 @@ function harness(overrides = {}) {
     items: [],
     threadItems: [],
     pendingItems: [],
+    looseItems: [],
     rightTab: "history",
     activeProjectId: null,
     activeFolderId: null,
@@ -72,6 +73,21 @@ test("findItem: falls back to threadItems, then pendingItems — a row the user 
   const h = harness({ threadItems: [inThread], pendingItems: [inPending] });
   assert.equal(findItem(h.state(), "t"), inThread);
   assert.equal(findItem(h.state(), "p"), inPending);
+});
+
+test("looseItems: a row read by id is found, patched, dropped and kept current by live updates like any pool", () => {
+  const loose = makeItem({ id: "l", updatedAt: 100 });
+  const h = harness({ looseItems: [loose] });
+  assert.equal(findItem(h.state(), "l"), loose);
+  patchEverywhere(h.set, "l", (i) => ({ ...i, isFavorite: true }));
+  assert.equal(h.state().looseItems[0].isFavorite, true);
+  mergeLiveItems([makeItem({ id: "l", updatedAt: 200, prompt: "renamed" })], h.set);
+  assert.equal(h.state().looseItems[0].prompt, "renamed");
+  assert.equal(h.state().looseItems[0].isFavorite, false);
+  mergeLiveItems([makeItem({ id: "l", updatedAt: 150, prompt: "older" })], h.set);
+  assert.equal(h.state().looseItems[0].prompt, "renamed");
+  dropEverywhere(h.set, "l");
+  assert.deepEqual(h.state().looseItems, []);
 });
 
 test("findItem: returns undefined when the row is in no pool", () => {

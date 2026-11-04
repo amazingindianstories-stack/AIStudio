@@ -104,6 +104,23 @@ class LibraryFilterTests(TransactionTestCase):
         self.assertEqual(options['unrecorded'], ['bitrate', 'stage'])
         self.assertNotIn('counts', options)
 
+    def test_ids_read_returns_those_generations_in_order_outside_any_scope(self):
+        folder = Folder.objects.create(name='Elsewhere', created_at=1)
+        older = self.row(folder=folder, created_at=10)
+        newer = self.row(kind='image', created_at=20)
+        gone = str(uuid.uuid4())
+        response = self.client.get('/api/history', {'ids': f'{newer.id},{gone},{older.id},not-a-uuid,{newer.id}'})
+        self.assertEqual(response.status_code, 200, response.content)
+        body = response.json()
+        self.assertEqual([item['id'] for item in body['items']], [str(newer.id), str(older.id)])
+        self.assertEqual(body['items'][1]['folderId'], str(folder.id))
+        self.assertEqual(body['missing'], [gone, 'not-a-uuid'])
+        self.assertNotIn('nextCursor', body)
+        for ids in ('', ','.join(str(uuid.uuid4()) for _ in range(101))):
+            self.assertEqual(self.client.get('/api/history', {'ids': ids}).status_code, 400)
+        self.client.cookies.clear()
+        self.assertEqual(self.client.get('/api/history', {'ids': str(newer.id)}).status_code, 401)
+
     def test_invalid_parameters_are_bounded_400s_and_options_require_authentication(self):
         for params in ({'type': 'audio'}, {'model': ['x'] * 51}, {'creator': 'bad'},
                        {'resolution': '4k'}, {'stage': 'approved'}, {'sort': 'created_at;drop'},

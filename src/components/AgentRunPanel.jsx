@@ -7,6 +7,7 @@ import {
 import { MediaCard } from "./MediaCard";
 import { GenerationStatus } from "./GenerationStatus";
 import { cn } from "@/lib/utils";
+import { useStore } from "@/lib/store";
 
 const BUBBLE = "max-w-[85%] whitespace-pre-wrap rounded-xl px-3 py-2 text-sm leading-relaxed";
 
@@ -22,13 +23,27 @@ function StepIcon({ status }) {
   return <Clock className="h-3.5 w-3.5 text-amber-200" />;
 }
 
+/** A finished job's card. A succeeded generation outside every loaded scope (an earlier run, a reload) is read by id. */
 function JobResult({ job, item }) {
+  const loadItem = useStore((s) => s.loadItem);
+  const [unread, setUnread] = useState(null);
+  const wanted = job.status === "succeeded" && !item ? job.generationId : null;
+  useEffect(() => {
+    if (!wanted) return undefined;
+    let live = true;
+    loadItem(wanted).then((found) => {
+      if (live && !found) setUnread(wanted);
+    });
+    return () => {
+      live = false;
+    };
+  }, [wanted, loadItem]);
   if (item) return <div className="w-56"><MediaCard item={item} /></div>;
   const noun = job.kind === "video" ? "video" : job.kind === "image" ? "image" : "job";
   if (job.status === "queued" || job.status === "running") {
     return <div className="w-56"><GenerationStatus status={job.status === "queued" ? "queued" : "running"} compact className="rounded-lg ring-1 ring-line" /></div>;
   }
-  const text = job.status === "succeeded" ? `The ${noun} is ready. Check your library to view it.`
+  const text = job.status === "succeeded" ? (unread === wanted ? `The ${noun} is ready. Check your library to view it.` : `Loading the ${noun}…`)
     : job.status === "cancelled" ? `The ${noun} was cancelled.` : `The ${noun} failed.`;
   return <div className="rounded-lg bg-ink-750 px-2.5 py-2 text-xs text-white/50">{text}</div>;
 }

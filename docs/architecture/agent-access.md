@@ -188,8 +188,9 @@ draft and staged files and shows the API's message (`AGENTS_DISABLED`, `AGENT_GR
   re-reads the conversation, so the saved thread becomes authoritative.
 - **Thread.** `src/components/AgentRunPanel.jsx` renders each run after the message that started it (`run_queued`
   `messageId`). While the run is live, saved messages after that point are hidden because the feed shows them; once
-  the thread is re-read the panel keeps only tool steps, jobs (a finished job shows its `MediaCard` when the item is
-  loaded, a running one `GenerationStatus`), non-final text and how a failed or stopped run ended.
+  the thread is re-read the panel keeps only tool steps, jobs (a succeeded job shows its `MediaCard`, read by id through
+  the store's `loadItem` when no loaded scope holds it; a running one shows `GenerationStatus`, a failed or cancelled
+  one its text), non-final text and how a failed or stopped run ended.
 - **Reconnect.** Opening a conversation reads `GET .../runs`. An active latest run resumes from the state saved in
   `sessionStorage` (`veevee.agentRun.<run id>`: the gapless events, cursor and queued rows, written after every poll
   in try/catch), so a reload polls from the last seq with nothing duplicated; a missing or damaged save reads from 0.
@@ -206,7 +207,7 @@ draft and staged files and shows the API's message (`AGENTS_DISABLED`, `AGENT_GR
 - **Tests.** `src/lib/agent-run.test.js` covers the reducer and helpers. `tests/browser/agents-runs.spec.mjs` drives
   the tab against Django with no agent worker: the composer starts a real run and the spec writes the worker's events
   and run status through `fixture-db.mjs` (feed rendering, delivered message, reload from the last seq, quote approve
-  with the second confirmation and decline including a 409, the pause card, Stop and cancel jobs, and a failed run).
+  with the second confirmation and decline including a 409, the pause card, Stop and cancel jobs, a failed run, and a succeeded job's media card read by id).
 
 The worker is its own Railway component, `python -m deploy.entrypoint agent`, which runs
 `agent_worker --interval 1 --concurrency N` (`VEEVEE_AGENT_WORKER_SLOTS`, 1 to 8, default 4). It uses the API's

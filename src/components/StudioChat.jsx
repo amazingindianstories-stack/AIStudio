@@ -79,6 +79,7 @@ export function StudioChat({ conversationId }) {
   const addReferenceFromVideo = useStore((s) => s.addReferenceFromVideo);
   const items = useStore((s) => s.items);
   const threadItems = useStore((s) => s.threadItems);
+  const looseItems = useStore((s) => s.looseItems);
 
   const [messages, setMessages] = useState([]);
   const [loadingThread, setLoadingThread] = useState(true);
@@ -151,7 +152,7 @@ export function StudioChat({ conversationId }) {
   useEffect(() => () => voiceRef.current?.cancel(), []);
 
   const findItem = (id) =>
-    items.find((i) => i.id === id) ?? threadItems.find((i) => i.id === id);
+    items.find((i) => i.id === id) ?? threadItems.find((i) => i.id === id) ?? looseItems.find((i) => i.id === id);
 
   // The thread: saved messages, with each run's panel after the message that started it. While the current run is
   // live its feed shows everything it wrote, so the saved messages after its start (all of them belong to it) wait

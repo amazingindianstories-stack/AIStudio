@@ -145,6 +145,53 @@ test('Agents runs: the feed renders model text, tool steps, jobs and a delivered
   await expect(panel.getByTestId('agent-run-step')).toHaveCount(2);
 });
 
+test('Agents runs: a succeeded job shows its media card even when the library has not loaded it, live and after a reload', async ({ page, context, baseURL }) => {
+  test.setTimeout(120000);
+  await openAgents(page, context, baseURL, 'Agents run media');
+  // The generation lives in another project with an old timestamp: no loaded scope, page or live update holds it.
+  const other = await context.request.post('/api/projects', { data: { op: 'createProject', name: `Agents elsewhere ${randomUUID()}` },
+    headers: { Origin: baseURL } });
+  expect(other.ok()).toBeTruthy();
+  const elsewhere = (await other.json()).project.id;
+  const { run } = await send(page, 'Make a lantern still life.', 201);
+  const panel = page.getByTestId('studio-chat-feed').getByTestId('agent-run');
+  const fixture = worker(run.id);
+  const made = randomUUID();
+  const lost = randomUUID();
+  const reads = [];
+  page.on('request', (request) => { if (request.url().includes('/api/history?ids=')) reads.push(new URL(request.url()).searchParams.get('ids')); });
+  await fixture.write([
+    fixture.db.statement`INSERT INTO generations (id, kind, status, model, prompt, aspect_ratio, url, user_id, project_id, created_at, updated_at)
+      SELECT ${made}, 'image', 'succeeded', 'Nano Banana Pro', 'Lantern still life', '1:1', url, ${USER_ID}, ${elsewhere}, 1000, 1000
+      FROM generations WHERE id = '10000000-0000-4000-8000-000000000000'`,
+    fixture.emit('run_started'),
+    fixture.emit('step_started', { stepIndex: 1, kind: 'tool', tool: 'generate_image' }),
+    fixture.emit('job_queued', { generationId: made, kind: 'image', tool: 'generate_image', stepIndex: 1 }),
+    fixture.emit('job_queued', { generationId: lost, kind: 'image', tool: 'generate_image', stepIndex: 1 }),
+    fixture.emit('tool_called', { stepIndex: 1, tool: 'generate_image', outcome: 'ok', summary: 'Queued two images.' }),
+    fixture.emit('job_finished', { generationId: made, kind: 'image', status: 'succeeded', stepIndex: 2 }),
+    fixture.emit('job_finished', { generationId: lost, kind: 'image', status: 'failed', stepIndex: 2 }),
+    fixture.emit('step_started', { stepIndex: 2, kind: 'llm' }),
+    fixture.status('running', { steps: 3 }),
+  ]);
+  const card = panel.getByTestId(`media-card-${made}`);
+  const expectResults = async () => {
+    await expect(card.getByRole('img', { name: 'Lantern still life' })).toBeVisible();
+    await expect(panel.getByText('The image failed.', { exact: true })).toBeVisible();
+    await expect(panel.getByText(/Check your library/)).toHaveCount(0);
+  };
+  await expectResults();
+  expect(reads).toEqual([made]);
+
+  await page.reload();
+  await expect(page.getByRole('button', { name: /Desktop fixture/ })).toBeVisible();
+  await agentsTab(page);
+  await expectResults();
+  // The card opens the viewer on the row it read.
+  await card.click({ position: { x: 88, y: 24 } });
+  await expect(page.locator('[data-viewer-item-id]').first()).toHaveAttribute('data-viewer-item-id', made);
+});
+
 test('Agents runs: a quote of $1.00 or more needs a second confirmation, and a declined quote says so', async ({ page, context, baseURL }) => {
   test.setTimeout(120000);
   await openAgents(page, context, baseURL, 'Agents run quotes');
