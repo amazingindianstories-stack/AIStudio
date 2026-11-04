@@ -149,7 +149,8 @@ queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed
   already queued finish normally. "Stop and cancel jobs" (`cancel_jobs`) also cancels every active linked job through
   `generation/services/cancellation.cancel_generation` (deferred, so the generation worker sends any provider cancel).
   Deleting a conversation deletes its runs with it (the database cascade), so a run still active stops counting and is
-  not advanced again; jobs it already queued finish into the library.
+  not advanced again; jobs it already queued finish into the library. A step in flight at the delete ends quietly in the
+  worker, and its Gemini call is still recorded in `agent_llm_usage`, without its conversation and run.
 - **Events.** `agent_run_events` carries a gapless, strictly increasing per-run `seq`, allocated under the run row lock:
   `run_queued`, `run_started`, `resumed`, `step_started`, `tool_called`, `job_queued`, `job_finished`, `waiting_jobs`,
   `quote_required`, `quote_approved`, `quote_declined`, `message_queued`, `message_delivered`, `assistant_text`,

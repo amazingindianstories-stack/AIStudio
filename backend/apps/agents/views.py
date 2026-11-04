@@ -248,7 +248,8 @@ def reference_asset(user_id, ref):
     identifier = (UploadSession.objects.filter(key=key, actor_id=user_id, state='ready', finalized_at__isnull=False)
                   .values_list('id', flat=True).first())
     if identifier is None:
-        rows = Generation.objects.filter(status='succeeded', kind='image', url__endswith=key).values_list('id', 'url')
+        urls = {ref, f'/api/media/{key}'} | ({f"{cdn.rstrip('/')}/{key}"} if cdn else set())
+        rows = Generation.objects.filter(status='succeeded', kind='image', url__in=urls).values_list('id', 'url')
         identifier = next((generation for generation, url in rows if media_key_from_ref(url, cdn) == key), None)
     if identifier is None:
         raise errors.ToolError(errors.NOT_FOUND, 'A reference image is not in the library. Remove it and attach it again.')

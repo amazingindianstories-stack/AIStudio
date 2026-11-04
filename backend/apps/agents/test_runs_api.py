@@ -3,6 +3,7 @@ one, the event feed, quote answers and cancel. The worker side runs through ``ru
 the transport, as in test_runner; no network is used."""
 import uuid
 from datetime import timedelta
+from threading import Event
 
 from django.db import IntegrityError, transaction
 from django.test import Client
@@ -14,10 +15,10 @@ from apps.authentication.session import sign_session
 from apps.generation.models import Generation
 from apps.mcp.tests.test_results import png_bytes
 from apps.media.models import UploadSession
-from . import runs
+from . import runs, worker
 from .loop_llm import ADVANCED_LOOP_MODEL, LOOP_MODEL
 from .models import (ACTIVE_RUN_STATUSES, AgentChatAsset, AgentConversation, AgentConversationMessage, AgentGrant, AgentInboxMessage,
-                     AgentRun, AgentRunEvent)
+                     AgentLlmUsage, AgentRun, AgentRunEvent)
 from .test_runner import RunnerCase, call, text
 
 
@@ -379,6 +380,19 @@ class DeleteWhileRunningTests(RunsApiCase):
         self.assertEqual(Generation.objects.get().status, 'queued')
         # Nothing counts toward the active-run cap any more, so the artist can start again in another chat.
         self.assertFalse(AgentRun.objects.filter(status__in=ACTIVE_RUN_STATUSES).exists())
+
+    def test_deleting_the_chat_mid_step_keeps_the_billed_call_and_the_worker_ends_quietly(self):
+        def delete_mid_step():
+            deleted = self.post('/api/agent-conversations', {'op': 'deleteConversation', 'id': str(self.conversation.id)})
+            self.assertEqual(deleted.status_code, 200)
+            return [text('Done.')]
+        self.gemini(delete_mid_step)
+        run = self.started()
+        with self.assertNoLogs('veevee.agents', 'ERROR'):
+            self.assertEqual(worker.handle_run(run.id, worker.default_process, Event()), 'finished')
+        self.assertFalse(AgentRun.objects.filter(pk=run.id).exists())
+        self.assertEqual(list(AgentLlmUsage.objects.values_list('user_id', 'grant_id', 'conversation_id', 'run_id')),
+                         [(run.user_id, run.grant_id, None, None)])
 
 
 class RunAttachmentTests(RunsApiCase):

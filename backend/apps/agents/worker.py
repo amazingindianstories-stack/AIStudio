@@ -129,6 +129,8 @@ def handle_run(run_id, process, stop, *, now=None):
             return 'unclaimed'
         return process(run_id, lease, stop)
     except Exception as error:
+        if not AgentRun.objects.filter(pk=run_id).exists():
+            return 'finished'
         # Never print prompts, tool arguments, provider bodies or credentials.
         logger.error('agent worker run failed error_type=%s; the run resumes from its journal', type(error).__name__)
         return 'worker_error'
