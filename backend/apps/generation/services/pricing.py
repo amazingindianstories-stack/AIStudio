@@ -2,6 +2,7 @@
 import math
 from apps.common.javascript import number, truthy
 from apps.generation.model_registry import model_definition, capability
+from apps.generation.providers.openai_image import image_size
 from apps.generation.providers.seedream import seedream_size
 
 
@@ -42,10 +43,14 @@ def compute_cost(input, pricing):
     else:
         if truthy(input.get('hasReferenceImage')):
             row = rows.get(definition.get('imageToImagePricingKey', input['model'] + ' · image-to-image'), row)
-        factor = {'1K': 1, '1080p': 1, '2K': 1.5, '4K': 3}.get(input.get('resolution'), 1) if capability(input['model'], 'imagePriceScalesWithResolution', True) is not False else 1
-        # GPT Image 2.5: the job's stored quality, relative to the high-quality base row (no stored quality = high).
-        quality = (input.get('submissionInput') or {}).get('quality')
-        factor *= (capability(input['model'], 'qualityPriceFactors', None) or {}).get(quality, 1)
+        if definition.get('provider') == 'openai':
+            # GPT Image 2.5: the pixels of the exact size sent over 1024x1024, times the job's stored quality relative to
+            # the high-quality base row (no stored quality = high).
+            width, height = map(int, image_size(input.get('resolution') or '1K', input.get('aspectRatio') or '1:1').split('x'))
+            quality = (input.get('submissionInput') or {}).get('quality')
+            factor = width * height / (1024 * 1024) * capability(input['model'], 'qualityPriceFactors')[quality or 'high']
+        else:
+            factor = {'1K': 1, '1080p': 1, '2K': 1.5, '4K': 3}.get(input.get('resolution'), 1) if capability(input['model'], 'imagePriceScalesWithResolution', True) is not False else 1
         cents = row['unitCostCents'] * factor
     return math.floor(cents + .5)
 

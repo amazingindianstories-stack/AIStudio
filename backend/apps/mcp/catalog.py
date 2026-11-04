@@ -157,7 +157,10 @@ def price(model, pricing):
             for resolution in capabilities.get('resolutions') or []:
                 found['examples'].append({'resolution': resolution, 'cents': compute_cost({'model': model['name'], 'resolution': resolution,
                                                                                            'aspectRatio': '1:1'}, pricing)})
-            found['note'] = 'Charged per finished image; best-of face mode multiplies by its candidates.'
+            found['note'] = ('Estimated at 1:1 and high quality, scaled by the exact size\'s pixels over 1024x1024 and by quality; '
+                             'the provider-reported token cost replaces it when the image finishes.'
+                             if capabilities.get('imageSizes') else
+                             'Charged per finished image; best-of face mode multiplies by its candidates.')
         elif model['kind'] == 'video':
             chosen = defaults(model)
             seconds = chosen['durationSeconds'] or 10

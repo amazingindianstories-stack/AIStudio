@@ -252,9 +252,27 @@ export function imageBackgroundFor(model, value) {
   return imageBackgroundsForModel(model).includes(value) ? value : DEFAULT_IMAGE_BACKGROUND;
 }
 
-/** Resolutions the provider itself calls experimental (GPT Image 2.5 above 2560x1440). */
-export function experimentalResolutionsForModel(model) {
-  return capability(model, "experimentalResolutions", []);
+/** The exact GPT Image 2.5 size a tier sends at this aspect ratio (registry
+ *  `imageSizes`); null for every other model. */
+export function imageSizeFor(model, aspectRatio, resolution) {
+  return capability(model, "imageSizes", null)?.[aspectRatio]?.[resolution] ?? null;
+}
+
+/** A resolution as the picker shows it: GPT Image 2.5 names the exact pixels
+ *  sent, e.g. "2K · 2048x2048"; other models show the plain resolution. */
+export function resolutionLabel(model, aspectRatio, resolution) {
+  const size = imageSizeFor(model, aspectRatio, resolution);
+  return size ? `${resolution} · ${size}` : resolution;
+}
+
+/** Whether the provider itself calls this size experimental (GPT Image 2.5
+ *  above 2560x1440 pixels). */
+export function isExperimentalImageSize(model, aspectRatio, resolution) {
+  const limit = capability(model, "experimentalAbovePixels", null);
+  const size = imageSizeFor(model, aspectRatio, resolution);
+  if (!limit || !size) return false;
+  const [width, height] = size.split("x").map(Number);
+  return width * height > limit;
 }
 
 /** The three task types Seedance 2.5's single endpoint supports, chosen through

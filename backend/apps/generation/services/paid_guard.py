@@ -120,14 +120,13 @@ def kling_quote(contract,definition):
   'provider_payload_allowed_values':{'model_name':[definition['providerModelId']],'n':[1],'aspect_ratio':[aspect],'resolution':[resolution.lower()]}}
 def openai_quote(contract,definition):
  """GPT Image 2.5 (VEEVEE_OPENAI_IMAGE, unlimited scope only): the Images API generations or edits endpoint, with this
- job's pinned snapshot, a single image, its own size, its own stored quality and background, and PNG output pinned in the payload."""
+ job's pinned snapshot, a single image, its own size from the registry table, its own stored quality and background, and PNG output pinned in the payload."""
  from apps.generation.availability import switched_on
  from apps.generation.providers import openai_image
  require(switched_on('openai'),definition['name']+' is not enabled. Choose another image model.')
  require(contract['kind']=='image' and not contract['draft_task_id'],'New OpenAI image generation only')
  resolution=contract.get('resolution') or '1K';aspect=contract.get('aspect_ratio') or '1:1'
- capabilities=definition.get('capabilities') or {}
- require(resolution in capabilities.get('resolutions',[]) and aspect in capabilities.get('aspectRatios',[]),'Request outside the OpenAI contract')
+ require(resolution in ((definition.get('capabilities') or {}).get('imageSizes') or {}).get(aspect,{}),'Request outside the OpenAI contract')
  try:options=openai_image.request_options(contract['model'],contract.get('submission_input'))
  except ValueError:raise ValueError('Request outside the OpenAI contract') from None
  return {'maximum_cents':0,'pricing_status':'UNLIMITED_NEW_JOB_REGISTRATION_NOT_PRICE_GATE',

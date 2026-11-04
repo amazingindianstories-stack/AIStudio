@@ -5,6 +5,7 @@ No test reaches api.openai.com: every response comes from a fake transport or a 
 import base64
 import io
 import json
+import math
 import os
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
@@ -15,7 +16,7 @@ from PIL import Image
 from apps.admin_dashboard import status
 from apps.admin_dashboard.default_pricing import DEFAULT_PRICING
 from apps.generation import failure_copy
-from apps.generation.model_registry import MODEL_REGISTRY, model_definition
+from apps.generation.model_registry import MODEL_REGISTRY, OPENAI_IMAGE_SIZES, model_definition
 from apps.generation.providers import openai_image
 from apps.generation.services import paid_guard
 from apps.generation.services.admission import non_gemini_image_models
@@ -92,8 +93,8 @@ class RegistryTests(SimpleTestCase):
                 self.assertEqual((definition['name'], definition['provider'], definition['kind'], definition['providerModelId'],
                                   definition['pricingKey'], definition['offered']), (name, 'openai', 'image', snapshot, name, True))
                 self.assertEqual(definition['capabilities'], {
-                    'aspectRatios': RATIOS, 'resolutions': ['1K', '2K', '4K'], 'experimentalResolutions': ['2K', '4K'],
-                    'maxReferenceImages': 16, 'qualities': QUALITIES,
+                    'aspectRatios': RATIOS, 'resolutions': ['1K', '2K', '4K'], 'imageSizes': OPENAI_IMAGE_SIZES,
+                    'experimentalAbovePixels': 2560 * 1440, 'maxReferenceImages': 16, 'qualities': QUALITIES,
                     'qualityPriceFactors': {'low': .03, 'medium': .25, 'high': 1, 'xhigh': 2, 'max': 4},
                     'backgrounds': ['opaque', 'transparent'], 'seed': False})
         self.assertEqual([model['id'] for model in MODEL_REGISTRY if model.get('provider') == 'openai'],
@@ -105,34 +106,55 @@ class RegistryTests(SimpleTestCase):
             self.assertIn(identifier, non_gemini_image_models())
 
 
+def valid(width, height):
+    """OpenAI's documented GPT Image 2.5 size constraints."""
+    return (width % 16 == 0 and height % 16 == 0 and max(width, height) <= 3840 and max(width, height) <= 3 * min(width, height)
+            and 655360 <= width * height <= 8294400)
+
+
+VALID_SIZES = [(width, height) for width in range(16, 3841, 16) for height in range(16, 3841, 16) if valid(width, height)]
+TIER_DISTANCE = {'1K': lambda width, height: abs(width * height - 1024 * 1024),
+                 '2K': lambda width, height: abs(max(width, height) - 2048),
+                 '4K': lambda width, height: abs(max(width, height) - 3840)}
+
+
+def ratio_error(width, height, ratio):
+    across, down = map(int, ratio.split(':'))
+    return abs(math.log(width / height / (across / down)))
+
+
 class SizeTests(SimpleTestCase):
-    def test_documented_examples_and_mirrored_orientations(self):
-        self.assertEqual(openai_image.image_size('1K', '1:1'), '1024x1024')
-        self.assertEqual(openai_image.image_size('1K', '16:9'), '1360x768')
-        self.assertEqual(openai_image.image_size('2K', '1:1'), '2048x2048')
-        self.assertEqual(openai_image.image_size('2K', '16:9'), '2736x1536')
-        self.assertEqual(openai_image.image_size('4K', '16:9'), '3840x2160')
-        self.assertEqual(openai_image.image_size('4K', '9:16'), '2160x3840')
-        self.assertEqual(openai_image.image_size('4K', '1:1'), '2880x2880')
-        for resolution in ('1K', '2K', '4K'):
-            for ratio in RATIOS:
-                across, down = ratio.split(':')
-                width, height = openai_image.image_size(resolution, ratio).split('x')
-                self.assertEqual(openai_image.image_size(resolution, f'{down}:{across}'), f'{height}x{width}')
+    def test_the_documented_1k_sizes_are_exact(self):
+        for ratio, size in (('1:1', '1024x1024'), ('3:2', '1536x1024'), ('2:3', '1024x1536')):
+            self.assertEqual(openai_image.image_size('1K', ratio), size)
 
-    def test_every_offered_size_meets_every_documented_constraint(self):
-        for resolution in ('1K', '2K', '4K'):
-            for ratio in RATIOS:
+    def test_every_size_in_the_table_meets_every_documented_constraint(self):
+        for ratio, tiers in OPENAI_IMAGE_SIZES.items():
+            for resolution, size in tiers.items():
                 with self.subTest(resolution=resolution, ratio=ratio):
-                    width, height = map(int, openai_image.image_size(resolution, ratio).split('x'))
-                    across, down = map(int, ratio.split(':'))
-                    self.assertEqual((width % 16, height % 16), (0, 0))
-                    self.assertLessEqual(max(width, height), 3840)
-                    self.assertLessEqual(max(width, height) / min(width, height), 3)
-                    self.assertTrue(655360 <= width * height <= 8294400)
-                    self.assertLess(abs(width / height - across / down) / (across / down), .01)
+                    self.assertTrue(valid(*map(int, size.split('x'))))
 
-    def test_unsupported_sizes_and_ratios_are_refused(self):
+    def test_each_size_is_the_valid_size_closest_to_its_ratio_then_to_its_tier(self):
+        documented = {('1K', '1:1'), ('1K', '3:2'), ('1K', '2:3')}
+        for ratio in RATIOS:
+            best = min(ratio_error(width, height, ratio) for width, height in VALID_SIZES)
+            for resolution, distance in TIER_DISTANCE.items():
+                with self.subTest(resolution=resolution, ratio=ratio):
+                    width, height = map(int, OPENAI_IMAGE_SIZES[ratio][resolution].split('x'))
+                    self.assertAlmostEqual(ratio_error(width, height, ratio), best, places=12)
+                    if (resolution, ratio) not in documented:
+                        closest = min(distance(w, h) for w, h in VALID_SIZES if ratio_error(w, h, ratio) - best < 1e-12)
+                        self.assertEqual(distance(width, height), closest)
+
+    def test_every_offered_ratio_has_every_tier_because_a_valid_size_exists(self):
+        self.assertEqual(list(OPENAI_IMAGE_SIZES), RATIOS)
+        for ratio in RATIOS:
+            self.assertEqual(list(OPENAI_IMAGE_SIZES[ratio]), ['1K', '2K', '4K'])
+            self.assertEqual(openai_image.image_size('4K', ratio), OPENAI_IMAGE_SIZES[ratio]['4K'])
+        self.assertFalse([size for size in VALID_SIZES if max(size) > 3 * min(size)])
+        self.assertFalse([size for size in VALID_SIZES if ratio_error(*size, '4:1') == 0])
+
+    def test_sizes_outside_the_table_are_refused(self):
         for resolution, ratio in (('1.5K', '1:1'), ('8K', '1:1'), (None, '1:1'), ('1K', '4:1'), ('1K', 'wide'), ('1K', '0:1')):
             with self.subTest(resolution=resolution, ratio=ratio), self.assertRaises(ValueError):
                 openai_image.image_size(resolution, ratio)
@@ -147,7 +169,7 @@ class PayloadTests(SimpleTestCase):
                         'aspectRatio': '16:9', 'resolution': '2K', 'options': {'quality': quality, 'background': background}})
                     self.assertEqual(url, 'https://api.openai.com/v1/images/generations')
                     self.assertEqual(payload, {'model': 'gpt-image-2.5-flare-2026-09-08', 'prompt': 'A woman reads by a window', 'n': 1,
-                                               'size': '2736x1536', 'quality': quality, 'background': background, 'output_format': 'png'})
+                                               'size': '2048x1152', 'quality': quality, 'background': background, 'output_format': 'png'})
 
     def test_a_job_without_a_valid_stored_quality_and_background_never_builds_a_request(self):
         for options in (None, {}, {'quality': 'high'}, {'background': 'opaque'}, {'quality': 'auto', 'background': 'opaque'},
@@ -349,19 +371,29 @@ class TokenCostTests(SimpleTestCase):
                              [(500, 'per_million_tokens'), (800, 'per_million_tokens'), (3000, 'per_million_tokens')])
             self.assertEqual((rows[name]['unitCostCents'], rows[name]['unit']), (21, 'per_image'))
 
-    def test_the_enqueue_estimate_scales_by_resolution(self):
-        for resolution, cents in (('1K', 21), (UNDEFINED, 21), ('2K', 32), ('4K', 63)):
-            self.assertEqual(compute_cost({'model': 'GPT Image 2.5 Flare', 'resolution': resolution}, DEFAULT_PRICING), cents)
-
-    def test_the_enqueue_estimate_scales_by_the_jobs_quality(self):
-        expected = {'1K': {'low': 1, 'medium': 5, 'high': 21, 'xhigh': 42, 'max': 84},
-                    '4K': {'low': 2, 'medium': 16, 'high': 63, 'xhigh': 126, 'max': 252}}
+    def test_the_enqueue_estimate_is_the_exact_sizes_pixels_over_1024_squared_times_quality(self):
+        factors = {'low': .03, 'medium': .25, 'high': 1, 'xhigh': 2, 'max': 4}
+        expected = {('1K', '1:1'): {'low': 1, 'medium': 5, 'high': 21, 'xhigh': 42, 'max': 84},
+                    ('2K', '1:1'): {'low': 3, 'medium': 21, 'high': 84, 'xhigh': 168, 'max': 336},
+                    ('4K', '1:1'): {'low': 5, 'medium': 42, 'high': 166, 'xhigh': 332, 'max': 664},
+                    ('1K', '16:9'): {'low': 1, 'medium': 5, 'high': 18, 'xhigh': 37, 'max': 74},
+                    ('2K', '16:9'): {'low': 1, 'medium': 12, 'high': 47, 'xhigh': 95, 'max': 189},
+                    ('4K', '16:9'): {'low': 5, 'medium': 42, 'high': 166, 'xhigh': 332, 'max': 664}}
         for name, _, _ in MODELS:
-            for resolution, cents in expected.items():
+            for (resolution, ratio), cents in expected.items():
+                width, height = map(int, OPENAI_IMAGE_SIZES[ratio][resolution].split('x'))
                 for quality in QUALITIES:
-                    with self.subTest(model=name, resolution=resolution, quality=quality):
-                        item = {'model': name, 'resolution': resolution, 'submissionInput': {'quality': quality, 'background': 'transparent'}}
+                    with self.subTest(model=name, resolution=resolution, ratio=ratio, quality=quality):
+                        self.assertEqual(math.floor(21 * width * height / 1024 ** 2 * factors[quality] + .5), cents[quality])
+                        item = {'model': name, 'resolution': resolution, 'aspectRatio': ratio,
+                                'submissionInput': {'quality': quality, 'background': 'transparent'}}
                         self.assertEqual(compute_cost(item, DEFAULT_PRICING), cents[quality])
+
+    def test_a_missing_size_or_quality_is_estimated_at_1k_square_high(self):
+        for item in ({'model': 'GPT Image 2.5 Flare'}, {'model': 'GPT Image 2.5 Flare', 'resolution': None, 'aspectRatio': None},
+                     {'model': 'GPT Image 2.5 Sunburst', 'resolution': '1K', 'aspectRatio': '1:1', 'submissionInput': None}):
+            with self.subTest(item=item):
+                self.assertEqual(compute_cost(item, DEFAULT_PRICING), 21)
         self.assertEqual(compute_cost({'model': 'Nano Banana Pro', 'resolution': '1K', 'submissionInput': {'quality': 'low'}}, DEFAULT_PRICING),
                          compute_cost({'model': 'Nano Banana Pro', 'resolution': '1K'}, DEFAULT_PRICING))
 
@@ -369,7 +401,7 @@ class TokenCostTests(SimpleTestCase):
 class ExecutionTests(SimpleTestCase):
     def setUp(self):
         self.item = SimpleNamespace(id='fixture', model='GPT Image 2.5 Sunburst', prompt='A woman reads', aspect_ratio='16:9',
-            resolution='2K', reference_images=[], seed=None, draft_task_id=None, cost_cents=32, cost_basis='estimated',
+            resolution='2K', reference_images=[], seed=None, draft_task_id=None, cost_cents=95, cost_basis='estimated',
             project_id=None, user_id=None, task_id=None, submission_input={'quality': 'xhigh', 'background': 'transparent'})
         from apps.media.storage import MemoryAdapter, StorageService
         self.storage = StorageService(MemoryAdapter())
@@ -396,7 +428,30 @@ class ExecutionTests(SimpleTestCase):
     def test_unusable_usage_keeps_the_enqueue_estimate(self):
         self.deps.openai_generate.return_value = {'content': png(), 'usage': None}
         result = self.execute()
-        self.assertEqual((result['cost_cents'], result['cost_basis']), (32, 'estimated'))
+        self.assertEqual((result['cost_cents'], result['cost_basis']), (95, 'estimated'))
+
+
+class WorkerDeadlineTests(SimpleTestCase):
+    def deadline(self, model):
+        from threading import Event
+        from apps.generation import worker
+        seen = []
+        def process(identifier, *, owner, signal):
+            seen.append(signal.timeout_ms)
+            return {'kind': 'done'}
+        with patch.object(worker.connections, 'close_all'), patch.object(worker, 'release_freed_memory'):
+            self.assertEqual(worker.handle_generation(SimpleNamespace(id='fixture', model=model), process, Event()), 'done')
+        return seen[0]
+
+    def test_openai_jobs_outlive_reference_assembly_plus_the_full_post_timeout(self):
+        self.assertEqual(openai_image.WORKER_DEADLINE_MS, 270000 + openai_image.TIMEOUT_SECONDS * 1000)
+        for name, identifier, _ in MODELS:
+            for model in (name, identifier):
+                with self.subTest(model=model):
+                    self.assertEqual(self.deadline(model), 570000)
+        for model, deadline in (('OmniHuman 2.0', 900000), ('Nano Banana Pro', 270000), ('Seedream 5.0 Pro', 270000)):
+            with self.subTest(model=model):
+                self.assertEqual(self.deadline(model), deadline)
 
 
 class EnqueueValidationTests(SimpleTestCase):
@@ -421,7 +476,7 @@ class EnqueueValidationTests(SimpleTestCase):
         qualities = 'GPT Image 2.5 Flare quality must be one of low, medium, high, xhigh, max'
         backgrounds = 'GPT Image 2.5 Flare background must be opaque or transparent'
         for item, body, message in (
-                (self.item(resolution='1.5K'), {}, 'GPT Image 2.5 Flare supports 1K/2K/4K only (got 1.5K).'),
+                (self.item(resolution='1.5K'), {}, 'GPT Image 2.5 Flare supports 1K/2K/4K at 1:1 only (got 1.5K).'),
                 (self.item(aspectRatio='4:1'), {}, 'GPT Image 2.5 Flare does not support 4:1. Supported: ' + ', '.join(RATIOS)),
                 (self.item(), {'referenceImages': ['ref'] * 17}, 'GPT Image 2.5 Flare accepts at most 16 reference images per request (got 17).'),
                 (self.item(), {'imageQuality': 'auto'}, qualities + ' (got auto).'),
@@ -440,7 +495,7 @@ class OpenAIAdmissionTests(SimpleTestCase):
     def test_each_model_is_pinned_to_its_snapshot_one_image_and_this_jobs_size(self):
         for name, identifier, snapshot in MODELS:
             for model in (name, identifier):
-                for resolution, ratio, size in (('1K', '1:1', '1024x1024'), ('4K', '9:16', '2160x3840'), (None, '16:9', '1360x768')):
+                for resolution, ratio, size in (('1K', '1:1', '1024x1024'), ('2K', '21:9', '2016x864'), ('4K', '9:16', '2160x3840'), (None, '16:9', '1280x720')):
                     with self.subTest(model=model, resolution=resolution):
                         quote = paid_guard.quote_for(contract(kind='image', model=model, resolution=resolution, aspect_ratio=ratio,
                                                               submission_input=HIGH), UNLIMITED)
@@ -504,7 +559,7 @@ class OpenAIOneClaimTests(TransactionTestCase):
         with self.guarded(ledger, sent, self.execute(self.input())) as executor:
             executor.execute_admitted(row)
         self.assertEqual([(method, url, body['model'], body['size'], body['quality'], body['background']) for method, url, body in sent],
-                         [('POST', 'https://api.openai.com/v1/images/generations', 'gpt-image-2.5-flare-2026-09-08', '2736x1536',
+                         [('POST', 'https://api.openai.com/v1/images/generations', 'gpt-image-2.5-flare-2026-09-08', '2048x1152',
                            'medium', 'transparent')])
         self.assertEqual(ledger[row.id], 'SUBMITTING')
 

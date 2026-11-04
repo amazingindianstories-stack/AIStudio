@@ -25,7 +25,8 @@ import {
   supportsBitrateMode,
   imageQualitiesForModel,
   imageBackgroundsForModel,
-  experimentalResolutionsForModel,
+  isExperimentalImageSize,
+  resolutionLabel,
   IMAGE_QUALITY_LABELS,
   IMAGE_BACKGROUND_LABELS,
   supportsFirstLastFrame,
@@ -192,15 +193,13 @@ export function SettingsToolbar() {
                   </p>
                 </div>
               )}
-              <div>
-                <Segment
-                  label="Resolution"
-                  options={resolutionOptions}
-                  value={s.resolution}
-                  onChange={s.setResolution}
-                />
-                <ExperimentalResolutionsNote model={s.mode === "image" ? s.model : null} />
-              </div>
+              <ResolutionSegment
+                model={s.model}
+                aspectRatio={s.aspectRatio}
+                options={resolutionOptions}
+                value={s.resolution}
+                onChange={s.setResolution}
+              />
               <ImageOptionsSettings s={s} />
               {s.mode === "video" && (videoTaskMode === "edit" || inputDrivenVideo) && (
                 <div>
@@ -469,6 +468,7 @@ export function Segment({
   options,
   value,
   onChange,
+  format,
 }
 
 ) {
@@ -488,7 +488,7 @@ export function Segment({
                 : "bg-ink-700 text-white/65 ring-1 ring-line hover:text-white"
             )}
           >
-            {opt}
+            {format ? format(opt) : opt}
           </button>
         ))}
       </div>
@@ -551,12 +551,25 @@ export function ImageOptionsSettings({ s }) {
   );
 }
 
-export function ExperimentalResolutionsNote({ model }) {
-  const experimental = model ? experimentalResolutionsForModel(model) : [];
-  if (!experimental.length) return null;
+/** The Resolution control. GPT Image 2.5 tiers show the exact pixels sent at
+ *  this aspect ratio, and a note names those OpenAI calls experimental; every
+ *  other model shows its plain resolutions. */
+export function ResolutionSegment({ model, aspectRatio, options, value, onChange }) {
+  const experimental = options.filter((resolution) => isExperimentalImageSize(model, aspectRatio, resolution));
   return (
-    <p className="mt-1 text-[11px] leading-snug text-white/35">
-      {`${experimental.join(" and ")} are experimental at OpenAI (above 2560×1440).`}
-    </p>
+    <div>
+      <Segment
+        label="Resolution"
+        options={options}
+        value={value}
+        onChange={onChange}
+        format={(resolution) => resolutionLabel(model, aspectRatio, resolution)}
+      />
+      {experimental.length > 0 && (
+        <p className="mt-1 text-[11px] leading-snug text-white/35">
+          {`${experimental.join(" and ")} ${experimental.length > 1 ? "are" : "is"} experimental at OpenAI (above 2560×1440 pixels).`}
+        </p>
+      )}
+    </div>
   );
 }

@@ -3,8 +3,8 @@
 developers.openai.com/api/docs/guides/image-generation and /api/reference/resources/images/methods/{generate,edit}
 (read 2026-11-04): JSON bodies on /v1/images/generations and /v1/images/edits; edits take up to 16 `images` as
 data URLs; prompts up to 32,000 characters; `size` is WxH with both edges multiples of 16, a long:short ratio of at
-most 3:1, a longest edge of at most 3840 and 655,360 to 8,294,400 pixels; the response carries `data[].b64_json`
-and a token `usage` object.
+most 3:1, a longest edge of at most 3840 and 655,360 to 8,294,400 pixels (the per-tier sizes are the registry's
+OPENAI_IMAGE_SIZES); the response carries `data[].b64_json` and a token `usage` object.
 """
 import base64
 import io
@@ -12,7 +12,8 @@ import os
 import re
 
 from apps.generation import provider_errors
-from apps.generation.model_registry import model_definition
+from apps.generation.model_registry import OPENAI_IMAGE_SIZES, model_definition
+from apps.generation.services.deadline import QUEUE_EXECUTION_DEADLINE_MS
 from apps.integrations.transport import HttpTransport, ProviderError, required_key
 
 BASE_URL = 'https://api.openai.com/v1/images'
@@ -31,40 +32,21 @@ REFERENCE_TYPES = frozenset({'image/png', 'image/jpeg', 'image/webp'})
 MAX_REFERENCE_EDGE = 2048
 MAX_DECODED_PIXELS = 8192 * 8192
 TIMEOUT_SECONDS = 300
+# The worker deadline for these jobs: the ordinary image budget for reference assembly (Gemini identity and role
+# analysis) plus the full POST timeout, so a slow 4K call is never cut off locally after OpenAI accepted it.
+WORKER_DEADLINE_MS = QUEUE_EXECUTION_DEADLINE_MS + TIMEOUT_SECONDS * 1000
 # A 3840x2160 PNG is tens of megabytes before base64; leave room above the transport default.
 MAX_RESPONSE_BYTES = 128 * 1024 * 1024
 # Rate limit and overload reject the request before any generation, so nothing was billed.
 UNPROCESSED_STATUSES = frozenset({429, 503})
 
-MIN_PIXELS, MAX_PIXELS, MAX_EDGE, STEP = 655360, 8294400, 3840, 16
-TARGET_PIXELS = {'1K': 1024 * 1024, '2K': 2048 * 2048, '4K': MAX_PIXELS}
 
-
-def image_size(resolution='1K', aspect_ratio='1:1'):
-    """The WxH closest to the resolution's pixel budget at this ratio, inside every documented size constraint."""
-    if resolution not in TARGET_PIXELS:
-        raise ValueError(f'GPT Image 2.5 supports 1K/2K/4K only; {resolution} was requested.')
-    try:
-        across, down = (int(value) for value in aspect_ratio.split(':'))
-    except (AttributeError, ValueError):
-        raise ValueError(f'GPT Image 2.5 does not support {aspect_ratio}.') from None
-    if across <= 0 or down <= 0 or max(across, down) > 3 * min(across, down):
-        raise ValueError(f'GPT Image 2.5 does not support {aspect_ratio}.')
-    # Search landscape sizes (short edge in steps of 16, long edge the nearest step to the ratio) and transpose for
-    # portrait, so W:H and H:W always get mirrored sizes.
-    ratio = max(across, down) / min(across, down)
-    target = TARGET_PIXELS[resolution]
-    best = None
-    for short in range(STEP, MAX_EDGE + 1, STEP):
-        long = round(short * ratio / STEP) * STEP
-        if long > MAX_EDGE or not MIN_PIXELS <= short * long <= MAX_PIXELS:
-            continue
-        key = (abs(short * long - target), abs(long / short - ratio))
-        if best is None or key < best[0]:
-            best = (key, long, short)
-    _, long, short = best
-    width, height = (long, short) if across >= down else (short, long)
-    return f'{width}x{height}'
+def image_size(resolution, aspect_ratio):
+    """The exact WxH sent for this tier and ratio: only sizes from the registry table exist."""
+    size = OPENAI_IMAGE_SIZES.get(aspect_ratio, {}).get(resolution)
+    if size is None:
+        raise ValueError(f'GPT Image 2.5 has no {resolution} size at {aspect_ratio}.')
+    return size
 
 
 def build_request(assembled, display):

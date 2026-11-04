@@ -80,8 +80,9 @@ DEFAULT_PRICING = [{'model': 'OmniHuman 2.0', 'unitCostCents': 0, 'unit': 'per_s
  {'model': 'GPT Image 2.5 Sunburst',
   'unitCostCents': 21,
   'unit': 'per_image',
-  'notes': 'PLACEHOLDER enqueue-time estimate only, base = 1K high quality, scaled by resolution factor and by quality '
-           '(low x0.03, medium x0.25, high x1, xhigh x2, max x4). OpenAI publishes no per-image price for '
+  'notes': 'PLACEHOLDER enqueue-time estimate only, base = 1024x1024 high quality, scaled by the exact size sent '
+           '(its pixels over 1024x1024, e.g. 2880x2880 x7.91) and by quality (low x0.03, medium x0.25, high x1, xhigh x2, '
+           'max x4). OpenAI publishes no per-image price for '
            'gpt-image-2.5-sunburst (2026-11-04); 21 cents is GPT Image 2 high quality at 1024x1024, and the low/medium '
            'factors are GPT Image 2 low ($0.006) and medium ($0.053) over high ($0.211). xhigh and max have no published '
            'figure; doubling per tier is an assumption that keeps admission from underpricing them. Replaced by the exact '
@@ -104,8 +105,9 @@ DEFAULT_PRICING = [{'model': 'OmniHuman 2.0', 'unitCostCents': 0, 'unit': 'per_s
  {'model': 'GPT Image 2.5 Flare',
   'unitCostCents': 21,
   'unit': 'per_image',
-  'notes': 'PLACEHOLDER enqueue-time estimate only, base = 1K high quality, scaled by resolution factor and by quality '
-           '(low x0.03, medium x0.25, high x1, xhigh x2, max x4). OpenAI publishes no per-image price for '
+  'notes': 'PLACEHOLDER enqueue-time estimate only, base = 1024x1024 high quality, scaled by the exact size sent '
+           '(its pixels over 1024x1024, e.g. 2880x2880 x7.91) and by quality (low x0.03, medium x0.25, high x1, xhigh x2, '
+           'max x4). OpenAI publishes no per-image price for '
            'gpt-image-2.5-flare (2026-11-04); 21 cents is GPT Image 2 high quality at 1024x1024, and the low/medium '
            'factors are GPT Image 2 low ($0.006) and medium ($0.053) over high ($0.211). xhigh and max have no published '
            'figure; doubling per tier is an assumption that keeps admission from underpricing them. Replaced by the exact '

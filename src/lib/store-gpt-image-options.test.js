@@ -2,11 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { restoreComposerDraft, useStore } from "./store";
 import {
-  experimentalResolutionsForModel,
   imageBackgroundsForModel,
   imageQualitiesForModel,
+  imageSizeFor,
+  isExperimentalImageSize,
+  resolutionLabel,
   resolutionsForModel,
 } from "./config";
+import { capability } from "./model-registry";
 
 const GPT_IMAGE = ["GPT Image 2.5 Sunburst", "GPT Image 2.5 Flare"];
 
@@ -40,17 +43,41 @@ async function sentBody(patch) {
   return bodies[0];
 }
 
-test("GPT Image 2.5 offers five qualities, two backgrounds and marks 2K/4K experimental; other models offer none", () => {
+test("GPT Image 2.5 offers five qualities, two backgrounds and exact sizes per tier; other models offer none", () => {
   for (const model of GPT_IMAGE) {
     assert.deepEqual(imageQualitiesForModel(model), ["low", "medium", "high", "xhigh", "max"]);
     assert.deepEqual(imageBackgroundsForModel(model), ["opaque", "transparent"]);
-    assert.deepEqual(experimentalResolutionsForModel(model), ["2K", "4K"]);
     assert.deepEqual(resolutionsForModel(model, "image"), ["1K", "2K", "4K"]);
+    assert.equal(imageSizeFor(model, "3:2", "1K"), "1536x1024");
+    assert.equal(resolutionLabel(model, "9:16", "4K"), "4K · 2160x3840");
+    assert.deepEqual(["1K", "2K", "4K"].map((tier) => isExperimentalImageSize(model, "1:1", tier)), [false, true, true]);
+    assert.deepEqual(["1K", "2K", "4K"].map((tier) => isExperimentalImageSize(model, "21:9", tier)), [false, false, true]);
+    assert.equal(imageSizeFor(model, "4:1", "1K"), null);
   }
   for (const model of ["Nano Banana Pro", "Seedream 4.5", "Seedance 2.5"]) {
     assert.deepEqual(imageQualitiesForModel(model), []);
     assert.deepEqual(imageBackgroundsForModel(model), []);
-    assert.deepEqual(experimentalResolutionsForModel(model), []);
+    assert.equal(imageSizeFor(model, "1:1", "2K"), null);
+    assert.equal(resolutionLabel(model, "1:1", "2K"), "2K");
+    assert.equal(isExperimentalImageSize(model, "1:1", "4K"), false);
+  }
+});
+
+test("every GPT Image 2.5 size meets OpenAI's documented constraints and keeps the documented 1K sizes", () => {
+  const sizes = capability("GPT Image 2.5 Flare", "imageSizes", null);
+  assert.deepEqual(capability("GPT Image 2.5 Sunburst", "imageSizes", null), sizes);
+  assert.deepEqual(Object.keys(sizes), capability("GPT Image 2.5 Flare", "aspectRatios", []));
+  assert.deepEqual([sizes["1:1"]["1K"], sizes["3:2"]["1K"], sizes["2:3"]["1K"]], ["1024x1024", "1536x1024", "1024x1536"]);
+  for (const [ratio, tiers] of Object.entries(sizes)) {
+    assert.deepEqual(Object.keys(tiers), ["1K", "2K", "4K"]);
+    const [across, down] = ratio.split(":").map(Number);
+    for (const size of Object.values(tiers)) {
+      const [width, height] = size.split("x").map(Number);
+      assert.equal(width % 16 + height % 16, 0, size);
+      assert.ok(Math.max(width, height) <= 3840 && Math.max(width, height) <= 3 * Math.min(width, height), size);
+      assert.ok(width * height >= 655360 && width * height <= 8294400, size);
+      assert.equal(width * down, height * across, size);
+    }
   }
 });
 

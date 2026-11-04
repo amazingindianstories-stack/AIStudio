@@ -119,15 +119,16 @@ def image_input(body, user_id):
 
 
 def validate_openai_image(item, body):
-    """GPT Image 2.5 accepts only its registry sizes, ratios, qualities and backgrounds and at most 16 reference images
-    per request; the quality and background (high and opaque when not sent) become the job's stored submission input."""
+    """GPT Image 2.5 accepts only a size from its registry table (a ratio and tier), its qualities and backgrounds and at
+    most 16 reference images per request; the quality and background (high and opaque when not sent) become the job's
+    stored submission input."""
     from apps.generation.providers import openai_image
-    name, resolution = model_definition(item['model'])['name'], item['resolution']
-    resolutions, ratios = capability(item['model'],'resolutions',[]), capability(item['model'],'aspectRatios',[])
-    if resolution is not UNDEFINED and resolution not in resolutions:
-        raise InvalidRequest(f'{name} supports {"/".join(resolutions)} only (got {string(resolution)}).')
-    if item['aspectRatio'] not in ratios:
-        raise InvalidRequest(f'{name} does not support {string(item["aspectRatio"])}. Supported: {", ".join(ratios)}')
+    name, resolution, ratio = model_definition(item['model'])['name'], item['resolution'], item['aspectRatio']
+    sizes = capability(item['model'],'imageSizes',{})
+    if not isinstance(ratio, str) or ratio not in sizes:
+        raise InvalidRequest(f'{name} does not support {string(ratio)}. Supported: {", ".join(sizes)}')
+    if resolution is not UNDEFINED and (not isinstance(resolution, str) or resolution not in sizes[ratio]):
+        raise InvalidRequest(f'{name} supports {"/".join(sizes[ratio])} at {ratio} only (got {string(resolution)}).')
     references = body.get('referenceImages')
     count = len(references) if isinstance(references, list) else 0
     if count > openai_image.MAX_IMAGES:
