@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { AlertCircle, Ban, Check, Clock, Loader2, PauseCircle, Wrench, X } from "lucide-react";
 import {
-  outcomeText, pauseReasonText, quoteCardStep, quoteCost, quoteDetails, resumeText, sentenceCase, statusLine, stepStatusText,
+  outcomeText, pauseReasonText, queuedNote, quoteCardStep, quoteCost, quoteDetails, resumeText, sentenceCase, statusLine, stepStatusText,
 } from "@/lib/agent-run";
 import { MediaCard } from "./MediaCard";
 import { GenerationStatus } from "./GenerationStatus";
@@ -194,7 +194,7 @@ export function AgentRunPanel({ view, items, last, synced, findItem, onDecide, o
       {queued.map((row) => (
         <div key={`queued-${row.id}`} data-testid="agent-queued-message" className="flex flex-col items-end gap-1">
           <div className={cn(BUBBLE, "border border-dashed border-brand/40 bg-transparent text-white/70")}>{row.content}</div>
-          <span className="flex items-center gap-1 text-[11px] text-white/40"><Clock className="h-3 w-3" /> Queued. The agent reads it after its current step.</span>
+          <span className="flex items-center gap-1 text-[11px] text-white/40"><Clock className="h-3 w-3" /> {queuedNote(view)}</span>
         </div>
       ))}
       {quote && <QuoteCard quote={quote} onDecide={onDecide} />}

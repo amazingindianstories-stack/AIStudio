@@ -385,6 +385,11 @@ export function statusLine(view) {
   return { label: view.status === "queued" ? "Starting…" : "Working…", icon: "spin" };
 }
 
+/** The note under a message queued into the active run: a stopping run never reads it, so it joins the chat once the run stops. */
+export function queuedNote(view) {
+  return view.stopping ? "Queued. It is added to the chat once the run stops." : "Queued. The agent reads it after its current step.";
+}
+
 const STEP_STATUS = { running: "Running", done: "Done", error: "Failed", declined: "Declined", quote: "Waiting for approval",
   stopped: "Stopped" };
 

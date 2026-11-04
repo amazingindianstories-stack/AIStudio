@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   addQueuedMessage, applyPage, drainFeed, forgetRunState, isSettled, needsSecondConfirmation, outcomeText, pauseReasonText,
-  pollDelay, quoteCardStep, quoteCost, quoteDetails, restoreRunState, resumeText, runAction, runState, runView, saveRunState,
+  pollDelay, queuedNote, quoteCardStep, quoteCost, quoteDetails, restoreRunState, resumeText, runAction, runState, runView, saveRunState,
   sentenceCase, statusLine, stepStatusText, threadEntries, withRun,
 } from "./agent-run.js";
 
@@ -173,6 +173,19 @@ test("a message sent during a run shows as queued until message_delivered", () =
   assert.deepEqual(view.queued, []);
   assert.deepEqual(view.timeline.at(-1), { type: "message", seq: 7, inboxId: "i-1", stepIndex: 1, content: "Make it blue", attachments: [],
     createdAt: 1007 });
+});
+
+test("a message queued into a stopping run says it joins the chat once the run stops", () => {
+  const inbox = { id: "i-1", runId: "run-1", content: "Make it blue", attachments: [], createdAt: 50, deliveredAt: null };
+  let state = addQueuedMessage(applyPage(runState(run()), page([event(1, "run_started")])), inbox, run({ updatedAt: 11 }));
+  assert.equal(queuedNote(runView(state)), "Queued. The agent reads it after its current step.");
+  state = applyPage(state, page([event(2, "cancel_requested", { cancelJobs: false }), event(3, "message_queued", { inboxId: "i-1" })],
+    { run: run({ cancelRequestedAt: 70, updatedAt: 70 }), pendingMessages: [inbox] }));
+  const view = runView(state);
+  assert.deepEqual(view.queued.map((row) => row.content), ["Make it blue"]);
+  assert.equal(queuedNote(view), "Queued. It is added to the chat once the run stops.");
+  // The run JSON alone (a reload before the cancel event is read) also marks it stopping.
+  assert.equal(queuedNote(runView(runState(run({ cancelRequestedAt: 70 })))), "Queued. It is added to the chat once the run stops.");
 });
 
 test("a queued message the snapshot no longer lists has been read even before message_delivered is seen", () => {
