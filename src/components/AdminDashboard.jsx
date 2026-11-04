@@ -1877,6 +1877,10 @@ function PricingTab({ data, reload }) {
         <p>
           <span className="text-white/60">Images:</span> per image × resolution
           factor (1K ×1, 2K ×1.5, 4K ×3).{" "}
+          <span className="text-white/60">GPT Image 2.5:</span> the per-image
+          rate is a 1024x1024 high-quality estimate, scaled by the exact size&apos;s
+          pixels over 1024x1024 and by quality; the per-1M-token rows set the
+          final charge from the tokens OpenAI reports.{" "}
           <span className="text-white/60">Videos:</span> per second × duration ×
           resolution factor (480p ×0.44, 720p ×1, 1080p ×2.46; Gemini Omni
           Flash 1.1 360p ×1/3), where the base rate is the 720p rate.
