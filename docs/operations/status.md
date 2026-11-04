@@ -33,8 +33,8 @@ scheduler deploys with it. The new run endpoints (`/api/agent-conversations/<id>
 a run and approving a quote open in the gateway only with its paid routes on. Runs obey the Agents tab admin limits,
 `agentsEnabled` included (a global `0` pauses every run at its next step boundary and refuses new runs; unset is
 admins only); see agent-access.md, Who may connect. No migration: the run tables come
-from `agents.0005_agent_runs` (#150). The current Agents tab UI still uses the synchronous message path; the tab's
-rewrite onto runs is a separate change.
+from `agents.0005_agent_runs` (#150). The Agents tab UI sends every message to a run (the synchronous
+`POST .../messages` path is removed), so the tab needs this worker deployed with the API.
 
 ## Production release 2026-11-02 (second) - main `c4c56d23`
 

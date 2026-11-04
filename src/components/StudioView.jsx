@@ -13,7 +13,7 @@ import { StudioChat } from "./StudioChat";
  * lifted out of StudioChat itself so the two can't disagree about which
  * thread is open.
  *
- * Mounted under the standalone admin-only Agents tab (page.tsx), not as the
+ * Mounted under the standalone Agents tab (page.jsx), not as the
  * Image/Video tabs themselves — so unlike the design this was ported from,
  * there's no outer nav button that sets the global `mode` between image and
  * video. This in-panel toggle is what does that here instead; it's the only

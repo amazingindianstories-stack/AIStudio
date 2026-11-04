@@ -265,8 +265,8 @@ def upload_name(asset):
 
 
 def run_attachments(user_id, attachment_ids, refs):
-    """The ``media.attachment_json`` items a run message stores: its document uploads (``attached_document``, as
-    /messages checks them) and its reference images, deduplicated by id. Each file is checked and only its id, kind and
+    """The ``media.attachment_json`` items a run message stores: its document uploads (``attached_document``) and
+    its reference images, deduplicated by id. Each file is checked and only its id, kind and
     name are kept; the run opens it with read_document or view_media. Raises ``errors.ToolError``."""
     found = {}
     for validate, value in [(attached_document, asset_id) for asset_id in attachment_ids] + [(reference_asset, ref) for ref in refs]:

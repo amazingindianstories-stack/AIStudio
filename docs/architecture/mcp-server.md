@@ -95,7 +95,7 @@ Scopes come from `agent-access.md`. Each tool declares its scope, schemas and an
 | | `list_folders` | Projects and folder tree with SQL item counts; never creates "My Project" |
 | | `get_account` | User, token, spend today, caps, auto-approve and confirmation amounts, active jobs |
 | | `get_export` | Owner only; status and a fresh download link |
-| | `view_media`, `read_document` | Agents tab only; one of the user's own uploads or generations by id, through one bounded Gemini media sub-call (usage purpose `media`), or a text, markdown or docx file's own text; the result is quoted untrusted data (`apps/agents/media.py`) |
+| | `view_media`, `read_document` | Agents tab only; one of the user's own uploads, or any finished generation of the shared library, by id, through one bounded Gemini media sub-call (usage purpose `media`), or a text, markdown or docx file's own text; the result is quoted untrusted data (`apps/agents/media.py`) |
 | `veevee.generate` | `generate_image`, `generate_video` | Every available model, including OmniHuman 2.0 with an uploaded image and audio, and Kling behind `VEEVEE_KLING` |
 | | `upscale_media` | Every Magnific image and video model, from a finished generation or the caller's own upload |
 | | `finalize_draft` | Seedance 2.5 draft to its 1080p final |

@@ -38,7 +38,7 @@ const DESTINATIONS = [
 
 /**
  * Horizontal nav lives in the top bar now (was the left-edge Sidebar rail
- * before this pass) — same three destinations plus the new admin-only
+ * before this pass) — same three destinations plus the new
  * Agents tab, laid out across the header instead of down the side.
  *
  * Agents is visible to every signed-in user but only clickable when the

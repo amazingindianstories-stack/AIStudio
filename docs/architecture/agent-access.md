@@ -19,9 +19,8 @@ endpoints.
   its per-user lock and checks; `agentGlobalDailyCapCents` (all users' agent generations plus all LLM cost) is
   enforced only by the worker's `check_step` and by `check_budget`, so MCP admission has no account-wide
   serialization point. `check_budget` runs before each Agents tab Gemini call outside a run step (voice
-  transcription, PDF describe, `view_media`, `read_document`) against the user, grant and global daily caps; once
-  one has no cent left, nothing is sent and the call fails `BUDGET_EXCEEDED` (HTTP 429 from `.../messages` and
-  `.../transcribe`).
+  transcription, `view_media`, `read_document`) against the user, grant and global daily caps; once one has no cent
+  left, nothing is sent and the call fails `BUDGET_EXCEEDED` (HTTP 429 from `.../transcribe`).
   Settings, Agent access shows the same `spent_cents` total as the user's spent today.
 - Agents tab limits (`apps/agents/limits.py`, all in `LIMITS` and `src/lib/limits.js`): `agentActiveRuns` (2),
   `agentMaxStepsPerRun` (40), `agentMaxRunCostCents` (1000), global-only `agentGlobalDailyCapCents` (20000) and
@@ -34,9 +33,9 @@ endpoints.
 - `agentsEnabled` (1/0): a global 0 is a kill switch, off for everyone including admins and per-user overrides.
   Otherwise a per-user row decides, then a global 1 (on for all), and with nothing set it is on for admins only.
   The dashboard omits the key while no global row exists, and `POST /api/admin/limits` with `value: null` deletes
-  the global row to return to admins only (the Limits tab's "Reset to default"). The same switch gates the direct
-  Gemini endpoints: `POST .../messages` and `POST .../transcribe` answer `403 AGENTS_DISABLED` before any PDF read,
-  transcription or chat turn.
+  the global row to return to admins only (the Limits tab's "Reset to default"). The same switch gates every
+  agent-conversation route, so `POST .../transcribe` answers `403 AGENTS_DISABLED` before any transcription (see
+  Agents tab runs).
 - Mid-run, `check_step` returns a `LimitHit` (`disabled`, `steps`, `run_cost`, `daily_cap`, `grant_daily_cap` for
   the Agents tab grant's own `daily_cap_cents`, `global_daily_cap`).
   `apply_limit_hit` pauses the run (`paused_limit`, `pause_reason` = kind, `resume_after` from the oldest rows
