@@ -24,9 +24,8 @@ SECRET = 'gateway-test-ingress-' + 'x' * 48
 class ProductionRouteTableTests(SimpleTestCase):
     def test_route_table_under_the_production_flags(self):
         table = [
-            # Opened: audio transcription, admin agent chat, admin mutations and the read-only dependency status.
+            # Opened: audio transcription, agent voice notes, admin mutations and the read-only dependency status.
             ('POST', '/api/audio/transcribe', True),
-            ('POST', f'/api/agent-conversations/{ID}/messages', True),
             ('POST', f'/api/agent-conversations/{ID}/transcribe', True), ('GET', f'/api/agent-conversations/{ID}/transcribe', True),
             ('POST', '/api/admin/users', True), ('PATCH', '/api/admin/users', True), ('DELETE', '/api/admin/users', True),
             ('POST', '/api/admin/pricing', True), ('POST', '/api/admin/limits', True), ('POST', '/api/admin/user-limits', True),
@@ -50,8 +49,6 @@ class ProductionRouteTableTests(SimpleTestCase):
             ('DELETE', '/api/admin/limits', False), ('PATCH', '/api/admin/user-limits', False), ('POST', '/api/admin/status', False),
             ('DELETE', '/api/admin/status', False), ('POST', '/api/admin/users/x', False), ('POST', '/api/admin/other', False),
             ('GET', '/api/audio/transcribe', False), ('PUT', '/api/audio/transcribe', False), ('POST', '/api/audio/transcribe/x', False),
-            ('PUT', f'/api/agent-conversations/{ID}/messages', False), ('DELETE', f'/api/agent-conversations/{ID}/messages', False),
-            ('POST', '/api/agent-conversations/not-a-conversation-id/messages', False),
             ('POST', f'/api/agent-conversations/{ID}/messages/extra', True),  # attach-style path: Django answers 405 for POST
             # Agent runs: start/message, the event feed, quote answers and cancel.
             ('POST', f'/api/agent-conversations/{ID}/runs', True), ('GET', f'/api/agent-conversations/{ID}/runs', True),
@@ -68,7 +65,7 @@ class ProductionRouteTableTests(SimpleTestCase):
             self.assertIs(gateway.allowed(method, path, **PRODUCTION), expected, (method, path))
 
     def test_provider_routes_need_paid_routes_but_admin_routes_do_not(self):
-        for path in ('/api/audio/transcribe', f'/api/agent-conversations/{ID}/messages', f'/api/agent-conversations/{ID}/transcribe',
+        for path in ('/api/audio/transcribe', f'/api/agent-conversations/{ID}/transcribe',
                      f'/api/agent-conversations/{ID}/transcrib%65', f'/api/agent-conversations/{ID}/runs',
                      f'/api/agent-conversations/{ID}/runs/{ID}/approve'):
             self.assertFalse(gateway.allowed('POST', path, False, True, True), path)
@@ -85,13 +82,12 @@ class ProductionRouteTableTests(SimpleTestCase):
     def test_encoded_or_uppercase_agent_paid_routes_are_still_paid_routes(self):
         conversation, run = f'/api/agent-conversations/{ID}', f'/api/agent-conversations/{ID}/runs/{ID}'
         for path in (f'{conversation}/%72uns', f'{conversation}/RUNS', f'{run}/%61pprove', f'{run}/APPROVE',
-                     f'{conversation}/messag%65s', f'{conversation}/MESSAGES', f'{conversation.upper()}/runs',
+                     f'{conversation.upper()}/runs',
                      f'/api/agent-conversations/{ID.upper()}/runs/{ID.upper()}/approve'):
             with self.subTest(path=path):
                 self.assertFalse(gateway.allowed('POST', path, False, True, True))
                 self.assertTrue(gateway.agent_paid('POST', path), 'refused as a paid route')
                 self.assertTrue(gateway.allowed('POST', path, **PRODUCTION))
-        self.assertEqual(gateway.upstream_wait('POST', f'{conversation}/messag%65s'), 120)
         for action in ('%64ecline', 'CANCEL'):
             self.assertTrue(gateway.allowed('POST', f'{run}/{action}'), action)
             self.assertFalse(gateway.agent_paid('POST', f'{run}/{action}'), action)
@@ -101,7 +97,6 @@ class ProductionRouteTableTests(SimpleTestCase):
         self.assertEqual(gateway.upstream_wait('POST', '/api/generate/video'), 120)
         # Transcription answers its own 504 after 120 s, so the gateway waits a little longer.
         self.assertEqual(gateway.upstream_wait('POST', '/api/audio/transcribe'), 125)
-        self.assertEqual(gateway.upstream_wait('POST', f'/api/agent-conversations/{ID}/messages'), 120)
         self.assertEqual(gateway.upstream_wait('POST', f'/api/agent-conversations/{ID}/transcribe'), 120)
         for method, path in (('GET', '/api/audio/transcribe'), ('POST', '/api/admin/users'), ('POST', '/api/generate/upscale'),
                              ('GET', '/api/history')):
@@ -235,6 +230,7 @@ class GatewayThroughDjangoTests(TransactionTestCase):
     def test_opened_provider_routes_reach_django(self):
         # Without a session Django itself answers (the gateway no longer refuses with PREVIEW_PAID_PROVIDER_DISABLED).
         self.assertEqual(self.call('POST', '/api/audio/transcribe', None, {}), (401, {'error': 'UNAUTHENTICATED'}))
-        self.assertEqual(self.call('POST', f'/api/agent-conversations/{ID}/messages', 'user', {'content': 'x'}), (403, {'error': 'FORBIDDEN'}))
-        self.assertEqual(self.call('POST', f'/api/agent-conversations/{ID}/messages', 'admin', {'content': 'x'}),
+        self.assertEqual(self.call('POST', f'/api/agent-conversations/{ID}/runs', 'user', {'content': 'x'}),
+                         (403, {'error': 'Agents are turned off.', 'code': 'AGENTS_DISABLED'}))
+        self.assertEqual(self.call('POST', f'/api/agent-conversations/{ID}/runs', 'admin', {'content': 'x'}),
                          (404, {'error': 'Conversation not found.'}))

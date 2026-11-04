@@ -6,7 +6,8 @@ session clients. Each allow array indexes the paid/export/Magnific bit mask
 (4/2/1). Expectations are committed evidence, never recomputed by tests.
 Generation delete and move were updated to the admin-only 403 for users.
 Board PATCH was updated from 405 to the board save's 401/400 when per-object
-saves were added.
+saves were added. The synchronous agent chat route (agent conversation
+/messages) was dropped when Agents moved to durable runs.
 """
 import json
 from pathlib import Path
@@ -105,8 +106,6 @@ class GatewayParityTests(TransactionTestCase):
                         if not allowed and case['method'] != 'OPTIONS':
                             self.assertIsNone(response_body)
                             if case['method'] != 'HEAD':
-                                paid = case['path'].startswith(('/api/generate/', '/api/audio/transcribe')) or (
-                                    case['path'].startswith('/api/agent-conversations/') and case['path'].endswith('/messages')
-                                    and case['method'] not in ('GET', 'HEAD'))
+                                paid = case['path'].startswith(('/api/generate/', '/api/audio/transcribe'))
                                 self.assertEqual(json.loads(body), {'error': 'This generation route is not available.' if paid else 'This operation is not available.',
                                     'code': 'PREVIEW_PAID_PROVIDER_DISABLED' if paid else 'PREVIEW_OPERATION_DISABLED'})

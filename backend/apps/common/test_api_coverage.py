@@ -24,7 +24,6 @@ EXPECTED = {'/api/admin/activity': ['GET'],
  '/api/admin/user-limits': ['POST'],
  '/api/admin/users': ['POST', 'PATCH', 'DELETE'],
  '/api/agent-conversations/[id]/messages/[messageId]': ['PATCH'],
- '/api/agent-conversations/[id]/messages': ['POST'],
  '/api/agent-conversations/[id]/transcribe': ['GET', 'POST'],
  '/api/agent-conversations/[id]': ['GET'],
  '/api/agent-conversations': ['GET', 'POST'],
@@ -259,8 +258,8 @@ class CompleteApiCoverageTests(SimpleTestCase):
         # 90 migrated methods, the media resolver, the managed-portrait routes, the admin provider error log, agent access,
         # board roles, board sync, board AI jobs, board history, synced copies, board work tables, board media, the board
         # integration slices, Agents tab voice notes and agent runs.
-        self.assertEqual(len(EXPECTED),169)
-        self.assertEqual(sum(map(len,EXPECTED.values())),232)
+        self.assertEqual(len(EXPECTED),168)
+        self.assertEqual(sum(map(len,EXPECTED.values())),231)
         resolved_routes=set()
         for path,methods in EXPECTED.items():
             with self.subTest(path=path):
@@ -299,7 +298,6 @@ NEGATIVE_STATUS = {
  '/api/admin/user-limits': {'POST':401},
  '/api/admin/users': {'POST':401,'PATCH':401,'DELETE':401},
  '/api/agent-conversations/[id]/messages/[messageId]': {'PATCH':403},
- '/api/agent-conversations/[id]/messages': {'POST':403},
  '/api/agent-conversations/[id]/transcribe': {'GET':403,'POST':403},
  '/api/agent-conversations/[id]': {'GET':403},
  '/api/agent-conversations': {'GET':403,'POST':403},
@@ -464,7 +462,7 @@ class CompleteApiNegativeBoundaryTests(TransactionTestCase):
                             if path=='/api/auth/me' and method=='GET': self.assertEqual(response.json(),{'user':None})
                             if path=='/api/auth/logout': self.assertEqual(response.json(),{'ok':True})
                             seen.add((mode,path,method))
-            self.assertEqual(len(seen),3*232)
+            self.assertEqual(len(seen),3*231)
             self.assert_no_effects(before)
 
     def test_every_unsafe_method_rejects_hostile_origin_even_with_valid_credentials(self):
