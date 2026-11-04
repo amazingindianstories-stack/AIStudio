@@ -661,6 +661,7 @@ def limit_stop(run, hit, *, now):
         status = limits.apply_limit_hit(run, hit, now=now)
         AgentConversation.objects.filter(pk=run.conversation_id).update(status=status)
         if status == 'failed':
+            drain_inbox(before, before.step_count, now=now)
             events.emit(run.id, 'failed', run.error, now=now)
             return 'failed'
         if (before.status, before.pause_reason) != (status, run.pause_reason):

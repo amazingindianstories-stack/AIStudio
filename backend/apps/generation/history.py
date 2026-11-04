@@ -1,5 +1,6 @@
 """GET /api/history: a library page from services.reads, including composite keysets and canonical filenames, or with
-``ids=a,b`` those generations by id (``{'items', 'missing'}``), for a card shown outside every loaded scope."""
+``ids=a,b`` those library media generations by id (``{'items', 'missing'}``), for a card shown outside every loaded
+scope."""
 import logging
 from django.core.exceptions import ValidationError
 from django.db import DataError
@@ -26,7 +27,7 @@ def history_reads(request):
         identifiers = [value for value in request.query_params.get('ids', '').split(',') if value]
         if not identifiers or len(identifiers) > MAX_BATCH:
             return Response({'error': f'Ask for 1 to {MAX_BATCH} generation ids.'}, status=400)
-        return renewed(request, Response(get_generations(identifiers)))
+        return renewed(request, Response(get_generations(identifiers, media_only=True)))
     try:
         page = query_history(request.query_params)
     except (ValidationError, DataError) as error:

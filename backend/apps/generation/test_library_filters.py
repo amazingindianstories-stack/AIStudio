@@ -121,6 +121,16 @@ class LibraryFilterTests(TransactionTestCase):
         self.client.cookies.clear()
         self.assertEqual(self.client.get('/api/history', {'ids': str(newer.id)}).status_code, 401)
 
+    def test_ids_read_leaves_out_board_text_jobs(self):
+        image = self.row(kind='image')
+        board = self.row(kind='text', model='Gemini', prompt='Summarise the board notes')
+        response = self.client.get('/api/history', {'ids': f'{board.id},{image.id}'})
+        self.assertEqual(response.status_code, 200, response.content)
+        body = response.json()
+        self.assertEqual([item['id'] for item in body['items']], [str(image.id)])
+        self.assertEqual(body['missing'], [str(board.id)])
+        self.assertNotIn('Summarise the board notes', response.content.decode())
+
     def test_invalid_parameters_are_bounded_400s_and_options_require_authentication(self):
         for params in ({'type': 'audio'}, {'model': ['x'] * 51}, {'creator': 'bad'},
                        {'resolution': '4k'}, {'stage': 'approved'}, {'sort': 'created_at;drop'},

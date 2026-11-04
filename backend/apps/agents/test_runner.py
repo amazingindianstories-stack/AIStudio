@@ -512,6 +512,21 @@ class CancelTests(RunnerCase):
         self.assertEqual(self.refresh(run).error['code'], 'grant_invalid')
         self.assert_message_kept(run, 'failed')
 
+    def test_a_message_sent_after_stop_keeps_its_text_and_attachments_in_the_chat(self):
+        run = self.waiting_run()
+        runs.request_cancel(run.id, cancel_jobs=False, now=30)
+        attachments = [{'id': str(uuid.uuid4()), 'kind': 'document', 'name': 'brief.pdf'}]
+        sent = runs.post_message(self.conversation, self.user, 'Also make it blue', attachments=attachments, now=31)
+        self.assertEqual((sent['delivery'], sent['run']['id']), ('inbox', str(run.id)), 'the stopping run still takes the message')
+        self.assertEqual(self.advance(run), 'cancelled')
+        run = self.refresh(run)
+        message = AgentConversationMessage.objects.get(conversation_id=self.conversation.id, content='Also make it blue')
+        self.assertEqual((message.role, message.tool_trace),
+                         ('user', {'runId': str(run.id), 'deliveredStep': run.step_count, 'attachments': attachments}))
+        self.assertEqual(self.kinds(run)[-2:], ['message_delivered', 'cancelled'])
+        self.assertEqual(runs.feed(run, after=0, limit=100)['pendingMessages'], [])
+        self.assertEqual(AgentRun.objects.filter(conversation_id=self.conversation.id).count(), 1, 'no new run starts for the message')
+
     def test_a_job_with_no_provider_task_is_cancelled_by_the_shared_service(self):
         run = self.waiting_run()
         AgentRun.objects.filter(pk=run.id).update(cancel_requested_at=99, cancel_jobs=True)
@@ -679,6 +694,26 @@ class BoundaryTests(RunnerCase):
         message = AgentConversationMessage.objects.get(conversation_id=self.conversation.id, content='Keep going')
         self.assertEqual(message.role, 'user')
         self.assertEqual(self.kinds(run), ['paused', 'message_queued', 'message_delivered', 'failed'])
+
+    def test_a_message_sent_while_a_per_run_bound_ends_the_run_lands_in_the_chat_history(self):
+        run = self.start_run(step_count=5)
+        self.setting('agentMaxStepsPerRun', 5)
+        self.assertEqual(self.advance(run), 'paused')
+        real = runner.step_verdict
+
+        def verdict(*args, **kwargs):
+            # The artist writes after the step boundary read the inbox, while the bound is checked again.
+            runs.deliver(self.refresh(run), self.user, 'Keep going', now=20)
+            return real(*args, **kwargs)
+        with patch.object(runner, 'step_verdict', verdict):
+            self.assertEqual(self.advance(run), 'failed')
+        run = self.refresh(run)
+        inbox = AgentInboxMessage.objects.get(run_id=run.id)
+        self.assertEqual((inbox.delivered_at is not None, inbox.delivered_step), (True, run.step_count))
+        message = AgentConversationMessage.objects.get(conversation_id=self.conversation.id, content='Keep going')
+        self.assertEqual((message.role, message.tool_trace), ('user', {'runId': str(run.id), 'deliveredStep': run.step_count}))
+        self.assertEqual(self.kinds(run), ['paused', 'message_queued', 'message_delivered', 'failed'])
+        self.assertEqual(AgentRun.objects.filter(conversation_id=self.conversation.id).count(), 1, 'no new run starts for the message')
 
     def test_a_paid_call_past_the_cost_bound_is_refused_with_cost_limit_and_never_sent(self):
         sent = self.dispatched()

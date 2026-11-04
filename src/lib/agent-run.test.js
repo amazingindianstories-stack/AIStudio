@@ -504,6 +504,32 @@ test("threadEntries places a message the run read where it read it, once, and ke
   ]);
 });
 
+test("a message queued into a run that is stopped shows as a saved message once the run settles, not as queued", () => {
+  const inbox = { id: "i-1", runId: "run-1", content: "Make it blue", attachments: [{ id: "u-1", kind: "document", name: "brief.pdf" }],
+    createdAt: 50 };
+  let state = applyPage(runState(run()), page([
+    event(1, "run_queued", { messageId: "m-1" }),
+    event(2, "step_started", { stepIndex: 0, kind: "tool", tool: "search_generations" }),
+    event(3, "tool_called", { stepIndex: 0, tool: "search_generations", outcome: "ok", ok: true }),
+    event(4, "cancel_requested", { cancelJobs: false }),
+  ], { run: run({ cancelRequestedAt: 5 }) }));
+  state = addQueuedMessage(state, inbox, run({ cancelRequestedAt: 5, updatedAt: 11 }));
+  assert.deepEqual(runView(state).queued.map((row) => row.content), ["Make it blue"]);
+  state = applyPage(state, page([
+    event(5, "message_queued", { inboxId: "i-1" }),
+    event(6, "message_delivered", { inboxId: "i-1", stepIndex: 1 }),
+    event(7, "cancelled", { cancelJobs: false, jobs: [] }),
+  ], { run: run({ status: "cancelled", cancelRequestedAt: 5, stepCount: 1, updatedAt: 99 }) }));
+  const view = runView(state);
+  assert.deepEqual(view.queued, []);
+  assert.equal(view.outcome.status, "cancelled");
+  const saved = [said("m-1", "user", "Find my foxes."),
+    said("u-1", "user", "Make it blue", { runId: "run-1", deliveredStep: 1, attachments: inbox.attachments })];
+  const entries = threadEntries(saved, [{ view, live: true }]);
+  assert.deepEqual(shape(entries), ["Find my foxes.", ["run-1", ["search_generations:done"], false], "Make it blue", ["run-1", [], true]]);
+  assert.deepEqual(entries[2].message.attachments, inbox.attachments);
+});
+
 test("threadEntries puts a live run without a loaded start message at the end and drops an ended one", () => {
   const view = runView(applyPage(runState(run()), page(FULL.slice(0, 6))));
   const messages = [said("m-9", "user", "Older.")];

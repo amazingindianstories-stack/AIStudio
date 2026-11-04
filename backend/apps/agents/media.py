@@ -383,11 +383,12 @@ def transcribe(mime, data, *, api_key, usage, transport=None):
     return answer_text(response) or ''
 
 
-def record_attachment(conversation_id, asset, *, run_id=None, now=None):
-    """The conversation may use ``asset`` by id from now on; recording it twice keeps the first row."""
+def record_attachment(conversation_id, attachment, *, run_id=None, now=None):
+    """The conversation may use the file ``attachment`` (an ``attachment_json`` item) names by id from now on;
+    recording it twice keeps the first row."""
     row, _ = AgentChatAsset.objects.get_or_create(
-        conversation_id=conversation_id, asset_id=asset.id,
-        defaults={'source': 'attachment', 'kind': asset.kind, 'run_id': run_id, 'created_at': now_ms() if now is None else now})
+        conversation_id=conversation_id, asset_id=attachment['id'],
+        defaults={'source': 'attachment', 'kind': attachment['kind'], 'run_id': run_id, 'created_at': now_ms() if now is None else now})
     return row
 
 

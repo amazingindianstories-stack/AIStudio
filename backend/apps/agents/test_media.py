@@ -329,9 +329,9 @@ class ChatAssetTests(MediaCase):
     def test_an_attachment_is_recorded_once_with_its_kind(self):
         conversation = AgentConversation.objects.create(project_id=uuid.uuid4(), name='Brief', created_at=1, updated_at=1).id
         identifier = self.upload('application/pdf', PDF, purpose='document-reference')
-        asset = media.load(self.user, identifier)
-        first = media.record_attachment(conversation, asset, now=5)
-        again = media.record_attachment(conversation, asset, now=9)
+        attachment = media.attachment_json(media.load(self.user, identifier), 'brief.pdf')
+        first = media.record_attachment(conversation, attachment, now=5)
+        again = media.record_attachment(conversation, attachment, now=9)
         self.assertEqual(first.pk, again.pk)
         self.assertEqual(list(AgentChatAsset.objects.values_list('conversation_id', 'asset_id', 'source', 'kind', 'run_id', 'created_at')),
                          [(conversation, uuid.UUID(identifier), 'attachment', 'document', None, 5)])

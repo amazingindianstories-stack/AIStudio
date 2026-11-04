@@ -265,12 +265,15 @@ def upload_name(asset):
 
 
 def run_attachments(user_id, attachment_ids, refs):
-    """``(assets, attachments)`` for a run message: its document uploads (``attached_document``, as /messages checks
-    them) and its reference images, deduplicated by id, with the ``media.attachment_json`` each stores. Nothing is
-    read for the model here; the run opens each with read_document or view_media. Raises ``errors.ToolError``."""
-    found = [attached_document(user_id, asset_id) for asset_id in attachment_ids] + [reference_asset(user_id, ref) for ref in refs]
-    assets = list({asset.id: asset for asset in found}.values())
-    return assets, [media.attachment_json(asset, upload_name(asset)) for asset in assets]
+    """The ``media.attachment_json`` items a run message stores: its document uploads (``attached_document``, as
+    /messages checks them) and its reference images, deduplicated by id. Each file is checked and only its id, kind and
+    name are kept; the run opens it with read_document or view_media. Raises ``errors.ToolError``."""
+    found = {}
+    for validate, value in [(attached_document, asset_id) for asset_id in attachment_ids] + [(reference_asset, ref) for ref in refs]:
+        asset = validate(user_id, value)
+        if asset.id not in found:
+            found[asset.id] = media.attachment_json(asset, upload_name(asset))
+    return list(found.values())
 
 
 @api_view(['GET', 'POST'])
@@ -292,7 +295,7 @@ def agent_runs(request, id):
     if attachment_ids is None:
         return Response({'error': f'attachments must be a list of at most {MAX_ATTACHMENTS} upload ids.'}, status=400)
     try:
-        assets, attachments = run_attachments(user.id, attachment_ids, parsed['images'])
+        attachments = run_attachments(user.id, attachment_ids, parsed['images'])
     except errors.ToolError as error:
         return renew_session(request, Response({'error': error.message}, status=ATTACHMENT_STATUS.get(error.code, 502)))
     try:
@@ -303,8 +306,8 @@ def agent_runs(request, id):
         return Response({'error': error.hit.message, 'code': 'AGENT_LIMIT', 'kind': error.hit.kind}, status=429)
     except AgentGrantInvalid as error:
         return Response({'error': str(error), 'code': 'AGENT_GRANT_INVALID'}, status=403)
-    for asset in assets:
-        media.record_attachment(conversation.id, asset, run_id=outcome['run']['id'])
+    for attachment in attachments:
+        media.record_attachment(conversation.id, attachment, run_id=outcome['run']['id'])
     return renew_session(request, Response(outcome, status=201 if outcome['delivery'] == 'run' else 202))
 
 

@@ -49,7 +49,8 @@ compatible with the historical read contracts.
 
 `GET /api/history?ids=a,b` (1 to 100 comma-separated ids) skips every scope and
 filter and returns `{items, missing}`: those generations in the order asked, each
-once, and the ids that are malformed or name no generation. The Agents tab reads a
+once, and the ids that are malformed or name no library media (board text jobs
+are missing here, as in every scope). The Agents tab reads a
 finished job's generation this way when no loaded scope holds it (`loadItem` keeps
 the row in the store's `looseItems` pool so the viewer, favourites, deletes and
 live updates reach it).
