@@ -286,11 +286,13 @@ export function ChatSidebar({
                 </button>
                 <Dropdown
                   align="right"
+                  className="absolute right-1 top-1/2 -translate-y-1/2"
+                  label={`Options for ${c.name}`}
                   trigger={(open) => (
                     <span
                       className={cn(
-                        "absolute right-1 top-1/2 hidden h-6 w-6 -translate-y-1/2 place-items-center rounded-md text-white/45 hover:bg-white/10 hover:text-white group-hover:grid",
-                        open && "grid bg-white/10 text-white"
+                        "grid h-6 w-6 place-items-center rounded-md text-white/45 hover:bg-white/10 hover:text-white md:hidden md:group-hover:grid md:group-focus-within:grid",
+                        open && "bg-white/10 text-white md:grid"
                       )}
                     >
                       <MoreHorizontal className="h-3.5 w-3.5" />

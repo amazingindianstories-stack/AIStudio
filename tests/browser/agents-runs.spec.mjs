@@ -221,10 +221,16 @@ test('Agents runs: every ended run keeps its activity in order after its message
     const match = request.url().match(/\/runs\/([^/]+)\/events/);
     if (match) reads.push(match[1]);
   });
+  // A short window makes the history taller than the feed: it opens on the newest reply although the feeds and media
+  // arrive after the thread renders.
+  await page.setViewportSize({ width: 1280, height: 560 });
   await page.reload();
   await expect(page.getByRole('button', { name: /Desktop fixture/ })).toBeVisible();
   await agentsTab(page);
   await expectHistory();
+  await expect.poll(() => feed.evaluate((el) => el.scrollHeight - el.clientHeight)).toBeGreaterThan(100);
+  await expect.poll(() => feed.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(2);
+  await expect(feed.getByText('Your softer harbour is ready.', { exact: true })).toBeInViewport();
   await page.waitForTimeout(4000);
   expect(reads.sort()).toEqual([first.id, second.id].sort());
 });

@@ -56,9 +56,9 @@ function ToolStep({ step, jobs, findItem }) {
       <div className="flex items-start gap-2 rounded-lg border border-line bg-ink-800/70 px-2.5 py-1.5 text-xs text-white/70">
         <Wrench className="mt-0.5 h-3.5 w-3.5 shrink-0 text-white/40" />
         <div className="min-w-0 flex-1">
-          <p className="flex items-center gap-1.5 font-medium text-white/85">
-            {toolLabel(step.tool)}
-            <span className="inline-flex items-center gap-1 font-normal text-white/50"><StepIcon status={step.status} /> {status}</span>
+          <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 font-medium text-white/85">
+            <span className="break-words">{toolLabel(step.tool)}</span>
+            <span className="inline-flex items-center gap-1 whitespace-nowrap font-normal text-white/50"><StepIcon status={step.status} /> {status}</span>
           </p>
           {step.summary && <p className="mt-0.5 break-words text-white/55">{step.summary}</p>}
           {quote?.state === "approved" && <p className="mt-0.5 text-emerald-200/80">Approved {quoteCost(quote)}.</p>}

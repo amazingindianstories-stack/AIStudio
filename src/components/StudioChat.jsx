@@ -112,6 +112,9 @@ export function StudioChat({ conversationId }) {
   const voiceRef = useRef(null);
 
   const scrollRef = useRef(null);
+  const feedRef = useRef(null);
+  // Whether the feed follows its newest content; reading further up turns it off.
+  const stickRef = useRef(true);
   const mentionRef = useRef(null);
   const fileRef = useRef(null);
   const { collapsed, shellProps: collapseProps, openFilePicker, collapseOnSend, reopenAfterFailedSend } = useComposerCollapse({ dragging });
@@ -146,8 +149,24 @@ export function StudioChat({ conversationId }) {
   }, [conversationId]);
 
   useEffect(() => {
+    stickRef.current = true;
+  }, [conversationId]);
+
+  useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages, sending, agentRun.state]);
+
+  // Run feeds and job media arrive after the thread renders, so keep the
+  // newest content in view while it grows unless the reader scrolled up.
+  useEffect(() => {
+    const feed = feedRef.current;
+    if (!feed || typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(() => {
+      if (stickRef.current) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+    });
+    observer.observe(feed);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => () => voiceRef.current?.cancel(), []);
 
@@ -382,51 +401,61 @@ export function StudioChat({ conversationId }) {
       )}
 
       {/* message feed */}
-      <div ref={scrollRef} data-testid="studio-chat-feed" className="scroll-thin flex-1 overflow-y-auto px-4 py-6 sm:px-8">
-        {!conversationId || loadingThread ? (
-          <div className="mx-auto flex max-w-3xl items-center gap-2 text-sm text-white/40">
-            <Loader2 className="h-4 w-4 animate-spin" /> Loading chat…
-          </div>
-        ) : messages.length === 0 && !run ? (
-          <div className="mx-auto max-w-3xl text-sm leading-relaxed text-white/40">
-            <p className="mb-1 flex items-center gap-1.5 font-medium text-white/60">
-              <Sparkles className="h-4 w-4 text-brand" /> New chat
-            </p>
-            Talk through what you want to {mode === "image" ? "make" : "shoot"}. Attach reference
-            images or documents if you have them, and say &quot;generate that&quot; when you are ready, or design a
-            prompt first and generate it from here.
-          </div>
-        ) : (
-          <div className="mx-auto flex max-w-3xl flex-col gap-4">
-            {thread.map((entry) => (entry.panel ? (
-              <AgentRunPanel
-                key={`run-${entry.key}`}
-                view={entry.run.view}
-                items={entry.items}
-                last={entry.last}
-                synced={entry.run.synced}
-                findItem={findItem}
-                onDecide={(action, stepIndex) => agentRun.act(action, { stepIndex })}
-                onStop={(cancelJobs) => agentRun.act("cancel", { cancelJobs })}
-                pollError={entry.run.live && entry.last ? agentRun.pollError : null}
-              />
-            ) : (
-              <MessageBubble
-                key={entry.message.id}
-                message={entry.message}
-                generatedItemId={generatedItemIds[entry.message.id]}
-                generatedItem={generatedItemIds[entry.message.id] ? findItem(generatedItemIds[entry.message.id]) : undefined}
-                onGenerate={(prompt) => fireGeneration(prompt, entry.message.id)}
-                onEditAndGenerate={(prompt) => setInput(prompt)}
-              />
-            )))}
-            {sending && (
-              <div className="mr-auto flex items-center gap-1.5 text-xs text-white/40">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Thinking…
-              </div>
-            )}
-          </div>
-        )}
+      <div
+        ref={scrollRef}
+        data-testid="studio-chat-feed"
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+        }}
+        className="scroll-thin flex-1 overflow-y-auto px-4 py-6 sm:px-8"
+      >
+        <div ref={feedRef}>
+          {!conversationId || loadingThread ? (
+            <div className="mx-auto flex max-w-3xl items-center gap-2 text-sm text-white/40">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading chat…
+            </div>
+          ) : messages.length === 0 && !run ? (
+            <div className="mx-auto max-w-3xl text-sm leading-relaxed text-white/40">
+              <p className="mb-1 flex items-center gap-1.5 font-medium text-white/60">
+                <Sparkles className="h-4 w-4 text-brand" /> New chat
+              </p>
+              Talk through what you want to {mode === "image" ? "make" : "shoot"}. Attach reference
+              images or documents if you have them, and say &quot;generate that&quot; when you are ready, or design a
+              prompt first and generate it from here.
+            </div>
+          ) : (
+            <div className="mx-auto flex max-w-3xl flex-col gap-4">
+              {thread.map((entry) => (entry.panel ? (
+                <AgentRunPanel
+                  key={`run-${entry.key}`}
+                  view={entry.run.view}
+                  items={entry.items}
+                  last={entry.last}
+                  synced={entry.run.synced}
+                  findItem={findItem}
+                  onDecide={(action, stepIndex) => agentRun.act(action, { stepIndex })}
+                  onStop={(cancelJobs) => agentRun.act("cancel", { cancelJobs })}
+                  pollError={entry.run.live && entry.last ? agentRun.pollError : null}
+                />
+              ) : (
+                <MessageBubble
+                  key={entry.message.id}
+                  message={entry.message}
+                  generatedItemId={generatedItemIds[entry.message.id]}
+                  generatedItem={generatedItemIds[entry.message.id] ? findItem(generatedItemIds[entry.message.id]) : undefined}
+                  onGenerate={(prompt) => fireGeneration(prompt, entry.message.id)}
+                  onEditAndGenerate={(prompt) => setInput(prompt)}
+                />
+              )))}
+              {sending && (
+                <div className="mr-auto flex items-center gap-1.5 text-xs text-white/40">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Thinking…
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* composer: the same floating rounded/blurred shell the pre-redesign
