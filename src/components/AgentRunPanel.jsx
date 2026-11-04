@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { AlertCircle, Ban, Check, Clock, Loader2, PauseCircle, Wrench, X } from "lucide-react";
 import {
-  needsSecondConfirmation, outcomeText, pauseReasonText, quoteCardStep, quoteCost, quoteDetails, resumeText, sentenceCase, statusLine, stepStatusText,
+  outcomeText, pauseReasonText, quoteCardStep, quoteCost, quoteDetails, resumeText, sentenceCase, statusLine, stepStatusText,
 } from "@/lib/agent-run";
 import { MediaCard } from "./MediaCard";
 import { GenerationStatus } from "./GenerationStatus";
@@ -118,7 +118,7 @@ function QuoteCard({ quote, onDecide }) {
         ) : (
           <>
             <button type="button" disabled={phase === "sending"} onClick={() => decide("approve")} className="rounded-full bg-brand/20 px-3 py-1 font-medium text-brand ring-1 ring-brand/40 transition hover:bg-brand/30 disabled:opacity-50">
-              {needsSecondConfirmation(quote.costCents) ? `Approve ${cost}…` : `Approve ${cost}`}
+              Approve {cost}
             </button>
             <button type="button" disabled={phase === "sending"} onClick={() => decide("decline")} className="rounded-full border border-line px-3 py-1 font-medium text-white/70 transition hover:text-white disabled:opacity-50">
               Decline

@@ -70,6 +70,7 @@ const IDLE_VOICE = { phase: "idle", elapsedMs: 0, maxMs: 0 };
 export function StudioChat({ conversationId }) {
   const s = useStore();
   const mode = useStore((s) => s.mode);
+  const subject = mode === "image" ? "idea" : "shot";
   const model = useStore((s) => s.model);
   const setPrompt = useStore((s) => s.setPrompt);
   const generate = useStore((s) => s.generate);
@@ -548,11 +549,11 @@ export function StudioChat({ conversationId }) {
               references={referenceImages}
               videoRefs={s.referenceVideos}
               audioRefs={s.audioNotes}
-              placeholder={
-                mode === "image"
-                  ? "Talk through your idea, or type @ to reference an upload…"
-                  : "Talk through your shot, or type @ to reference an upload…"
-              }
+              placeholder={[
+                `Talk through your ${subject}, or type @ to reference an upload…`,
+                `Talk through your ${subject}, or @ an upload…`,
+                `Talk through your ${subject}…`,
+              ]}
             />
           </div>
 

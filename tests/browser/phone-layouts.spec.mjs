@@ -88,7 +88,10 @@ test('Phone layouts Agents chat 390', async ({ page, context, baseURL }) => {
   const expand = page.getByRole('button', { name: 'Expand chat list', exact: true });
   await contained(send);
   await contained(expand);
-  await contained(page.getByPlaceholder(/Talk through your/));
+  const composer = page.getByPlaceholder(/Talk through your/);
+  await contained(composer);
+  // The empty composer shows a placeholder short enough for its visible line, never a clipped second one.
+  await expect.poll(() => composer.evaluate((el) => el.scrollHeight - el.clientHeight < parseFloat(getComputedStyle(el).lineHeight) / 2)).toBe(true);
   await expect(page.getByRole('button', { name: 'Collapse chat list', exact: true })).toBeHidden();
   await noPageOverflow(page);
   await expand.click();

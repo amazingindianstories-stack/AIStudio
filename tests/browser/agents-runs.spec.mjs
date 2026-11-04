@@ -308,11 +308,11 @@ test('Agents runs: a quote of $1.00 or more needs a second confirmation, and a d
 
   const approvals = [];
   page.on('request', (request) => { if (request.url().endsWith('/approve')) approvals.push(request.postDataJSON()); });
-  await card.getByRole('button', { name: 'Approve $1.50…', exact: true }).click();
+  await card.getByRole('button', { name: 'Approve $1.50', exact: true }).click();
   await expect(card.getByRole('status')).toHaveText('This costs $1.50. Confirm to spend it.');
   await card.getByRole('button', { name: 'Back', exact: true }).click();
   await expect(card.getByRole('status')).toHaveCount(0);
-  await card.getByRole('button', { name: 'Approve $1.50…', exact: true }).click();
+  await card.getByRole('button', { name: 'Approve $1.50', exact: true }).click();
   expect(approvals).toEqual([]);
   const approved = page.waitForResponse((response) => response.url().endsWith('/approve'));
   await card.getByRole('button', { name: 'Confirm $1.50', exact: true }).click();
