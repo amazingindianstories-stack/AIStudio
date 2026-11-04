@@ -23,6 +23,11 @@ import {
   supportsAudio,
   supportsDraftMode,
   supportsBitrateMode,
+  imageQualitiesForModel,
+  imageBackgroundsForModel,
+  experimentalResolutionsForModel,
+  IMAGE_QUALITY_LABELS,
+  IMAGE_BACKGROUND_LABELS,
   supportsFirstLastFrame,
   supportsVideoEditExtend,
   VIDEO_TASK_MODES,
@@ -134,6 +139,7 @@ export function SettingsToolbar() {
                   <span className="composer-secondary-setting">{s.bitrateMode === "standard" ? "Low" : "High"}</span>
                 </>
               )}
+              <ImageOptionsSummary s={s} />
             </Chip>
           )}
         >
@@ -186,12 +192,16 @@ export function SettingsToolbar() {
                   </p>
                 </div>
               )}
-              <Segment
-                label="Resolution"
-                options={resolutionOptions}
-                value={s.resolution}
-                onChange={s.setResolution}
-              />
+              <div>
+                <Segment
+                  label="Resolution"
+                  options={resolutionOptions}
+                  value={s.resolution}
+                  onChange={s.setResolution}
+                />
+                <ExperimentalResolutionsNote model={s.mode === "image" ? s.model : null} />
+              </div>
+              <ImageOptionsSettings s={s} />
               {s.mode === "video" && (videoTaskMode === "edit" || inputDrivenVideo) && (
                 <div>
                   <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-white/40">
@@ -483,5 +493,70 @@ export function Segment({
         ))}
       </div>
     </div>
+  );
+}
+
+/** GPT Image 2.5 quality and background (config.imageQualitiesForModel); both
+ *  composers render these, and they render nothing for any other model. */
+function imageOptions(s) {
+  return s.mode === "image"
+    ? { qualities: imageQualitiesForModel(s.model), backgrounds: imageBackgroundsForModel(s.model) }
+    : { qualities: [], backgrounds: [] };
+}
+
+export function ImageOptionsSummary({ s }) {
+  const { qualities, backgrounds } = imageOptions(s);
+  return (
+    <>
+      {qualities.length > 0 && (
+        <>
+          <span className="composer-secondary-setting text-white/35">·</span>
+          <span className="composer-secondary-setting">{IMAGE_QUALITY_LABELS[s.imageQuality]}</span>
+        </>
+      )}
+      {backgrounds.length > 0 && s.imageBackground === "transparent" && (
+        <>
+          <span className="composer-secondary-setting text-white/35">·</span>
+          <span className="composer-secondary-setting">Transparent</span>
+        </>
+      )}
+    </>
+  );
+}
+
+export function ImageOptionsSettings({ s }) {
+  const { qualities, backgrounds } = imageOptions(s);
+  return (
+    <>
+      {qualities.length > 0 && (
+        <div>
+          <Segment
+            label="Quality"
+            options={qualities.map((q) => IMAGE_QUALITY_LABELS[q])}
+            value={IMAGE_QUALITY_LABELS[s.imageQuality]}
+            onChange={(v) => s.setImageQuality(qualities.find((q) => IMAGE_QUALITY_LABELS[q] === v))}
+          />
+          <p className="mt-1 text-[11px] leading-snug text-white/35">Higher quality costs more and takes longer.</p>
+        </div>
+      )}
+      {backgrounds.length > 0 && (
+        <Segment
+          label="Background"
+          options={backgrounds.map((b) => IMAGE_BACKGROUND_LABELS[b])}
+          value={IMAGE_BACKGROUND_LABELS[s.imageBackground]}
+          onChange={(v) => s.setImageBackground(backgrounds.find((b) => IMAGE_BACKGROUND_LABELS[b] === v))}
+        />
+      )}
+    </>
+  );
+}
+
+export function ExperimentalResolutionsNote({ model }) {
+  const experimental = model ? experimentalResolutionsForModel(model) : [];
+  if (!experimental.length) return null;
+  return (
+    <p className="mt-1 text-[11px] leading-snug text-white/35">
+      {`${experimental.join(" and ")} are experimental at OpenAI (above 2560×1440).`}
+    </p>
   );
 }

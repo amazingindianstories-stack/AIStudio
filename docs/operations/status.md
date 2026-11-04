@@ -46,8 +46,11 @@ refused at submission. Enabling them needs owner approval and:
 - `OPENAI_API_KEY` on generation only (`deploy/legacy_config.py` `_openai`; the API, MCP and agent never receive it).
 
 The worker calls `https://api.openai.com/v1/images/generations` (or `/edits` with references) once per job, and the
-paid guard pins the snapshot, `n=1`, size, quality `high` and PNG. Cost is reconciled from the returned token usage
-at the admin per-million-token rows (`GPT Image 2.5 <name> · text input / image input / image output`). No migration.
+paid guard pins the snapshot, `n=1`, size, PNG and the job's own quality (low to max, default high) and background
+(opaque or transparent), stored in `submission_input`. References other than PNG, JPEG or WebP (HEIC, AVIF, TIFF...)
+are sent as PNG; one that cannot be converted fails the job before any request. The enqueue estimate is the 1K high
+row scaled by resolution and quality; the charge is reconciled from the returned token usage at the admin
+per-million-token rows (`GPT Image 2.5 <name> · text input / image input / image output`). No migration.
 No live OpenAI call has been made, so provider acceptance is not claimed.
 
 ## Production release 2026-11-02 (second) - main `c4c56d23`

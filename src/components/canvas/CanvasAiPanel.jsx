@@ -11,7 +11,7 @@ import { formatCost } from "@/lib/format-cost";
 import { ACTIVE_STATUSES, quoteBoardAi, requestFingerprint, trackPanelLayout, useBoardAi } from "@/lib/board-ai";
 import { AI_FORMATS, AI_FORMAT_ORDER, STICKY_FILLS } from "@/lib/canvas/ai-formats";
 import { Dropdown, MenuItem } from "@/components/Dropdown";
-import { Chip, ModelPicker, Segment } from "@/components/ComposerControls";
+import { Chip, ExperimentalResolutionsNote, ModelPicker, Segment } from "@/components/ComposerControls";
 import { useCanvasStore } from "@/lib/canvas-store";
 import { setAiInputs, useAiPanelIntent } from "@/lib/board-ai-panel";
 import { dictationSupported, startDictation } from "@/lib/canvas/dictation";
@@ -452,12 +452,15 @@ export function CanvasAiPanel({ boardId, leftInset = 0, topInset = 0, onClose })
                     value={ratio}
                     onChange={(value) => setImageChoice((current) => ({ ...current, aspectRatio: value }))}
                   />
-                  <Segment
-                    label="Resolution"
-                    options={resolutions}
-                    value={resolution}
-                    onChange={(value) => setImageChoice((current) => ({ ...current, resolution: value }))}
-                  />
+                  <div>
+                    <Segment
+                      label="Resolution"
+                      options={resolutions}
+                      value={resolution}
+                      onChange={(value) => setImageChoice((current) => ({ ...current, resolution: value }))}
+                    />
+                    <ExperimentalResolutionsNote model={model} />
+                  </div>
                   {!refining && (
                     <Segment
                       label="Batch (per generate)"

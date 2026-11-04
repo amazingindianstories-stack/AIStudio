@@ -3,7 +3,17 @@ export const DEPTH_MODEL_NAME = "Depth Anything (Local)";
 const IMAGE_ASPECTS = ["1:1", "3:4", "4:3", "9:16", "16:9", "21:9"];
 const VIDEO_ASPECTS = ["16:9", "9:16", "1:1", "4:3", "3:4", "21:9"];
 const KLING_ASPECTS = ["1:1", "3:4", "4:3", "9:16", "16:9", "3:2", "2:3", "21:9"];
-const OPENAI_IMAGE_ASPECTS = ["1:1", "3:4", "4:3", "4:5", "5:4", "2:3", "3:2", "9:16", "16:9", "21:9"];
+const OPENAI_IMAGE_CAPABILITIES = {
+  aspectRatios: ["1:1", "3:4", "4:3", "4:5", "5:4", "2:3", "3:2", "9:16", "16:9", "21:9"],
+  resolutions: ["1K", "2K", "4K"],
+  // Every 2K and 4K size is above 2560x1440, which OpenAI calls experimental.
+  experimentalResolutions: ["2K", "4K"],
+  maxReferenceImages: 16,
+  qualities: ["low", "medium", "high", "xhigh", "max"],
+  qualityPriceFactors: { low: 0.03, medium: 0.25, high: 1, xhigh: 2, max: 4 },
+  backgrounds: ["opaque", "transparent"],
+  seed: false,
+};
 const SEEDANCE_20_DURATIONS = [4, 5, 8, 10, 15];
 const HIGGSFIELD_DURATIONS = [3, 4, 5, 6, 8, 10, 12];
 
@@ -107,7 +117,7 @@ export const MODEL_REGISTRY = [
     badge: "NEW",
     hint: "OpenAI's most capable image model, precise edits · up to 16 references · 1K/2K/4K PNG",
     pricingKey: "GPT Image 2.5 Sunburst",
-    capabilities: { aspectRatios: OPENAI_IMAGE_ASPECTS, resolutions: ["1K", "2K", "4K"], maxReferenceImages: 16, seed: false },
+    capabilities: OPENAI_IMAGE_CAPABILITIES,
   },
   {
     id: "gpt-image-2-5-flare",
@@ -119,7 +129,7 @@ export const MODEL_REGISTRY = [
     badge: "FAST",
     hint: "Fast everyday OpenAI image model · up to 16 references · 1K/2K/4K PNG",
     pricingKey: "GPT Image 2.5 Flare",
-    capabilities: { aspectRatios: OPENAI_IMAGE_ASPECTS, resolutions: ["1K", "2K", "4K"], maxReferenceImages: 16, seed: false },
+    capabilities: OPENAI_IMAGE_CAPABILITIES,
   },
   {
     id: "seedance",

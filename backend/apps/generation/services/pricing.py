@@ -43,6 +43,9 @@ def compute_cost(input, pricing):
         if truthy(input.get('hasReferenceImage')):
             row = rows.get(definition.get('imageToImagePricingKey', input['model'] + ' · image-to-image'), row)
         factor = {'1K': 1, '1080p': 1, '2K': 1.5, '4K': 3}.get(input.get('resolution'), 1) if capability(input['model'], 'imagePriceScalesWithResolution', True) is not False else 1
+        # GPT Image 2.5: the job's stored quality, relative to the high-quality base row (no stored quality = high).
+        quality = (input.get('submissionInput') or {}).get('quality')
+        factor *= (capability(input['model'], 'qualityPriceFactors', None) or {}).get(quality, 1)
         cents = row['unitCostCents'] * factor
     return math.floor(cents + .5)
 

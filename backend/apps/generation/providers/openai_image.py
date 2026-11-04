@@ -7,7 +7,9 @@ most 3:1, a longest edge of at most 3840 and 655,360 to 8,294,400 pixels; the re
 and a token `usage` object.
 """
 import base64
+import io
 import os
+import re
 
 from apps.generation import provider_errors
 from apps.generation.model_registry import model_definition
@@ -18,10 +20,16 @@ GENERATIONS_URL = BASE_URL + '/generations'
 EDITS_URL = BASE_URL + '/edits'
 MAX_IMAGES = 16
 MAX_PROMPT_CHARACTERS = 32000
-# Fixed request options (no matching Veevee control): one image, the highest quality that is not the 2.5-only
-# xhigh/max tiers, and lossless PNG so the stored master keeps every byte the model produced.
-QUALITY = 'high'
+# One image per request, in lossless PNG so the stored master keeps every byte the model produced and a transparent
+# background survives. Quality and background are the artist's choice (registry `qualities`/`backgrounds`); `auto`
+# quality is not offered because its cost cannot be estimated before the run.
 OUTPUT_FORMAT = 'png'
+DEFAULT_QUALITY, DEFAULT_BACKGROUND = 'high', 'opaque'
+# The edits endpoint takes PNG, JPEG and WebP; any other reference type is re-encoded to PNG, at most 2048 px on the
+# long edge, and refused before decoding when it is larger than this many pixels.
+REFERENCE_TYPES = frozenset({'image/png', 'image/jpeg', 'image/webp'})
+MAX_REFERENCE_EDGE = 2048
+MAX_DECODED_PIXELS = 8192 * 8192
 TIMEOUT_SECONDS = 300
 # A 3840x2160 PNG is tens of megabytes before base64; leave room above the transport default.
 MAX_RESPONSE_BYTES = 128 * 1024 * 1024
@@ -93,17 +101,58 @@ def build_request(assembled, display):
     return {'prompt': prompt, 'images': images}
 
 
+def request_options(model, stored):
+    """The quality and background enqueue stored for this job (its submission input), checked against the registry."""
+    definition = model_definition(model) or {}
+    capabilities = definition.get('capabilities') or {}
+    stored = stored if isinstance(stored, dict) else {}
+    quality, background = stored.get('quality'), stored.get('background')
+    if quality not in capabilities.get('qualities', []) or background not in capabilities.get('backgrounds', []):
+        raise ValueError(f"{definition.get('name', model)} has no valid quality and background for this job.")
+    return {'quality': quality, 'background': background}
+
+
+def accepted_reference(image, position, display):
+    """PNG, JPEG and WebP pass through; any other type (HEIC, AVIF, TIFF, GIF, BMP...) becomes a PNG."""
+    mime = image.get('mimeType')
+    if mime in REFERENCE_TYPES:
+        return image
+    subtype = str(mime or '').rpartition('/')[2]
+    label = subtype.upper() if re.fullmatch(r'[\w.+\-]{1,40}', subtype) else 'UNKNOWN'
+    try:
+        from PIL import Image
+        try:
+            import pillow_heif
+            pillow_heif.register_heif_opener()
+        except ImportError:
+            pass
+        with Image.open(io.BytesIO(base64.b64decode(image['data']))) as source:
+            if source.width * source.height > MAX_DECODED_PIXELS:
+                raise ValueError('too many pixels')
+            alpha = source.mode in ('RGBA', 'LA', 'PA') or 'transparency' in source.info
+            converted = source.convert('RGBA' if alpha else 'RGB')
+        converted.thumbnail((MAX_REFERENCE_EDGE, MAX_REFERENCE_EDGE), Image.Resampling.LANCZOS)
+        output = io.BytesIO()
+        converted.save(output, format='PNG')
+    except Exception:
+        raise ValueError(f'Reference image {position} ({label}) could not be converted to PNG for {display}. '
+                         'Save it as PNG, JPEG or WebP and try again.') from None
+    return {'mimeType': 'image/png', 'data': base64.b64encode(output.getvalue()).decode()}
+
+
 def build_payload(input):
     """The exact Images API body: generations without references, edits with them."""
     definition = model_definition(input['model']) or {}
     if definition.get('provider') != 'openai':
         raise ValueError(f"{input['model']} is not an OpenAI image model.")
+    options = request_options(input['model'], input.get('options'))
     built = build_request(input['assembled'], definition['name'])
     payload = {'model': definition['providerModelId'], 'prompt': built['prompt'], 'n': 1,
                'size': image_size(input.get('resolution') or '1K', input.get('aspectRatio') or '1:1'),
-               'quality': QUALITY, 'output_format': OUTPUT_FORMAT}
+               'quality': options['quality'], 'background': options['background'], 'output_format': OUTPUT_FORMAT}
     if built['images']:
-        payload['images'] = [{'image_url': f"data:{image['mimeType']};base64,{image['data']}"} for image in built['images']]
+        images = [accepted_reference(image, position, definition['name']) for position, image in enumerate(built['images'], 1)]
+        payload['images'] = [{'image_url': f"data:{image['mimeType']};base64,{image['data']}"} for image in images]
         return EDITS_URL, payload
     return GENERATIONS_URL, payload
 

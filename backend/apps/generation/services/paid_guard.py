@@ -120,7 +120,7 @@ def kling_quote(contract,definition):
   'provider_payload_allowed_values':{'model_name':[definition['providerModelId']],'n':[1],'aspect_ratio':[aspect],'resolution':[resolution.lower()]}}
 def openai_quote(contract,definition):
  """GPT Image 2.5 (VEEVEE_OPENAI_IMAGE, unlimited scope only): the Images API generations or edits endpoint, with this
- job's pinned snapshot, a single image, its own size and the fixed quality and PNG output pinned in the payload."""
+ job's pinned snapshot, a single image, its own size, its own stored quality and background, and PNG output pinned in the payload."""
  from apps.generation.availability import switched_on
  from apps.generation.providers import openai_image
  require(switched_on('openai'),definition['name']+' is not enabled. Choose another image model.')
@@ -128,10 +128,12 @@ def openai_quote(contract,definition):
  resolution=contract.get('resolution') or '1K';aspect=contract.get('aspect_ratio') or '1:1'
  capabilities=definition.get('capabilities') or {}
  require(resolution in capabilities.get('resolutions',[]) and aspect in capabilities.get('aspectRatios',[]),'Request outside the OpenAI contract')
+ try:options=openai_image.request_options(contract['model'],contract.get('submission_input'))
+ except ValueError:raise ValueError('Request outside the OpenAI contract') from None
  return {'maximum_cents':0,'pricing_status':'UNLIMITED_NEW_JOB_REGISTRATION_NOT_PRICE_GATE',
   'allowed_paid_endpoints':[openai_image.GENERATIONS_URL,openai_image.EDITS_URL],
   'provider_payload_allowed_values':{'model':[definition['providerModelId']],'n':[1],'size':[openai_image.image_size(resolution,aspect)],
-   'quality':[openai_image.QUALITY],'output_format':[openai_image.OUTPUT_FORMAT]}}
+   'quality':[options['quality']],'background':[options['background']],'output_format':[openai_image.OUTPUT_FORMAT]}}
 def audio_quote(contract):
  """Audio transcription (unlimited scope only): one generateContent call on the configured transcription model,
  for this job's own immutable snapshot. The exact request body is checked by audio_payload_matches."""

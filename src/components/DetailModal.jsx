@@ -32,7 +32,7 @@ import { stepViewer } from "@/lib/viewer-step";
 import { useViewerPreload } from "@/lib/viewer-media";
 import { useStore } from "@/lib/store";
 import { cn, thumbUrl, referenceDisplayUrl, generationDownloadUrl } from "@/lib/utils";
-import { DEPTH_ENCODER_LABELS } from "@/lib/config";
+import { DEPTH_ENCODER_LABELS, IMAGE_BACKGROUND_LABELS, IMAGE_QUALITY_LABELS } from "@/lib/config";
 import {
   supportsFirstFrameContinuation,
   supportsFirstLastFrame,
@@ -524,6 +524,12 @@ export function DetailModal() {
                     label="Bitrate"
                     value={item.bitrateMode === "standard" ? "Low" : "High"}
                   />
+                )}
+                {IMAGE_QUALITY_LABELS[item.imageQuality] && (
+                  <Param label="Quality" value={IMAGE_QUALITY_LABELS[item.imageQuality]} />
+                )}
+                {IMAGE_BACKGROUND_LABELS[item.imageBackground] && (
+                  <Param label="Background" value={IMAGE_BACKGROUND_LABELS[item.imageBackground]} />
                 )}
               </div>
 

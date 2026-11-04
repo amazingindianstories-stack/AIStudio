@@ -55,6 +55,7 @@ import { UpscalerComposer } from "./UpscalerComposer";
 import { AssetLightbox } from "./AssetLightbox";
 import { useComposerCollapse } from "./useComposerCollapse";
 import { Dropdown, MenuItem } from "./Dropdown";
+import { ExperimentalResolutionsNote, ImageOptionsSettings, ImageOptionsSummary } from "./ComposerControls";
 import { MentionTextarea, } from "./MentionTextarea";
 import {
 
@@ -1063,6 +1064,7 @@ export function PromptComposer() {
                   </span>
                 </>
               )}
+              <ImageOptionsSummary s={s} />
             </Chip>
           )}
         >
@@ -1119,12 +1121,16 @@ export function PromptComposer() {
                   </p>
                 </div>
               )}
-              <Segment
-                label="Resolution"
-                options={resolutionsForModel(s.model, s.mode, s.referenceImages.length > 0)}
-                value={s.resolution}
-                onChange={s.setResolution}
-              />
+              <div>
+                <Segment
+                  label="Resolution"
+                  options={resolutionsForModel(s.model, s.mode, s.referenceImages.length > 0)}
+                  value={s.resolution}
+                  onChange={s.setResolution}
+                />
+                <ExperimentalResolutionsNote model={s.mode === "image" ? s.model : null} />
+              </div>
+              <ImageOptionsSettings s={s} />
               {s.mode === "video" && (videoTaskMode === "edit" || inputDrivenVideo) && (
                 <div>
                   <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-white/40">

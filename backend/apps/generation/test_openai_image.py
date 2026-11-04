@@ -30,12 +30,29 @@ from .test_paid_guard import UNLIMITED, OneClaimPerPostTests, contract
 MODELS = (('GPT Image 2.5 Sunburst', 'gpt-image-2-5-sunburst', 'gpt-image-2.5-sunburst-2026-09-08'),
           ('GPT Image 2.5 Flare', 'gpt-image-2-5-flare', 'gpt-image-2.5-flare-2026-09-08'))
 RATIOS = ['1:1', '3:4', '4:3', '4:5', '5:4', '2:3', '3:2', '9:16', '16:9', '21:9']
+QUALITIES = ['low', 'medium', 'high', 'xhigh', 'max']
+HIGH = {'quality': 'high', 'background': 'opaque'}
 
 
 def png(size=(64, 48)):
+    return encoded('PNG', size)
+
+
+def encoded(format, size=(64, 48), mode='RGB', **options):
+    import pillow_heif
+    pillow_heif.register_heif_opener()
     buffer = io.BytesIO()
-    Image.new('RGB', size, 'blue').save(buffer, format='PNG')
+    Image.new(mode, size, 'blue').save(buffer, format=format, **options)
     return buffer.getvalue()
+
+
+def reference(mime, content):
+    return {'mimeType': mime, 'data': base64.b64encode(content).decode()}
+
+
+def decoded(image_url):
+    header, data = image_url.split(',', 1)
+    return header, Image.open(io.BytesIO(base64.b64decode(data)))
 
 
 def usage(text_in=42, image_in=0, image_out=4160, text_out=0):
@@ -74,8 +91,11 @@ class RegistryTests(SimpleTestCase):
                 definition = model_definition(identifier)
                 self.assertEqual((definition['name'], definition['provider'], definition['kind'], definition['providerModelId'],
                                   definition['pricingKey'], definition['offered']), (name, 'openai', 'image', snapshot, name, True))
-                self.assertEqual(definition['capabilities'], {'aspectRatios': RATIOS, 'resolutions': ['1K', '2K', '4K'],
-                                                              'maxReferenceImages': 16, 'seed': False})
+                self.assertEqual(definition['capabilities'], {
+                    'aspectRatios': RATIOS, 'resolutions': ['1K', '2K', '4K'], 'experimentalResolutions': ['2K', '4K'],
+                    'maxReferenceImages': 16, 'qualities': QUALITIES,
+                    'qualityPriceFactors': {'low': .03, 'medium': .25, 'high': 1, 'xhigh': 2, 'max': 4},
+                    'backgrounds': ['opaque', 'transparent'], 'seed': False})
         self.assertEqual([model['id'] for model in MODEL_REGISTRY if model.get('provider') == 'openai'],
                          ['gpt-image-2-5-sunburst', 'gpt-image-2-5-flare'])
 
@@ -119,18 +139,27 @@ class SizeTests(SimpleTestCase):
 
 
 class PayloadTests(SimpleTestCase):
-    def test_text_only_uses_generations_with_the_fixed_options(self):
-        url, payload = openai_image.build_payload({'model': 'GPT Image 2.5 Flare', 'assembled': assembled(),
-                                                   'aspectRatio': '16:9', 'resolution': '2K'})
-        self.assertEqual(url, 'https://api.openai.com/v1/images/generations')
-        self.assertEqual(payload, {'model': 'gpt-image-2.5-flare-2026-09-08', 'prompt': 'A woman reads by a window', 'n': 1,
-                                   'size': '2736x1536', 'quality': 'high', 'output_format': 'png'})
+    def test_text_only_uses_generations_with_the_jobs_quality_and_background(self):
+        for quality in QUALITIES:
+            for background in ('opaque', 'transparent'):
+                with self.subTest(quality=quality, background=background):
+                    url, payload = openai_image.build_payload({'model': 'GPT Image 2.5 Flare', 'assembled': assembled(),
+                        'aspectRatio': '16:9', 'resolution': '2K', 'options': {'quality': quality, 'background': background}})
+                    self.assertEqual(url, 'https://api.openai.com/v1/images/generations')
+                    self.assertEqual(payload, {'model': 'gpt-image-2.5-flare-2026-09-08', 'prompt': 'A woman reads by a window', 'n': 1,
+                                               'size': '2736x1536', 'quality': quality, 'background': background, 'output_format': 'png'})
+
+    def test_a_job_without_a_valid_stored_quality_and_background_never_builds_a_request(self):
+        for options in (None, {}, {'quality': 'high'}, {'background': 'opaque'}, {'quality': 'auto', 'background': 'opaque'},
+                        {'quality': 'high', 'background': 'auto'}, {'quality': 'standard', 'background': 'opaque'}, 'high'):
+            with self.subTest(options=options), self.assertRaisesMessage(ValueError, 'GPT Image 2.5 Flare has no valid quality and background for this job.'):
+                openai_image.build_payload({'model': 'GPT Image 2.5 Flare', 'assembled': assembled(), 'aspectRatio': '1:1', 'options': options})
 
     def test_references_use_edits_as_ordered_data_urls_with_a_legend(self):
         built = assembled([group('@anna (character: Anna):', 'a1', 'a2', tiles=['t1'], identity=True), group('Reference image 1:', 'u1')],
                           shotInstruction='SHOT: Anna by the window')
         url, payload = openai_image.build_payload({'model': 'gpt-image-2-5-sunburst', 'assembled': built, 'aspectRatio': '1:1',
-                                                   'resolution': None})
+                                                   'resolution': None, 'options': HIGH})
         self.assertEqual(url, 'https://api.openai.com/v1/images/edits')
         self.assertEqual((payload['model'], payload['size']), ('gpt-image-2.5-sunburst-2026-09-08', '1024x1024'))
         self.assertEqual(payload['images'], [{'image_url': 'data:image/png;base64,a1'}, {'image_url': 'data:image/png;base64,a2'},
@@ -141,29 +170,87 @@ class PayloadTests(SimpleTestCase):
 
     def test_tiles_fill_only_the_room_left_under_sixteen(self):
         built = assembled([group('Faces:', *[f'i{n}' for n in range(15)], tiles=['t1', 't2', 't3'])])
-        _, payload = openai_image.build_payload({'model': 'GPT Image 2.5 Flare', 'assembled': built, 'aspectRatio': '1:1'})
+        _, payload = openai_image.build_payload({'model': 'GPT Image 2.5 Flare', 'assembled': built, 'aspectRatio': '1:1', 'options': HIGH})
         self.assertEqual(len(payload['images']), 16)
         self.assertEqual(payload['images'][-1], {'image_url': 'data:image/jpeg;base64,t1'})
 
     def test_too_many_references_or_too_long_a_prompt_is_refused_with_curated_copy(self):
         built = assembled([group('Refs:', *[f'i{n}' for n in range(17)])])
         with self.assertRaises(ValueError) as caught:
-            openai_image.build_payload({'model': 'GPT Image 2.5 Flare', 'assembled': built, 'aspectRatio': '1:1'})
+            openai_image.build_payload({'model': 'GPT Image 2.5 Flare', 'assembled': built, 'aspectRatio': '1:1', 'options': HIGH})
         self.assertEqual(str(caught.exception), 'Too many reference images: 17. GPT Image 2.5 Flare accepts at most 16 images per prompt - remove 1.')
         long = assembled(instruction='A woman ' + 'x' * 32000)
         with self.assertRaises(ValueError) as too_long:
-            openai_image.build_payload({'model': 'GPT Image 2.5 Flare', 'assembled': long, 'aspectRatio': '1:1'})
+            openai_image.build_payload({'model': 'GPT Image 2.5 Flare', 'assembled': long, 'aspectRatio': '1:1', 'options': HIGH})
         row = SimpleNamespace(kind='image', model='GPT Image 2.5 Flare', moderation_blocked=False, provider_responses=None)
         for error in (caught.exception, too_long.exception):
             self.assertEqual(failure_copy.public_message(row, str(error)), str(error))
 
     def test_only_openai_models_build_an_openai_payload(self):
         with self.assertRaises(ValueError):
-            openai_image.build_payload({'model': 'Nano Banana Pro', 'assembled': assembled(), 'aspectRatio': '1:1'})
+            openai_image.build_payload({'model': 'Nano Banana Pro', 'assembled': assembled(), 'aspectRatio': '1:1', 'options': HIGH})
+
+
+class ReferenceTypeTests(SimpleTestCase):
+    """The edits endpoint takes PNG, JPEG and WebP only; nothing else is ever sent."""
+    env = {'OPENAI_API_KEY': 'k'}
+
+    def input(self, *images):
+        built = {'instruction': 'A woman reads', 'groups': [{'tag': 'x', 'header': 'Refs:', 'images': list(images), 'tiles': []}]}
+        return {'model': 'GPT Image 2.5 Flare', 'assembled': built, 'aspectRatio': '1:1', 'resolution': '1K', 'options': HIGH}
+
+    def test_other_types_are_sent_as_png_in_their_place_and_accepted_types_pass_through_unchanged(self):
+        jpeg, webp = reference('image/jpeg', encoded('JPEG')), reference('image/webp', encoded('WEBP'))
+        others = [('image/heic', encoded('HEIF', (40, 30))), ('image/heif', encoded('HEIF', (30, 40))),
+                  ('image/avif', encoded('AVIF', (50, 20))), ('image/tiff', encoded('TIFF', (20, 50))),
+                  ('image/gif', encoded('GIF', (24, 24))), ('image/bmp', encoded('BMP', (12, 10))), (None, encoded('PNG', (8, 6)))]
+        transport = FakeTransport(ok())
+        openai_image.generate_image(self.input(jpeg, *[reference(mime, data) for mime, data in others], webp),
+                                    transport=transport, env=self.env, signal=Signal())
+        ((_, url, _, body),) = transport.calls
+        self.assertEqual(url, 'https://api.openai.com/v1/images/edits')
+        sent = [image['image_url'] for image in body['images']]
+        self.assertEqual((sent[0], sent[-1]), ('data:image/jpeg;base64,' + jpeg['data'], 'data:image/webp;base64,' + webp['data']))
+        for image_url, (mime, data) in zip(sent[1:-1], others):
+            with self.subTest(mime=mime):
+                header, image = decoded(image_url)
+                self.assertEqual((header, image.format, image.size), ('data:image/png;base64', 'PNG', Image.open(io.BytesIO(data)).size))
+
+    def test_conversion_keeps_transparency_and_bounds_the_long_edge(self):
+        clear = Image.new('RGBA', (8, 8), (0, 0, 0, 0))
+        buffer = io.BytesIO()
+        clear.save(buffer, format='TIFF')
+        transport = FakeTransport(ok())
+        openai_image.generate_image(self.input(reference('image/tiff', buffer.getvalue()),
+                                               reference('image/x-portable-anymap', encoded('PPM', (4096, 1024)))),
+                                    transport=transport, env=self.env)
+        ((*_, body),) = transport.calls
+        (_, small), (_, large) = (decoded(image['image_url']) for image in body['images'])
+        self.assertEqual((small.mode, small.getpixel((0, 0))), ('RGBA', (0, 0, 0, 0)))
+        self.assertEqual((large.mode, large.size), ('RGB', (2048, 512)))
+
+    def test_an_unreadable_or_oversized_reference_fails_the_job_before_any_request_with_plain_copy(self):
+        row = SimpleNamespace(kind='image', model='GPT Image 2.5 Flare', moderation_blocked=False, provider_responses=None)
+        huge = Image.new('1', (9000, 8000))
+        buffer = io.BytesIO()
+        huge.save(buffer, format='TIFF', compression='group4')
+        for images, message in (
+                ([reference('image/png', png()), reference('image/heic', b'not an image')],
+                 'Reference image 2 (HEIC) could not be converted to PNG for GPT Image 2.5 Flare. Save it as PNG, JPEG or WebP and try again.'),
+                ([reference('image/tiff', buffer.getvalue())],
+                 'Reference image 1 (TIFF) could not be converted to PNG for GPT Image 2.5 Flare. Save it as PNG, JPEG or WebP and try again.'),
+                ([reference('image/<svg>', b'<svg/>')],
+                 'Reference image 1 (UNKNOWN) could not be converted to PNG for GPT Image 2.5 Flare. Save it as PNG, JPEG or WebP and try again.')):
+            transport = FakeTransport(ok())
+            with self.subTest(message=message), self.assertRaises(ValueError) as caught:
+                openai_image.generate_image(self.input(*images), transport=transport, env=self.env)
+            self.assertEqual(str(caught.exception), message)
+            self.assertEqual(failure_copy.public_message(row, str(caught.exception)), message)
+            self.assertEqual(transport.calls, [])
 
 
 class FakedOpenAITests(SimpleTestCase):
-    input = {'model': 'GPT Image 2.5 Sunburst', 'assembled': assembled(), 'aspectRatio': '1:1', 'resolution': '1K'}
+    input = {'model': 'GPT Image 2.5 Sunburst', 'assembled': assembled(), 'aspectRatio': '1:1', 'resolution': '1K', 'options': HIGH}
 
     def test_success_sends_one_authorized_json_post_and_returns_bytes_and_usage(self):
         transport = FakeTransport(ok(png(), usage(text_in=10)))
@@ -266,12 +353,24 @@ class TokenCostTests(SimpleTestCase):
         for resolution, cents in (('1K', 21), (UNDEFINED, 21), ('2K', 32), ('4K', 63)):
             self.assertEqual(compute_cost({'model': 'GPT Image 2.5 Flare', 'resolution': resolution}, DEFAULT_PRICING), cents)
 
+    def test_the_enqueue_estimate_scales_by_the_jobs_quality(self):
+        expected = {'1K': {'low': 1, 'medium': 5, 'high': 21, 'xhigh': 42, 'max': 84},
+                    '4K': {'low': 2, 'medium': 16, 'high': 63, 'xhigh': 126, 'max': 252}}
+        for name, _, _ in MODELS:
+            for resolution, cents in expected.items():
+                for quality in QUALITIES:
+                    with self.subTest(model=name, resolution=resolution, quality=quality):
+                        item = {'model': name, 'resolution': resolution, 'submissionInput': {'quality': quality, 'background': 'transparent'}}
+                        self.assertEqual(compute_cost(item, DEFAULT_PRICING), cents[quality])
+        self.assertEqual(compute_cost({'model': 'Nano Banana Pro', 'resolution': '1K', 'submissionInput': {'quality': 'low'}}, DEFAULT_PRICING),
+                         compute_cost({'model': 'Nano Banana Pro', 'resolution': '1K'}, DEFAULT_PRICING))
+
 
 class ExecutionTests(SimpleTestCase):
     def setUp(self):
         self.item = SimpleNamespace(id='fixture', model='GPT Image 2.5 Sunburst', prompt='A woman reads', aspect_ratio='16:9',
             resolution='2K', reference_images=[], seed=None, draft_task_id=None, cost_cents=32, cost_basis='estimated',
-            project_id=None, user_id=None, task_id=None)
+            project_id=None, user_id=None, task_id=None, submission_input={'quality': 'xhigh', 'background': 'transparent'})
         from apps.media.storage import MemoryAdapter, StorageService
         self.storage = StorageService(MemoryAdapter())
         self.deps = Dependencies()
@@ -291,7 +390,8 @@ class ExecutionTests(SimpleTestCase):
         self.assertTrue(result['url'])
         (call,) = self.deps.openai_generate.call_args_list
         self.assertEqual(call.args[0], {'model': 'GPT Image 2.5 Sunburst', 'assembled': assembled(instruction='A woman reads'),
-                                        'aspectRatio': '16:9', 'resolution': '2K'})
+                                        'aspectRatio': '16:9', 'resolution': '2K',
+                                        'options': {'quality': 'xhigh', 'background': 'transparent'}})
 
     def test_unusable_usage_keeps_the_enqueue_estimate(self):
         self.deps.openai_generate.return_value = {'content': png(), 'usage': None}
@@ -306,16 +406,33 @@ class EnqueueValidationTests(SimpleTestCase):
     def test_registry_sizes_ratios_and_up_to_sixteen_references_are_accepted(self):
         for resolution in ('1K', '2K', '4K', UNDEFINED):
             for ratio in RATIOS:
-                validate_openai_image(self.item(resolution=resolution, aspectRatio=ratio), ['ref'] * 16)
-        validate_openai_image(self.item(), None)
+                validate_openai_image(self.item(resolution=resolution, aspectRatio=ratio), {'referenceImages': ['ref'] * 16})
+        validate_openai_image(self.item(), {'referenceImages': None})
+
+    def test_quality_and_background_become_the_stored_submission_input_with_high_opaque_defaults(self):
+        self.assertEqual(validate_openai_image(self.item(), {}), {'quality': 'high', 'background': 'opaque'})
+        for quality in QUALITIES:
+            for background in ('opaque', 'transparent'):
+                with self.subTest(quality=quality, background=background):
+                    self.assertEqual(validate_openai_image(self.item(), {'imageQuality': quality, 'imageBackground': background}),
+                                     {'quality': quality, 'background': background})
 
     def test_anything_else_is_refused_before_it_is_stored(self):
-        for item, references, message in (
-                (self.item(resolution='1.5K'), [], 'GPT Image 2.5 Flare supports 1K/2K/4K only (got 1.5K).'),
-                (self.item(aspectRatio='4:1'), [], 'GPT Image 2.5 Flare does not support 4:1. Supported: ' + ', '.join(RATIOS)),
-                (self.item(), ['ref'] * 17, 'GPT Image 2.5 Flare accepts at most 16 reference images per request (got 17).')):
+        qualities = 'GPT Image 2.5 Flare quality must be one of low, medium, high, xhigh, max'
+        backgrounds = 'GPT Image 2.5 Flare background must be opaque or transparent'
+        for item, body, message in (
+                (self.item(resolution='1.5K'), {}, 'GPT Image 2.5 Flare supports 1K/2K/4K only (got 1.5K).'),
+                (self.item(aspectRatio='4:1'), {}, 'GPT Image 2.5 Flare does not support 4:1. Supported: ' + ', '.join(RATIOS)),
+                (self.item(), {'referenceImages': ['ref'] * 17}, 'GPT Image 2.5 Flare accepts at most 16 reference images per request (got 17).'),
+                (self.item(), {'imageQuality': 'auto'}, qualities + ' (got auto).'),
+                (self.item(), {'imageQuality': 'standard'}, qualities + ' (got standard).'),
+                (self.item(), {'imageQuality': 'HIGH'}, qualities + ' (got HIGH).'),
+                (self.item(), {'imageQuality': None}, qualities + ' (got null).'),
+                (self.item(), {'imageBackground': 'auto'}, backgrounds + ' (got auto).'),
+                (self.item(), {'imageBackground': ''}, backgrounds + ' (got ).'),
+                (self.item(), {'imageBackground': True}, backgrounds + ' (got true).')):
             with self.subTest(message=message), self.assertRaisesMessage(InvalidRequest, message):
-                validate_openai_image(item, references)
+                validate_openai_image(item, body)
 
 
 @override_settings(VEEVEE_OPENAI_IMAGE=True)
@@ -325,16 +442,29 @@ class OpenAIAdmissionTests(SimpleTestCase):
             for model in (name, identifier):
                 for resolution, ratio, size in (('1K', '1:1', '1024x1024'), ('4K', '9:16', '2160x3840'), (None, '16:9', '1360x768')):
                     with self.subTest(model=model, resolution=resolution):
-                        quote = paid_guard.quote_for(contract(kind='image', model=model, resolution=resolution, aspect_ratio=ratio), UNLIMITED)
+                        quote = paid_guard.quote_for(contract(kind='image', model=model, resolution=resolution, aspect_ratio=ratio,
+                                                              submission_input=HIGH), UNLIMITED)
                         self.assertEqual(quote, {'maximum_cents': 0, 'pricing_status': 'UNLIMITED_NEW_JOB_REGISTRATION_NOT_PRICE_GATE',
                             'allowed_paid_endpoints': ['https://api.openai.com/v1/images/generations', 'https://api.openai.com/v1/images/edits'],
                             'provider_payload_allowed_values': {'model': [snapshot], 'n': [1], 'size': [size], 'quality': ['high'],
-                                                                'output_format': ['png']}})
+                                                                'background': ['opaque'], 'output_format': ['png']}})
+
+    def test_quality_and_background_are_pinned_to_the_jobs_own_choice(self):
+        for quality in QUALITIES:
+            for background in ('opaque', 'transparent'):
+                with self.subTest(quality=quality, background=background):
+                    quote = paid_guard.quote_for(contract(kind='image', model='GPT Image 2.5 Sunburst', resolution='1K', aspect_ratio='1:1',
+                        submission_input={'quality': quality, 'background': background}), UNLIMITED)
+                    allowed = quote['provider_payload_allowed_values']
+                    self.assertEqual((allowed['quality'], allowed['background'], allowed['output_format']), ([quality], [background], ['png']))
 
     def test_requests_outside_the_contract_or_with_the_switch_off_are_refused(self):
-        valid = dict(kind='image', model='GPT Image 2.5 Flare', resolution='2K', aspect_ratio='16:9')
+        valid = dict(kind='image', model='GPT Image 2.5 Flare', resolution='2K', aspect_ratio='16:9', submission_input=HIGH)
         for change, message in (({'resolution': '1.5K'}, 'Request outside the OpenAI contract'),
                                 ({'aspect_ratio': '4:1'}, 'Request outside the OpenAI contract'),
+                                ({'submission_input': None}, 'Request outside the OpenAI contract'),
+                                ({'submission_input': {'quality': 'auto', 'background': 'opaque'}}, 'Request outside the OpenAI contract'),
+                                ({'submission_input': {'quality': 'high', 'background': 'auto'}}, 'Request outside the OpenAI contract'),
                                 ({'kind': 'video'}, 'New OpenAI image generation only'),
                                 ({'draft_task_id': 'x'}, 'New authenticated initial jobs only')):
             with self.subTest(change=change), self.assertRaisesRegex(ValueError, message):
@@ -350,7 +480,8 @@ class OpenAIOneClaimTests(TransactionTestCase):
     guarded = OneClaimPerPostTests.guarded
 
     def row(self):
-        return SimpleNamespace(**contract(kind='image', model='GPT Image 2.5 Flare', resolution='2K', aspect_ratio='16:9'))
+        return SimpleNamespace(**contract(kind='image', model='GPT Image 2.5 Flare', resolution='2K', aspect_ratio='16:9',
+                                          submission_input={'quality': 'medium', 'background': 'transparent'}))
 
     def execute(self, input, posts=1):
         class Answering(HttpTransport):
@@ -364,15 +495,17 @@ class OpenAIOneClaimTests(TransactionTestCase):
         return run
 
     def input(self, **change):
-        return {'model': 'GPT Image 2.5 Flare', 'assembled': assembled(), 'aspectRatio': '16:9', 'resolution': '2K', **change}
+        return {'model': 'GPT Image 2.5 Flare', 'assembled': assembled(), 'aspectRatio': '16:9', 'resolution': '2K',
+                'options': {'quality': 'medium', 'background': 'transparent'}, **change}
 
     def test_the_exact_payload_is_claimed_once_and_sent(self):
         row, sent = self.row(), []
         ledger = {row.id: 'RESERVED'}
         with self.guarded(ledger, sent, self.execute(self.input())) as executor:
             executor.execute_admitted(row)
-        self.assertEqual([(method, url, body['model'], body['size']) for method, url, body in sent],
-                         [('POST', 'https://api.openai.com/v1/images/generations', 'gpt-image-2.5-flare-2026-09-08', '2736x1536')])
+        self.assertEqual([(method, url, body['model'], body['size'], body['quality'], body['background']) for method, url, body in sent],
+                         [('POST', 'https://api.openai.com/v1/images/generations', 'gpt-image-2.5-flare-2026-09-08', '2736x1536',
+                           'medium', 'transparent')])
         self.assertEqual(ledger[row.id], 'SUBMITTING')
 
     def test_a_second_post_and_any_other_model_or_size_are_refused_unsent(self):
@@ -382,13 +515,34 @@ class OpenAIOneClaimTests(TransactionTestCase):
             with self.assertRaisesRegex(RuntimeError, 'No paid submission retry'):
                 executor.execute_admitted(row)
         self.assertEqual(len(sent), 1)
-        for change in ({'model': 'GPT Image 2.5 Sunburst'}, {'resolution': '4K'}, {'aspectRatio': '1:1'}):
+        for change in ({'model': 'GPT Image 2.5 Sunburst'}, {'resolution': '4K'}, {'aspectRatio': '1:1'},
+                       {'options': {'quality': 'max', 'background': 'transparent'}}, {'options': {'quality': 'medium', 'background': 'opaque'}}):
             row, sent = self.row(), []
             ledger = {row.id: 'RESERVED'}
             with self.subTest(change=change), self.guarded(ledger, sent, self.execute(self.input(**change))) as executor:
                 with self.assertRaises(ValueError):
                     executor.execute_admitted(row)
             self.assertEqual(sent, [])
+
+
+class SerializationTests(SimpleTestCase):
+    def row(self, **change):
+        from apps.generation.models import Generation
+        fields = dict(kind='image', status='succeeded', prompt='A woman reads', model='GPT Image 2.5 Flare', aspect_ratio='1:1',
+                      depth_reap_attempts=0, is_favorite=False, flagged=False, created_at=1, updated_at=1)
+        return Generation(**{**fields, **change})
+
+    def test_a_gpt_image_row_reopens_with_its_quality_and_background(self):
+        from apps.generation.serialization import generation_item
+        item = generation_item(self.row(submission_input={'quality': 'max', 'background': 'transparent'}), filename='x.png')
+        self.assertEqual((item['imageQuality'], item['imageBackground']), ('max', 'transparent'))
+        self.assertNotIn('submissionInput', item)
+        for row in (self.row(), self.row(model='Nano Banana Pro'),
+                    self.row(kind='video', model='Seedance 2.5', submission_input={'quality': 'high', 'background': 'opaque'})):
+            with self.subTest(model=row.model, kind=row.kind):
+                item = generation_item(row, filename='x.png')
+                self.assertNotIn('imageQuality', item)
+                self.assertNotIn('imageBackground', item)
 
 
 class StatusTests(SimpleTestCase):

@@ -50,6 +50,11 @@ def generation_item(row, filename=None):
     # Magnific upscales reopen and regenerate with their exact validated parameters.
     if row.model.startswith('Magnific ') and isinstance(row.submission_input, dict) and isinstance(row.submission_input.get('params'), dict):
         result['upscaleParams'] = row.submission_input['params']
+    # GPT Image 2.5 rows reopen and regenerate with their stored quality and background.
+    if row.kind == 'image' and isinstance(row.submission_input, dict):
+        for key, name in (('quality', 'imageQuality'), ('background', 'imageBackground')):
+            if isinstance(row.submission_input.get(key), str):
+                result[name] = row.submission_input[key]
     # Transcriptions list under their file name, as the transcription response describes them.
     if row.kind == 'audio' and isinstance(row.submission_input, dict) and row.submission_input.get('operation') == 'audio-transcription':
         original = row.submission_input.get('originalName')

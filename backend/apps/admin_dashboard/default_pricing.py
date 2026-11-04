@@ -80,8 +80,11 @@ DEFAULT_PRICING = [{'model': 'OmniHuman 2.0', 'unitCostCents': 0, 'unit': 'per_s
  {'model': 'GPT Image 2.5 Sunburst',
   'unitCostCents': 21,
   'unit': 'per_image',
-  'notes': 'PLACEHOLDER enqueue-time estimate only, base = 1K, scaled by resolution factor. OpenAI publishes no per-image '
-           'price for gpt-image-2.5-sunburst (2026-11-04); 21 cents is GPT Image 2 high quality at 1024x1024. Replaced by the exact '
+  'notes': 'PLACEHOLDER enqueue-time estimate only, base = 1K high quality, scaled by resolution factor and by quality '
+           '(low x0.03, medium x0.25, high x1, xhigh x2, max x4). OpenAI publishes no per-image price for '
+           'gpt-image-2.5-sunburst (2026-11-04); 21 cents is GPT Image 2 high quality at 1024x1024, and the low/medium '
+           'factors are GPT Image 2 low ($0.006) and medium ($0.053) over high ($0.211). xhigh and max have no published '
+           'figure; doubling per tier is an assumption that keeps admission from underpricing them. Replaced by the exact '
            'token cost (the three per-token rows below) when the image succeeds.'},
  {'model': 'GPT Image 2.5 Sunburst · text input',
   'unitCostCents': 500,
@@ -101,8 +104,11 @@ DEFAULT_PRICING = [{'model': 'OmniHuman 2.0', 'unitCostCents': 0, 'unit': 'per_s
  {'model': 'GPT Image 2.5 Flare',
   'unitCostCents': 21,
   'unit': 'per_image',
-  'notes': 'PLACEHOLDER enqueue-time estimate only, base = 1K, scaled by resolution factor. OpenAI publishes no per-image '
-           'price for gpt-image-2.5-flare (2026-11-04); 21 cents is GPT Image 2 high quality at 1024x1024. Replaced by the exact '
+  'notes': 'PLACEHOLDER enqueue-time estimate only, base = 1K high quality, scaled by resolution factor and by quality '
+           '(low x0.03, medium x0.25, high x1, xhigh x2, max x4). OpenAI publishes no per-image price for '
+           'gpt-image-2.5-flare (2026-11-04); 21 cents is GPT Image 2 high quality at 1024x1024, and the low/medium '
+           'factors are GPT Image 2 low ($0.006) and medium ($0.053) over high ($0.211). xhigh and max have no published '
+           'figure; doubling per tier is an assumption that keeps admission from underpricing them. Replaced by the exact '
            'token cost (the three per-token rows below) when the image succeeds.'},
  {'model': 'GPT Image 2.5 Flare · text input',
   'unitCostCents': 500,

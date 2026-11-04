@@ -200,7 +200,7 @@ def execute_image(item, *, signal, dependencies=None, env=None, on_task=None):
         saved = save(fetch(done['url']), 'png')
     elif provider == 'openai':
         result = deps.openai_generate({'model': model, 'assembled': assemble(), 'aspectRatio': ratio,
-            'resolution': resolution}, signal=signal, env=env)
+            'resolution': resolution, 'options': item.submission_input}, signal=signal, env=env)
         saved = save(result['content'], 'png')
         pricing = deps.pricing if deps.pricing is not None else deps.read_pricing()
         reconciled = openai_token_cost(model, result.get('usage'), pricing)

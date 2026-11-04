@@ -63,6 +63,7 @@ _MODEL = r'[\w .\-()]{1,60}'
 _CURATED_PATTERNS = (
     r'Generation exceeded the [0-9]{1,5}-second internal deadline\.',
     r'Reference image could not be converted to JPEG for Seedance \(was [\w/.+\-]{1,40}\)\.',
+    rf'Reference image \d{{1,2}} \([\w.+\-]{{1,40}}\) could not be converted to PNG for {_MODEL}\. Save it as PNG, JPEG or WebP and try again\.',
     rf'{_MODEL} accepts (?:1|one) reference images?[,;] [^\n]{{1,400}}',
     rf'{_MODEL} cannot render 2K from a reference image [-\u2014] [^\n]{{1,300}}',
     rf'{_MODEL} accepts prompts up to (?:2500|32000) characters; this one is \d{{1,6}}\. [^\n]{{1,200}}',

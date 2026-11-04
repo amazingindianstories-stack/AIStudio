@@ -114,12 +114,13 @@ def image_input(body, user_id):
         seed=body['seed'] if capability(model,'seed') and integer(body.get('seed')) else UNDEFINED)
     validate_prompt(item['prompt'],user_id)
     if is_provider_model(model,'openai'):
-        validate_openai_image(item, body.get('referenceImages'))
+        item['submissionInput'] = validate_openai_image(item, body)
     return clean(item)
 
 
-def validate_openai_image(item, references):
-    """GPT Image 2.5 accepts only its registry sizes and ratios and at most 16 reference images per request."""
+def validate_openai_image(item, body):
+    """GPT Image 2.5 accepts only its registry sizes, ratios, qualities and backgrounds and at most 16 reference images
+    per request; the quality and background (high and opaque when not sent) become the job's stored submission input."""
     from apps.generation.providers import openai_image
     name, resolution = model_definition(item['model'])['name'], item['resolution']
     resolutions, ratios = capability(item['model'],'resolutions',[]), capability(item['model'],'aspectRatios',[])
@@ -127,9 +128,17 @@ def validate_openai_image(item, references):
         raise InvalidRequest(f'{name} supports {"/".join(resolutions)} only (got {string(resolution)}).')
     if item['aspectRatio'] not in ratios:
         raise InvalidRequest(f'{name} does not support {string(item["aspectRatio"])}. Supported: {", ".join(ratios)}')
+    references = body.get('referenceImages')
     count = len(references) if isinstance(references, list) else 0
     if count > openai_image.MAX_IMAGES:
         raise InvalidRequest(f'{name} accepts at most {openai_image.MAX_IMAGES} reference images per request (got {count}).')
+    quality, background = body.get('imageQuality', openai_image.DEFAULT_QUALITY), body.get('imageBackground', openai_image.DEFAULT_BACKGROUND)
+    qualities, backgrounds = capability(item['model'],'qualities',[]), capability(item['model'],'backgrounds',[])
+    if quality not in qualities:
+        raise InvalidRequest(f'{name} quality must be one of {", ".join(qualities)} (got {string(quality)}).')
+    if background not in backgrounds:
+        raise InvalidRequest(f'{name} background must be {" or ".join(backgrounds)} (got {string(background)}).')
+    return {'quality': quality, 'background': background}
 
 
 def video_input(body, user_id=None):
@@ -516,7 +525,9 @@ def finish_enqueue(item, prepared, identifier, now, user_id):
     warnings = reference_warnings(item['prompt'], result.get('referenceImages'), assets())
     row = persist(result)
     from apps.generation.serialization import generation_item
-    result['filename'] = generation_item(row)['filename']
+    public = generation_item(row)
+    result['filename'] = public['filename']
+    result.update({key: public[key] for key in ('imageQuality', 'imageBackground') if key in public})
     log_activity(user_id,'generate',{'id':str(identifier),'kind':item['kind'],'model':item['model'],'costCents':prepared['costCents']})
     if warnings:
         result['referenceWarnings'] = warnings

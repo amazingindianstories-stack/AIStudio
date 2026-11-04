@@ -228,6 +228,35 @@ export function supportsBitrateMode(model) {
   return capability(model, "bitrate", false);
 }
 
+/** GPT Image 2.5 request options. A model without the capability returns []
+ *  and never sends the field; a choice the model does not take falls back to
+ *  the default, as the enqueue route does when the field is absent. */
+export const DEFAULT_IMAGE_QUALITY = "high";
+export const DEFAULT_IMAGE_BACKGROUND = "opaque";
+export const IMAGE_QUALITY_LABELS = { low: "Low", medium: "Medium", high: "High", xhigh: "X-High", max: "Max" };
+export const IMAGE_BACKGROUND_LABELS = { opaque: "Opaque", transparent: "Transparent" };
+
+export function imageQualitiesForModel(model) {
+  return capability(model, "qualities", []);
+}
+
+export function imageBackgroundsForModel(model) {
+  return capability(model, "backgrounds", []);
+}
+
+export function imageQualityFor(model, value) {
+  return imageQualitiesForModel(model).includes(value) ? value : DEFAULT_IMAGE_QUALITY;
+}
+
+export function imageBackgroundFor(model, value) {
+  return imageBackgroundsForModel(model).includes(value) ? value : DEFAULT_IMAGE_BACKGROUND;
+}
+
+/** Resolutions the provider itself calls experimental (GPT Image 2.5 above 2560x1440). */
+export function experimentalResolutionsForModel(model) {
+  return capability(model, "experimentalResolutions", []);
+}
+
 /** The three task types Seedance 2.5's single endpoint supports, chosen through
  *  the explicit omni_reference_task_type request field (see
  *  providers/seedance.js createVideoTask). "generate" covers ordinary
