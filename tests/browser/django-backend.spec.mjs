@@ -307,54 +307,61 @@ test('Two sessions editing one board merge each other\'s work, undo only their o
 });
 
 test('Agent browser chat starts a durable run, queues a follow-up and resumes it after reload', async ({ page, context, baseURL }) => {
-  await authenticate(context, baseURL);
-  await freshProject(context, page, 'Agent browser chat');
-  await ready(page);
-  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Agents', exact: true }).click();
-  const created = page.waitForResponse(response => response.url().endsWith('/api/agent-conversations') &&
-    response.request().method() === 'POST' && response.request().postDataJSON()?.op === 'createConversation');
-  await page.getByRole('button', { name: 'New chat', exact: true }).first().click();
-  expect((await created).ok()).toBeTruthy();
-  // New chat intentionally autofocuses its title editor. Finish that user flow
-  // before typing into the composer, rather than racing the delayed autofocus.
-  const title = page.getByRole('complementary').getByRole('textbox');
-  await expect(title).toBeVisible();
-  const renamed = page.waitForResponse(response => response.url().endsWith('/api/agent-conversations') &&
-    response.request().method() === 'POST' && response.request().postDataJSON()?.op === 'renameConversation');
-  await title.fill('Browser qualification chat');
-  await title.press('Enter');
-  expect((await renamed).ok()).toBeTruthy();
-  await expect(page.getByText('Loading chat…', { exact: true })).not.toBeVisible();
-  const input = page.getByPlaceholder(/Talk through your/);
-  await expect(input).toBeEnabled();
-  // No agent worker runs in this harness, so the run stays queued: the composer starts it, then queues a follow-up.
-  await input.fill('Design a close-up with soft side light.');
-  const started = page.waitForResponse(response => response.url().endsWith('/runs') && response.request().method() === 'POST');
-  await page.getByRole('button', { name: 'Send', exact: true }).click();
-  const start = await started;
-  expect(start.status()).toBe(201);
-  expect((await start.json()).delivery).toBe('run');
-  const feed = page.getByTestId('studio-chat-feed');
-  const run = feed.getByTestId('agent-run');
-  await expect(feed.getByText('Design a close-up with soft side light.', { exact: true })).toBeVisible();
-  await expect(run.getByRole('status')).toHaveText('Starting…');
-  await input.fill('Make the light warmer.');
-  const queued = page.waitForResponse(response => response.url().endsWith('/runs') && response.request().method() === 'POST');
-  await page.getByRole('button', { name: 'Send', exact: true }).click();
-  expect((await queued).status()).toBe(202);
-  await expect(page.getByTestId('agent-queued-message')).toContainText('Make the light warmer.');
-  await expect(page.getByTestId('agent-queued-message')).toContainText('Queued');
-  await page.reload();
-  await expect(page.getByRole('button', { name: /Desktop fixture/ })).toBeVisible();
-  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Agents', exact: true }).click();
-  await expect(feed.getByText('Design a close-up with soft side light.', { exact: true })).toBeVisible();
-  await expect(page.getByTestId('agent-queued-message')).toContainText('Make the light warmer.');
-  await expect(run.getByRole('status')).toHaveText('Starting…');
-  const stop = page.waitForResponse(response => response.url().endsWith('/cancel'));
-  await run.getByRole('button', { name: 'Stop', exact: true }).click();
-  expect((await stop).status()).toBe(202);
-  await expect(run.getByRole('status')).toHaveText('Stopping…');
-  await expect(run.getByRole('button', { name: 'Stop and cancel jobs', exact: true })).toHaveCount(0);
+  try {
+    await authenticate(context, baseURL);
+    await freshProject(context, page, 'Agent browser chat');
+    await ready(page);
+    await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Agents', exact: true }).click();
+    const created = page.waitForResponse(response => response.url().endsWith('/api/agent-conversations') &&
+      response.request().method() === 'POST' && response.request().postDataJSON()?.op === 'createConversation');
+    await page.getByRole('button', { name: 'New chat', exact: true }).first().click();
+    expect((await created).ok()).toBeTruthy();
+    // New chat intentionally autofocuses its title editor. Finish that user flow
+    // before typing into the composer, rather than racing the delayed autofocus.
+    const title = page.getByRole('complementary').getByRole('textbox');
+    await expect(title).toBeVisible();
+    const renamed = page.waitForResponse(response => response.url().endsWith('/api/agent-conversations') &&
+      response.request().method() === 'POST' && response.request().postDataJSON()?.op === 'renameConversation');
+    await title.fill('Browser qualification chat');
+    await title.press('Enter');
+    expect((await renamed).ok()).toBeTruthy();
+    await expect(page.getByText('Loading chat…', { exact: true })).not.toBeVisible();
+    const input = page.getByPlaceholder(/Talk through your/);
+    await expect(input).toBeEnabled();
+    // No agent worker runs in this harness, so the run stays queued: the composer starts it, then queues a follow-up.
+    await input.fill('Design a close-up with soft side light.');
+    const started = page.waitForResponse(response => response.url().endsWith('/runs') && response.request().method() === 'POST');
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    const start = await started;
+    expect(start.status()).toBe(201);
+    expect((await start.json()).delivery).toBe('run');
+    const feed = page.getByTestId('studio-chat-feed');
+    const run = feed.getByTestId('agent-run');
+    await expect(feed.getByText('Design a close-up with soft side light.', { exact: true })).toBeVisible();
+    await expect(run.getByRole('status')).toHaveText('Starting…');
+    await input.fill('Make the light warmer.');
+    const queued = page.waitForResponse(response => response.url().endsWith('/runs') && response.request().method() === 'POST');
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    expect((await queued).status()).toBe(202);
+    await expect(page.getByTestId('agent-queued-message')).toContainText('Make the light warmer.');
+    await expect(page.getByTestId('agent-queued-message')).toContainText('Queued');
+    await page.reload();
+    await expect(page.getByRole('button', { name: /Desktop fixture/ })).toBeVisible();
+    await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Agents', exact: true }).click();
+    await expect(feed.getByText('Design a close-up with soft side light.', { exact: true })).toBeVisible();
+    await expect(page.getByTestId('agent-queued-message')).toContainText('Make the light warmer.');
+    await expect(run.getByRole('status')).toHaveText('Starting…');
+    const stop = page.waitForResponse(response => response.url().endsWith('/cancel'));
+    await run.getByRole('button', { name: 'Stop', exact: true }).click();
+    expect((await stop).status()).toBe(202);
+    await expect(run.getByRole('status')).toHaveText('Stopping…');
+    await expect(run.getByRole('button', { name: 'Stop and cancel jobs', exact: true })).toHaveCount(0);
+  } finally {
+    // No worker ends the run, and an active one holds one of the fixture user's two active-run slots for later tests.
+    const now = Date.now();
+    await fixtureDatabase(process.env.E2E_DATABASE_URL)`UPDATE agent_runs SET status = 'cancelled', finished_at = ${now}, updated_at = ${now}
+      WHERE user_id = ${USER_ID} AND status IN ('queued', 'running', 'waiting_approval', 'waiting_jobs', 'paused_limit')`;
+  }
 });
 
 test('Portrait upload and full preview feed a character plus motion clip into Seedance Generate and Edit', async ({ page, context, baseURL }) => {

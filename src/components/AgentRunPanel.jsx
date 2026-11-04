@@ -23,11 +23,12 @@ function StepIcon({ status }) {
   return <Clock className="h-3.5 w-3.5 text-amber-200" />;
 }
 
-/** A finished job's card. A succeeded generation outside every loaded scope (an earlier run, a reload) is read by id. */
+/** A job's card. A generation outside every loaded scope (an earlier run, a reload) is read by id, and the live feed then
+ *  keeps it current, so a job that outlives its run (no job_finished) still shows how it ended. */
 function JobResult({ job, item }) {
   const loadItem = useStore((s) => s.loadItem);
   const [unread, setUnread] = useState(null);
-  const wanted = job.status === "succeeded" && !item ? job.generationId : null;
+  const wanted = !item && ["queued", "running", "succeeded"].includes(job.status) ? job.generationId : null;
   useEffect(() => {
     if (!wanted) return undefined;
     let live = true;

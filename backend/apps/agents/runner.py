@@ -509,7 +509,7 @@ def design_step(run, step, stop, *, now=now_ms):
     payload, retryable = ask(run, step, key, design_body(brief), purpose=DESIGN_TOOL)
     prompt = read_prompt(payload) if payload is not None else ''
     if prompt:
-        return finish_tool_result(run, step, 'ok', {'prompt': prompt}, prompt, now=now())
+        return finish_tool_result(run, step, 'ok', {'prompt': prompt}, prompt, ok=True, now=now())
     if retry(step, retryable, stop):
         return None
     failed = {'code': 'DESIGN_FAILED', 'message': 'The prompt could not be designed this time; write the prompt yourself.'}
@@ -586,9 +586,19 @@ def finish_tool_result(run, step, outcome, structured, sentence, *, now, record=
         AgentRunStep.objects.filter(pk=step.pk).update(status='finished', outcome=outcome, cost_cents=cost, finished_at=now,
                                                        result={**step.result, 'response': model_response(structured)})
         _set(locked, now, cost_cents=locked.cost_cents + cost)
-        events.emit(run.id, 'tool_called', {'stepIndex': step.step_index, 'tool': call['name'], 'outcome': outcome,
-                                            'summary': sentence[:300]}, now=now)
+        events.emit(run.id, 'tool_called', {'stepIndex': step.step_index, 'tool': call['name'], 'outcome': outcome, 'ok': ok,
+                                            'summary': step_summary(structured, sentence)[:300]}, now=now)
     return None
+
+
+def step_summary(structured, sentence):
+    """A tool step's line in the Agents tab: the tool's sentence, except that work still running is named plainly (its
+    card follows it) instead of with the MCP client's instruction to call ``get_generation``."""
+    generation = structured.get('generation') if isinstance(structured, dict) and structured.get('outcome') == 'running' else None
+    if not generation:
+        return sentence
+    label = generation.get('name') or 'The job'
+    return f"{label} is {'queued' if generation.get('status') == 'queued' else 'rendering'}."
 
 
 def link_job(run, generation_id, *, now):

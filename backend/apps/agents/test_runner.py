@@ -692,6 +692,8 @@ class BoundaryTests(RunnerCase):
             'message': 'Nothing was charged: this call would take the run past its spending bound. Suggest a cheaper option or ask the artist.'})
         self.assertEqual(bodies[1]['contents'][-1], {'role': 'user', 'parts': [{'functionResponse': {
             'name': 'generate_image', 'response': steps[1].result['response'], 'id': 'c1'}}]})
+        called = AgentRunEvent.objects.get(run_id=run.id, kind='tool_called').payload
+        self.assertEqual((called['outcome'], called['ok']), ('COST_LIMIT', False))
         message = AgentConversationMessage.objects.get(conversation_id=self.conversation.id, role='assistant')
         self.assertEqual(message.content, answer)
         self.assertNotIn('paused', self.kinds(run))
@@ -897,9 +899,15 @@ class DesignPromptTests(RunnerCase):
         self.assertEqual(Generation.objects.get().prompt, 'A red fox steps through fresh snow, low golden dawn light.')
         self.assertEqual(list(AgentLlmUsage.objects.filter(run_id=run.id).order_by('step_index').values_list('step_index', 'purpose')),
                          [(0, 'step'), (1, 'design_prompt'), (2, 'step')])
-        called = AgentRunEvent.objects.filter(run_id=run.id, kind='tool_called').order_by('seq').first().payload
-        self.assertEqual(called, {'stepIndex': 1, 'tool': 'design_prompt', 'outcome': 'ok',
-                                  'summary': 'A red fox steps through fresh snow, low golden dawn light.'})
+        designed, submitted = [row.payload for row in AgentRunEvent.objects.filter(run_id=run.id, kind='tool_called').order_by('seq')]
+        self.assertEqual(designed, {'stepIndex': 1, 'tool': 'design_prompt', 'outcome': 'ok', 'ok': True,
+                                    'summary': 'A red fox steps through fresh snow, low golden dawn light.'})
+        # A submitted job is a success the tab shows as done, described for the artist rather than for an MCP client.
+        generation = steps[3].result['response']['generation']
+        self.assertEqual(generation['status'], 'queued')
+        self.assertTrue(generation['name'])
+        self.assertEqual(submitted, {'stepIndex': 3, 'tool': 'generate_image', 'outcome': 'running', 'ok': True,
+                                     'summary': f"{generation['name']} is queued."})
 
     def test_reference_and_edit_modes_brief_the_model_with_ordered_citations_and_its_limits(self):
         notes = ['the fox character, keep its face', 'the snowy pine forest', 'the warm dawn palette']

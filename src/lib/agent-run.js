@@ -107,10 +107,6 @@ function sorted(events) {
   return Object.values(events).sort((left, right) => left.seq - right.seq);
 }
 
-function toolStatus(outcome) {
-  return outcome === "ok" ? "done" : "error";
-}
-
 /**
  * What StudioChat renders for the run:
  * - `timeline`: model text, tool steps, quotes and delivered messages in feed order;
@@ -156,7 +152,7 @@ export function runView(state) {
         if (payload.final) finalText = payload.text;
         break;
       case "tool_called":
-        step(payload.stepIndex, { tool: payload.tool, outcome: payload.outcome, summary: payload.summary || "", status: toolStatus(payload.outcome) });
+        step(payload.stepIndex, { tool: payload.tool, outcome: payload.outcome, summary: payload.summary || "", status: payload.ok ? "done" : "error" });
         break;
       case "quote_required":
         step(payload.stepIndex, {

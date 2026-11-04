@@ -75,6 +75,15 @@ function worker(runId) {
   return { db, emit, status, quoteStep, message, write: (statements) => db.transaction(statements), tick };
 }
 
+// A run a test leaves active holds one of the fixture user's active-run slots (two by default), and with no worker
+// nothing ends it, so the next test's send would be refused with 429. End them as the worker ends a stopped run.
+test.afterEach(async () => {
+  const now = Date.now();
+  await fixtureDatabase(process.env.E2E_DATABASE_URL)`
+    UPDATE agent_runs SET status = 'cancelled', finished_at = ${now}, updated_at = ${now}
+    WHERE user_id = ${USER_ID} AND status IN ('queued', 'running', 'waiting_approval', 'waiting_jobs', 'paused_limit')`;
+});
+
 test('Agents runs: the feed renders model text, tool steps, jobs and a delivered message, and a reload resumes from the last seq', async ({ page, context, baseURL }) => {
   test.setTimeout(120000);
   await openAgents(page, context, baseURL, 'Agents run feed');
@@ -96,9 +105,9 @@ test('Agents runs: the feed renders model text, tool steps, jobs and a delivered
     fixture.emit('assistant_text', { stepIndex: 0, text: 'I will draft a warm close-up first.', final: false }),
     fixture.emit('step_started', { stepIndex: 1, kind: 'tool', tool: 'generate_image' }),
     fixture.emit('job_queued', { generationId: job, kind: 'image', tool: 'generate_image', stepIndex: 1 }),
-    fixture.emit('tool_called', { stepIndex: 1, tool: 'generate_image', outcome: 'ok', summary: 'Queued one image.' }),
+    fixture.emit('tool_called', { stepIndex: 1, tool: 'generate_image', outcome: 'running', ok: true, summary: 'Queued one image.' }),
     fixture.emit('step_started', { stepIndex: 2, kind: 'tool', tool: 'generate_video' }),
-    fixture.emit('tool_called', { stepIndex: 2, tool: 'generate_video', outcome: 'COST_LIMIT', summary: 'That video would pass the run cost limit.' }),
+    fixture.emit('tool_called', { stepIndex: 2, tool: 'generate_video', outcome: 'COST_LIMIT', ok: false, summary: 'That video would pass the run cost limit.' }),
     fixture.emit('waiting_jobs', { generationIds: [job] }),
     fixture.status('waiting_jobs', { steps: 3 }),
   ]);
@@ -175,7 +184,7 @@ test('Agents runs: every ended run keeps its activity in order after its message
   await failing.write([
     failing.emit('run_started'),
     failing.emit('step_started', { stepIndex: 0, kind: 'tool', tool: 'generate_image' }),
-    failing.emit('tool_called', { stepIndex: 0, tool: 'generate_image', outcome: 'error', summary: 'The provider refused the prompt.' }),
+    failing.emit('tool_called', { stepIndex: 0, tool: 'generate_image', outcome: 'error', ok: false, summary: 'The provider refused the prompt.' }),
     failing.status('failed', { error, steps: 1 }),
     failing.emit('failed', error),
   ]);
@@ -193,7 +202,7 @@ test('Agents runs: every ended run keeps its activity in order after its message
     fixture.emit('assistant_text', { stepIndex: 0, text: 'Trying a softer palette.', final: false }),
     fixture.emit('step_started', { stepIndex: 1, kind: 'tool', tool: 'generate_image' }),
     fixture.emit('job_queued', { generationId: made, kind: 'image', tool: 'generate_image', stepIndex: 1 }),
-    fixture.emit('tool_called', { stepIndex: 1, tool: 'generate_image', outcome: 'ok', summary: 'Queued one image.' }),
+    fixture.emit('tool_called', { stepIndex: 1, tool: 'generate_image', outcome: 'running', ok: true, summary: 'Queued one image.' }),
     fixture.emit('job_finished', { generationId: made, kind: 'image', status: 'succeeded', stepIndex: 2 }),
     fixture.emit('step_started', { stepIndex: 2, kind: 'llm' }),
     fixture.emit('assistant_text', { stepIndex: 2, text: 'Your softer harbour is ready.', final: true }),
@@ -258,7 +267,7 @@ test('Agents runs: a succeeded job shows its media card even when the library ha
     fixture.emit('step_started', { stepIndex: 1, kind: 'tool', tool: 'generate_image' }),
     fixture.emit('job_queued', { generationId: made, kind: 'image', tool: 'generate_image', stepIndex: 1 }),
     fixture.emit('job_queued', { generationId: lost, kind: 'image', tool: 'generate_image', stepIndex: 1 }),
-    fixture.emit('tool_called', { stepIndex: 1, tool: 'generate_image', outcome: 'ok', summary: 'Queued two images.' }),
+    fixture.emit('tool_called', { stepIndex: 1, tool: 'generate_image', outcome: 'running', ok: true, summary: 'Queued two images.' }),
     fixture.emit('job_finished', { generationId: made, kind: 'image', status: 'succeeded', stepIndex: 2 }),
     fixture.emit('job_finished', { generationId: lost, kind: 'image', status: 'failed', stepIndex: 2 }),
     fixture.emit('step_started', { stepIndex: 2, kind: 'llm' }),
@@ -280,6 +289,47 @@ test('Agents runs: a succeeded job shows its media card even when the library ha
   // The card opens the viewer on the row it read.
   await card.click({ position: { x: 88, y: 24 } });
   await expect(page.locator('[data-viewer-item-id]').first()).toHaveAttribute('data-viewer-item-id', made);
+});
+
+test('Agents runs: a job still running when its run ended follows its generation to the media card, live and after a reload', async ({ page, context, baseURL }) => {
+  test.setTimeout(120000);
+  await openAgents(page, context, baseURL, 'Agents run outlived');
+  const other = await context.request.post('/api/projects', { data: { op: 'createProject', name: `Agents elsewhere ${randomUUID()}` },
+    headers: { Origin: baseURL } });
+  expect(other.ok()).toBeTruthy();
+  const elsewhere = (await other.json()).project.id;
+  const { run } = await send(page, 'Make a lantern video.', 201);
+  const panel = page.getByTestId('studio-chat-feed').getByTestId('agent-run');
+  const fixture = worker(run.id);
+  const job = randomUUID();
+  // A follow-up ended the run while the job was still rendering, so the feed never carries its job_finished.
+  await fixture.write([
+    fixture.db.statement`INSERT INTO generations (id, kind, status, model, prompt, aspect_ratio, url, user_id, project_id, created_at, updated_at)
+      SELECT ${job}, 'image', 'running', 'Nano Banana Pro', 'Lantern at dusk', '1:1', url, ${USER_ID}, ${elsewhere}, 1000, ${fixture.tick()}
+      FROM generations WHERE id = '10000000-0000-4000-8000-000000000000'`,
+    fixture.emit('run_started'),
+    fixture.emit('step_started', { stepIndex: 1, kind: 'tool', tool: 'generate_image' }),
+    fixture.emit('job_queued', { generationId: job, kind: 'image', tool: 'generate_image', stepIndex: 1 }),
+    fixture.emit('tool_called', { stepIndex: 1, tool: 'generate_image', outcome: 'running', ok: true, summary: 'Lantern at dusk is rendering.' }),
+    fixture.emit('step_started', { stepIndex: 2, kind: 'llm' }),
+    fixture.emit('assistant_text', { stepIndex: 2, text: 'It is still rendering; it will land in your library.', final: true }),
+    fixture.status('completed', { steps: 3 }),
+    fixture.emit('completed', { steps: 3, costCents: 6 }),
+  ]);
+  await expect(panel.getByTestId('agent-run-step')).toHaveAttribute('data-status', 'done');
+  const card = panel.getByTestId(`media-card-${job}`);
+  await expect(card).toBeVisible();
+  await expect(card.getByRole('img', { name: 'Lantern at dusk' })).toHaveCount(0);
+
+  // The generation worker finishes it after the run ended: the card follows the row, not the run's feed.
+  const finished = fixture.tick();
+  await fixture.write([fixture.db.statement`UPDATE generations SET status = 'succeeded', updated_at = ${finished}, completed_at = ${finished} WHERE id = ${job}`]);
+  await expect(card.getByRole('img', { name: 'Lantern at dusk' })).toBeVisible({ timeout: 15000 });
+
+  await page.reload();
+  await expect(page.getByRole('button', { name: /Desktop fixture/ })).toBeVisible();
+  await agentsTab(page);
+  await expect(panel.getByTestId(`media-card-${job}`).getByRole('img', { name: 'Lantern at dusk' })).toBeVisible();
 });
 
 test('Agents runs: a quote of $1.00 or more needs a second confirmation, and a declined quote says so', async ({ page, context, baseURL }) => {
@@ -326,7 +376,7 @@ test('Agents runs: a quote of $1.00 or more needs a second confirmation, and a d
 
   // A cheaper quote approves in one click; this one is declined, after a first answer the run had already moved past.
   await fixture.write([
-    fixture.emit('tool_called', { stepIndex: 1, tool: 'generate_video', outcome: 'ok', summary: 'Queued one video.' }),
+    fixture.emit('tool_called', { stepIndex: 1, tool: 'generate_video', outcome: 'running', ok: true, summary: 'Queued one video.' }),
     fixture.quoteStep(2, 'generate_image', { prompt: 'A lantern still life.' },
       { costCents: 40, display: '$0.40', expiresAt: Date.now() + 600000, summary: 'One image.', requiresUserConfirmation: false }),
     fixture.emit('step_started', { stepIndex: 2, kind: 'tool', tool: 'generate_image' }),
@@ -366,7 +416,7 @@ test('Agents runs: a paused run shows why and when it continues, and Stop and ca
     fixture.emit('run_started'),
     fixture.emit('step_started', { stepIndex: 1, kind: 'tool', tool: 'generate_image' }),
     fixture.emit('job_queued', { generationId: job, kind: 'image', tool: 'generate_image', stepIndex: 1 }),
-    fixture.emit('tool_called', { stepIndex: 1, tool: 'generate_image', outcome: 'ok', summary: 'Queued one image.' }),
+    fixture.emit('tool_called', { stepIndex: 1, tool: 'generate_image', outcome: 'running', ok: true, summary: 'Queued one image.' }),
     fixture.emit('paused', { reason: 'daily_cap', resumeAfter }),
     fixture.status('paused_limit', { pauseReason: 'daily_cap', resumeAfter, steps: 2 }),
   ]);

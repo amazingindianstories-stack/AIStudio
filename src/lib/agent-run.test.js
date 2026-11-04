@@ -28,13 +28,13 @@ const FULL = [
   event(3, "step_started", { stepIndex: 0, kind: "llm" }),
   event(4, "assistant_text", { stepIndex: 0, text: "Let me look.", final: false }),
   event(5, "step_started", { stepIndex: 1, kind: "tool", tool: "search_generations" }),
-  event(6, "tool_called", { stepIndex: 1, tool: "search_generations", outcome: "ok", summary: "Found 3 items." }),
+  event(6, "tool_called", { stepIndex: 1, tool: "search_generations", outcome: "ok", ok: true, summary: "Found 3 items." }),
   event(7, "step_started", { stepIndex: 2, kind: "tool", tool: "generate_video" }),
   event(8, "quote_required", { stepIndex: 2, tool: "generate_video", arguments: { prompt: "A fox", duration: 5 }, prompt: "A fox", quote: QUOTE }),
   event(9, "quote_approved", { stepIndex: 2, costCents: 240 }),
   event(10, "resumed"),
   event(11, "job_queued", { generationId: "g-1", kind: "video", tool: "generate_video", stepIndex: 2 }),
-  event(12, "tool_called", { stepIndex: 2, tool: "generate_video", outcome: "ok", summary: "Queued a video." }),
+  event(12, "tool_called", { stepIndex: 2, tool: "generate_video", outcome: "running", ok: true, summary: "unsorted_0016 is queued." }),
   event(13, "waiting_jobs", { generationIds: ["g-1"] }),
   event(14, "resumed"),
   event(15, "step_started", { stepIndex: 3, kind: "llm" }),
@@ -70,7 +70,7 @@ test("every event kind folds into the timeline, jobs and outcome", () => {
 test("a tool error shows as an error step with its summary", () => {
   const view = runView(applyPage(runState(run()), page([
     event(1, "step_started", { stepIndex: 0, kind: "tool", tool: "generate_image" }),
-    event(2, "tool_called", { stepIndex: 0, tool: "generate_image", outcome: "INSUFFICIENT_CREDITS", summary: "Not enough credits." }),
+    event(2, "tool_called", { stepIndex: 0, tool: "generate_image", outcome: "INSUFFICIENT_CREDITS", ok: false, summary: "Not enough credits." }),
   ])));
   assert.deepEqual(view.timeline, [{ type: "tool", stepIndex: 0, status: "error", tool: "generate_image", seq: 1,
     outcome: "INSUFFICIENT_CREDITS", summary: "Not enough credits." }]);
@@ -432,7 +432,7 @@ test("threadEntries shows each run's activity after its start message and before
   const failed = runView(applyPage(runState(run({ id: "run-0" })), page([
     event(1, "run_queued", { messageId: "m-0" }),
     event(2, "step_started", { stepIndex: 0, kind: "tool", tool: "generate_image" }),
-    event(3, "tool_called", { stepIndex: 0, tool: "generate_image", outcome: "error", summary: "The provider refused it." }),
+    event(3, "tool_called", { stepIndex: 0, tool: "generate_image", outcome: "error", ok: false, summary: "The provider refused it." }),
     event(4, "failed", { code: "model_error", message: "The model stopped answering." }),
   ], { run: run({ id: "run-0", status: "failed", updatedAt: 50 }) })));
   const messages = [
@@ -459,7 +459,7 @@ test("threadEntries places a message the run read where it read it, once, and ke
   const events = [
     event(1, "run_queued", { messageId: "m-1" }),
     event(2, "step_started", { stepIndex: 0, kind: "tool", tool: "search_generations" }),
-    event(3, "tool_called", { stepIndex: 0, tool: "search_generations", outcome: "ok" }),
+    event(3, "tool_called", { stepIndex: 0, tool: "search_generations", outcome: "ok", ok: true }),
     event(4, "message_queued", { inboxId: "i-1" }),
     event(5, "message_delivered", { inboxId: "i-1", stepIndex: 1 }),
     event(6, "assistant_text", { stepIndex: 1, text: "Making it blue.", final: true }),

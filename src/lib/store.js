@@ -3011,7 +3011,7 @@ async function liveTick(
     // Transient: back off instead of hammering a failing backend. 401 already redirects in apiFetch.
     if (epoch === storeRuntime.epoch) storeRuntime.liveFailures += 1;
   }
-  const busy = hasRecentActiveWork([...get().items, ...get().threadItems, ...get().pendingItems]);
+  const busy = hasRecentActiveWork([...get().items, ...get().threadItems, ...get().pendingItems, ...get().looseItems]);
   scheduleLive(set, get, liveDelay({ more, busy, failures: storeRuntime.liveFailures }));
 }
 
