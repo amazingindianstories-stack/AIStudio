@@ -2,6 +2,7 @@
 import uuid
 from threading import Event
 
+from django.db import connection
 from django.test import TestCase, TransactionTestCase
 
 from apps.admin_dashboard.models import AppSetting
@@ -137,6 +138,17 @@ class RunLoopTests(TransactionTestCase):
         stop = Event()
         stop.set()
         self.assertEqual(worker.handle_run(run.id, process, stop), 'stopped')
+
+    def test_a_run_whose_database_connection_dies_is_a_worker_error_not_a_crash(self):
+        run = make_run()
+
+        def process(run_id, lease, stop):
+            connection.connection.close()
+            raise RuntimeError('the connection dropped mid-step')
+        with self.assertLogs('veevee.agents', 'ERROR') as logs:
+            self.assertEqual(worker.handle_run(run.id, process, Event()), 'worker_error')
+        self.assertIn('agent worker run failed', '\n'.join(logs.output))
+        self.assertTrue(AgentRun.objects.filter(pk=run.id).exists())
 
     def test_run_worker_refills_slots_and_stops(self):
         runs = [make_run(updated_at=index) for index in range(3)]
