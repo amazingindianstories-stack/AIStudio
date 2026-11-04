@@ -310,7 +310,7 @@ test('Agents runs: a job still running when its run ended follows its generation
     fixture.emit('run_started'),
     fixture.emit('step_started', { stepIndex: 1, kind: 'tool', tool: 'generate_image' }),
     fixture.emit('job_queued', { generationId: job, kind: 'image', tool: 'generate_image', stepIndex: 1 }),
-    fixture.emit('tool_called', { stepIndex: 1, tool: 'generate_image', outcome: 'running', ok: true, summary: 'Lantern at dusk is rendering.' }),
+    fixture.emit('tool_called', { stepIndex: 1, tool: 'generate_image', outcome: 'running', ok: true, summary: 'Started Lantern at dusk.' }),
     fixture.emit('step_started', { stepIndex: 2, kind: 'llm' }),
     fixture.emit('assistant_text', { stepIndex: 2, text: 'It is still rendering; it will land in your library.', final: true }),
     fixture.status('completed', { steps: 3 }),

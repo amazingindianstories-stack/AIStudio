@@ -34,7 +34,7 @@ const FULL = [
   event(9, "quote_approved", { stepIndex: 2, costCents: 240 }),
   event(10, "resumed"),
   event(11, "job_queued", { generationId: "g-1", kind: "video", tool: "generate_video", stepIndex: 2 }),
-  event(12, "tool_called", { stepIndex: 2, tool: "generate_video", outcome: "running", ok: true, summary: "unsorted_0016 is queued." }),
+  event(12, "tool_called", { stepIndex: 2, tool: "generate_video", outcome: "running", ok: true, summary: "Queued unsorted_0016." }),
   event(13, "waiting_jobs", { generationIds: ["g-1"] }),
   event(14, "resumed"),
   event(15, "step_started", { stepIndex: 3, kind: "llm" }),
@@ -273,6 +273,23 @@ test("failed and cancelled runs explain themselves", () => {
 
   const unread = runView(runState(run({ status: "failed", error: { code: "grant_invalid", message: "Access was revoked." } })));
   assert.equal(outcomeText(unread.outcome), "Access was revoked.", "the run JSON explains an end whose event is not read yet");
+});
+
+test("a step the run never got back to reads Stopped once the run ends, not waiting or running", () => {
+  const started = [
+    event(1, "step_started", { stepIndex: 0, kind: "tool", tool: "generate_video" }),
+    event(2, "quote_required", { stepIndex: 0, tool: "generate_video", arguments: { prompt: "A fox" }, prompt: "A fox", quote: QUOTE }),
+    event(3, "step_started", { stepIndex: 1, kind: "tool", tool: "search_generations" }),
+  ];
+  const waiting = runView(applyPage(runState(run()), page(started, { run: run({ status: "waiting_approval" }) })));
+  assert.deepEqual(waiting.timeline.map((item) => stepStatusText(item)), ["Waiting for approval", "Running"]);
+
+  for (const [ending, status] of [[event(4, "cancelled", { cancelJobs: false, jobs: [] }), "cancelled"],
+    [event(4, "failed", { code: "llm_failed", message: "The model could not answer." }), "failed"]]) {
+    const view = runView(applyPage(runState(run()), page([...started, ending], { run: run({ status }) })));
+    assert.deepEqual(view.timeline.map((item) => [item.status, stepStatusText(item)]), [["stopped", "Stopped"], ["stopped", "Stopped"]], status);
+    assert.equal(view.quote, null);
+  }
 });
 
 test("Stop and Stop and cancel jobs show a stopping state until the run ends", () => {

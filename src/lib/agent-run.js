@@ -228,6 +228,8 @@ export function runView(state) {
       : run.status === "cancelled" ? { status: "cancelled", cancelJobs: Boolean(run.cancelJobs), jobs: [] }
         : { status: "completed", steps: run.stepCount, costCents: run.costCents };
   }
+  // A step the run never got back to (a quote left waiting, a call cut off) ended with the run.
+  if (outcome) for (const item of Object.values(steps)) if (["quote", "running"].includes(item.status)) item.status = "stopped";
   if (!paused && run.status === "paused_limit") paused = { reason: run.pauseReason, resumeAfter: run.resumeAfter ?? null };
   if (run.status && run.status !== "paused_limit") paused = null;
   if (!stopping && run.cancelRequestedAt && isActiveStatus(run.status)) stopping = { cancelJobs: Boolean(run.cancelJobs) };
@@ -383,7 +385,8 @@ export function statusLine(view) {
   return { label: view.status === "queued" ? "Starting…" : "Working…", icon: "spin" };
 }
 
-const STEP_STATUS = { running: "Running", done: "Done", error: "Failed", declined: "Declined", quote: "Waiting for approval" };
+const STEP_STATUS = { running: "Running", done: "Done", error: "Failed", declined: "Declined", quote: "Waiting for approval",
+  stopped: "Stopped" };
 
 const STEP_OUTCOMES = {
   INVALID_INPUT: "the request was not valid",

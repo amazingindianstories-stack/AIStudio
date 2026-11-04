@@ -7,11 +7,14 @@ tools only queue rows, as in the MCP tests. No network is used.
 import json
 import os
 import threading
+import uuid
+from datetime import timedelta
 from types import SimpleNamespace
 from threading import Event
 from unittest.mock import Mock, patch
 
 from django.db import connection
+from django.utils import timezone
 
 from apps.admin_dashboard.models import AppSetting, Pricing, UserLimit
 from apps.generation.models import Generation
@@ -21,7 +24,8 @@ from apps.mcp import server
 from apps.mcp_auth import controls, policy
 from apps.mcp.tests.support import McpCase
 from apps.mcp.tests.test_paid_tools import mid_minute
-from apps.mcp.tests.test_results import StorageMixin
+from apps.mcp.tests.test_results import StorageMixin, png_bytes
+from apps.media.models import UploadSession
 from apps.projects.models import Project
 from apps.workers import scheduler
 from . import design, events, grants, limits, runner, runs, worker
@@ -866,6 +870,26 @@ class EventTests(RunnerCase):
         self.assertEqual(len(events.page(run.id, after=0, limit=3)), 3)
 
 
+class StepSummaryTests(RunnerCase):
+    def test_a_file_the_agent_read_is_described_for_the_artist_without_its_id(self):
+        document, image = uuid.uuid4(), uuid.uuid4()
+        key = f'uploads/document-reference/{self.user.id}-{document}'
+        self.store(key, b'Shot list: fox, snow.', 'text/plain')
+        UploadSession.objects.create(id=document, actor_id=self.user.id, key=key, purpose='document-reference', content_type='text/plain',
+                                     byte_size=21, expires_at=timezone.now() + timedelta(hours=1), state='ready',
+                                     finalized_at=timezone.now())
+        Generation.objects.create(id=image, kind='image', status='succeeded', prompt='a fox', model='Nano Banana 2.1', aspect_ratio='1:1',
+                                  user_id=self.user.id, url=self.store(f'generations/{image}.png', png_bytes(), 'image/png'),
+                                  created_at=1, updated_at=1)
+        self.gemini([call('read_document', {'assetId': str(document)}), call('view_media', {'assetId': str(image)})],
+                    [text('An orange fox.')], [text('Both read.')])
+        run = self.start_run()
+        self.assertEqual(self.advance(run), 'completed')
+        called = [row.payload for row in AgentRunEvent.objects.filter(run_id=run.id, kind='tool_called').order_by('seq')]
+        self.assertEqual([(row['tool'], row['ok'], row['summary']) for row in called],
+                         [('read_document', True, 'Read the document.'), ('view_media', True, 'Looked at the image.')])
+
+
 class DesignPromptTests(RunnerCase):
     """The harness's own design_prompt: a prompt-design sub-call through the loop transport, never the dispatcher."""
 
@@ -907,7 +931,7 @@ class DesignPromptTests(RunnerCase):
         self.assertEqual(generation['status'], 'queued')
         self.assertTrue(generation['name'])
         self.assertEqual(submitted, {'stepIndex': 3, 'tool': 'generate_image', 'outcome': 'running', 'ok': True,
-                                     'summary': f"{generation['name']} is queued."})
+                                     'summary': f"Queued {generation['name']}."})
 
     def test_reference_and_edit_modes_brief_the_model_with_ordered_citations_and_its_limits(self):
         notes = ['the fox character, keep its face', 'the snowy pine forest', 'the warm dawn palette']

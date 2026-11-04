@@ -587,18 +587,29 @@ def finish_tool_result(run, step, outcome, structured, sentence, *, now, record=
                                                        result={**step.result, 'response': model_response(structured)})
         _set(locked, now, cost_cents=locked.cost_cents + cost)
         events.emit(run.id, 'tool_called', {'stepIndex': step.step_index, 'tool': call['name'], 'outcome': outcome, 'ok': ok,
-                                            'summary': step_summary(structured, sentence)[:300]}, now=now)
+                                            'summary': step_summary(call['name'], structured, sentence)[:300]}, now=now)
     return None
 
 
-def step_summary(structured, sentence):
-    """A tool step's line in the Agents tab: the tool's sentence, except that work still running is named plainly (its
-    card follows it) instead of with the MCP client's instruction to call ``get_generation``."""
-    generation = structured.get('generation') if isinstance(structured, dict) and structured.get('outcome') == 'running' else None
+def step_summary(tool, structured, sentence):
+    """A tool step's line in the Agents tab: the tool's sentence, except where that sentence is written for the model.
+    Submitted work is named plainly in words that stay true once it finishes (its card follows it), and a file the agent
+    read says what it did, without the asset id or the note that its text is quoted data."""
+    if not isinstance(structured, dict):
+        return sentence
+    if tool in READ_SUMMARIES and structured.get('kind'):
+        return READ_SUMMARIES[tool].get(structured['kind'], sentence)
+    generation = structured.get('generation') if structured.get('outcome') == 'running' else None
     if not generation:
         return sentence
-    label = generation.get('name') or 'The job'
-    return f"{label} is {'queued' if generation.get('status') == 'queued' else 'rendering'}."
+    label = generation.get('name') or 'the job'
+    return f"{'Queued' if generation.get('status') == 'queued' else 'Started'} {label}."
+
+
+READ_SUMMARIES = {
+    'read_document': {'document': 'Read the document.'},
+    'view_media': {'image': 'Looked at the image.', 'video': 'Watched the video.', 'audio': 'Listened to the audio.'},
+}
 
 
 def link_job(run, generation_id, *, now):

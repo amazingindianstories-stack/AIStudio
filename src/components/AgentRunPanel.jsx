@@ -19,7 +19,7 @@ function StepIcon({ status }) {
   if (status === "running") return <Loader2 className="h-3.5 w-3.5 animate-spin text-brand" />;
   if (status === "done") return <Check className="h-3.5 w-3.5 text-emerald-300" />;
   if (status === "error") return <AlertCircle className="h-3.5 w-3.5 text-red-300" />;
-  if (status === "declined") return <Ban className="h-3.5 w-3.5 text-white/40" />;
+  if (status === "declined" || status === "stopped") return <Ban className="h-3.5 w-3.5 text-white/40" />;
   return <Clock className="h-3.5 w-3.5 text-amber-200" />;
 }
 
