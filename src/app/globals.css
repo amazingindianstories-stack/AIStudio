@@ -307,6 +307,11 @@ body {
   .composer-model { flex: 1 1 10rem; min-width: 0; }
   .composer-model-label { max-width: none; }
 }
+/* On a phone the settings chip is its icon alone, so it fits beside the model
+   chip, which still grows into the rest of the row. */
+@container (max-width: 24rem) {
+  .composer-model { flex-basis: 5.5rem; }
+}
 /* The Agents chat's upscale toolbar holds only the upscaler and its settings,
    so the model chip truncates rather than pushing the settings to a new row. */
 .composer-toolbar-single { flex-wrap: nowrap; }

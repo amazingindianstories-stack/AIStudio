@@ -249,7 +249,7 @@ export function runView(state) {
   const quote = isActiveStatus(run.status) && !stopping
     ? [...timeline].reverse().find((item) => item.quote?.state === "pending")?.quote || null : null;
   return {
-    runId: run.id || null, status: run.status || null, model: run.model || null, active: isActiveStatus(run.status), settled: isSettled(state),
+    runId: run.id || null, status: run.status || null, model: run.model || null, thinkingLevel: run.thinkingLevel || null, active: isActiveStatus(run.status), settled: isSettled(state),
     costCents: run.costCents ?? 0, timeline, jobs: Object.values(jobs).sort((left, right) => (left.seq ?? 0) - (right.seq ?? 0)),
     waitingOn: run.status === "waiting_jobs" ? waitingOn : [], quote, paused, stopping, outcome, finalText, queued, startMessageId,
     started: started || Boolean(run.startedAt),

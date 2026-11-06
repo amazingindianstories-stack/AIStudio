@@ -395,7 +395,8 @@ def ask(run, step, key, body, *, purpose='step'):
     None when Gemini gave no answer."""
     transport = AgentLoopTransport(run.model, UsageContext(user_id=run.user_id, grant_id=run.grant_id,
                                                            conversation_id=run.conversation_id, run_id=run.id,
-                                                           step_index=step.step_index, purpose=purpose))
+                                                           step_index=step.step_index, purpose=purpose),
+                                   thinking_level=run.thinking_level)
     try:
         response = transport.request('POST', transport.endpoint, headers={'Content-Type': 'application/json', 'x-goog-api-key': key},
                                      body=body)
@@ -458,7 +459,7 @@ def llm_step(run, principal, action, stop, *, now=now_ms):
         steps.append(step)
     else:
         step = action.step
-    body = loop_body(principal, build_contents(run, steps, step))
+    body = loop_body(principal, build_contents(run, steps, step), run.thinking_level)
     AgentRunStep.objects.filter(pk=step.pk).update(input_hash=digest(body), started_at=now())
     key = os.environ.get('GOOGLE_API_KEY')
     if not key:

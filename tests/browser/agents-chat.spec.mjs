@@ -89,6 +89,9 @@ test('Agents chat: one thread works in Image, Video and Upscale, each tab with i
   // A message carries the tab it was sent from, its model and settings, and the project new work lands in.
   const video = await send(page, 'A slow dolly toward a lantern-lit doorway.', 201);
   expect(video.body.composer).toMatchObject({ mode: 'video', model: videoModel, projectId: project.id });
+  // Without a choice the agent runs on Flash at medium thinking.
+  expect(video.body).toMatchObject({ model: 'gemini-3.8-flash', thinkingLevel: 'MEDIUM' });
+  expect(video.result.run).toMatchObject({ model: 'gemini-3.8-flash', thinkingLevel: 'MEDIUM' });
   expect(video.body.composer.options).toMatchObject({ aspectRatio: expect.any(String) });
   expect(video.body.composer.folderId).toBeUndefined();
   await expect(page.getByPlaceholder(/Talk through your/)).toHaveValue('');
@@ -143,7 +146,21 @@ test('Agents chat: one thread works in Image, Video and Upscale, each tab with i
 test('Agents chat: a turn\'s work is one collapsed line that opens to its notes, the arguments it chose, timings and the agent model', async ({ page, context, baseURL }) => {
   test.setTimeout(120000);
   await openAgents(page, context, baseURL, 'Agents chat trace');
-  const { result: { run } } = await send(page, 'Make a moonlit harbour.', 201);
+  // The agent model control picks the run's model and thinking level, and a refresh keeps the choice.
+  const picker = page.getByRole('button', { name: /^Agent model: / });
+  await expect(picker).toHaveAttribute('aria-label', 'Agent model: Gemini 3.8 Flash, Medium thinking');
+  await picker.click();
+  await page.getByRole('menuitemradio', { name: /^Gemini 3\.1 Pro/ }).click();
+  await expect(page.getByRole('group', { name: 'Thinking level' }).getByRole('menuitemradio')).toHaveText(['Low', 'Medium', 'High']);
+  await page.getByRole('menuitemradio', { name: 'High', exact: true }).click();
+  await expect(picker).toHaveAttribute('aria-label', 'Agent model: Gemini 3.1 Pro, High thinking');
+  await page.reload();
+  await page.getByRole('navigation', { name: 'Sections' }).getByRole('button', { name: 'Agents', exact: true }).click();
+  await expect(page.getByText('Loading chat…', { exact: true })).not.toBeVisible();
+  await expect(picker).toHaveAttribute('aria-label', 'Agent model: Gemini 3.1 Pro, High thinking');
+  const { body, result: { run } } = await send(page, 'Make a moonlit harbour.', 201);
+  expect(body).toMatchObject({ model: 'gemini-3.1-pro-preview', thinkingLevel: 'HIGH' });
+  expect(run).toMatchObject({ model: 'gemini-3.1-pro-preview', thinkingLevel: 'HIGH' });
   const db = fixtureDatabase(process.env.E2E_DATABASE_URL);
   let clock = Date.now();
   const emit = (kind, payload, at) => db.statement`
@@ -192,7 +209,7 @@ test('Agents chat: a turn\'s work is one collapsed line that opens to its notes,
   // jsonb keeps its own key order, so each row is checked on its own.
   await expect(step.locator('dl > div')).toHaveCount(2);
   await expect(step.locator('dl')).toHaveText('Aspect ratio16:9Count2');
-  await expect(steps).toContainText(`Agent model ${run.model}`);
+  await expect(steps).toContainText('Agent model Gemini 3.1 Pro, high thinking');
 
   await toggle.click();
   await expect(trace.getByTestId('agent-run-trace-steps')).toHaveCount(0);
@@ -205,15 +222,25 @@ test('Agents chat: at phone width the header, mode tabs and composer fit without
   const header = page.getByTestId('agents-header');
   await expect(header.getByTestId('agents-chat-name')).toBeInViewport();
   await expect(header.getByTestId('agents-destination')).toBeInViewport({ ratio: 1 });
-  for (const id of ['image', 'video', 'upscale']) {
-    await selectMode(page, id);
-    await expect(page.getByRole('tablist', { name: 'Mode' })).toBeInViewport({ ratio: 1 });
-    await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeInViewport({ ratio: 1 });
-    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
-    // The model and its settings share one row with Send.
-    const settings = page.getByRole('button', { name: id === 'upscale' ? 'Upscale settings' : 'Generation settings', exact: true });
-    const [model, gear, sendBox] = await Promise.all([modelOf(page).boundingBox(), settings.boundingBox(),
-      page.getByRole('button', { name: 'Send', exact: true }).boundingBox()]);
-    for (const box of [gear, sendBox]) expect(Math.abs((box.y + box.height / 2) - (model.y + model.height / 2))).toBeLessThanOrEqual(4);
+  for (const width of [390, 360]) {
+    await page.setViewportSize({ width, height: 844 });
+    for (const id of ['image', 'video', 'upscale']) {
+      await selectMode(page, id);
+      await expect(page.getByRole('tablist', { name: 'Mode' })).toBeInViewport({ ratio: 1 });
+      await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeInViewport({ ratio: 1 });
+      await expect(page.getByRole('button', { name: /^Agent model: / })).toBeInViewport({ ratio: 1 });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+      // The model and its settings share one row with Send.
+      const settings = page.getByRole('button', { name: id === 'upscale' ? 'Upscale settings' : 'Generation settings', exact: true });
+      const [model, gear, sendBox] = await Promise.all([modelOf(page).boundingBox(), settings.boundingBox(),
+        page.getByRole('button', { name: 'Send', exact: true }).boundingBox()]);
+      for (const box of [gear, sendBox]) expect(Math.abs((box.y + box.height / 2) - (model.y + model.height / 2))).toBeLessThanOrEqual(4);
+    }
   }
+  // Open, the composer also shows its draft buttons, on the agent model's line.
+  await page.getByPlaceholder(/Talk through your/).click();
+  for (const name of ['New / Clear', 'Recent submission']) {
+    await expect(page.getByRole('button', { name, exact: true })).toBeInViewport({ ratio: 1 });
+  }
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
 });

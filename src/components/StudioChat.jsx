@@ -51,6 +51,7 @@ import { normalizePromptMentions } from "@/lib/mentions";
 import { cn } from "@/lib/utils";
 import { apiErrorMessage } from "@/lib/api-error";
 import { AgentRunPanel } from "./AgentRunPanel";
+import { AgentModelPicker } from "./AgentModelPicker";
 import { useAgentRun } from "./useAgentRun";
 import { UpscaleSourceTile, UpscaleToolbar, useUpscaleSource } from "./AgentUpscaleControls";
 
@@ -249,6 +250,7 @@ export function StudioChat({ conversationId, onConversationUpdate }) {
     if (!content || sending || pendingUploads || upload.uploading || !conversationId) return;
     const id = conversationId;
     const composer = composerContext(useStore.getState());
+    const { agentModel, agentThinking } = useStore.getState();
     const optimistic = {
       id: `pending-${Date.now()}`,
       conversationId: id,
@@ -280,7 +282,7 @@ export function StudioChat({ conversationId, onConversationUpdate }) {
       const res = await fetch(`/api/agent-conversations/${id}/runs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content, images,
+        body: JSON.stringify({ content, images, model: agentModel, thinkingLevel: agentThinking,
           ...(composer ? { composer } : {}),
           ...(sentDocuments.length ? { attachments: sentDocuments.map((d) => d.uploadId) } : {}) }),
       });
@@ -572,7 +574,8 @@ export function StudioChat({ conversationId, onConversationUpdate }) {
           {referenceSubmissionWarning(s) && <p role="status" className="text-xs text-amber-200">{referenceSubmissionWarning(s)}</p>}
           {s.draftStorageWarning && <p role="status" className="text-xs text-amber-200">{s.draftStorageWarning}</p>}
           {normalizePromptMentions(input) !== input && <p role="status" className="text-xs text-amber-200">Some reference tags are informal. They remain literal text; use @img1 for an exact reference.</p>}
-          <div className="flex min-w-0 items-center justify-between gap-2">
+          {/* On a phone the tabs fill the row, so the agent model and the draft buttons wrap to a line of their own. */}
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
             <div role="tablist" aria-label="Mode" className="flex shrink-0 items-center gap-0.5 rounded-full bg-ink-900/80 p-0.5 ring-1 ring-line">
               {modeTabs.map(({ id, label, icon: Icon }) => (
                 <button
@@ -592,28 +595,31 @@ export function StudioChat({ conversationId, onConversationUpdate }) {
                 </button>
               ))}
             </div>
-            <div className={cn("flex min-w-0 items-center gap-0.5", collapsed && "hidden")}>
-              <button
-                type="button"
-                onClick={() => s.clearComposerDraft()}
-                title="Clear the prompt and attachments"
-                className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-white/45 transition hover:bg-white/5 hover:text-white/85"
-              >
-                <RotateCcw className="h-3 w-3" />
-                <span className="hidden sm:inline">New / Clear</span>
-                <span className="sr-only sm:hidden">New / Clear</span>
-              </button>
-              <button
-                type="button"
-                disabled={!s.recentSubmission}
-                onClick={() => s.restoreRecentSubmission()}
-                title="Restore the last submitted prompt"
-                className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-white/45 transition hover:bg-white/5 hover:text-white/85 disabled:pointer-events-none disabled:opacity-40"
-              >
-                <Undo2 className="h-3 w-3" />
-                <span className="hidden sm:inline">Recent submission</span>
-                <span className="sr-only sm:hidden">Recent submission</span>
-              </button>
+            <div className="ml-auto flex min-w-0 items-center gap-0.5">
+              <AgentModelPicker running={Boolean(run?.active)} />
+              <div className={cn("flex min-w-0 items-center gap-0.5", collapsed && "hidden")}>
+                <button
+                  type="button"
+                  onClick={() => s.clearComposerDraft()}
+                  title="Clear the prompt and attachments"
+                  className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-white/45 transition hover:bg-white/5 hover:text-white/85"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  <span className="hidden sm:inline">New / Clear</span>
+                  <span className="sr-only sm:hidden">New / Clear</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={!s.recentSubmission}
+                  onClick={() => s.restoreRecentSubmission()}
+                  title="Restore the last submitted prompt"
+                  className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-white/45 transition hover:bg-white/5 hover:text-white/85 disabled:pointer-events-none disabled:opacity-40"
+                >
+                  <Undo2 className="h-3 w-3" />
+                  <span className="hidden sm:inline">Recent submission</span>
+                  <span className="sr-only sm:hidden">Recent submission</span>
+                </button>
+              </div>
             </div>
           </div>
 

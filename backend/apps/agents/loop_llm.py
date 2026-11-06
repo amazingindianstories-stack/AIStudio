@@ -1,13 +1,16 @@
-"""The Agents tab's Gemini call: one pinned model, one fixed system prompt, registry-derived tools, and a usage row.
+"""The Agents tab's Gemini call: a pinned model at a thinking level it takes, one fixed system prompt, registry-derived
+tools, and a usage row.
 
-    transport = AgentLoopTransport(model, UsageContext(user_id=..., grant_id=..., conversation_id=..., run_id=..., step_index=3))
-    body = loop_body(principal, contents)
+    transport = AgentLoopTransport(model, UsageContext(user_id=..., grant_id=..., conversation_id=..., run_id=..., step_index=3),
+                                   thinking_level='HIGH')
+    body = loop_body(principal, contents, 'HIGH')
     response = transport.request('POST', transport.endpoint, headers=..., body=body)
 
 A loop step is not a generation job (no row to reserve), so the transport is exempt from the paid guard and bounded by
 its own allowlist instead: POST generateContent on a pinned model (``LOOP_MODELS``), exactly ``SYSTEM_PROMPT``, tool
 declarations that each equal the registry-derived one for an Agents tab tool or the harness's own ``design_prompt``
-(``design.DESIGN_DECLARATION``), exactly ``GENERATION_CONFIG`` (bounded output), user and model turns of text, media
+(``design.DESIGN_DECLARATION``), exactly the ``generation_config`` of the run's thinking level (bounded output; the
+levels the model takes are ``THINKING_LEVELS``), user and model turns of text, media
 (``MEDIA_MIME`` inline or as a Files API ``fileData``), function calls and function responses for those tools, and a
 bounded body. The usage purpose picks the body: 'media' is only a ``media_body`` sub-call, 'transcribe' only a
 ``transcribe_body`` and 'design_prompt' only a ``design.design_body`` sub-call, each with its own fixed prompt and config
@@ -34,12 +37,16 @@ from .design import DESIGN_DECLARATION, DESIGN_TOOL, design_payload_allowed
 from .llm import API_ROOT, IMAGE_MIME, PART_METADATA, agent_endpoint
 from .models import AgentLlmUsage
 
-# Pinned model ids (ai.google.dev/gemini-api/docs/models, checked 2026-11-03): Flash is the default; Pro is the
-# selectable stronger model, and is a preview id because Gemini 3 Pro has been shut down.
+# Pinned model ids (ai.google.dev/gemini-api/docs/models, checked 2026-11-06): Flash is the default and still the latest
+# Flash; Pro is the selectable stronger model, and is a preview id because Gemini 3 Pro has been shut down.
 LOOP_MODEL = 'gemini-3.8-flash'
 ADVANCED_LOOP_MODEL = 'gemini-3.1-pro-preview'
 LOOP_MODELS = (LOOP_MODEL, ADVANCED_LOOP_MODEL)
-GENERATION_CONFIG = {'maxOutputTokens': 16384, 'thinkingConfig': {'thinkingLevel': 'MEDIUM'}}
+# The thinking levels each model takes (ai.google.dev/gemini-api/docs/thinking, checked 2026-11-06): neither takes
+# MINIMAL. A run without a choice thinks at MEDIUM, whatever the model's own default.
+THINKING_LEVELS = {LOOP_MODEL: ('LOW', 'MEDIUM', 'HIGH'), ADVANCED_LOOP_MODEL: ('LOW', 'MEDIUM', 'HIGH')}
+DEFAULT_THINKING_LEVEL = 'MEDIUM'
+MAX_OUTPUT_TOKENS = 16384
 MAX_BODY_BYTES = 16 * 1024 * 1024
 PART_KEYS = frozenset(('text', 'inlineData', 'fileData', 'functionCall', 'functionResponse'))
 LOOP_TOOLS = AGENT_TOOLS | {DESIGN_TOOL}
@@ -101,6 +108,14 @@ TRANSCRIBE_PROMPT = (
 TRANSCRIBE_CONFIG = {'maxOutputTokens': 4096, 'thinkingConfig': {'thinkingLevel': 'LOW'}}
 
 
+def generation_config(thinking_level=DEFAULT_THINKING_LEVEL):
+    """A loop step's bounded config at ``thinking_level``."""
+    return {'maxOutputTokens': MAX_OUTPUT_TOKENS, 'thinkingConfig': {'thinkingLevel': thinking_level}}
+
+
+GENERATION_CONFIG = generation_config()
+
+
 @dataclass(frozen=True)
 class UsageContext:
     """Who a loop call is for, as recorded on its usage row."""
@@ -112,11 +127,12 @@ class UsageContext:
     purpose: str = 'step'
 
 
-def loop_body(principal, contents):
-    """The request body for one loop step as ``principal``: the fixed prompt, its tools and the bounded config."""
+def loop_body(principal, contents, thinking_level=DEFAULT_THINKING_LEVEL):
+    """The request body for one loop step as ``principal``: the fixed prompt, its tools and the bounded config at the
+    run's ``thinking_level``."""
     return {'systemInstruction': {'parts': [{'text': SYSTEM_PROMPT}]}, 'contents': contents,
             'tools': [{'functionDeclarations': function_declarations(principal) + [DESIGN_DECLARATION]}],
-            'generationConfig': GENERATION_CONFIG}
+            'generationConfig': generation_config(thinking_level)}
 
 
 def media_body(parts, question=None):
@@ -167,12 +183,13 @@ def _part_allowed(role, part):
             and value['name'] in LOOP_TOOLS and isinstance(value[payload], dict))
 
 
-def loop_payload_allowed(body):
-    """Only a loop step: exactly ``SYSTEM_PROMPT``, registry-derived Agents tab declarations, ``GENERATION_CONFIG``,
-    user and model turns of allowed parts, at most ``MAX_BODY_BYTES``."""
+def loop_payload_allowed(body, thinking_level=DEFAULT_THINKING_LEVEL):
+    """Only a loop step: exactly ``SYSTEM_PROMPT``, registry-derived Agents tab declarations, the
+    ``generation_config`` of ``thinking_level``, user and model turns of allowed parts, at most ``MAX_BODY_BYTES``."""
     if not isinstance(body, dict) or set(body) != {'systemInstruction', 'contents', 'tools', 'generationConfig'}:
         return False
-    if body['systemInstruction'] != {'parts': [{'text': SYSTEM_PROMPT}]} or body['generationConfig'] != GENERATION_CONFIG:
+    if (body['systemInstruction'] != {'parts': [{'text': SYSTEM_PROMPT}]}
+            or body['generationConfig'] != generation_config(thinking_level)):
         return False
     contents = body['contents']
     if not isinstance(contents, list) or not contents:
@@ -272,18 +289,21 @@ def record_usage(model, context, usage, *, now=None):
 
 class AgentLoopTransport(HttpTransport):
     """An Agents tab step's, design, media or transcription sub-call's only provider call; exempt from the paid guard
-    and bounded by the allowlist of its usage purpose (``PAYLOADS``, else ``loop_payload_allowed``). Every call Gemini
+    and bounded by the allowlist of its usage purpose (``PAYLOADS``, else ``loop_payload_allowed`` at the run's
+    ``thinking_level``, one of ``THINKING_LEVELS`` for the model). Every call Gemini
     answers writes one usage row, so the ledger holds every billed call; a call whose conversation was deleted meanwhile is
     recorded without its conversation and run."""
     paid_guard_exempt = True
 
-    def __init__(self, model, usage, *, timeout=90):
+    def __init__(self, model, usage, *, thinking_level=DEFAULT_THINKING_LEVEL, timeout=90):
         if model not in LOOP_MODELS:
             raise ValueError(f'Agents tab model {model!r} is not one of {", ".join(LOOP_MODELS)}.')
+        if thinking_level not in THINKING_LEVELS[model]:
+            raise ValueError(f'{model} does not think at {thinking_level!r}; it takes {", ".join(THINKING_LEVELS[model])}.')
         super().__init__(allowed_hosts={'generativelanguage.googleapis.com'}, timeout=timeout)
         self.model, self.usage = model, usage
         self.endpoint = agent_endpoint(model)
-        self.allowed = PAYLOADS.get(usage.purpose, loop_payload_allowed)
+        self.allowed = PAYLOADS.get(usage.purpose) or (lambda body: loop_payload_allowed(body, thinking_level))
 
     def request(self, method, url, *, headers=None, body=None, raw_body=None, signal=None):
         if method != 'POST' or url != self.endpoint or raw_body is not None or not self.allowed(body):

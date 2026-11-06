@@ -9,6 +9,7 @@ import { MediaCard } from "./MediaCard";
 import { GenerationStatus } from "./GenerationStatus";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/lib/store";
+import { agentModelLabel } from "@/lib/agent-model";
 
 const BUBBLE = "max-w-[85%] whitespace-pre-wrap rounded-xl px-3 py-2 text-sm leading-relaxed";
 
@@ -83,7 +84,7 @@ function TraceStep({ step }) {
  * did: the notes the model wrote before its reply, each tool call with its arguments and outcome, and the agent model.
  * The jobs the calls queued stay visible below it either way.
  */
-function TurnTrace({ trace, live, model, jobsByStep, findItem }) {
+function TurnTrace({ trace, live, model, thinkingLevel, jobsByStep, findItem }) {
   const [open, setOpen] = useState(false);
   const id = useId();
   const current = live ? trace.items.findLast((item) => item.type === "tool") : null;
@@ -100,7 +101,7 @@ function TurnTrace({ trace, live, model, jobsByStep, findItem }) {
           {trace.items.map((item) => (item.type === "tool" ? <TraceStep key={`step-${item.stepIndex}`} step={item} /> : (
             <li key={`text-${item.seq}`} className="whitespace-pre-wrap break-words text-xs leading-relaxed text-white/60">{item.text}</li>
           )))}
-          {model && <li className="text-[11px] text-white/30">Agent model {model}</li>}
+          {model && <li className="text-[11px] text-white/30">Agent model {agentModelLabel(model, thinkingLevel)}</li>}
         </ol>
       )}
       {jobs.length > 0 && (
@@ -225,7 +226,7 @@ export function AgentRunPanel({ view, items, last, synced, findItem, onDecide, o
     <div data-testid="agent-run" data-run-id={view.runId} data-run-status={view.status} className="flex flex-col gap-3">
       {groups.map((item, index) => {
         if (item.type === "trace") {
-          return <TurnTrace key={item.key} trace={item} live={last && view.active && index === groups.length - 1} model={view.model}
+          return <TurnTrace key={item.key} trace={item} live={last && view.active && index === groups.length - 1} model={view.model} thinkingLevel={view.thinkingLevel}
             jobsByStep={jobsByStep} findItem={findItem} />;
         }
         if (item.type === "message") {

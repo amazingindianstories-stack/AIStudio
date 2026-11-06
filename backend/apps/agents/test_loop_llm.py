@@ -15,8 +15,9 @@ from . import design, loop_llm
 from .declarations import HARNESS_FIELDS, KEYWORDS, function_declarations, gemini_schema, harness_arguments
 from .grants import AGENT_SCOPES
 from .loop_llm import (ADVANCED_LOOP_MODEL, FILES_UPLOAD, GENERATION_CONFIG, LOOP_MODEL, MEDIA_CONFIG, MEDIA_PROMPT, SYSTEM_PROMPT,
-                       TRANSCRIBE_CONFIG, TRANSCRIBE_PROMPT, AgentLoopTransport, GeminiFilesTransport, UsageContext, cost_microcents,
-                       loop_body, loop_payload_allowed, media_body, media_payload_allowed, transcribe_body, usage_counts)
+                       THINKING_LEVELS, TRANSCRIBE_CONFIG, TRANSCRIBE_PROMPT, AgentLoopTransport, GeminiFilesTransport, UsageContext,
+                       cost_microcents, generation_config, loop_body, loop_payload_allowed, media_body, media_payload_allowed,
+                       transcribe_body, usage_counts)
 from .models import AgentLlmUsage
 
 API = 'https://generativelanguage.googleapis.com/v1beta/models/'
@@ -215,6 +216,50 @@ class LoopTransportTests(TestCase):
                 AgentLoopTransport(model, self.context)
         self.assertEqual(AgentLoopTransport(LOOP_MODEL, self.context).endpoint, FLASH)
         self.assertIs(AgentLoopTransport.paid_guard_exempt, True)
+
+    def test_each_model_thinks_only_at_the_levels_it_takes_and_medium_is_the_default(self):
+        # ai.google.dev/gemini-api/docs/thinking: neither model takes MINIMAL.
+        self.assertEqual(THINKING_LEVELS, {LOOP_MODEL: ('LOW', 'MEDIUM', 'HIGH'), ADVANCED_LOOP_MODEL: ('LOW', 'MEDIUM', 'HIGH')})
+        self.assertEqual(GENERATION_CONFIG, {'maxOutputTokens': 16384, 'thinkingConfig': {'thinkingLevel': 'MEDIUM'}})
+        self.assertEqual(loop_body(self.principal, history())['generationConfig'], GENERATION_CONFIG)
+        self.assertTrue(AgentLoopTransport(LOOP_MODEL, self.context).allowed(self.body()))
+        sent = []
+        replies = [reply() for levels in THINKING_LEVELS.values() for _ in levels]
+        with guard({}, sent, replies):
+            for model, url in ((LOOP_MODEL, FLASH), (ADVANCED_LOOP_MODEL, PRO)):
+                for level in THINKING_LEVELS[model]:
+                    with self.subTest(model=model, level=level):
+                        transport = AgentLoopTransport(model, self.context, thinking_level=level)
+                        body = loop_body(self.principal, history(), level)
+                        self.assertEqual(body['generationConfig'], {'maxOutputTokens': 16384, 'thinkingConfig': {'thinkingLevel': level}})
+                        self.assertTrue(transport.request('POST', url, body=body).ok)
+                        # The transport carries exactly its run's level: any other config is refused before it leaves.
+                        for other in {'MINIMAL', 'LOW', 'MEDIUM', 'HIGH'} - {level}:
+                            with self.assertRaises(ProviderError):
+                                transport.request('POST', url, body=self.body(generationConfig=generation_config(other)))
+                        with self.assertRaises(ProviderError):
+                            transport.request('POST', url, body=self.body(generationConfig={'maxOutputTokens': 16384}))
+        self.assertEqual([body['generationConfig']['thinkingConfig']['thinkingLevel'] for _, _, body in sent],
+                         ['LOW', 'MEDIUM', 'HIGH', 'LOW', 'MEDIUM', 'HIGH'])
+        for model in THINKING_LEVELS:
+            for level in ('MINIMAL', 'medium', 'high', '', None, 3, ['HIGH']):
+                with self.subTest(model=model, level=level), self.assertRaises(ValueError):
+                    AgentLoopTransport(model, self.context, thinking_level=level)
+
+    def test_sub_calls_keep_their_own_configs_whatever_the_runs_level(self):
+        sub = {'design_prompt': design.design_body('Idea: a fox\nMake: an image'), 'media': media_body([IMAGE]),
+               'transcribe': transcribe_body('audio/webm', 'GkXf')}
+        sent = []
+        with guard({}, sent, [reply() for _ in sub]):
+            for purpose, body in sub.items():
+                with self.subTest(purpose):
+                    context = UsageContext(user_id=self.principal.user.id, purpose=purpose)
+                    transport = AgentLoopTransport(ADVANCED_LOOP_MODEL, context, thinking_level='HIGH')
+                    self.assertTrue(transport.request('POST', PRO, body=body).ok)
+                    with self.assertRaises(ProviderError):
+                        transport.request('POST', PRO, body={**body, 'generationConfig': generation_config('HIGH')})
+        self.assertEqual([body['generationConfig'] for _, _, body in sent],
+                         [design.DESIGN_GENERATION_CONFIG, MEDIA_CONFIG, TRANSCRIBE_CONFIG])
 
     def test_anything_but_a_loop_step_is_refused_before_it_leaves(self):
         declarations = loop_body(self.principal, history())['tools'][0]['functionDeclarations']
