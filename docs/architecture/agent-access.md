@@ -197,7 +197,7 @@ image and video upscalers in two groups, so choosing one sets the media too. A c
 until its first message names it.
 `src/components/StudioChat.jsx` sends every message to `POST .../runs` with `content`, the staged document upload ids
 (`attachments`), the reference images (`images`; data-URL references are uploaded first and written back to the
-draft) and `composer` (`composerContext` in `src/lib/agent-composer.js`); a sent message shows its mode and model. Voice notes are transcribed into the composer before sending, so they take the same path. A 201 shows the
+draft), `model` and `thinkingLevel` (the composer's LLM picker, `AgentModelPicker`; the choices and the levels each takes are in `src/lib/agent-model.js`, remembered in the `veevee-draft-settings-v1` draft) and `composer` (`composerContext` in `src/lib/agent-composer.js`); a sent message shows its mode and model. Voice notes are transcribed into the composer before sending, so they take the same path. A 201 shows the
 saved message and follows the new run; a 202 shows the inbox row as a dashed "Queued" bubble until `message_delivered`
 arrives, or a `pendingMessages` snapshot read after its `message_queued` no longer lists it. A refused send keeps the
 draft and staged files and shows the API's message (`AGENTS_DISABLED`, `AGENT_GRANT_INVALID` and the rest).
@@ -220,7 +220,7 @@ draft and staged files and shows the API's message (`AGENTS_DISABLED`, `AGENT_GR
   segment, queued messages, the quote, pause card, status line and how a failed or stopped run ended. The tool steps and
   non-final text between two replies fold into one trace (`traceGroups`), collapsed by default to a line such as
   "Worked for 12s · 3 steps · 1 failed" (`traceSummary`, timed from the events' `createdAt`). Opened, it lists the
-  model's notes, each tool call with its status, duration, outcome summary and arguments, and the agent model; job
+  model's notes, each tool call with its status, duration, outcome summary and arguments, and the agent model with its thinking level; job
   results stay visible below it either way. It shows only what the feed records: Gemini thought summaries are not
   requested, so there is no hidden reasoning to show. While the run is
   live and the thread has not been re-read, its replies and the messages it read come from the feed.
