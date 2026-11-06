@@ -15,7 +15,7 @@ from django.db import transaction
 from apps.common.leases import now_ms
 from apps.mcp.tools.generate import GLOBAL
 from . import events, grants, limits, runner
-from .loop_llm import LOOP_MODEL, LOOP_MODELS
+from .loop_llm import DEFAULT_THINKING_LEVEL, LOOP_MODEL, LOOP_MODELS, THINKING_LEVELS
 from .models import ACTIVE_RUN_STATUSES, AgentConversation, AgentConversationMessage, AgentInboxMessage, AgentRun
 from .services import conversation_json, message_json
 
@@ -61,8 +61,18 @@ def run_model(conversation, requested):
     return configured if configured in LOOP_MODELS else LOOP_MODEL
 
 
+def thinking_allowed(model, level):
+    """True when ``level`` is a thinking level ``model`` takes; None (no choice) always is."""
+    return level is None or level in THINKING_LEVELS.get(model, ())
+
+
+def run_thinking_level(model, requested):
+    return requested if requested in THINKING_LEVELS.get(model, ()) else DEFAULT_THINKING_LEVEL
+
+
 def run_json(run):
     return {'id': str(run.id), 'conversationId': str(run.conversation_id), 'status': run.status, 'model': run.model,
+            'thinkingLevel': run.thinking_level,
             'stepCount': run.step_count, 'costCents': run.cost_cents, 'pauseReason': run.pause_reason,
             'resumeAfter': run.resume_after, 'error': run.error, 'cancelRequestedAt': run.cancel_requested_at,
             'cancelJobs': run.cancel_jobs, 'startedAt': run.started_at, 'finishedAt': run.finished_at,
@@ -114,8 +124,9 @@ def message_trace(attachments, context):
     return trace or None
 
 
-def post_message(conversation, user, content, *, model=None, attachments=(), composer=None, now=None):
-    """Start a run with ``content`` as its first message, or put it in the active run's inbox; ``attachments``
+def post_message(conversation, user, content, *, model=None, thinking_level=None, attachments=(), composer=None, now=None):
+    """Start a run with ``content`` as its first message on ``model`` at ``thinking_level`` (each defaulted when None),
+    or put it in the active run's inbox, where the running model and level stay; ``attachments``
     (``media.attachment_json`` items, already validated) and the ``composer`` context (``views.composer_context``) are
     stored with it. Raises ``AgentsDisabled``, ``RunLimitReached`` or ``grants.AgentGrantInvalid`` when no run may
     start."""
@@ -135,8 +146,9 @@ def post_message(conversation, user, content, *, model=None, attachments=(), com
         grant = grants.ensure_grant(user.id, now=now)
         message = AgentConversationMessage.objects.create(conversation_id=locked.id, role='user', content=content, created_at=now,
                                                           tool_trace=message_trace(attachments, composer))
-        run = AgentRun.objects.create(conversation_id=locked.id, user_id=user.id, grant_id=grant.id,
-                                      model=run_model(locked, model), created_at=now, updated_at=now)
+        chosen = run_model(locked, model)
+        run = AgentRun.objects.create(conversation_id=locked.id, user_id=user.id, grant_id=grant.id, model=chosen,
+                                      thinking_level=run_thinking_level(chosen, thinking_level), created_at=now, updated_at=now)
         AgentConversation.objects.filter(pk=locked.id).update(status=run.status, last_run_at=now, updated_at=now)
         events.emit(run.id, 'run_queued', {'messageId': str(message.id)}, now=now)
         return {'delivery': 'run', 'run': run_json(run), 'message': message_json(message),

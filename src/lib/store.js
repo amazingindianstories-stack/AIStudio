@@ -89,6 +89,7 @@ import {
   putMaterialCache,
 } from "./material-cache";
 import { askText } from "./ask-text";
+import { DEFAULT_AGENT_MODEL, DEFAULT_AGENT_THINKING, agentModel, agentThinkingFor } from "./agent-model";
 import { uploadFileDirect } from "./client-reference-upload";
 import {
   PORTRAIT_UPLOAD_CONCURRENCY,
@@ -500,6 +501,9 @@ export const useStore = create((set, get) => ({
   // and generate omits them for any other model.
   imageQuality: DEFAULT_IMAGE_QUALITY,
   imageBackground: DEFAULT_IMAGE_BACKGROUND,
+  // The Agents chat's LLM and thinking level (agent-model.js); setAgentModel clamps the level.
+  agentModel: DEFAULT_AGENT_MODEL,
+  agentThinking: DEFAULT_AGENT_THINKING,
   videoTaskMode: "generate",
   // Reproducibility seed (Phase 3.1). null for an ordinary "Generate" click —
   // the enqueue route only honours it for models config.supportsSeed
@@ -760,6 +764,11 @@ export const useStore = create((set, get) => ({
   }),
   setImageQuality: (imageQuality) => set((s) => ({ imageQuality: imageQualityFor(s.model, imageQuality) })),
   setImageBackground: (imageBackground) => set((s) => ({ imageBackground: imageBackgroundFor(s.model, imageBackground) })),
+  setAgentModel: (model) => set((s) => {
+    const agent = agentModel(model) ? model : DEFAULT_AGENT_MODEL;
+    return { agentModel: agent, agentThinking: agentThinkingFor(agent, s.agentThinking) };
+  }),
+  setAgentThinking: (level) => set((s) => ({ agentThinking: agentThinkingFor(s.agentModel, level) })),
   setVideoTaskMode: (videoTaskMode) => set({
     videoTaskMode: VIDEO_TASK_MODES.includes(videoTaskMode) ? videoTaskMode : "generate",
   }),
@@ -3139,6 +3148,8 @@ export function restoreComposerDraft() {
       }
       patch.imageQuality = imageQualityFor(effModel, d.imageQuality);
       patch.imageBackground = imageBackgroundFor(effModel, d.imageBackground);
+      if (agentModel(d.agentModel)) patch.agentModel = d.agentModel;
+      patch.agentThinking = agentThinkingFor(patch.agentModel ?? DEFAULT_AGENT_MODEL, d.agentThinking);
       if (["project", "history", "favorites"].includes(d.rightTab)) {
         patch.rightTab = d.rightTab;
       }
@@ -3328,6 +3339,8 @@ if (typeof window !== "undefined") {
       s.bitrateMode !== prev.bitrateMode ||
       s.imageQuality !== prev.imageQuality ||
       s.imageBackground !== prev.imageBackground ||
+      s.agentModel !== prev.agentModel ||
+      s.agentThinking !== prev.agentThinking ||
       s.rightTab !== prev.rightTab ||
       s.activeProjectId !== prev.activeProjectId ||
       s.projectScopeSelected !== prev.projectScopeSelected ||
@@ -3349,6 +3362,8 @@ if (typeof window !== "undefined") {
             bitrateMode: s.bitrateMode,
             imageQuality: s.imageQuality,
             imageBackground: s.imageBackground,
+            agentModel: s.agentModel,
+            agentThinking: s.agentThinking,
             audioDefault: true,
             rightTab: s.rightTab,
             activeProjectId: s.activeProjectId,

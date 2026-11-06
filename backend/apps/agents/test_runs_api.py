@@ -16,7 +16,7 @@ from apps.generation.models import Generation
 from apps.mcp.tests.test_results import png_bytes
 from apps.media.models import UploadSession
 from . import composer, runner, runs, worker
-from .loop_llm import ADVANCED_LOOP_MODEL, LOOP_MODEL
+from .loop_llm import ADVANCED_LOOP_MODEL, LOOP_MODEL, THINKING_LEVELS, generation_config
 from .models import (ACTIVE_RUN_STATUSES, AgentChatAsset, AgentConversation, AgentConversationMessage, AgentGrant, AgentInboxMessage,
                      AgentLlmUsage, AgentRun, AgentRunEvent)
 from .test_runner import RunnerCase, call, text
@@ -187,12 +187,45 @@ class StartAndMessageTests(RunsApiCase):
         self.assertEqual(self.post(self.base, {'content': 'Now a wolf'}).json()['delivery'], 'run')
 
     def test_validation_and_the_model_choice(self):
-        for body in ({}, {'content': '   '}, {'content': 'x' * 8001}, {'content': 'x', 'model': 'gemini-ultra'}):
+        for body in ({}, {'content': '   '}, {'content': 'x' * 8001}, {'content': 'x', 'model': 'gemini-ultra'},
+                     {'content': 'x', 'thinkingLevel': 'MINIMAL'}, {'content': 'x', 'model': ADVANCED_LOOP_MODEL, 'thinkingLevel': 'MINIMAL'},
+                     {'content': 'x', 'model': LOOP_MODEL, 'thinkingLevel': 'high'}, {'content': 'x', 'thinkingLevel': ''},
+                     {'content': 'x', 'thinkingLevel': ['HIGH']}, {'content': 'x', 'thinkingLevel': 3},
+                     {'content': 'x', 'model': 'gemini-ultra', 'thinkingLevel': 'HIGH'}):
             with self.subTest(body=body):
                 self.assertEqual(self.post(self.base, body).status_code, 400)
         self.assertEqual(AgentRun.objects.count(), 0)
         response = self.post(self.base, {'content': 'x', 'model': ADVANCED_LOOP_MODEL})
-        self.assertEqual(response.json()['run']['model'], ADVANCED_LOOP_MODEL)
+        self.assertEqual((response.json()['run']['model'], response.json()['run']['thinkingLevel']), (ADVANCED_LOOP_MODEL, 'MEDIUM'))
+
+    def test_every_model_and_thinking_level_pair_starts_a_run_and_none_is_medium(self):
+        pairs = [(model, level) for model, levels in THINKING_LEVELS.items() for level in levels]
+        self.assertEqual(len(pairs), 6)
+        for model, level in pairs + [(LOOP_MODEL, None), (None, 'HIGH'), (None, None)]:
+            with self.subTest(model=model, level=level):
+                body = {'content': 'x', **({'model': model} if model else {}), **({'thinkingLevel': level} if level else {})}
+                response = self.post(self.base, body)
+                self.assertEqual(response.status_code, 201, response.content)
+                run = AgentRun.objects.get(pk=response.json()['run']['id'])
+                self.assertEqual((run.model, run.thinking_level, response.json()['run']['thinkingLevel']),
+                                 (model or LOOP_MODEL, level or 'MEDIUM', level or 'MEDIUM'))
+                AgentRun.objects.filter(pk=run.id).update(status='completed')
+        # A null level is no choice, and a level is checked against the chat's default model when none is sent.
+        AgentConversation.objects.filter(pk=self.conversation.id).update(settings={'model': ADVANCED_LOOP_MODEL})
+        response = self.post(self.base, {'content': 'x', 'thinkingLevel': None})
+        self.assertEqual((response.status_code, response.json()['run']['model'], response.json()['run']['thinkingLevel']),
+                         (201, ADVANCED_LOOP_MODEL, 'MEDIUM'))
+
+    def test_the_runs_thinking_level_reaches_every_model_step_and_an_inbox_message_keeps_it(self):
+        response = self.post(self.base, {'content': 'Make a red fox', 'model': ADVANCED_LOOP_MODEL, 'thinkingLevel': 'HIGH'})
+        run = AgentRun.objects.get(pk=response.json()['run']['id'])
+        later = self.post(self.base, {'content': 'Make it blue', 'model': LOOP_MODEL, 'thinkingLevel': 'LOW'})
+        self.assertEqual((later.status_code, later.json()['run']['model'], later.json()['run']['thinkingLevel']),
+                         (202, ADVANCED_LOOP_MODEL, 'HIGH'))
+        bodies = self.gemini([text('Checking.'), call('list_models', {}, 'c1')], [text('A blue fox it is.')])
+        self.assertEqual(self.advance(run), 'completed')
+        self.assertEqual([body['generationConfig'] for body in bodies], [generation_config('HIGH')] * 2)
+        self.assertEqual(set(AgentLlmUsage.objects.filter(run_id=run.id).values_list('model', flat=True)), {ADVANCED_LOOP_MODEL})
 
     def test_the_chats_model_setting_is_the_default(self):
         AgentConversation.objects.filter(pk=self.conversation.id).update(settings={'model': ADVANCED_LOOP_MODEL})

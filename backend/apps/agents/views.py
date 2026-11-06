@@ -328,6 +328,8 @@ def agent_runs(request, id):
         return Response(parsed, status=400)
     if body.get('model') is not None and body['model'] not in LOOP_MODELS:
         return Response({'error': 'Unknown model.'}, status=400)
+    if not runs.thinking_allowed(runs.run_model(conversation, body.get('model')), body.get('thinkingLevel')):
+        return Response({'error': 'That model does not take this thinking level.'}, status=400)
     attachment_ids = parse_attachments(body)
     if attachment_ids is None:
         return Response({'error': f'attachments must be a list of at most {MAX_ATTACHMENTS} upload ids.'}, status=400)
@@ -339,7 +341,8 @@ def agent_runs(request, id):
     except errors.ToolError as error:
         return renew_session(request, Response({'error': error.message}, status=ATTACHMENT_STATUS.get(error.code, 502)))
     try:
-        outcome = runs.post_message(conversation, user, parsed['content'], model=body.get('model'), attachments=attachments,
+        outcome = runs.post_message(conversation, user, parsed['content'], model=body.get('model'),
+                                    thinking_level=body.get('thinkingLevel'), attachments=attachments,
                                     composer=context)
     except runs.AgentsDisabled:
         return agents_disabled()

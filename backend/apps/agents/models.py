@@ -89,6 +89,7 @@ class AgentRun(models.Model):
     grant_id = models.UUIDField()
     status = models.TextField(default='queued', db_default='queued')
     model = models.TextField()
+    thinking_level = models.TextField(default='MEDIUM', db_default='MEDIUM')  # one of loop_llm.THINKING_LEVELS[model]
     step_count = models.IntegerField(default=0, db_default=0)
     cost_cents = models.IntegerField(default=0, db_default=0)          # paid tool estimates; LLM cost is in agent_llm_usage
     pause_reason = models.TextField(null=True)
