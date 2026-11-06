@@ -10,6 +10,8 @@ export const storeRuntime = {
   epoch: 0,
   sequences: { feed: 0, counts: 0, thread: 0 },
   liveTimer: null,
+  // When the pending live poll fires (epoch ms), or null while none is pending (one is in flight or live is off).
+  liveDueAt: null,
   liveSince: 0,
   liveAfterId: null,
   liveFailures: 0,
@@ -59,6 +61,7 @@ export function disposeStoreRuntime() {
   storeRuntime.sequences.counts = 0;
   storeRuntime.sequences.thread = 0;
   storeRuntime.liveTimer = null;
+  storeRuntime.liveDueAt = null;
   storeRuntime.liveSince = 0;
   storeRuntime.liveAfterId = null;
   storeRuntime.liveFailures = 0;

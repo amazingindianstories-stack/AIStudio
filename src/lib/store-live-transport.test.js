@@ -54,3 +54,29 @@ test('a response from a disposed login cannot enter the next session live feed',
     assert.equal(storeRuntime.liveSince, watermark);
   } finally { disposeStoreRuntime(); useStore.setState(initial, true); }
 });
+
+test('a running job read by id brings an idle live poll forward to the active cadence', async (t) => {
+  disposeStoreRuntime();
+  const initial = useStore.getState();
+  const timers = [];
+  t.mock.method(globalThis, 'setTimeout', (callback, delay) => { const timer = { callback, delay }; timers.push(timer); return timer; });
+  t.mock.method(globalThis, 'clearTimeout', (timer) => { const at = timers.indexOf(timer); if (at >= 0) timers.splice(at, 1); });
+  const rows = { running: 'running', done: 'succeeded' };
+  t.mock.method(globalThis, 'fetch', async (path) => {
+    const id = new URL(path, 'http://local').searchParams.get('ids');
+    if (id) return Response.json({ items: [{ id, kind: 'image', status: rows[id], updatedAt: Date.now(), createdAt: Date.now() }] });
+    return Response.json({ items: [], now: 1 });
+  });
+  try {
+    useStore.setState({ items: [], threadItems: [], pendingItems: [], looseItems: [] });
+    useStore.getState().startLiveUpdates();
+    timers.shift().callback(); await flush();
+    assert.deepEqual(timers.map(({ delay }) => delay), [20000]);
+    await useStore.getState().loadItem('done');
+    assert.deepEqual(timers.map(({ delay }) => delay), [20000]);
+    await useStore.getState().loadItem('running');
+    assert.deepEqual(timers.map(({ delay }) => delay), [3000]);
+    timers.shift().callback(); await flush();
+    assert.deepEqual(timers.map(({ delay }) => delay), [3000]);
+  } finally { disposeStoreRuntime(); useStore.setState(initial, true); }
+});

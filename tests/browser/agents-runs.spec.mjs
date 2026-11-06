@@ -44,6 +44,17 @@ async function send(page, content, status) {
   return response.json();
 }
 
+/** Opens the first `count` traces in `scope`: a turn's work is collapsed to one summary line until the artist asks. */
+async function expandTraces(scope, count = 1) {
+  const traces = scope.getByTestId('agent-run-trace');
+  await expect(traces).toHaveCount(count);
+  for (let index = 0; index < count; index += 1) {
+    const toggle = traces.nth(index).locator(':scope > button');
+    if (await toggle.getAttribute('aria-expanded') === 'false') await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  }
+}
+
 /** What the worker writes: events with the next seqs, and the run's status (always a newer updatedAt). */
 function worker(runId) {
   const db = fixtureDatabase(process.env.E2E_DATABASE_URL);
@@ -115,8 +126,15 @@ test('Agents runs: the feed renders model text, tool steps, jobs and a delivered
     await expect(panel.getByTestId('agent-run-status')).toHaveText('Waiting for 1 job to finish');
     await expect(page.getByTestId('agent-queued-message')).toHaveCount(0);
     await expect(panel.getByText('Use a warmer palette.', { exact: true })).toHaveCount(1);
-    await expect(panel.getByText('I will draft a warm close-up first.', { exact: true })).toBeVisible();
+    // The work is collapsed to one live line; the notes and steps behind it show only when it is opened.
+    const trace = panel.getByTestId('agent-run-trace');
+    await expect(trace.locator(':scope > button')).toHaveText('Working · 2 steps · 1 failed · Generate video');
+    await expect(trace.locator(':scope > button')).toHaveAttribute('aria-expanded', 'false');
+    await expect(panel.getByText('I will draft a warm close-up first.', { exact: true })).toHaveCount(0);
     const steps = panel.getByTestId('agent-run-step');
+    await expect(steps).toHaveCount(0);
+    await expandTraces(panel);
+    await expect(panel.getByText('I will draft a warm close-up first.', { exact: true })).toBeVisible();
     await expect(steps).toHaveCount(2);
     await expect(steps.nth(0)).toHaveAttribute('data-status', 'done');
     await expect(steps.nth(0)).toContainText('Generate image');
@@ -151,6 +169,8 @@ test('Agents runs: the feed renders model text, tool steps, jobs and a delivered
   // The saved thread takes over the reply and the delivered message; neither shows twice.
   await expect(feed.getByText('Your warm close-up is ready.', { exact: true })).toHaveCount(1);
   await expect(feed.getByText('Use a warmer palette.', { exact: true })).toHaveCount(1);
+  await expandTraces(panel);
+  await expect(panel.getByTestId('agent-run-trace').locator(':scope > button')).toHaveText(/^Worked for \d+s · 2 steps · 1 failed$/);
   await expect(panel.getByText('I will draft a warm close-up first.', { exact: true })).toBeVisible();
   await expect(panel.getByTestId('agent-run-step')).toHaveCount(2);
 });
@@ -214,12 +234,13 @@ test('Agents runs: every ended run keeps its activity in order after its message
     'Try a softer harbour.', 'Trying a softer palette.', 'Generate image', 'Done', 'Queued one image.', 'Your softer harbour is ready.'];
   const expectHistory = async () => {
     await expect(feed.getByTestId('agent-run-status')).toHaveCount(0);
+    await expandTraces(feed, 2);
     await expectInOrder(feed, order);
     await expect(feed.getByText('Your softer harbour is ready.', { exact: true })).toHaveCount(1);
     await expect(feed.getByRole('region', { name: 'Run failed' })).toHaveText(error.message);
     await expect(feed.locator(`[data-run-id="${first.id}"]`).getByTestId('agent-run-step')).toHaveAttribute('data-status', 'error');
-    const done = feed.locator(`[data-run-id="${second.id}"]`).getByTestId('agent-run-step');
-    await expect(done).toHaveAttribute('data-status', 'done');
+    const done = feed.locator(`[data-run-id="${second.id}"]`);
+    await expect(done.getByTestId('agent-run-step')).toHaveAttribute('data-status', 'done');
     await expect(done.getByTestId(`media-card-${made}`).getByRole('img', { name: 'Soft harbour' })).toBeVisible();
   };
   await expectHistory();
@@ -236,10 +257,12 @@ test('Agents runs: every ended run keeps its activity in order after its message
   await page.reload();
   await expect(page.getByRole('button', { name: /Desktop fixture/ })).toBeVisible();
   await agentsTab(page);
-  await expectHistory();
+  // Checked before the traces are opened: opening one is the artist reading back, so the feed stays where it is.
+  await expect(feed.getByTestId(`media-card-${made}`).getByRole('img', { name: 'Soft harbour' })).toBeVisible();
   await expect.poll(() => feed.evaluate((el) => el.scrollHeight - el.clientHeight)).toBeGreaterThan(100);
   await expect.poll(() => feed.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight)).toBeLessThan(2);
   await expect(feed.getByText('Your softer harbour is ready.', { exact: true })).toBeInViewport();
+  await expectHistory();
   await page.waitForTimeout(4000);
   expect(reads.sort()).toEqual([first.id, second.id].sort());
 });
@@ -316,9 +339,11 @@ test('Agents runs: a job still running when its run ended follows its generation
     fixture.status('completed', { steps: 3 }),
     fixture.emit('completed', { steps: 3, costCents: 6 }),
   ]);
-  await expect(panel.getByTestId('agent-run-step')).toHaveAttribute('data-status', 'done');
+  // The job's card shows below the collapsed trace.
   const card = panel.getByTestId(`media-card-${job}`);
   await expect(card).toBeVisible();
+  await expandTraces(panel);
+  await expect(panel.getByTestId('agent-run-step')).toHaveAttribute('data-status', 'done');
   await expect(card.getByRole('img', { name: 'Lantern at dusk' })).toHaveCount(0);
 
   // The generation worker finishes it after the run ended: the card follows the row, not the run's feed.
@@ -370,6 +395,7 @@ test('Agents runs: a quote of $1.00 or more needs a second confirmation, and a d
   expect(approval.status()).toBe(200);
   expect(approval.request().postDataJSON()).toEqual({ stepIndex: 1 });
   await expect(card).toHaveCount(0);
+  await expandTraces(panel);
   const steps = panel.getByTestId('agent-run-step');
   await expect(steps.nth(0)).toContainText('Approved $1.50.');
   await expect(steps.nth(0)).toHaveAttribute('data-status', 'running');
@@ -399,6 +425,7 @@ test('Agents runs: a quote of $1.00 or more needs a second confirmation, and a d
   expect(decline.status()).toBe(200);
   expect(decline.request().postDataJSON()).toEqual({ stepIndex: 2 });
   await expect(card).toHaveCount(0);
+  await expandTraces(panel);
   await expect(steps.nth(1)).toHaveAttribute('data-status', 'declined');
   await expect(steps.nth(1)).toContainText('Declined.');
   expect(approvals).toEqual([{ stepIndex: 1 }]);
@@ -450,6 +477,7 @@ test('Agents runs: a paused run shows why and when it continues, and Stop and ca
   await expect(page.getByRole('button', { name: /Desktop fixture/ })).toBeVisible();
   await agentsTab(page);
   await expect(ended).toHaveText('Stopped and cancelled 1 job.');
+  await expandTraces(panel);
   await expect(panel.getByTestId('agent-run-step')).toContainText('Queued one image.');
   await expect(panel.getByText('The image was cancelled.', { exact: true })).toBeVisible();
   await expect(page.getByTestId('studio-chat-feed').getByText('Make three lantern variations.', { exact: true })).toHaveCount(1);

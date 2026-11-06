@@ -1161,6 +1161,7 @@ export const useStore = create((set, get) => ({
 
   stopLiveUpdates: () => {
     storeRuntime.liveRunning = false;
+    storeRuntime.liveDueAt = null;
     if (storeRuntime.liveTimer) {
       storeRuntime.liveTimer = clearStoreTimeout(storeRuntime.liveTimer);
     }
@@ -1569,6 +1570,8 @@ export const useStore = create((set, get) => ({
     const current = findItem(get(), id);
     if (current) return current;
     set((s) => ({ looseItems: [...s.looseItems, item] }));
+    // A job still rendering follows the live feed, which polls slowly while nothing else is.
+    if (hasRecentActiveWork([item])) hurryLive(set, get);
     return item;
   },
 
@@ -3000,6 +3003,7 @@ async function liveTick(
   set,
   get
 ) {
+  storeRuntime.liveDueAt = null;
   if (!storeRuntime.liveRunning) return;
   // A hidden tab is throttled by the browser to roughly one timer per minute
   // anyway, and nobody is looking. Skip the request and let the
@@ -3043,6 +3047,14 @@ function scheduleLive(
   if (!storeRuntime.liveRunning) return;
   if (storeRuntime.liveTimer) clearStoreTimeout(storeRuntime.liveTimer);
   storeRuntime.liveTimer = setStoreTimeout(() => liveTick(set, get), ms);
+  storeRuntime.liveDueAt = Date.now() + ms;
+}
+
+/** Brings the pending live poll forward to the active cadence. A poll in flight reschedules itself by what it finds. */
+function hurryLive(set, get) {
+  if (storeRuntime.liveRunning && storeRuntime.liveDueAt !== null && storeRuntime.liveDueAt - Date.now() > LIVE_MS_ACTIVE) {
+    scheduleLive(set, get, LIVE_MS_ACTIVE);
+  }
 }
 
 // ── composer draft + UI-state persistence ────────────────────────────────────

@@ -1,8 +1,9 @@
 "use client";
-import { useEffect, useState } from "react";
-import { AlertCircle, Ban, Check, Clock, Loader2, PauseCircle, Wrench, X } from "lucide-react";
+import { useEffect, useId, useState } from "react";
+import { AlertCircle, Ban, Check, ChevronRight, Clock, Loader2, PauseCircle, X } from "lucide-react";
 import {
-  outcomeText, pauseReasonText, queuedNote, quoteCardStep, quoteCost, quoteDetails, resumeText, sentenceCase, statusLine, stepStatusText,
+  durationText, outcomeText, pauseReasonText, queuedNote, quoteCardStep, quoteCost, quoteDetails, resumeText, sentenceCase, statusLine,
+  stepStatusText, traceArguments, traceGroups, traceSummary,
 } from "@/lib/agent-run";
 import { MediaCard } from "./MediaCard";
 import { GenerationStatus } from "./GenerationStatus";
@@ -49,24 +50,64 @@ function JobResult({ job, item }) {
   return <div className="rounded-lg bg-ink-750 px-2.5 py-2 text-xs text-white/50">{text}</div>;
 }
 
-function ToolStep({ step, jobs, findItem }) {
+/** One tool call in a trace: what it was, how it went, how long it took, and the arguments the model chose. */
+function TraceStep({ step }) {
   const quote = step.quote;
-  const status = stepStatusText(step);
+  const { prompt, rows } = traceArguments(step.arguments);
+  const took = Number.isFinite(step.at) && Number.isFinite(step.endedAt) && step.endedAt >= step.at ? durationText(step.endedAt - step.at) : null;
   return (
-    <div data-testid="agent-run-step" data-status={step.status} className="flex max-w-[85%] flex-col gap-1.5">
-      <div className="flex items-start gap-2 rounded-lg border border-line bg-ink-800/70 px-2.5 py-1.5 text-xs text-white/70">
-        <Wrench className="mt-0.5 h-3.5 w-3.5 shrink-0 text-white/40" />
-        <div className="min-w-0 flex-1">
-          <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 font-medium text-white/85">
-            <span className="break-words">{toolLabel(step.tool)}</span>
-            <span className="inline-flex items-center gap-1 whitespace-nowrap font-normal text-white/50"><StepIcon status={step.status} /> {status}</span>
-          </p>
-          {step.summary && <p className="mt-0.5 break-words text-white/55">{step.summary}</p>}
-          {quote?.state === "approved" && <p className="mt-0.5 text-emerald-200/80">Approved {quoteCost(quote)}.</p>}
-          {quote?.state === "declined" && <p className="mt-0.5 text-white/50">Declined{quote.reason && quote.reason !== "declined" ? ` (${quote.reason.replace(/_/g, " ")})` : ""}.</p>}
+    <li data-testid="agent-run-step" data-status={step.status} className="flex min-w-0 flex-col gap-1">
+      <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs">
+        <StepIcon status={step.status} />
+        <span className="break-words font-medium text-white/85">{toolLabel(step.tool)}</span>
+        <span className="whitespace-nowrap text-white/45">{stepStatusText(step)}</span>
+        {took && <span className="whitespace-nowrap tabular-nums text-white/30">{took}</span>}
+      </p>
+      {step.summary && <p className="break-words text-xs text-white/55">{step.summary}</p>}
+      {quote?.state === "approved" && <p className="text-xs text-emerald-200/80">Approved {quoteCost(quote)}.</p>}
+      {quote?.state === "declined" && <p className="text-xs text-white/50">Declined{quote.reason && quote.reason !== "declined" ? ` (${quote.reason.replace(/_/g, " ")})` : ""}.</p>}
+      {prompt && <p className="whitespace-pre-wrap break-words rounded-lg bg-ink-800/80 px-2 py-1.5 text-xs leading-relaxed text-white/75">{prompt}</p>}
+      {rows.length > 0 && (
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5 text-[11px] text-white/45">
+          {rows.map(({ key, label, value }) => (
+            <div key={key} className="contents"><dt>{label}</dt><dd className="break-words text-white/70">{value}</dd></div>
+          ))}
+        </dl>
+      )}
+    </li>
+  );
+}
+
+/**
+ * A turn's work, collapsed by default to one line ("Worked for 12s · 3 steps"). Expanded, it lists what the run really
+ * did: the notes the model wrote before its reply, each tool call with its arguments and outcome, and the agent model.
+ * The jobs the calls queued stay visible below it either way.
+ */
+function TurnTrace({ trace, live, model, jobsByStep, findItem }) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  const current = live ? trace.items.findLast((item) => item.type === "tool") : null;
+  const jobs = trace.items.flatMap((item) => (item.type === "tool" ? jobsByStep[item.stepIndex] || [] : []));
+  return (
+    <div data-testid="agent-run-trace" className="flex max-w-[85%] flex-col gap-2">
+      <button type="button" aria-expanded={open} aria-controls={id} onClick={() => setOpen((value) => !value)}
+        className="flex w-fit max-w-full items-center gap-1.5 rounded-md py-0.5 pr-1 text-left text-xs text-white/45 transition hover:text-white/80 focus-visible:text-white/80">
+        <ChevronRight aria-hidden="true" className={cn("h-3.5 w-3.5 shrink-0 transition-transform", open && "rotate-90")} />
+        <span className="truncate">{traceSummary(trace, { live })}{current ? ` · ${toolLabel(current.tool)}` : ""}</span>
+      </button>
+      {open && (
+        <ol id={id} data-testid="agent-run-trace-steps" className="ml-[6px] flex min-w-0 flex-col gap-3 border-l border-line py-0.5 pl-3.5">
+          {trace.items.map((item) => (item.type === "tool" ? <TraceStep key={`step-${item.stepIndex}`} step={item} /> : (
+            <li key={`text-${item.seq}`} className="whitespace-pre-wrap break-words text-xs leading-relaxed text-white/60">{item.text}</li>
+          )))}
+          {model && <li className="text-[11px] text-white/30">Agent model {model}</li>}
+        </ol>
+      )}
+      {jobs.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {jobs.map((job) => <JobResult key={job.generationId} job={job} item={findItem(job.generationId)} />)}
         </div>
-      </div>
-      {jobs.map((job) => <JobResult key={job.generationId} job={job} item={findItem(job.generationId)} />)}
+      )}
     </div>
   );
 }
@@ -165,12 +206,14 @@ function StatusLine({ view, onStop }) {
 
 /**
  * One segment of an agent run in the thread (see threadEntries): `items` are its model text, tool steps with the jobs
- * they queued, and messages it read that the saved thread does not hold yet. The `last` segment also renders the run's
+ * they queued, and messages it read that the saved thread does not hold yet. The work between replies folds into a
+ * collapsed trace (traceGroups). The `last` segment also renders the run's
  * state: queued messages (until the thread is re-read, `synced`), the quote, pause and outcome cards, and Stop.
  */
 export function AgentRunPanel({ view, items, last, synced, findItem, onDecide, onStop, pollError }) {
   const jobsByStep = {};
   for (const job of view.jobs) (jobsByStep[job.stepIndex] ??= []).push(job);
+  const groups = traceGroups(items);
   const failed = view.outcome?.status === "failed";
   const ended = last && view.outcome && view.outcome.status !== "completed";
   const queued = last && !synced ? view.queued : [];
@@ -180,14 +223,17 @@ export function AgentRunPanel({ view, items, last, synced, findItem, onDecide, o
   if (!items.length && !queued.length && !quote && !paused && !(last && view.active) && !ended && !pollError) return null;
   return (
     <div data-testid="agent-run" data-run-id={view.runId} data-run-status={view.status} className="flex flex-col gap-3">
-      {items.map((item) => {
-        if (item.type === "tool") return <ToolStep key={`step-${item.stepIndex}`} step={item} jobs={jobsByStep[item.stepIndex] || []} findItem={findItem} />;
+      {groups.map((item, index) => {
+        if (item.type === "trace") {
+          return <TurnTrace key={item.key} trace={item} live={last && view.active && index === groups.length - 1} model={view.model}
+            jobsByStep={jobsByStep} findItem={findItem} />;
+        }
         if (item.type === "message") {
           return <div key={`message-${item.inboxId}`} className="flex flex-col items-end"><div className={cn(BUBBLE, "bg-brand/15 text-white")}>{item.content}</div></div>;
         }
         return (
           <div key={`text-${item.seq}`} className="flex flex-col items-start">
-            <div className={cn(BUBBLE, "bg-white/6", item.final ? "text-white/85" : "text-white/65")}>{item.text}</div>
+            <div className={cn(BUBBLE, "bg-white/6 text-white/85")}>{item.text}</div>
           </div>
         );
       })}

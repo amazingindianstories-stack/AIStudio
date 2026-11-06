@@ -70,6 +70,9 @@ export function Dropdown({
   const triggerRef = useRef(null);
   const panelRef = useRef(null);
   const keyboardFocusRef = useRef(null);
+  // Set by a pointer press anywhere in this dropdown's React tree, including the
+  // portaled panel of a dropdown nested inside it, so that press keeps it open.
+  const pressedInsideRef = useRef(false);
   const panelId = useId();
 
   useEffect(() => { if (disabled) setOpen(false); }, [disabled, setOpen]);
@@ -148,7 +151,10 @@ export function Dropdown({
     if (!open) return;
     const onDown = (e) => {
       const target = e.target ;
+      const pressedInside = pressedInsideRef.current;
+      pressedInsideRef.current = false;
       if (
+        !pressedInside &&
         ref.current &&
         !ref.current.contains(target) &&
         !panelRef.current?.contains(target)
@@ -242,6 +248,7 @@ export function Dropdown({
                 id={panelId}
                 role="menu"
                 onKeyDown={onPanelKeyDown}
+                onMouseDownCapture={() => { pressedInsideRef.current = true; }}
                 initial={{ opacity: 0, y: side === "bottom" ? -6 : 6, scale: 0.97 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: side === "bottom" ? -6 : 6, scale: 0.97 }}
