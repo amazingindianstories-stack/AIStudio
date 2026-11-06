@@ -124,6 +124,7 @@ export function runView(state) {
   const queuedSeq = {};
   let waitingOn = [];
   let paused = null;
+  let started = false;
   let stopping = null;
   let outcome = null;
   let finalText = null;
@@ -143,9 +144,11 @@ export function runView(state) {
       case "run_started":
       case "resumed":
         paused = null;
+        started = true;
         break;
       case "step_started":
         paused = null;
+        started = true;
         if (payload.kind === "tool") step(payload.stepIndex, { tool: payload.tool, seq, at: createdAt, ...(payload.arguments ? { arguments: payload.arguments } : {}) });
         break;
       case "assistant_text":
@@ -249,6 +252,7 @@ export function runView(state) {
     runId: run.id || null, status: run.status || null, model: run.model || null, active: isActiveStatus(run.status), settled: isSettled(state),
     costCents: run.costCents ?? 0, timeline, jobs: Object.values(jobs).sort((left, right) => (left.seq ?? 0) - (right.seq ?? 0)),
     waitingOn: run.status === "waiting_jobs" ? waitingOn : [], quote, paused, stopping, outcome, finalText, queued, startMessageId,
+    started: started || Boolean(run.startedAt),
   };
 }
 
@@ -370,7 +374,7 @@ export function traceArguments(args) {
       rows.push({ key, label: ARGUMENT_LABELS[key] || sentenceCase(key), value: shown });
     }
   }
-  return { prompt, rows };
+  return { prompt, rows: rows.sort(byArgumentOrder) };
 }
 
 /** Whether approving `costCents` needs the card's second confirmation before the approve request is sent. */
@@ -451,7 +455,8 @@ export function statusLine(view) {
     const count = view.waitingOn?.length || 0;
     return { label: `Waiting for ${count || "its"} job${count === 1 ? "" : "s"} to finish`, icon: "spin" };
   }
-  return { label: view.status === "queued" ? "Starting…" : "Working…", icon: "spin" };
+  // The run JSON can still say 'queued' after its events show it started; the events win.
+  return { label: view.status === "queued" && !view.started ? "Starting…" : "Working…", icon: "spin" };
 }
 
 /** The note under a message queued into the active run: a stopping run never reads it, so it joins the chat once the run stops. */
@@ -493,9 +498,9 @@ export function stepStatusText(step) {
 const ARGUMENT_LABELS = {
   model: "Model",
   aspectRatio: "Aspect ratio",
-  resolution: "Resolution",
   duration: "Duration",
   durationSeconds: "Duration",
+  resolution: "Resolution",
   count: "Count",
   outputs: "Count",
   seed: "Seed",
@@ -505,6 +510,13 @@ const ARGUMENT_LABELS = {
   bitrateMode: "Bitrate",
   quality: "Quality",
 };
+const ARGUMENT_ORDER = Object.keys(ARGUMENT_LABELS);
+// Stored arguments come back from jsonb with their keys sorted by length, so rows follow the labels' order (known keys
+// first), then the rest by name.
+function byArgumentOrder(a, b) {
+  const rank = (key) => (ARGUMENT_ORDER.includes(key) ? ARGUMENT_ORDER.indexOf(key) : ARGUMENT_ORDER.length);
+  return rank(a.key) - rank(b.key) || (rank(a.key) === ARGUMENT_ORDER.length ? a.key.localeCompare(b.key) : 0);
+}
 // Call plumbing the model may pass that says nothing about what the artist pays for.
 const HIDDEN_ARGUMENTS = new Set(["prompt", "wait", "maxWaitSeconds", "includePreview", "quoteToken", "idempotencyKey", "confirmedByUser"]);
 
@@ -518,7 +530,8 @@ function argumentValue(key, value) {
 export function quoteDetails(args) {
   return Object.entries(args || {})
     .filter(([key, value]) => !HIDDEN_ARGUMENTS.has(key) && value !== null && value !== undefined && typeof value !== "object")
-    .map(([key, value]) => ({ key, label: ARGUMENT_LABELS[key] || sentenceCase(key), value: argumentValue(key, value) }));
+    .map(([key, value]) => ({ key, label: ARGUMENT_LABELS[key] || sentenceCase(key), value: argumentValue(key, value) }))
+    .sort(byArgumentOrder);
 }
 
 const ACTION_ERRORS = {

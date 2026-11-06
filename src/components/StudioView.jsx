@@ -7,7 +7,7 @@ import { useStore } from "@/lib/store";
 import { modeAvailable } from "@/lib/config";
 import { CHAT_MODES } from "@/lib/agent-composer";
 import { cn } from "@/lib/utils";
-import { ChatSidebar } from "./ChatSidebar";
+import { ChatSidebar, chatLabel } from "./ChatSidebar";
 import { DestinationPicker, destinationOf } from "./ComposerControls";
 import { StudioChat } from "./StudioChat";
 
@@ -26,6 +26,7 @@ export function StudioView() {
   const activeProjectId = useStore((s) => s.activeProjectId);
   const [conversationId, setConversationId] = useState(null);
   const [conversations, setConversations] = useState([]);
+  const [updatedConversation, setUpdatedConversation] = useState(null);
   const projectRef = useRef(undefined);
 
   // A thread belongs to its project: a project switch must never leave the previous project's chat open.
@@ -48,10 +49,11 @@ export function StudioView() {
         conversationId={conversationId}
         onConversationIdChange={setConversationId}
         onConversationsChange={setConversations}
+        updatedConversation={updatedConversation}
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <AgentsHeader chatName={conversation?.name} />
-        <StudioChat conversationId={conversationId} />
+        <AgentsHeader chatName={chatLabel(conversation)} />
+        <StudioChat conversationId={conversationId} onConversationUpdate={setUpdatedConversation} />
       </div>
     </div>
   );

@@ -30,10 +30,26 @@ const DESKTOP_QUERY = "(min-width: 768px)";
  * Below md the list never takes width from the chat: it opens as an overlay
  * with a scrim and closes on choosing a chat.
  */
+// The name a chat gets when this list creates it. The server renames it after its first message (runs.DEFAULT_NAME).
+const DEFAULT_NAME = "New chat";
+const TIME = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+const DAY_TIME = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+
+/** A chat's label: its name, or for a chat nobody has named or written in yet, when it was started, so it never reads
+ *  like the "New chat" button above it. */
+export function chatLabel(conversation, now = Date.now()) {
+  if (!conversation) return "";
+  if (conversation.name !== DEFAULT_NAME || !Number.isFinite(conversation.createdAt)) return conversation.name;
+  const created = new Date(conversation.createdAt);
+  const today = new Date(now).toDateString() === created.toDateString();
+  return `Untitled chat · ${(today ? TIME : DAY_TIME).format(created)}`;
+}
+
 export function ChatSidebar({
   conversationId,
   onConversationIdChange,
   onConversationsChange,
+  updatedConversation,
 }
 
 ) {
@@ -105,7 +121,7 @@ export function ChatSidebar({
         const created = await fetch("/api/agent-conversations", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ op: "createConversation", projectId: activeProjectId, name: "New chat" }),
+          body: JSON.stringify({ op: "createConversation", projectId: activeProjectId, name: DEFAULT_NAME }),
         });
         const createdJson = await created.json().catch(() => ({}));
         if (requestIdRef.current !== requestId) return;
@@ -122,12 +138,18 @@ export function ChatSidebar({
   // The Agents header names the open chat, so it follows this list's renames and deletions.
   useEffect(() => { onConversationsChange?.(conversations); }, [conversations, onConversationsChange]);
 
+  // A chat the server renamed (after its first message) takes its new name here without re-reading the list.
+  useEffect(() => {
+    if (!updatedConversation) return;
+    setConversations((cur) => cur.map((c) => (c.id === updatedConversation.id ? { ...c, ...updatedConversation } : c)));
+  }, [updatedConversation]);
+
   const createConversation = async () => {
     if (!activeProjectId) return;
     const res = await fetch("/api/agent-conversations", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ op: "createConversation", projectId: activeProjectId, name: "New chat" }),
+      body: JSON.stringify({ op: "createConversation", projectId: activeProjectId, name: DEFAULT_NAME }),
     });
     const json = await res.json().catch(() => ({}));
     if (json.conversations) {
@@ -286,12 +308,12 @@ export function ChatSidebar({
                       : "text-white/70 hover:bg-white/5 hover:text-white"
                   )}
                 >
-                  <span className="truncate">{c.name}</span>
+                  <span className="truncate">{chatLabel(c)}</span>
                 </button>
                 <Dropdown
                   align="right"
                   className="absolute right-1 top-1/2 -translate-y-1/2"
-                  label={`Options for ${c.name}`}
+                  label={`Options for ${chatLabel(c)}`}
                   trigger={(open) => (
                     <span
                       className={cn(
@@ -398,7 +420,7 @@ function DeleteThreadDialog({
           Delete this chat?
         </h2>
         <p className="mt-2 text-sm text-white/60">
-          “{conversation.name}” will be deleted. This cannot be undone.
+          “{chatLabel(conversation)}” will be deleted. This cannot be undone.
         </p>
         <div className="mt-4 flex justify-end gap-2">
           <button

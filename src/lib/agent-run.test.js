@@ -406,10 +406,21 @@ test("runAction turns a quote or run that moved on into a plain message", async 
   assert.deepEqual(offline, { ok: false, run: null, code: null, error: "Veevee could not be reached. Try again." });
 });
 
+test("a run whose JSON still says queued but whose events show it started reads as working", () => {
+  const view = runView(applyPage(runState(), page([event(1, "run_queued"), event(2, "run_started"),
+    event(3, "step_started", { stepIndex: 0, kind: "tool", tool: "generate_video" })], { run: run({ status: "queued" }) })));
+  assert.equal(view.started, true);
+  assert.deepEqual(statusLine(view), { label: "Working…", icon: "spin" });
+  const fresh = runView(applyPage(runState(), page([event(1, "run_queued")], { run: run({ status: "queued" }) })));
+  assert.equal(fresh.started, false);
+  assert.deepEqual(statusLine(fresh), { label: "Starting…", icon: "spin" });
+});
+
 test("statusLine spins only while the run works; a pause and a wait on the artist hold still", () => {
   const line = (status, fields = {}) => statusLine({ status, waitingOn: [], stopping: null, ...fields });
   for (const status of ["queued", "running", "waiting_jobs"]) assert.equal(line(status).icon, "spin", status);
   assert.deepEqual(line("queued"), { label: "Starting…", icon: "spin" });
+  assert.deepEqual(line("queued", { started: true }), { label: "Working…", icon: "spin" });
   assert.deepEqual(line("running"), { label: "Working…", icon: "spin" });
   assert.deepEqual(line("waiting_jobs", { waitingOn: ["g-1"] }), { label: "Waiting for 1 job to finish", icon: "spin" });
   assert.equal(line("waiting_jobs", { waitingOn: ["g-1", "g-2"] }).label, "Waiting for 2 jobs to finish");
@@ -620,9 +631,17 @@ test("traceArguments shows the prompt on its own and labels the rest without cal
       { key: "aspectRatio", label: "Aspect ratio", value: "16:9" },
       { key: "durationSeconds", label: "Duration", value: "5s" },
       { key: "generateAudio", label: "Audio", value: "No" },
-      { key: "references", label: "References", value: "g-1, g-2" },
       { key: "options", label: "Options", value: "{\"seed\":4}" },
+      { key: "references", label: "References", value: "g-1, g-2" },
     ],
   });
   assert.deepEqual(traceArguments(undefined), { prompt: null, rows: [] });
+});
+
+test("argument rows keep one order whatever order the stored arguments come back in", () => {
+  // jsonb returns object keys sorted by length, which would put count ahead of aspect ratio.
+  const stored = { count: 2, prompt: "A fox", zeta: "z", aspectRatio: "16:9", alpha: "a", model: "nano-banana-pro" };
+  const keys = ["model", "aspectRatio", "count", "alpha", "zeta"];
+  assert.deepEqual(traceArguments(stored).rows.map((row) => row.key), keys);
+  assert.deepEqual(quoteDetails(stored).map((row) => row.key), keys);
 });

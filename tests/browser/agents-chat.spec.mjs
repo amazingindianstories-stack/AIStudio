@@ -69,7 +69,10 @@ test('Agents chat: one thread works in Image, Video and Upscale, each tab with i
   // The header names the project, the open chat and the folder new work saves to; there are no separate agent tabs.
   const header = page.getByTestId('agents-header');
   await expect(header.getByRole('navigation', { name: 'Location' })).toContainText(name);
-  await expect(header.getByTestId('agents-chat-name')).toHaveText('New chat');
+  // A chat nobody has written in yet reads by when it started, never like the New chat button above it.
+  await expect(header.getByTestId('agents-chat-name')).toHaveText(/^Untitled chat · /);
+  const sidebarRows = page.getByRole('button', { name: /^Untitled chat · / });
+  await expect(sidebarRows).toHaveCount(1);
   await expect(header.getByTestId('agents-destination')).toHaveText(/Saving to\s*Unsorted/);
   await expect(page.getByRole('button', { name: /^(Image|Video) agent$/ })).toHaveCount(0);
   await expect(page.getByRole('tablist', { name: 'Mode' }).getByRole('tab')).toHaveText(['Image', 'Video', 'Upscale']);
@@ -91,6 +94,10 @@ test('Agents chat: one thread works in Image, Video and Upscale, each tab with i
   await expect(page.getByPlaceholder(/Talk through your/)).toHaveValue('');
   const feed = page.getByTestId('studio-chat-feed');
   await expect(feed.getByTestId('message-composer-tag')).toHaveText(`Video · ${videoModel}`);
+  // The first message names the chat, in the header and the chat list.
+  expect(video.result.conversation.name).toBe('A slow dolly toward a lantern-lit doorway.');
+  await expect(header.getByTestId('agents-chat-name')).toHaveText('A slow dolly toward a lantern-lit doorway.');
+  await expect(page.getByRole('button', { name: 'A slow dolly toward a lantern-lit doorway.', exact: true })).toBeVisible();
 
   // Switching tabs keeps the thread: the next message, sent as an image, queues on the same chat's run.
   await selectMode(page, 'image');
@@ -99,11 +106,22 @@ test('Agents chat: one thread works in Image, Video and Upscale, each tab with i
   expect(image.result.run.conversationId).toBe(video.result.run.conversationId);
   expect(image.body.composer).toMatchObject({ mode: 'image', model: imageModel, projectId: project.id, options: { count: expect.any(Number) } });
 
-  // Upscale swaps the reference picker for the source square, and the model and settings for the upscaler's.
+  // Upscale swaps the reference picker for the source square, and the model and settings for the upscaler's. The
+  // only Image and Video choices in the composer are the mode tabs: the upscaler menu groups image and video
+  // upscalers, and the source square takes either.
   await selectMode(page, 'upscale');
   await expect(page.getByPlaceholder(/Talk through your upscale/)).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Choose the image to upscale', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Choose the image or video to upscale', exact: true })).toBeVisible();
+  await expect(page.getByRole('radiogroup', { name: 'Upscale media' })).toHaveCount(0);
   await expect(modelOf(page)).toHaveAttribute('aria-label', /^Model: Magnific /);
+  await modelOf(page).click();
+  await expect(page.getByRole('group', { name: 'Image upscalers' }).getByRole('menuitem')).not.toHaveCount(0);
+  await page.getByRole('group', { name: 'Video upscalers' }).getByRole('menuitem', { name: /^Magnific Video Precision/ }).click();
+  await expect(modelOf(page)).toHaveAttribute('aria-label', 'Model: Magnific Video Precision');
+  // Attaching an image while a video upscaler is chosen switches back to the image upscalers.
+  await page.getByTestId('upscale-source-input').setInputFiles({ name: 'doorway.png', mimeType: 'image/png', buffer: portraitPng(7) });
+  await expect(page.getByRole('button', { name: /^Upscale source: doorway\.png/ })).toBeVisible({ timeout: 20000 });
+  await expect(modelOf(page)).toHaveAttribute('aria-label', /^Model: Magnific (Creative|Precision)/);
   const settings = page.getByRole('button', { name: 'Upscale settings', exact: true });
   await settings.click();
   const panel = page.getByTestId('upscale-settings');
@@ -115,14 +133,11 @@ test('Agents chat: one thread works in Image, Video and Upscale, each tab with i
   await expect(panel.getByRole('button', { name: 'Sparkle', exact: true })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(panel).toHaveCount(0);
-
-  await page.getByTestId('upscale-source-input').setInputFiles({ name: 'doorway.png', mimeType: 'image/png', buffer: portraitPng(7) });
-  await expect(page.getByRole('button', { name: /^Upscale source: doorway\.png/ })).toBeVisible({ timeout: 20000 });
   const upscale = await send(page, 'Upscale it, keep the grain.', 202);
   expect(upscale.body.composer).toMatchObject({ mode: 'upscale', model: expect.stringMatching(/^Magnific /), projectId: project.id,
     upscale: { media: 'image', params: { engine: 'magnific_sparkle' }, source: expect.stringMatching(/^\/api\/media\/uploads\//) } });
   await page.getByRole('button', { name: 'Remove the source image', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Choose the image to upscale', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Choose the image or video to upscale', exact: true })).toBeVisible();
 });
 
 test('Agents chat: a turn\'s work is one collapsed line that opens to its notes, the arguments it chose, timings and the agent model', async ({ page, context, baseURL }) => {
@@ -176,8 +191,7 @@ test('Agents chat: a turn\'s work is one collapsed line that opens to its notes,
   await expect(step.getByText(prompt, { exact: true })).toBeVisible();
   // jsonb keeps its own key order, so each row is checked on its own.
   await expect(step.locator('dl > div')).toHaveCount(2);
-  await expect(step.locator('dl')).toContainText('Aspect ratio16:9');
-  await expect(step.locator('dl')).toContainText('Count2');
+  await expect(step.locator('dl')).toHaveText('Aspect ratio16:9Count2');
   await expect(steps).toContainText(`Agent model ${run.model}`);
 
   await toggle.click();
@@ -196,5 +210,10 @@ test('Agents chat: at phone width the header, mode tabs and composer fit without
     await expect(page.getByRole('tablist', { name: 'Mode' })).toBeInViewport({ ratio: 1 });
     await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeInViewport({ ratio: 1 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+    // The model and its settings share one row with Send.
+    const settings = page.getByRole('button', { name: id === 'upscale' ? 'Upscale settings' : 'Generation settings', exact: true });
+    const [model, gear, sendBox] = await Promise.all([modelOf(page).boundingBox(), settings.boundingBox(),
+      page.getByRole('button', { name: 'Send', exact: true }).boundingBox()]);
+    for (const box of [gear, sendBox]) expect(Math.abs((box.y + box.height / 2) - (model.y + model.height / 2))).toBeLessThanOrEqual(4);
   }
 });

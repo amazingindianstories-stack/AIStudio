@@ -65,9 +65,9 @@ const MODE_TABS = [
 const SUBJECTS = { image: "idea", video: "shot", upscale: "upscale" };
 
 const EMPTY_PROMPTS = {
-  image: "Talk through the image you want to make. Attach references or documents if you have them, and say \"generate that\" when you are ready, or design a prompt first and generate it from here.",
-  video: "Talk through the shot you want. Attach reference images, video, audio or documents if you have them, and say \"generate that\" when you are ready.",
-  upscale: "Add the image or video to upscale with the source square below, or drag one in from your library, then say how you want it upscaled.",
+  image: "Describe the image you want, then say \"generate that\".",
+  video: "Describe the shot you want, then say \"generate that\".",
+  upscale: "Add an image or video below and say how to upscale it.",
 };
 
 /**
@@ -89,7 +89,7 @@ const EMPTY_PROMPTS = {
  * ChatSidebar's thread list and this feed can't disagree about which thread
  * is open.
  */
-export function StudioChat({ conversationId }) {
+export function StudioChat({ conversationId, onConversationUpdate }) {
   const s = useStore();
   const mode = useStore((s) => s.mode);
   const subject = SUBJECTS[mode] || "idea";
@@ -143,6 +143,7 @@ export function StudioChat({ conversationId }) {
   const feedRef = useRef(null);
   // Whether the feed follows its newest content; reading further up turns it off.
   const stickRef = useRef(true);
+  const scrollTopRef = useRef(0);
   const mentionRef = useRef(null);
   const fileRef = useRef(null);
   const { collapsed, shellProps: collapseProps, openFilePicker, collapseOnSend, reopenAfterFailedSend } = useComposerCollapse({ dragging });
@@ -178,6 +179,7 @@ export function StudioChat({ conversationId }) {
 
   useEffect(() => {
     stickRef.current = true;
+    scrollTopRef.current = 0;
   }, [conversationId]);
 
   useEffect(() => {
@@ -281,6 +283,8 @@ export function StudioChat({ conversationId }) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.error) throw new Error(apiErrorMessage(data, res.status));
+      // The first message names a new chat; the list and header show it even after a chat switch.
+      if (data.conversation) onConversationUpdate?.(data.conversation);
       if (moved()) return;
       setDocuments((cur) => cur.filter((d) => !sentDocuments.includes(d)));
       if (data.delivery === "inbox") {
@@ -373,7 +377,7 @@ export function StudioChat({ conversationId }) {
     const files = Array.from(e.clipboardData?.files ?? []).filter((f) => uploadContentType(f).startsWith("image/"));
     if (!files.length) return;
     e.preventDefault();
-    if (upscaling && upload.media === "image") upload.selectFile(files[0]);
+    if (upscaling) upload.selectFile(files[0]);
     else addImageFiles(files);
   };
   const dragEnterCountRef = useRef(0);
@@ -451,7 +455,7 @@ export function StudioChat({ conversationId }) {
         <div className="pointer-events-none absolute inset-0 z-50 flex flex-col items-center justify-center gap-1.5 border-2 border-dashed border-brand/60 bg-ink-900/85 backdrop-blur-sm">
           <ImagePlus className="h-6 w-6 text-brand" />
           <p className="text-sm font-medium text-white/90">
-            {upscaling ? `Drop to use as the ${upload.media} to upscale` : "Drop to add as a reference"}
+            {upscaling ? "Drop to use as the source to upscale" : "Drop to add as a reference"}
           </p>
         </div>
       )}
@@ -461,8 +465,12 @@ export function StudioChat({ conversationId }) {
         ref={scrollRef}
         data-testid="studio-chat-feed"
         onScroll={(e) => {
+          // Only scrolling up stops the follow: content that grows between a follow scroll and its scroll event
+          // leaves a gap without the reader having moved.
           const el = e.currentTarget;
-          stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+          if (el.scrollHeight - el.scrollTop - el.clientHeight < 48) stickRef.current = true;
+          else if (el.scrollTop < scrollTopRef.current) stickRef.current = false;
+          scrollTopRef.current = el.scrollTop;
         }}
         className="scroll-thin flex-1 overflow-y-auto px-4 py-6 sm:px-8"
       >
@@ -477,11 +485,6 @@ export function StudioChat({ conversationId }) {
                 <Sparkles className="h-4 w-4 text-brand" /> New chat
               </p>
               <p className="text-sm leading-relaxed text-white/45">{EMPTY_PROMPTS[mode] || EMPTY_PROMPTS.image}</p>
-              <p className="mt-3 max-w-xl text-xs leading-relaxed text-white/35">
-                One chat covers Image, Video and Upscale. Switch the tab in the composer and the model and settings
-                follow; the agent works with the ones you sent. Open the activity line under a reply to see its steps,
-                the settings it used and how long each took.
-              </p>
             </div>
           ) : (
             <div className="mx-auto flex max-w-3xl flex-col gap-4">

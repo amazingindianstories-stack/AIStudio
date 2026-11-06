@@ -1,18 +1,18 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Film, Loader2, RotateCcw, Settings2, UploadCloud, X } from "lucide-react";
+import { Check, ChevronDown, Film, Image as ImageIcon, Loader2, RotateCcw, Settings2, UploadCloud, X } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "@/lib/store";
 import { notify } from "@/lib/notify";
 import { isModelAvailable } from "@/lib/model-registry";
+import { pickerModels } from "@/lib/config";
 import { MAGNIFIC_VIDEO_DEFAULTS, MAGNIFIC_VIDEO_MAX_SECONDS } from "@/lib/magnific-ui";
 import { IMAGE_UPSCALE_DEFAULT } from "@/lib/agent-composer";
 import { uploadContentType, uploadFileDirect } from "@/lib/client-reference-upload";
 import { cn } from "@/lib/utils";
-import { Chip, ModelPicker } from "./ComposerControls";
-import { Dropdown } from "./Dropdown";
-import { UpscaleMediaToggle } from "./UpscaleMediaToggle";
+import { Chip } from "./ComposerControls";
+import { Dropdown, MenuItem } from "./Dropdown";
 import {
   IMAGE_UPSCALE_MODELS,
   ImageUpscaleSettings,
@@ -27,13 +27,25 @@ import {
  * The Agents chat's Upscale mode: the source the upscale starts from and the upscaler's own settings, kept in the
  * same store fields as the Upscale composer (upscalerImage or upscalerVideo, upscalerParams or videoUpscalerParams),
  * so the chat sends them as its composer context (agent-composer.js) and the Upscale composer shows the same choice.
+ * There is no separate Image | Video switch beside the chat's mode tabs: the source's kind (upscalerMedia) follows the
+ * media the artist attaches, or the upscaler they pick from the grouped model menu.
  */
 
 const IMAGE_TYPES = ["image/png", "image/jpeg", "image/webp"];
 const VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/x-m4v", "video/webm"];
-const SOURCE_ACCEPT = { image: IMAGE_TYPES.join(","), video: VIDEO_TYPES.join(",") };
+const SOURCE_TYPES = { image: IMAGE_TYPES, video: VIDEO_TYPES };
+const SOURCE_KINDS = ["image", "video"];
 const MAX_BYTES = { image: 20 * 1024 * 1024, video: 2 * 1024 * 1024 * 1024 };
 const RESOLUTION_LABELS = { "720p": "720p", "1k": "1K", "2k": "2K", "4k": "4K" };
+
+/** The source kinds an upscaler is available for, image first. */
+function sourceKinds(availableModelIds) {
+  return SOURCE_KINDS.filter((kind) => pickerModels(availableModelIds, "upscale", kind).length > 0);
+}
+
+function kindText(kinds) {
+  return kinds.length ? kinds.join(" or ") : "image";
+}
 
 function upscaleState(s) {
   const media = s.upscalerMedia === "video" ? "video" : "image";
@@ -54,6 +66,8 @@ export function useUpscaleSource({ onError }) {
   const media = useStore((s) => (s.upscalerMedia === "video" ? "video" : "image"));
   const source = useStore((s) => (media === "video" ? s.upscalerVideo : s.upscalerImage));
   const projectId = useStore((s) => s.activeProjectId);
+  const availableModelIds = useStore((s) => s.availableModelIds);
+  const kinds = sourceKinds(availableModelIds);
   const [uploading, setUploading] = useState(null);
   const attemptRef = useRef(0);
   const fileRef = useRef(null);
@@ -66,13 +80,19 @@ export function useUpscaleSource({ onError }) {
     if (kind === "video") state.setUpscalerVideo(value);
     else state.setUpscalerImage(value);
   };
+  // An attached source sets the kind, so the upscalers shown are the ones that take it.
+  const attach = (kind, value) => {
+    useStore.getState().setUpscalerMedia(kind);
+    store(kind, value);
+  };
 
   const selectFile = async (file) => {
     if (!file) return;
-    const kind = media;
     const type = uploadContentType(file);
-    if (!(kind === "video" ? VIDEO_TYPES : IMAGE_TYPES).includes(type)) {
-      onError(kind === "video" ? "Video upscaling accepts MP4, MOV or WebM files." : "Image upscaling accepts PNG, JPEG or WebP images.");
+    const kind = kinds.find((entry) => SOURCE_TYPES[entry].includes(type));
+    if (!kind) {
+      onError(kinds.includes("image") && kinds.includes("video") ? "Upscaling accepts PNG, JPEG or WebP images, or MP4, MOV or WebM videos."
+        : kinds.includes("video") ? "Upscaling accepts MP4, MOV or WebM videos." : "Upscaling accepts PNG, JPEG or WebP images.");
       return;
     }
     if (file.size > MAX_BYTES[kind]) {
@@ -92,7 +112,7 @@ export function useUpscaleSource({ onError }) {
         },
       });
       if (attempt !== attemptRef.current || useStore.getState().activeProjectId !== project) return;
-      store(kind, { url: ready.ref, name: file.name, size: file.size });
+      attach(kind, { url: ready.ref, name: file.name, size: file.size });
     } catch (error) {
       if (attempt === attemptRef.current) onError(error?.message || `Could not upload the source ${kind}. Please try again.`);
     } finally {
@@ -104,17 +124,16 @@ export function useUpscaleSource({ onError }) {
   const takeItems = (items) => {
     const first = items[0];
     if (!first) return;
-    const usable = first.kind === media && first.url && (media !== "video" || first.status === "succeeded");
+    const kind = first.kind;
+    const usable = kinds.includes(kind) && first.url && (kind !== "video" || first.status === "succeeded");
     if (!usable) {
-      onError(media === "video"
-        ? "Video upscaling takes a finished video. Switch to Image to upscale an image."
-        : "Image upscaling takes an image. Switch to Video to upscale a video.");
+      onError(kinds.includes("video") ? `Upscaling takes ${kinds.includes("image") ? "an image or " : ""}a finished video.` : "Upscaling takes an image.");
       return;
     }
     onError(null);
-    store(media, {
+    attach(kind, {
       url: first.url,
-      name: first.prompt ? first.prompt.slice(0, 50) : media === "video" ? "Video generation" : "Generation reference",
+      name: first.prompt ? first.prompt.slice(0, 50) : kind === "video" ? "Video generation" : "Generation reference",
       aspectRatio: first.aspectRatio,
       item: first,
     });
@@ -124,6 +143,7 @@ export function useUpscaleSource({ onError }) {
   const tooLong = media === "video" && Number.isFinite(source?.duration) && source.duration > MAGNIFIC_VIDEO_MAX_SECONDS;
   return {
     media,
+    kinds,
     source,
     uploading,
     tooLong,
@@ -137,7 +157,7 @@ export function useUpscaleSource({ onError }) {
 
 /** The composer's source square in Upscale mode, where Image and Video show the reference square. */
 export function UpscaleSourceTile({ upload, collapsed }) {
-  const { media, source, uploading, tooLong, fileRef } = upload;
+  const { media, kinds, source, uploading, tooLong, fileRef } = upload;
   const url = typeof source === "string" ? source : source?.url;
   const [failed, setFailed] = useState(null);
   const size = collapsed ? "h-[38px] w-[38px]" : "h-[58px] w-[58px]";
@@ -147,7 +167,7 @@ export function UpscaleSourceTile({ upload, collapsed }) {
       <input
         ref={fileRef}
         type="file"
-        accept={SOURCE_ACCEPT[media]}
+        accept={kinds.flatMap((kind) => SOURCE_TYPES[kind]).join(",")}
         hidden
         data-testid="upscale-source-input"
         onChange={(e) => { upload.selectFile(e.target.files?.[0]); e.target.value = ""; }}
@@ -157,8 +177,8 @@ export function UpscaleSourceTile({ upload, collapsed }) {
           <button
             type="button"
             onClick={upload.pick}
-            title={`${source?.name || `Source ${media}`} - choose another ${media}`}
-            aria-label={`Upscale source: ${source?.name || media}. Choose another ${media}`}
+            title={`${source?.name || `Source ${media}`} - choose another ${kindText(kinds)}`}
+            aria-label={`Upscale source: ${source?.name || media}. Choose another ${kindText(kinds)}`}
             className={cn("block overflow-hidden rounded-xl bg-ink-950 ring-1 transition hover:ring-brand/50", size,
               tooLong ? "ring-red-400/60" : "ring-line")}
           >
@@ -202,7 +222,7 @@ export function UpscaleSourceTile({ upload, collapsed }) {
           type="button"
           onClick={upload.pick}
           disabled={Boolean(uploading)}
-          aria-label={`Choose the ${media} to upscale`}
+          aria-label={`Choose the ${kindText(kinds)} to upscale`}
           className={cn(
             "grid place-items-center rounded-xl border border-dashed border-brand/35 text-brand/80 transition-all hover:border-brand/60 hover:text-brand disabled:cursor-wait",
             size
@@ -226,21 +246,77 @@ function settingsSummary(media, model, params) {
   return params.scaleFactor || "2x";
 }
 
-/** Upscale mode's toolbar: Image or Video, the upscaler, and its settings. */
-export function UpscaleToolbar() {
+const UPSCALER_GROUPS = [
+  { kind: "image", label: "Image upscalers", icon: ImageIcon, catalog: IMAGE_UPSCALE_MODELS },
+  { kind: "video", label: "Video upscalers", icon: Film, catalog: VIDEO_UPSCALE_MODELS },
+];
+
+/**
+ * The upscaler menu, image and video upscalers in their own groups. The chip's icon says which kind of source the
+ * chosen upscaler takes; picking one of the other kind switches the source kind with it.
+ */
+function UpscalerPicker({ media, model }) {
   const availableModelIds = useStore((s) => s.availableModelIds);
+  const groups = UPSCALER_GROUPS
+    .map((group) => ({ ...group, models: group.catalog.filter((entry) => isModelAvailable(entry.id, availableModelIds)) }))
+    .filter((group) => group.models.length > 0);
+  const Icon = media === "video" ? Film : ImageIcon;
+  const choose = (kind, name) => {
+    const state = useStore.getState();
+    state.setUpscalerMedia(kind);
+    if (kind === "video") state.setVideoUpscalerParam("model", name);
+    else state.setUpscalerParam("model", name);
+  };
+
+  return (
+    <Dropdown
+      className="composer-model min-w-0"
+      label={`Model: ${model}`}
+      side="top"
+      panelClassName="w-[min(92vw,400px)] p-1.5 max-h-[60vh] overflow-y-auto scroll-thin"
+      trigger={(open) => (
+        <Chip open={open}>
+          <Icon aria-hidden="true" className="h-4 w-4 text-white/55" />
+          <span className="min-w-0 max-w-[14rem] truncate font-medium">{model}</span>
+          <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")} />
+        </Chip>
+      )}
+    >
+      {(close) => groups.map((group) => (
+        <div key={group.kind} role="group" aria-label={group.label} className="py-0.5">
+          <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-white/35">{group.label}</p>
+          {group.models.map((entry) => {
+            const active = group.kind === media && entry.id === model;
+            return (
+              <MenuItem key={entry.id} active={active} onClick={() => { choose(group.kind, entry.id); close(); }}>
+                <group.icon className="h-4 w-4 text-white/50" />
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span>{entry.id}</span>
+                  {entry.desc && <span className="text-[10px] leading-snug text-white/40">{entry.desc}</span>}
+                </span>
+                {entry.badge && (
+                  <span className="shrink-0 whitespace-nowrap rounded bg-brand/20 px-1.5 py-0.5 text-[10px] font-semibold text-brand">{entry.badge}</span>
+                )}
+                {active && <Check className="h-4 w-4 shrink-0 text-brand" />}
+              </MenuItem>
+            );
+          })}
+        </div>
+      ))}
+    </Dropdown>
+  );
+}
+
+/** Upscale mode's toolbar: the upscaler (which also sets the source kind) and its settings, on one row. */
+export function UpscaleToolbar() {
   const { media, params, model, setParam } = useStore(useShallow(upscaleState));
   const catalog = media === "video" ? VIDEO_UPSCALE_MODELS : IMAGE_UPSCALE_MODELS;
-  const models = catalog
-    .filter((entry) => isModelAvailable(entry.id, availableModelIds))
-    .map((entry) => ({ id: entry.id, name: entry.id, hint: entry.desc, badge: entry.badge }));
   const description = catalog.find((entry) => entry.id === model)?.desc;
   const reset = () => (media === "video" ? resetVideoUpscale(setParam) : resetImageUpscale(model, setParam));
 
   return (
-    <div className="composer-toolbar flex min-w-0 flex-wrap items-center gap-1.5 py-px">
-      <UpscaleMediaToggle compact />
-      <ModelPicker className="composer-model min-w-0 flex-1" models={models} value={model} onChange={(name) => setParam("model", name)} />
+    <div className="composer-toolbar composer-toolbar-single flex min-w-0 items-center gap-1.5 py-px">
+      <UpscalerPicker media={media} model={model} />
       <Dropdown
         key={`upscale-settings-${media}`}
         className="composer-settings shrink-0"

@@ -17,7 +17,7 @@ from apps.mcp.tools.generate import GLOBAL
 from . import events, grants, limits, runner
 from .loop_llm import LOOP_MODEL, LOOP_MODELS
 from .models import ACTIVE_RUN_STATUSES, AgentConversation, AgentConversationMessage, AgentInboxMessage, AgentRun
-from .services import message_json
+from .services import conversation_json, message_json
 
 RECENT_RUNS = 20
 
@@ -86,6 +86,29 @@ def follow_location(conversation, context, now):
             default_project_id=context.get('projectId'), updated_at=now)
 
 
+# The name the Agents tab gives a chat it creates; a chat still called this takes its first message as its name.
+DEFAULT_NAME = 'New chat'
+TITLE_CHARS = 60
+
+
+def title_from(content):
+    """A chat name from its first message: one line, cut at a word near ``TITLE_CHARS``."""
+    text = ' '.join(content.split())
+    if len(text) <= TITLE_CHARS:
+        return text
+    cut = text[:TITLE_CHARS].rsplit(' ', 1)[0] or text[:TITLE_CHARS]
+    return cut.rstrip(' ,.;:-') + '…'
+
+
+def name_from_first_message(conversation, content, now):
+    if conversation.name != DEFAULT_NAME or not content.strip():
+        return
+    if AgentConversationMessage.objects.filter(conversation_id=conversation.id, role='user').exists():
+        return
+    conversation.name = title_from(content)
+    AgentConversation.objects.filter(pk=conversation.id).update(name=conversation.name, updated_at=now)
+
+
 def message_trace(attachments, context):
     trace = {**({'attachments': list(attachments)} if attachments else {}), **({'composer': context} if context else {})}
     return trace or None
@@ -108,6 +131,7 @@ def post_message(conversation, user, content, *, model=None, attachments=(), com
         if hit is not None:
             raise AgentsDisabled() if hit.kind == limits.DISABLED else RunLimitReached(hit)
         follow_location(locked, composer, now)
+        name_from_first_message(locked, content, now)
         grant = grants.ensure_grant(user.id, now=now)
         message = AgentConversationMessage.objects.create(conversation_id=locked.id, role='user', content=content, created_at=now,
                                                           tool_trace=message_trace(attachments, composer))
@@ -115,7 +139,8 @@ def post_message(conversation, user, content, *, model=None, attachments=(), com
                                       model=run_model(locked, model), created_at=now, updated_at=now)
         AgentConversation.objects.filter(pk=locked.id).update(status=run.status, last_run_at=now, updated_at=now)
         events.emit(run.id, 'run_queued', {'messageId': str(message.id)}, now=now)
-        return {'delivery': 'run', 'run': run_json(run), 'message': message_json(message)}
+        return {'delivery': 'run', 'run': run_json(run), 'message': message_json(message),
+                'conversation': conversation_json(AgentConversation.objects.get(pk=locked.id))}
 
 
 def deliver(run, user, content, *, attachments=(), composer=None, now):

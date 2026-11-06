@@ -377,7 +377,7 @@ test('Agents runs: a quote of $1.00 or more needs a second confirmation, and a d
   await expect(card).toContainText('Generate video costs $1.50');
   await expect(card).toContainText('One 5 second video.');
   await expect(card).toContainText(prompt);
-  await expect(card.locator('dl')).toHaveText('Duration5sAspect ratio16:9');
+  await expect(card.locator('dl')).toHaveText('Aspect ratio16:9Duration5s');
   await expect(panel.getByTestId('agent-run-status')).toHaveText('Waiting for your approval');
   await expect(panel.getByTestId('agent-run-status')).toHaveAttribute('data-icon', 'clock');
 

@@ -259,6 +259,36 @@ class StartAndMessageTests(RunsApiCase):
         self.assertLessEqual(run.resume_after, run.updated_at)
 
 
+class NamingTests(RunsApiCase):
+    """A chat the Agents tab created ('New chat') takes its first message as its name, so the chat list never shows two
+    rows that read alike; a chat the artist named, and later messages, leave the name alone."""
+    def rename(self, name):
+        AgentConversation.objects.filter(pk=self.conversation.id).update(name=name)
+
+    def test_a_new_chat_is_named_after_its_first_message(self):
+        self.rename('New chat')
+        response = self.post(self.base, {'content': '  A warm close-up\nof a potter  '})
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.json()['conversation']['name'], 'A warm close-up of a potter')
+        self.assertEqual(AgentConversation.objects.get(pk=self.conversation.id).name, 'A warm close-up of a potter')
+        self.post(self.base, {'content': 'Make it blue'})
+        self.assertEqual(AgentConversation.objects.get(pk=self.conversation.id).name, 'A warm close-up of a potter')
+
+    def test_a_long_first_message_is_cut_at_a_word(self):
+        self.rename('New chat')
+        self.post(self.base, {'content': 'Make a slow push-in video of the potter\'s wheel turning, golden hour, shallow focus, grain'})
+        self.assertEqual(AgentConversation.objects.get(pk=self.conversation.id).name,
+                         "Make a slow push-in video of the potter's wheel turning…")
+
+    def test_a_named_chat_and_a_chat_with_earlier_messages_keep_their_names(self):
+        self.rename('Spring hero')
+        self.assertEqual(self.post(self.base, {'content': 'A fox'}).json()['conversation']['name'], 'Spring hero')
+        self.rename('New chat')
+        AgentRun.objects.update(status='completed')
+        self.post(self.base, {'content': 'Another fox'})
+        self.assertEqual(AgentConversation.objects.get(pk=self.conversation.id).name, 'New chat')
+
+
 class FeedTests(RunsApiCase):
     def test_events_page_after_a_seq_with_the_run_status(self):
         self.gemini([text('Checking.'), call('list_models', {}, 'c1')], [text('Here are the models.')])
