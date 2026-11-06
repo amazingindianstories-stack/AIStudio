@@ -160,6 +160,7 @@ class AgentInboxMessage(models.Model):
     user_id = models.UUIDField()
     content = models.TextField()
     attachments = models.JSONField(default=list, db_default=[])
+    composer = models.JSONField(null=True)          # the composer context it was sent with (apps/agents/composer.py)
     created_at = models.BigIntegerField()
     delivered_at = models.BigIntegerField(null=True)
     delivered_step = models.IntegerField(null=True)

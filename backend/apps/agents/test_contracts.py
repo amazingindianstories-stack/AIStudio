@@ -52,20 +52,40 @@ class AgentHTTPTests(TransactionTestCase):
         self.cookie()
         base = '/api/agent-conversations'
         self.assertEqual(self.client.get(base).json(), {'error': 'projectId required.'})
-        self.assertEqual(self.client.get(base, {'projectId': self.project}).status_code, 400)
-        for body in ({'op': 'createConversation'}, {'op': 'createConversation', 'projectId': self.project}, {'op': 'createConversation', 'projectId': self.project, 'agentKind': 'image', 'name': ' '}):
+        self.assertEqual(self.client.get(base, {'projectId': self.project, 'agentKind': 'depth'}).json(),
+                         {'error': "agentKind must be 'image' or 'video' when sent."})
+        for body in ({'op': 'createConversation'}, {'op': 'createConversation', 'projectId': self.project},
+                     {'op': 'createConversation', 'projectId': self.project, 'agentKind': 'image', 'name': ' '},
+                     {'op': 'createConversation', 'projectId': self.project, 'agentKind': 'upscale', 'name': 'Named'}):
             self.assertEqual(self.post(base, body).status_code, 400)
         created = self.post(base, {'op': 'createConversation', 'projectId': self.project, 'agentKind': 'image', 'name': '  Named  '}).json()['conversation']
-        self.assertEqual((created['name'], created['createdBy']), ('Named', str(self.actor.id)))
+        self.assertEqual((created['name'], created['createdBy'], created['agentKind']), ('Named', str(self.actor.id), 'image'))
         video = self.conversation('video')
         listing = self.client.get(base, {'projectId': self.project, 'agentKind': 'image'}).json()
         self.assertEqual([row['id'] for row in listing['conversations']], [created['id']])
-        self.assertEqual(self.post(base, {'op': 'renameConversation', 'id': created['id'], 'name': ''}).json()['conversations'][0]['name'], '')
+        self.assertEqual(self.post(base, {'op': 'renameConversation', 'id': created['id'], 'name': '', 'agentKind': 'image'}).json()['conversations'][0]['name'], '')
         services.append_message(created['id'], 'user', 'Persisted')
         self.assertEqual(self.client.get(base + '/' + created['id']).json()['messages'][0]['content'], 'Persisted')
-        self.assertEqual(self.post(base, {'op': 'deleteConversation', 'id': created['id']}).json(), {'conversations': []})
+        self.assertEqual(self.post(base, {'op': 'deleteConversation', 'id': created['id'], 'agentKind': 'image'}).json(), {'conversations': []})
         self.assertFalse(AgentConversationMessage.objects.exists())
         self.assertTrue(AgentConversation.objects.filter(pk=video['id']).exists())
+
+    def test_one_chat_list_holds_every_kind_and_new_chats_have_none(self):
+        """The Agents tab's one chat makes images, videos and upscales: without agentKind the list is every chat in the
+        project, a new chat has no kind, and rename and delete answer with that whole list."""
+        self.cookie()
+        base = '/api/agent-conversations'
+        image, video = self.conversation('image'), self.conversation('video')
+        created = self.post(base, {'op': 'createConversation', 'projectId': self.project, 'name': 'Shared'}).json()
+        self.assertEqual(created['conversation']['agentKind'], None)
+        self.assertEqual(AgentConversation.objects.get(pk=created['conversation']['id']).agent_kind, None)
+        everything = {image['id'], video['id'], created['conversation']['id']}
+        self.assertEqual({row['id'] for row in created['conversations']}, everything)
+        self.assertEqual({row['id'] for row in self.client.get(base, {'projectId': self.project}).json()['conversations']}, everything)
+        renamed = self.post(base, {'op': 'renameConversation', 'id': video['id'], 'name': 'Clips'}).json()['conversations']
+        self.assertEqual({row['id']: row['name'] for row in renamed}[video['id']], 'Clips')
+        self.assertEqual({row['id'] for row in self.post(base, {'op': 'deleteConversation', 'id': image['id']}).json()['conversations']},
+                         everything - {image['id']})
 
     def test_attach_requires_same_conversation_and_existing_trace(self):
         self.cookie()

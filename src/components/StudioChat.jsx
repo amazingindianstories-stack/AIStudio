@@ -12,19 +12,25 @@ import {
 import { motion } from "framer-motion";
 import {
   AlertCircle,
+  Clapperboard,
   FileText,
+  Image as ImageIcon,
   ImagePlus,
   Loader2,
   Mic,
   Send,
+  RotateCcw,
   Sparkles,
   Square,
+  Undo2,
   Wand2,
   X,
 } from "lucide-react";
 import { uploadInlineReferences, useStore } from "@/lib/store";
 
-import { supportsVideoReference } from "@/lib/config";
+import { modeAvailable, supportsVideoReference } from "@/lib/config";
+import { composerContext, composerTag } from "@/lib/agent-composer";
+import { MAGNIFIC_VIDEO_MAX_SECONDS } from "@/lib/magnific-ui";
 import { measureAudioDuration } from "@/lib/audio-duration";
 import { extractFrame } from "@/lib/video-frame";
 import { ATTACH_ACCEPT, MAX_DOCUMENTS, documentType, uploadAgentDocument } from "@/lib/agent-attachments";
@@ -46,14 +52,30 @@ import { cn } from "@/lib/utils";
 import { apiErrorMessage } from "@/lib/api-error";
 import { AgentRunPanel } from "./AgentRunPanel";
 import { useAgentRun } from "./useAgentRun";
+import { UpscaleSourceTile, UpscaleToolbar, useUpscaleSource } from "./AgentUpscaleControls";
 
 const IDLE_VOICE = { phase: "idle", elapsedMs: 0, maxMs: 0 };
 
+const MODE_TABS = [
+  { id: "image", label: "Image", icon: ImageIcon },
+  { id: "video", label: "Video", icon: Clapperboard },
+  { id: "upscale", label: "Upscale", icon: Sparkles },
+];
+
+const SUBJECTS = { image: "idea", video: "shot", upscale: "upscale" };
+
+const EMPTY_PROMPTS = {
+  image: "Describe the image you want, then say \"generate that\".",
+  video: "Describe the shot you want, then say \"generate that\".",
+  upscale: "Add an image or video below and say how to upscale it.",
+};
+
 /**
- * The merged chat + composer window for the Image and Video tabs — one
- * window per tab, chat-first, with the plain prompt/reference/settings
- * controls (ComposerControls) alongside it rather than stacked as a
- * separate block. Replaces ChatColumn + PromptComposer in page.tsx.
+ * The Agents chat: one thread with the composer's mode tabs (Image, Video and
+ * Upscale) inside it. A tab sets the store's `mode`, so the model and the
+ * settings below the input are that mode's (ComposerControls for Image and
+ * Video, AgentUpscaleControls for Upscale), and each message carries them as
+ * its `composer` context (agent-composer.js) so the run follows them.
  *
  * The single input posts to the conversation's durable run (POST
  * /api/agent-conversations/[id]/runs): with no active run it starts one,
@@ -67,10 +89,14 @@ const IDLE_VOICE = { phase: "idle", elapsedMs: 0, maxMs: 0 };
  * ChatSidebar's thread list and this feed can't disagree about which thread
  * is open.
  */
-export function StudioChat({ conversationId }) {
+export function StudioChat({ conversationId, onConversationUpdate }) {
   const s = useStore();
   const mode = useStore((s) => s.mode);
-  const subject = mode === "image" ? "idea" : "shot";
+  const subject = SUBJECTS[mode] || "idea";
+  const setMode = useStore((s) => s.setMode);
+  const availableModelIds = useStore((s) => s.availableModelIds);
+  const modeTabs = MODE_TABS.filter((tab) => tab.id !== "upscale" || modeAvailable("upscale", availableModelIds));
+  const upscaling = mode === "upscale";
   const model = useStore((s) => s.model);
   const setPrompt = useStore((s) => s.setPrompt);
   const generate = useStore((s) => s.generate);
@@ -111,11 +137,13 @@ export function StudioChat({ conversationId }) {
   // idle, starting (caps and microphone permission), recording or transcribing.
   const [voice, setVoice] = useState(IDLE_VOICE);
   const voiceRef = useRef(null);
+  const upload = useUpscaleSource({ onError: setError });
 
   const scrollRef = useRef(null);
   const feedRef = useRef(null);
   // Whether the feed follows its newest content; reading further up turns it off.
   const stickRef = useRef(true);
+  const scrollTopRef = useRef(0);
   const mentionRef = useRef(null);
   const fileRef = useRef(null);
   const { collapsed, shellProps: collapseProps, openFilePicker, collapseOnSend, reopenAfterFailedSend } = useComposerCollapse({ dragging });
@@ -151,6 +179,7 @@ export function StudioChat({ conversationId }) {
 
   useEffect(() => {
     stickRef.current = true;
+    scrollTopRef.current = 0;
   }, [conversationId]);
 
   useEffect(() => {
@@ -188,7 +217,7 @@ export function StudioChat({ conversationId }) {
       if (conversationId) {
         // Best-effort: this is what makes the result survive a reload (see
         // the loader effect above). A failure here just means a refresh
-        // would show "Generated — check your library" instead of the inline
+        // would show "Generated. Check your library" instead of the inline
         // card for this one message — not worth blocking or retrying over.
         fetch(`/api/agent-conversations/${conversationId}/messages/${messageId}`, {
           method: "PATCH",
@@ -216,13 +245,15 @@ export function StudioChat({ conversationId }) {
 
   const send = async () => {
     const content = input.trim();
-    if (!content || sending || pendingUploads || !conversationId) return;
+    if (!content || sending || pendingUploads || upload.uploading || !conversationId) return;
     const id = conversationId;
+    const composer = composerContext(useStore.getState());
     const optimistic = {
       id: `pending-${Date.now()}`,
       conversationId: id,
       role: "user",
       content,
+      composer,
       toolTrace: null,
       createdAt: Date.now(),
     };
@@ -241,14 +272,19 @@ export function StudioChat({ conversationId }) {
       }
       setMessages((cur) => [...cur, optimistic]);
       shown = true;
+      // The sent text moves into the thread; a failed send puts it back.
+      if (useStore.getState().prompt.trim() === content) setInput("");
       const res = await fetch(`/api/agent-conversations/${id}/runs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content, images,
+          ...(composer ? { composer } : {}),
           ...(sentDocuments.length ? { attachments: sentDocuments.map((d) => d.uploadId) } : {}) }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || data.error) throw new Error(apiErrorMessage(data, res.status));
+      // The first message names a new chat; the list and header show it even after a chat switch.
+      if (data.conversation) onConversationUpdate?.(data.conversation);
       if (moved()) return;
       setDocuments((cur) => cur.filter((d) => !sentDocuments.includes(d)));
       if (data.delivery === "inbox") {
@@ -261,7 +297,10 @@ export function StudioChat({ conversationId }) {
     } catch (err) {
       reopenAfterFailedSend();
       if (moved()) return;
-      if (shown) setMessages((cur) => cur.filter((m) => m.id !== optimistic.id));
+      if (shown) {
+        setMessages((cur) => cur.filter((m) => m.id !== optimistic.id));
+        if (!useStore.getState().prompt.trim()) setInput(content);
+      }
       setError(err instanceof Error ? err.message : "Something went wrong.");
     } finally {
       setSending(false);
@@ -336,10 +375,10 @@ export function StudioChat({ conversationId }) {
   };
   const onPaste = (e) => {
     const files = Array.from(e.clipboardData?.files ?? []).filter((f) => uploadContentType(f).startsWith("image/"));
-    if (files.length) {
-      e.preventDefault();
-      addImageFiles(files);
-    }
+    if (!files.length) return;
+    e.preventDefault();
+    if (upscaling) upload.selectFile(files[0]);
+    else addImageFiles(files);
   };
   const dragEnterCountRef = useRef(0);
   const isFileDrag = (e) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
@@ -381,6 +420,12 @@ export function StudioChat({ conversationId }) {
     dragEnterCountRef.current = 0;
     setDragging(false);
     const assetPayload = getAssetDragData(e, useStore.getState());
+    if (upscaling && (assetPayload.items.length > 0 || assetPayload.ids.length > 0)) {
+      // In Upscale the dropped asset is the source, as in the Upscale composer.
+      e.preventDefault();
+      upload.takeItems(assetPayload.items.length ? assetPayload.items : assetPayload.ids.map(findItem).filter(Boolean));
+      return;
+    }
     if (assetPayload.ids.length > 0) {
       e.preventDefault();
       for (const id of assetPayload.ids) {
@@ -390,7 +435,11 @@ export function StudioChat({ conversationId }) {
     }
     if (!isFileDrag(e)) return;
     e.preventDefault();
-    addImageFiles(Array.from(e.dataTransfer.files));
+    const files = Array.from(e.dataTransfer.files);
+    const media = upscaling ? files.find((f) => /^(image|video)\//.test(uploadContentType(f))) : null;
+    if (media) upload.selectFile(media);
+    const rest = files.filter((f) => f !== media);
+    if (rest.length) addImageFiles(rest);
   };
 
   return (
@@ -405,7 +454,9 @@ export function StudioChat({ conversationId }) {
       {dragging && (
         <div className="pointer-events-none absolute inset-0 z-50 flex flex-col items-center justify-center gap-1.5 border-2 border-dashed border-brand/60 bg-ink-900/85 backdrop-blur-sm">
           <ImagePlus className="h-6 w-6 text-brand" />
-          <p className="text-sm font-medium text-white/90">Drop to add as a reference</p>
+          <p className="text-sm font-medium text-white/90">
+            {upscaling ? "Drop to use as the source to upscale" : "Drop to add as a reference"}
+          </p>
         </div>
       )}
 
@@ -414,8 +465,12 @@ export function StudioChat({ conversationId }) {
         ref={scrollRef}
         data-testid="studio-chat-feed"
         onScroll={(e) => {
+          // Only scrolling up stops the follow: content that grows between a follow scroll and its scroll event
+          // leaves a gap without the reader having moved.
           const el = e.currentTarget;
-          stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+          if (el.scrollHeight - el.scrollTop - el.clientHeight < 48) stickRef.current = true;
+          else if (el.scrollTop < scrollTopRef.current) stickRef.current = false;
+          scrollTopRef.current = el.scrollTop;
         }}
         className="scroll-thin flex-1 overflow-y-auto px-4 py-6 sm:px-8"
       >
@@ -425,13 +480,11 @@ export function StudioChat({ conversationId }) {
               <Loader2 className="h-4 w-4 animate-spin" /> Loading chat…
             </div>
           ) : messages.length === 0 && !run ? (
-            <div className="mx-auto max-w-3xl text-sm leading-relaxed text-white/40">
-              <p className="mb-1 flex items-center gap-1.5 font-medium text-white/60">
+            <div data-testid="studio-chat-empty" className="mx-auto max-w-3xl">
+              <p className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-white/75">
                 <Sparkles className="h-4 w-4 text-brand" /> New chat
               </p>
-              Talk through what you want to {mode === "image" ? "make" : "shoot"}. Attach reference
-              images or documents if you have them, and say &quot;generate that&quot; when you are ready, or design a
-              prompt first and generate it from here.
+              <p className="text-sm leading-relaxed text-white/45">{EMPTY_PROMPTS[mode] || EMPTY_PROMPTS.image}</p>
             </div>
           ) : (
             <div className="mx-auto flex max-w-3xl flex-col gap-4">
@@ -455,11 +508,12 @@ export function StudioChat({ conversationId }) {
                   generatedItem={generatedItemIds[entry.message.id] ? findItem(generatedItemIds[entry.message.id]) : undefined}
                   onGenerate={(prompt) => fireGeneration(prompt, entry.message.id)}
                   onEditAndGenerate={(prompt) => setInput(prompt)}
+                  canGenerate={!upscaling}
                 />
               )))}
               {sending && (
                 <div className="mr-auto flex items-center gap-1.5 text-xs text-white/40">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Thinking…
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Sending…
                 </div>
               )}
             </div>
@@ -515,10 +569,55 @@ export function StudioChat({ conversationId }) {
           {referenceSubmissionWarning(s) && <p role="status" className="text-xs text-amber-200">{referenceSubmissionWarning(s)}</p>}
           {s.draftStorageWarning && <p role="status" className="text-xs text-amber-200">{s.draftStorageWarning}</p>}
           {normalizePromptMentions(input) !== input && <p role="status" className="text-xs text-amber-200">Some reference tags are informal. They remain literal text; use @img1 for an exact reference.</p>}
-          <div className={cn("flex gap-3 text-xs text-white/60", collapsed && "hidden")}><button type="button" onClick={() => s.clearComposerDraft()}>New / Clear</button><button type="button" disabled={!s.recentSubmission} onClick={() => s.restoreRecentSubmission()}>Recent submission</button></div>
+          <div className="flex min-w-0 items-center justify-between gap-2">
+            <div role="tablist" aria-label="Mode" className="flex shrink-0 items-center gap-0.5 rounded-full bg-ink-900/80 p-0.5 ring-1 ring-line">
+              {modeTabs.map(({ id, label, icon: Icon }) => (
+                <button
+                  key={id}
+                  type="button"
+                  role="tab"
+                  aria-selected={mode === id}
+                  data-testid={`chat-mode-${id}`}
+                  onClick={() => { if (mode !== id) setMode(id); }}
+                  className={cn(
+                    "flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/60",
+                    mode === id ? "bg-white/10 text-white ring-1 ring-white/15" : "text-white/50 hover:bg-white/5 hover:text-white"
+                  )}
+                >
+                  <Icon className={cn("h-3.5 w-3.5", mode === id ? "text-brand" : "text-white/40")} />
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className={cn("flex min-w-0 items-center gap-0.5", collapsed && "hidden")}>
+              <button
+                type="button"
+                onClick={() => s.clearComposerDraft()}
+                title="Clear the prompt and attachments"
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-white/45 transition hover:bg-white/5 hover:text-white/85"
+              >
+                <RotateCcw className="h-3 w-3" />
+                <span className="hidden sm:inline">New / Clear</span>
+                <span className="sr-only sm:hidden">New / Clear</span>
+              </button>
+              <button
+                type="button"
+                disabled={!s.recentSubmission}
+                onClick={() => s.restoreRecentSubmission()}
+                title="Restore the last submitted prompt"
+                className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-white/45 transition hover:bg-white/5 hover:text-white/85 disabled:pointer-events-none disabled:opacity-40"
+              >
+                <Undo2 className="h-3 w-3" />
+                <span className="hidden sm:inline">Recent submission</span>
+                <span className="sr-only sm:hidden">Recent submission</span>
+              </button>
+            </div>
+          </div>
 
           <div className="flex items-start gap-2">
+            {upscaling && <UpscaleSourceTile upload={upload} collapsed={collapsed} />}
             <Dropdown
+              className={cn(upscaling && "hidden")}
               side="top"
               trigger={(open) => (
                 <span
@@ -566,11 +665,19 @@ export function StudioChat({ conversationId }) {
           </div>
 
           {pendingUploads > 0 && <p role="status" className="text-xs text-brand">Uploading attachments…</p>}
+          {upscaling && upload.uploading && (
+            <p role="status" className="truncate text-xs text-brand">
+              Uploading {upload.uploading.name}{upload.uploading.progress == null ? "…" : ` (${upload.uploading.progress}%)`}
+            </p>
+          )}
+          {upscaling && upload.tooLong && (
+            <p role="alert" className="text-xs text-red-300">Videos longer than {MAGNIFIC_VIDEO_MAX_SECONDS} seconds cannot be upscaled. Choose a shorter one.</p>
+          )}
           {voice.phase === "recording" && <p role="status" className="text-xs text-red-200">Recording a voice note. It stops by itself at {formatTime(voice.maxMs)}.</p>}
           {voice.phase === "transcribing" && <p role="status" className="text-xs text-brand">Transcribing the voice note…</p>}
           <div className="flex min-w-0 items-center gap-2">
             <div className="min-w-0 flex-1">
-              <SettingsToolbar />
+              {upscaling ? <UpscaleToolbar /> : <SettingsToolbar destination={false} />}
             </div>
             <button
               type="button"
@@ -600,7 +707,7 @@ export function StudioChat({ conversationId }) {
             <motion.button
               whileTap={{ scale: 0.92 }}
               onClick={send}
-              disabled={sending || pendingUploads > 0 || !input.trim() || !conversationId}
+              disabled={sending || pendingUploads > 0 || Boolean(upload.uploading) || !input.trim() || !conversationId}
               className={cn(
                 "grid h-10 w-10 shrink-0 place-items-center rounded-full transition-all duration-200",
                 input.trim() && !sending
@@ -624,10 +731,12 @@ function MessageBubble({
   generatedItem,
   onGenerate,
   onEditAndGenerate,
+  canGenerate,
 }
 
 ) {
   const isUser = message.role === "user";
+  const tag = isUser ? composerTag(message.composer) : null;
   const trace = message.toolTrace;
   const designedPrompt = trace?.tool === "design_prompt" ? (trace.result )?.prompt : undefined;
   const isGenerateTrace = trace?.tool === "generate_image" || trace?.tool === "generate_video";
@@ -636,6 +745,7 @@ function MessageBubble({
   return (
     <div className={cn("flex flex-col gap-1.5", isUser ? "items-end" : "items-start")}>
       {generatedItem && <GenerationFolderCue item={generatedItem} />}
+      {tag && <span data-testid="message-composer-tag" className="text-[11px] text-white/40">{tag}</span>}
       {designedPrompt && (
         <span className="flex items-center gap-1 text-[11px] font-medium text-brand/80">
           <Wand2 className="h-3 w-3" /> Designed a prompt
@@ -658,6 +768,8 @@ function MessageBubble({
         <div className="flex gap-2">
           <button
             type="button"
+            disabled={!canGenerate}
+            title={canGenerate ? undefined : "Switch to Image or Video to generate this prompt"}
             onClick={async () => {
               setGenerating(true);
               try {
@@ -666,7 +778,7 @@ function MessageBubble({
                 setGenerating(false);
               }
             }}
-            className="flex items-center gap-1 rounded-full bg-brand/20 px-3 py-1 text-xs font-medium text-brand ring-1 ring-brand/40 transition hover:bg-brand/30"
+            className="flex items-center gap-1 rounded-full bg-brand/20 px-3 py-1 text-xs font-medium text-brand ring-1 ring-brand/40 transition hover:bg-brand/30 disabled:cursor-not-allowed disabled:opacity-40"
           >
             Generate
           </button>
@@ -697,13 +809,13 @@ function MessageBubble({
             <MediaCard item={generatedItem} />
           ) : generatedItemId ? (
             <div className="rounded-lg bg-ink-750 px-2.5 py-2 text-xs text-white/50">
-              Generated — check your library to view it.
+              Generated. Check your library to view it.
             </div>
           ) : generating ? (
             <GenerationStatus status="running" compact className="rounded-lg ring-1 ring-line" />
           ) : (
             <div className="rounded-lg bg-ink-750 px-2.5 py-2 text-xs text-white/50">
-              Generation was requested — check your library for the result.
+              Generation was requested. Check your library for the result.
             </div>
           )}
         </div>

@@ -12,7 +12,8 @@ from apps.library.views import body_or_empty
 from apps.mcp import errors
 from apps.media.keys import media_key_from_ref
 from apps.media.models import UploadSession
-from . import limits, media, runner, runs, services
+from apps.mcp.tools import generate
+from . import composer, limits, media, runner, runs, services
 from .events import PAGE_SIZE
 from .grants import AgentGrantInvalid
 from .images import parse_message_body
@@ -55,6 +56,12 @@ def name_value(value):
     return (value or '').strip(WHITESPACE)
 
 
+# One chat makes images, videos and upscales, so a conversation needs no kind. Older clients still send agentKind:
+# it lists only that kind's conversations and is stored on the ones they create.
+AGENT_KINDS = (None, 'image', 'video')
+AGENT_KIND_ERROR = "agentKind must be 'image' or 'video' when sent."
+
+
 @api_view(['GET', 'POST'])
 @authentication_classes([])
 @permission_classes([])
@@ -66,8 +73,8 @@ def conversations(request):
         project, kind = first(request, 'projectId'), first(request, 'agentKind')
         if not project:
             return Response({'error': 'projectId required.'}, status=400)
-        if kind not in ('image', 'video'):
-            return Response({'error': "agentKind must be 'image' or 'video'."}, status=400)
+        if kind not in AGENT_KINDS:
+            return Response({'error': AGENT_KIND_ERROR}, status=400)
         return renew_session(request, Response({'conversations': services.list_conversations(project, kind, owner=user.id)}))
     body = body_or_empty(request)
     operation = body.get('op')
@@ -75,8 +82,8 @@ def conversations(request):
         name, project, kind = name_value(body.get('name')), body.get('projectId'), body.get('agentKind')
         if not project:
             return Response({'error': 'projectId required.'}, status=400)
-        if kind not in ('image', 'video'):
-            return Response({'error': "agentKind must be 'image' or 'video'."}, status=400)
+        if kind not in AGENT_KINDS:
+            return Response({'error': AGENT_KIND_ERROR}, status=400)
         if not name:
             return Response({'error': 'Name required.'}, status=400)
         conversation = services.create_conversation(project, kind, name, user.id)
@@ -84,14 +91,16 @@ def conversations(request):
     if operation in ('renameConversation', 'deleteConversation'):
         if not body.get('id'):
             return Response({'error': 'id required.'}, status=400)
-        existing = visible(user, body['id'])
+        existing, kind = visible(user, body['id']), body.get('agentKind')
         if not existing:
             return Response({'error': 'Conversation not found.'}, status=404)
+        if kind not in AGENT_KINDS:
+            return Response({'error': AGENT_KIND_ERROR}, status=400)
         if operation == 'renameConversation':
             services.rename_conversation(body['id'], name_value(body.get('name')))
         else:
             services.delete_conversation(body['id'])
-        return renew_session(request, Response({'conversations': services.list_conversations(existing['projectId'], existing['agentKind'], owner=user.id)}))
+        return renew_session(request, Response({'conversations': services.list_conversations(existing['projectId'], kind, owner=user.id)}))
     return Response({'error': 'Unknown op.'}, status=400)
 
 
@@ -235,28 +244,56 @@ def transcribe(request, id):
     return renew_session(request, Response({'transcript': transcript}))
 
 
-def reference_asset(user_id, ref):
-    """The stored reference image ``ref`` (by its media URL) as a ``media.Asset``: the user's ready upload, or any
-    finished image generation the shared library holds, as ``media.load`` reads them. A data URL is refused: a run keeps
-    ids, not bytes, so the composer uploads it first."""
+# The refusals for each stored file a message can name: (a data URL, not a stored media URL, not in the library).
+REFERENCE_REFUSALS = ('Upload reference images before you send them to the agent.', 'Use stored reference images.',
+                      'A reference image is not in the library. Remove it and attach it again.')
+SOURCE_REFUSALS = {kind: (f'Upload the {kind} to upscale before you send it to the agent.', f'Upscale a stored {kind}.',
+                          f'The {kind} to upscale is not in the library. Choose it again.') for kind in ('image', 'video')}
+
+
+def stored_id(user_id, ref, kind, refusals, purposes=None):
+    """The library id of the stored ``kind`` media at ``ref`` (its media URL): the user's ready upload (of one of
+    ``purposes``, when given), or a finished generation of that kind the shared library holds. A data URL is refused: a
+    run keeps ids, not bytes, so the composer uploads it first."""
+    data_url, unstored, missing = refusals
     if ref.startswith('data:'):
-        raise media.invalid('Upload reference images before you send them to the agent.')
+        raise media.invalid(data_url)
     cdn = getattr(settings, 'GCP_MEDIA_CDN_URL', '')
     key = media_key_from_ref(ref, cdn)
     if not key:
-        raise media.invalid('Use stored reference images.')
-    identifier = (UploadSession.objects.filter(key=key, actor_id=user_id, state='ready', finalized_at__isnull=False)
-                  .values_list('id', flat=True).first())
+        raise media.invalid(unstored)
+    uploads = UploadSession.objects.filter(key=key, actor_id=user_id, state='ready', finalized_at__isnull=False)
+    identifier = (uploads.filter(purpose__in=purposes) if purposes else uploads).values_list('id', flat=True).first()
     if identifier is None:
         urls = {ref, f'/api/media/{key}'} | ({f"{cdn.rstrip('/')}/{key}"} if cdn else set())
-        rows = Generation.objects.filter(status='succeeded', kind='image', url__in=urls).values_list('id', 'url')
+        rows = Generation.objects.filter(status='succeeded', kind=kind, url__in=urls).values_list('id', 'url')
         identifier = next((generation for generation, url in rows if media_key_from_ref(url, cdn) == key), None)
     if identifier is None:
-        raise errors.ToolError(errors.NOT_FOUND, 'A reference image is not in the library. Remove it and attach it again.')
-    asset = media.load(user_id, identifier)
+        raise errors.ToolError(errors.NOT_FOUND, missing)
+    return identifier
+
+
+def reference_asset(user_id, ref):
+    """The stored reference image ``ref`` as a ``media.Asset``, as ``media.load`` reads it."""
+    asset = media.load(user_id, stored_id(user_id, ref, 'image', REFERENCE_REFUSALS))
     if asset.kind != 'image':
         raise media.invalid(f'Reference {asset.id} is {asset.mime}; attach it as a file instead.')
     return asset
+
+
+def composer_context(user_id, value):
+    """The message's validated composer context (``composer.parse``) with its location checked and its upscale source
+    resolved to the library id upscale_media takes, or None without one. The source's bytes are not read: a video to
+    upscale can be 2 GB. Raises ``composer.Invalid`` or ``errors.ToolError``."""
+    context = composer.parse(value)
+    if context is None:
+        return None
+    generate.location(context)
+    source = context.pop('source', None)
+    if source is not None:
+        kind = context['media']
+        context['sourceId'] = str(stored_id(user_id, source, kind, SOURCE_REFUSALS[kind], purposes=(f'{kind}-reference',)))
+    return context
 
 
 def upload_name(asset):
@@ -295,11 +332,15 @@ def agent_runs(request, id):
     if attachment_ids is None:
         return Response({'error': f'attachments must be a list of at most {MAX_ATTACHMENTS} upload ids.'}, status=400)
     try:
+        context = composer_context(user.id, body.get('composer'))
         attachments = run_attachments(user.id, attachment_ids, parsed['images'])
+    except composer.Invalid as error:
+        return Response({'error': str(error)}, status=400)
     except errors.ToolError as error:
         return renew_session(request, Response({'error': error.message}, status=ATTACHMENT_STATUS.get(error.code, 502)))
     try:
-        outcome = runs.post_message(conversation, user, parsed['content'], model=body.get('model'), attachments=attachments)
+        outcome = runs.post_message(conversation, user, parsed['content'], model=body.get('model'), attachments=attachments,
+                                    composer=context)
     except runs.AgentsDisabled:
         return agents_disabled()
     except runs.RunLimitReached as error:

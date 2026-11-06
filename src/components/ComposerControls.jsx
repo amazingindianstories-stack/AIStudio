@@ -52,7 +52,7 @@ import { askText } from "@/lib/ask-text";
  * No mode chip in the toolbar — the tab already fixes `s.mode`, so offering
  * a mode switch here would just contradict which tab you're looking at.
  */
-export function SettingsToolbar() {
+export function SettingsToolbar({ destination = true }) {
   const s = useStore();
   const inputDrivenVideo = s.mode === "video" && capability(s.model, "inputDrivenVideo");
   const audioApplies = s.mode === "video" && supportsAudio(s.model) && !inputDrivenVideo;
@@ -278,129 +278,147 @@ export function SettingsToolbar() {
           )}
         </Dropdown>
 
-        {/* destination: which project / folder new generations land in */}
-        <Dropdown
-          className="composer-destination shrink-0"
-          label="Generation destination"
-          align="right"
-          side="top"
-          panelClassName="min-w-[210px]"
-          trigger={(open) => {
-            const proj = s.projects.find((p) => p.id === s.activeProjectId);
-            function findFolder(nodes, id) {
-              for (const n of nodes) {
-                if (n.id === id) return n;
-                if (n.children?.length) {
-                  const res = findFolder(n.children, id);
-                  if (res) return res;
-                }
-              }
-              return null;
-            }
-            const allFolders = [
-              ...(s.libraryTree?.globalFolders ?? []),
-              ...(proj ? (s.libraryTree?.projects?.find((p) => p.id === proj.id)?.folders ?? proj.folders ?? []) : [])
-            ];
-            const folder = findFolder(allFolders, s.activeFolderId);
-            const folderLabel = s.activeFolderId === UNSORTED ? "Unsorted" : (folder ? folder.name : "All");
-            return (
-              <Chip open={open}>
-                <FolderClosed className="h-4 w-4 text-white/55" />
-                <span className="max-w-[110px] truncate font-medium">{proj ? proj.name : "Global Library"}</span>
-                <span className="text-white/35">/</span>
-                <span className="max-w-[80px] truncate">{folderLabel}</span>
-                <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")} />
-              </Chip>
-            );
-          }}
-        >
-          {() => {
-            const proj = s.projects.find((p) => p.id === s.activeProjectId);
-            const foldersToDisplay = proj
-              ? (s.libraryTree?.projects?.find((p) => p.id === proj.id)?.folders ?? proj.folders ?? [])
-              : (s.libraryTree?.globalFolders ?? []);
-
-            const renderFolderMenuItems = (folders, depth = 0) =>
-              folders.map((f) => (
-                <div key={f.id}>
-                  <MenuItem
-                    active={s.activeFolderId === f.id}
-                    onClick={() => s.setActiveFolder(f.id)}
-                    style={{ paddingLeft: `${depth * 0.75 + 0.5}rem` }}
-                  >
-                    <FolderClosed className="h-4 w-4 text-white/45" />
-                    <span className="flex-1 truncate">{f.name}</span>
-                    {s.activeFolderId === f.id && <Check className="h-4 w-4 text-brand" />}
-                  </MenuItem>
-                  {f.children?.length > 0 && renderFolderMenuItems(f.children, depth + 1)}
-                </div>
-              ));
-
-            return (
-              <div className="max-h-[340px] overflow-y-auto scroll-thin py-1">
-                <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-white/35">Scope</p>
-                <MenuItem
-                  active={s.activeProjectId === null}
-                  onClick={() => {
-                    s.setActiveProject(null);
-                    s.setActiveFolder(null);
-                  }}
-                >
-                  <Layers className="h-4 w-4 text-white/45" />
-                  <span className="flex-1 truncate">Global Library</span>
-                  {s.activeProjectId === null && <Check className="h-4 w-4 text-brand" />}
-                </MenuItem>
-                {s.projects.map((p) => (
-                  <MenuItem
-                    key={p.id}
-                    active={p.id === s.activeProjectId}
-                    onClick={() => {
-                      s.setActiveProject(p.id);
-                      s.setActiveFolder(null);
-                    }}
-                  >
-                    <Layers className="h-4 w-4 text-white/45" />
-                    <span className="flex-1 truncate">{p.name}</span>
-                    {p.id === s.activeProjectId && <Check className="h-4 w-4 text-brand" />}
-                  </MenuItem>
-                ))}
-                <MenuItem
-                  onClick={async () => {
-                    const name = await askText({ title: "New project", label: "Project name", confirmLabel: "Create" });
-                    if (name) s.createProject(name);
-                  }}
-                >
-                  <Plus className="h-4 w-4 text-white/60" />
-                  <span className="flex-1">New project</span>
-                </MenuItem>
-
-                <div className="my-1 h-px bg-line" />
-                <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-white/35">
-                  Folder in {proj ? proj.name : "Global Library"}
-                </p>
-                <MenuItem
-                  active={s.activeFolderId === null}
-                  onClick={() => s.setActiveFolder(null)}
-                >
-                  <Layers className="h-4 w-4 text-white/45" />
-                  <span className="flex-1">{proj ? "All in project" : "Global Root"}</span>
-                  {s.activeFolderId === null && <Check className="h-4 w-4 text-brand" />}
-                </MenuItem>
-                <MenuItem
-                  active={s.activeFolderId === UNSORTED}
-                  onClick={() => s.setActiveFolder(UNSORTED)}
-                >
-                  <Inbox className="h-4 w-4 text-white/45" />
-                  <span className="flex-1">Unsorted</span>
-                  {s.activeFolderId === UNSORTED && <Check className="h-4 w-4 text-brand" />}
-                </MenuItem>
-
-                {renderFolderMenuItems(foldersToDisplay)}
-              </div>
-            );
-          }}
-        </Dropdown>
+        {destination && <DestinationPicker />}
       </div>
+  );
+}
+
+function findFolder(nodes, id) {
+  for (const n of nodes) {
+    if (n.id === id) return n;
+    if (n.children?.length) {
+      const res = findFolder(n.children, id);
+      if (res) return res;
+    }
+  }
+  return null;
+}
+
+/** Where new generations land: the active project (or the Global Library) and its active folder, by name. `folder` is
+ *  null when the project's unsorted items receive them ("All in project" or Unsorted). */
+export function destinationOf(s) {
+  const project = s.projects.find((p) => p.id === s.activeProjectId) ?? null;
+  const allFolders = [
+    ...(s.libraryTree?.globalFolders ?? []),
+    ...(project ? (s.libraryTree?.projects?.find((p) => p.id === project.id)?.folders ?? project.folders ?? []) : [])
+  ];
+  const folder = s.activeFolderId && s.activeFolderId !== UNSORTED ? findFolder(allFolders, s.activeFolderId) : null;
+  return { project, folder };
+}
+
+/**
+ * The destination menu: which project / folder new generations land in. The composer toolbar shows it as a chip;
+ * the Agents tab's header passes its own `trigger`.
+ */
+export function DestinationPicker({ className = "composer-destination shrink-0", side = "top", trigger }) {
+  const s = useStore();
+  return (
+    <Dropdown
+      className={className}
+      label="Generation destination"
+      align="right"
+      side={side}
+      panelClassName="min-w-[210px]"
+      trigger={trigger || ((open) => {
+        const { project: proj, folder } = destinationOf(s);
+        const folderLabel = s.activeFolderId === UNSORTED ? "Unsorted" : (folder ? folder.name : "All");
+        return (
+          <Chip open={open}>
+            <FolderClosed className="h-4 w-4 text-white/55" />
+            <span className="max-w-[110px] truncate font-medium">{proj ? proj.name : "Global Library"}</span>
+            <span className="text-white/35">/</span>
+            <span className="max-w-[80px] truncate">{folderLabel}</span>
+            <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")} />
+          </Chip>
+        );
+      })}
+    >
+      {() => {
+        const proj = s.projects.find((p) => p.id === s.activeProjectId);
+        const foldersToDisplay = proj
+          ? (s.libraryTree?.projects?.find((p) => p.id === proj.id)?.folders ?? proj.folders ?? [])
+          : (s.libraryTree?.globalFolders ?? []);
+
+        const renderFolderMenuItems = (folders, depth = 0) =>
+          folders.map((f) => (
+            <div key={f.id}>
+              <MenuItem
+                active={s.activeFolderId === f.id}
+                onClick={() => s.setActiveFolder(f.id)}
+                style={{ paddingLeft: `${depth * 0.75 + 0.5}rem` }}
+              >
+                <FolderClosed className="h-4 w-4 text-white/45" />
+                <span className="flex-1 truncate">{f.name}</span>
+                {s.activeFolderId === f.id && <Check className="h-4 w-4 text-brand" />}
+              </MenuItem>
+              {f.children?.length > 0 && renderFolderMenuItems(f.children, depth + 1)}
+            </div>
+          ));
+
+        return (
+          <div className="max-h-[340px] overflow-y-auto scroll-thin py-1">
+            <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-white/35">Scope</p>
+            <MenuItem
+              active={s.activeProjectId === null}
+              onClick={() => {
+                s.setActiveProject(null);
+                s.setActiveFolder(null);
+              }}
+            >
+              <Layers className="h-4 w-4 text-white/45" />
+              <span className="flex-1 truncate">Global Library</span>
+              {s.activeProjectId === null && <Check className="h-4 w-4 text-brand" />}
+            </MenuItem>
+            {s.projects.map((p) => (
+              <MenuItem
+                key={p.id}
+                active={p.id === s.activeProjectId}
+                onClick={() => {
+                  s.setActiveProject(p.id);
+                  s.setActiveFolder(null);
+                }}
+              >
+                <Layers className="h-4 w-4 text-white/45" />
+                <span className="flex-1 truncate">{p.name}</span>
+                {p.id === s.activeProjectId && <Check className="h-4 w-4 text-brand" />}
+              </MenuItem>
+            ))}
+            <MenuItem
+              onClick={async () => {
+                const name = await askText({ title: "New project", label: "Project name", confirmLabel: "Create" });
+                if (name) s.createProject(name);
+              }}
+            >
+              <Plus className="h-4 w-4 text-white/60" />
+              <span className="flex-1">New project</span>
+            </MenuItem>
+
+            <div className="my-1 h-px bg-line" />
+            <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-white/35">
+              Folder in {proj ? proj.name : "Global Library"}
+            </p>
+            <MenuItem
+              active={s.activeFolderId === null}
+              onClick={() => s.setActiveFolder(null)}
+            >
+              <Layers className="h-4 w-4 text-white/45" />
+              <span className="flex-1">{proj ? "All in project" : "Global Root"}</span>
+              {s.activeFolderId === null && <Check className="h-4 w-4 text-brand" />}
+            </MenuItem>
+            <MenuItem
+              active={s.activeFolderId === UNSORTED}
+              onClick={() => s.setActiveFolder(UNSORTED)}
+            >
+              <Inbox className="h-4 w-4 text-white/45" />
+              <span className="flex-1">Unsorted</span>
+              {s.activeFolderId === UNSORTED && <Check className="h-4 w-4 text-brand" />}
+            </MenuItem>
+
+            {renderFolderMenuItems(foldersToDisplay)}
+          </div>
+        );
+      }}
+    </Dropdown>
   );
 }
 

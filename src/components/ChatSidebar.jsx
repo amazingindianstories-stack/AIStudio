@@ -21,18 +21,35 @@ const COLLAPSE_KEY = "veevee-chat-sidebar-collapsed";
 const DESKTOP_QUERY = "(min-width: 768px)";
 
 /**
- * Left sidebar for the studio view: which project you're in, and the list
- * of chat threads within it for the current tab (agentKind) — replaces the
- * dropdown-shaped ThreadSwitcher, which didn't leave the thread list visible
- * while you worked. Collapsible, and the collapsed state persists (unlike
+ * Left sidebar for the Agents view: which project you're in, and the list
+ * of its chat threads. One thread serves every mode (Image, Video and
+ * Upscale switch inside the chat), so the list is the project's, not a
+ * mode's. Replaces the dropdown-shaped ThreadSwitcher, which didn't leave
+ * the thread list visible while you worked. Collapsible, and the collapsed state persists (unlike
  * the assets drawer, this is core workflow state, not a transient panel).
  * Below md the list never takes width from the chat: it opens as an overlay
  * with a scrim and closes on choosing a chat.
  */
+// The name a chat gets when this list creates it. The server renames it after its first message (runs.DEFAULT_NAME).
+const DEFAULT_NAME = "New chat";
+const TIME = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+const DAY_TIME = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+
+/** A chat's label: its name, or for a chat nobody has named or written in yet, when it was started, so it never reads
+ *  like the "New chat" button above it. */
+export function chatLabel(conversation, now = Date.now()) {
+  if (!conversation) return "";
+  if (conversation.name !== DEFAULT_NAME || !Number.isFinite(conversation.createdAt)) return conversation.name;
+  const created = new Date(conversation.createdAt);
+  const today = new Date(now).toDateString() === created.toDateString();
+  return `Untitled chat · ${(today ? TIME : DAY_TIME).format(created)}`;
+}
+
 export function ChatSidebar({
-  agentKind,
   conversationId,
   onConversationIdChange,
+  onConversationsChange,
+  updatedConversation,
 }
 
 ) {
@@ -82,21 +99,21 @@ export function ChatSidebar({
   };
 
   useEffect(() => {
-    const scopeKey = activeProjectId ? `${activeProjectId}:${agentKind}` : null;
+    const scopeKey = activeProjectId || null;
     if (!scopeKey || initializedFor.current === scopeKey) return;
     initializedFor.current = scopeKey;
     const requestId = ++requestIdRef.current;
     setLoading(true);
     (async () => {
       const res = await fetch(
-        `/api/agent-conversations?projectId=${encodeURIComponent(activeProjectId)}&agentKind=${agentKind}`,
+        `/api/agent-conversations?projectId=${encodeURIComponent(activeProjectId)}`,
         { cache: "no-store" }
       );
       const json = await res.json().catch(() => ({}));
       if (requestIdRef.current !== requestId) return;
       let list = json.conversations ?? [];
       if (list.length === 0) {
-        // Lazily create the project's first chat for this tab — same
+        // Lazily create the project's first chat - same
         // pattern BoardSwitcher.tsx uses for a project's first board.
         // Without this, a project with no threads yet has nothing to
         // select, and the feed below shows "Loading chat…" forever with no
@@ -104,7 +121,7 @@ export function ChatSidebar({
         const created = await fetch("/api/agent-conversations", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ op: "createConversation", projectId: activeProjectId, agentKind, name: "New chat" }),
+          body: JSON.stringify({ op: "createConversation", projectId: activeProjectId, name: DEFAULT_NAME }),
         });
         const createdJson = await created.json().catch(() => ({}));
         if (requestIdRef.current !== requestId) return;
@@ -116,14 +133,23 @@ export function ChatSidebar({
         if (list[0]) onConversationIdChange(list[0].id);
       }
     })();
-  }, [activeProjectId, agentKind, conversationId, onConversationIdChange]);
+  }, [activeProjectId, conversationId, onConversationIdChange]);
+
+  // The Agents header names the open chat, so it follows this list's renames and deletions.
+  useEffect(() => { onConversationsChange?.(conversations); }, [conversations, onConversationsChange]);
+
+  // A chat the server renamed (after its first message) takes its new name here without re-reading the list.
+  useEffect(() => {
+    if (!updatedConversation) return;
+    setConversations((cur) => cur.map((c) => (c.id === updatedConversation.id ? { ...c, ...updatedConversation } : c)));
+  }, [updatedConversation]);
 
   const createConversation = async () => {
     if (!activeProjectId) return;
     const res = await fetch("/api/agent-conversations", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ op: "createConversation", projectId: activeProjectId, agentKind, name: "New chat" }),
+      body: JSON.stringify({ op: "createConversation", projectId: activeProjectId, name: DEFAULT_NAME }),
     });
     const json = await res.json().catch(() => ({}));
     if (json.conversations) {
@@ -282,12 +308,12 @@ export function ChatSidebar({
                       : "text-white/70 hover:bg-white/5 hover:text-white"
                   )}
                 >
-                  <span className="truncate">{c.name}</span>
+                  <span className="truncate">{chatLabel(c)}</span>
                 </button>
                 <Dropdown
                   align="right"
                   className="absolute right-1 top-1/2 -translate-y-1/2"
-                  label={`Options for ${c.name}`}
+                  label={`Options for ${chatLabel(c)}`}
                   trigger={(open) => (
                     <span
                       className={cn(
@@ -394,7 +420,7 @@ function DeleteThreadDialog({
           Delete this chat?
         </h2>
         <p className="mt-2 text-sm text-white/60">
-          “{conversation.name}” will be deleted. This cannot be undone.
+          “{chatLabel(conversation)}” will be deleted. This cannot be undone.
         </p>
         <div className="mt-4 flex justify-end gap-2">
           <button

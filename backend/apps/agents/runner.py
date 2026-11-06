@@ -44,7 +44,7 @@ from apps.integrations.transport import ProviderError
 from apps.mcp import errors, paid, server
 from apps.mcp.registry import REGISTRY, visible
 from apps.mcp.tools.generate import PREPARE
-from . import events, grants, limits, media
+from . import composer, events, grants, limits, media
 from .declarations import HARNESS_FIELDS, harness_arguments
 from .design import DESIGN_TOOL, design_body, design_brief, read_prompt
 from .llm import PART_METADATA
@@ -247,7 +247,8 @@ def drain_inbox(run, step_index, *, now=None):
             AgentInboxMessage.objects.filter(pk=row.pk).update(delivered_at=now, delivered_step=step_index)
             AgentConversationMessage.objects.create(conversation_id=run.conversation_id, role='user', content=row.content,
                                                     tool_trace={'runId': str(run.id), 'deliveredStep': step_index,
-                                                                **({'attachments': row.attachments} if row.attachments else {})},
+                                                                **({'attachments': row.attachments} if row.attachments else {}),
+                                                                **({'composer': row.composer} if row.composer else {})},
                                                     created_at=now)
             events.emit(run.id, 'message_delivered', {'inboxId': str(row.id), 'stepIndex': step_index}, now=now)
     return len(rows)
@@ -262,8 +263,27 @@ def _new_step(run, kind, *, now, tool_name=None, result=None):
             run_id=run.id, step_index=index, kind=kind, tool_name=tool_name, input_hash='',
             idempotency_key=f'{run.id}:{index}' if kind == 'tool' else None, result=result or {}, started_at=now)
         _set(locked, now, step_count=index + 1)
-        events.emit(run.id, 'step_started', {'stepIndex': index, 'kind': kind, **({'tool': tool_name} if tool_name else {})}, now=now)
+        call = (result or {}).get('call')
+        events.emit(run.id, 'step_started', {'stepIndex': index, 'kind': kind, **({'tool': tool_name} if tool_name else {}),
+                                             **({'arguments': shown_arguments(call['args'])} if call else {})}, now=now)
         return step
+
+
+ARGUMENT_KEYS, ARGUMENT_CHARS, ARGUMENT_ITEMS = 24, 600, 12
+
+
+def shown_arguments(arguments):
+    """A tool call's arguments as the Agents tab shows them in a turn's trace: the first keys, strings cut short and
+    lists and objects bounded, so an event stays small."""
+    def shown(value, depth=0):
+        if isinstance(value, str):
+            return value if len(value) <= ARGUMENT_CHARS else value[:ARGUMENT_CHARS] + '…'
+        if isinstance(value, list):
+            return [shown(item, depth + 1) for item in value[:ARGUMENT_ITEMS]] if depth < 2 else f'{len(value)} items'
+        if isinstance(value, dict):
+            return {str(key): shown(item, depth + 1) for key, item in list(value.items())[:ARGUMENT_KEYS]} if depth < 2 else '{…}'
+        return value if value is None or isinstance(value, (bool, int, float)) else str(value)[:ARGUMENT_CHARS]
+    return shown(arguments) if isinstance(arguments, dict) else {}
 
 
 # Building a step's contents --------------------------------------------------------------------------------------
@@ -278,9 +298,10 @@ def history_turns(run):
 
 
 def sent_files(row):
-    """The note naming the files a user message was sent with: a run's attachments, or an older chat turn's documents."""
+    """The notes a user message was sent with: the files (a run's attachments, or an older chat turn's documents) and
+    the composer's mode, model and settings."""
     trace = row.tool_trace if row.role == 'user' and isinstance(row.tool_trace, dict) else {}
-    return media.attachment_note(trace.get('attachments') or trace.get('documents'))
+    return media.attachment_note(trace.get('attachments') or trace.get('documents')) + composer.note_parts(trace.get('composer'))
 
 
 def note_parts(notes):
@@ -319,7 +340,8 @@ def build_contents(run, steps, step):
         nonlocal pending, placed
         parts = pending + note_parts(notes)
         while placed < len(inbox) and inbox[placed].delivered_step <= before:
-            parts.extend([{'text': inbox[placed].content}] + media.attachment_note(inbox[placed].attachments))
+            parts.extend([{'text': inbox[placed].content}] + media.attachment_note(inbox[placed].attachments)
+                         + composer.note_parts(inbox[placed].composer))
             placed += 1
         pending = []
         if parts:

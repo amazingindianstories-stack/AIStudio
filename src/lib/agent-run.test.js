@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   addQueuedMessage, applyPage, drainFeed, forgetRunState, isSettled, needsSecondConfirmation, outcomeText, pauseReasonText,
   pollDelay, queuedNote, quoteCardStep, quoteCost, quoteDetails, restoreRunState, resumeText, runAction, runState, runView, saveRunState,
-  sentenceCase, statusLine, stepStatusText, threadEntries, withRun,
+  durationText, sentenceCase, statusLine, stepStatusText, threadEntries, traceArguments, traceGroups, traceSummary, withRun,
 } from "./agent-run.js";
 
 const RUN = { id: "run-1", conversationId: "c-1", status: "running", costCents: 0, stepCount: 0, cancelRequestedAt: null, cancelJobs: false,
@@ -72,8 +72,8 @@ test("a tool error shows as an error step with its summary", () => {
     event(1, "step_started", { stepIndex: 0, kind: "tool", tool: "generate_image" }),
     event(2, "tool_called", { stepIndex: 0, tool: "generate_image", outcome: "INSUFFICIENT_CREDITS", ok: false, summary: "Not enough credits." }),
   ])));
-  assert.deepEqual(view.timeline, [{ type: "tool", stepIndex: 0, status: "error", tool: "generate_image", seq: 1,
-    outcome: "INSUFFICIENT_CREDITS", summary: "Not enough credits." }]);
+  assert.deepEqual(view.timeline, [{ type: "tool", stepIndex: 0, status: "error", tool: "generate_image", seq: 1, at: 1001,
+    outcome: "INSUFFICIENT_CREDITS", summary: "Not enough credits.", endedAt: 1002, since: null, until: null }]);
 });
 
 test("waiting_jobs lists the jobs still running until each finishes", () => {
@@ -172,7 +172,7 @@ test("a message sent during a run shows as queued until message_delivered", () =
   const view = runView(state);
   assert.deepEqual(view.queued, []);
   assert.deepEqual(view.timeline.at(-1), { type: "message", seq: 7, inboxId: "i-1", stepIndex: 1, content: "Make it blue", attachments: [],
-    createdAt: 1007 });
+    createdAt: 1007, at: 1007, since: 1004, until: null });
 });
 
 test("a message queued into a stopping run says it joins the chat once the run stops", () => {
@@ -406,10 +406,21 @@ test("runAction turns a quote or run that moved on into a plain message", async 
   assert.deepEqual(offline, { ok: false, run: null, code: null, error: "Veevee could not be reached. Try again." });
 });
 
+test("a run whose JSON still says queued but whose events show it started reads as working", () => {
+  const view = runView(applyPage(runState(), page([event(1, "run_queued"), event(2, "run_started"),
+    event(3, "step_started", { stepIndex: 0, kind: "tool", tool: "generate_video" })], { run: run({ status: "queued" }) })));
+  assert.equal(view.started, true);
+  assert.deepEqual(statusLine(view), { label: "Working…", icon: "spin" });
+  const fresh = runView(applyPage(runState(), page([event(1, "run_queued")], { run: run({ status: "queued" }) })));
+  assert.equal(fresh.started, false);
+  assert.deepEqual(statusLine(fresh), { label: "Starting…", icon: "spin" });
+});
+
 test("statusLine spins only while the run works; a pause and a wait on the artist hold still", () => {
   const line = (status, fields = {}) => statusLine({ status, waitingOn: [], stopping: null, ...fields });
   for (const status of ["queued", "running", "waiting_jobs"]) assert.equal(line(status).icon, "spin", status);
   assert.deepEqual(line("queued"), { label: "Starting…", icon: "spin" });
+  assert.deepEqual(line("queued", { started: true }), { label: "Working…", icon: "spin" });
   assert.deepEqual(line("running"), { label: "Working…", icon: "spin" });
   assert.deepEqual(line("waiting_jobs", { waitingOn: ["g-1"] }), { label: "Waiting for 1 job to finish", icon: "spin" });
   assert.equal(line("waiting_jobs", { waitingOn: ["g-1", "g-2"] }).label, "Waiting for 2 jobs to finish");
@@ -550,4 +561,87 @@ test("threadEntries puts a live run without a loaded start message at the end an
     "Older.", ["run-1", ["Let me look.", "search_generations:done"], true],
   ]);
   assert.deepEqual(shape(threadEntries(messages, [{ view: { ...view, startMessageId: "gone" }, live: false }])), ["Older."]);
+});
+
+test("a tool step keeps the arguments it was called with and when it started and ended", () => {
+  const events = [
+    event(1, "run_queued", { messageId: "m-1" }),
+    event(2, "step_started", { stepIndex: 0, kind: "tool", tool: "generate_image", arguments: { prompt: "A fox", aspectRatio: "16:9" } }),
+    event(3, "tool_called", { stepIndex: 0, tool: "generate_image", outcome: "running", ok: true, summary: "Queued 1 image." }),
+  ];
+  const [step] = runView(applyPage(runState(run({ startedAt: 1000 })), page(events, { run: run({ startedAt: 1000 }) }))).timeline;
+  assert.deepEqual(step.arguments, { prompt: "A fox", aspectRatio: "16:9" });
+  assert.equal(step.at, 1002);
+  assert.equal(step.endedAt, 1003);
+  assert.equal(step.since, 1000, "the first item's work starts with the run");
+  assert.equal(step.until, null, "an active run's last item has not ended");
+});
+
+test("each timeline item spans from the item before it to the next, the last to the run's end", () => {
+  const ended = run({ status: "completed", startedAt: 900, finishedAt: 2000, updatedAt: 99 });
+  const { timeline } = runView(applyPage(runState(ended), page(FULL, { run: ended })));
+  assert.deepEqual(timeline.map((item) => [item.since, item.until]), [[900, 1005], [1004, 1007], [1005, 1017], [1007, 2000]]);
+});
+
+test("traceGroups folds working notes and tool steps into one trace and leaves replies and messages in the thread", () => {
+  const items = [
+    { type: "text", seq: 4, text: "Let me look.", final: false },
+    { type: "tool", seq: 5, stepIndex: 1, status: "done" },
+    { type: "tool", seq: 7, stepIndex: 2, status: "done" },
+    { type: "message", seq: 9, inboxId: "i-1", content: "Make it blue" },
+    { type: "tool", seq: 11, stepIndex: 3, status: "running" },
+    { type: "text", seq: 13, text: "Done.", final: true },
+  ];
+  const groups = traceGroups(items);
+  assert.deepEqual(groups.map((group) => (group.type === "trace" ? [group.key, group.items.map((item) => item.seq)] : group.seq)), [
+    ["trace-4", [4, 5, 7]], 9, ["trace-11", [11]], 13,
+  ]);
+  assert.deepEqual(traceGroups([]), []);
+});
+
+test("traceSummary says how long the work took, its steps and failures, or Working while it is current", () => {
+  const trace = { type: "trace", items: [
+    { type: "text", since: 1000, until: 2000 },
+    { type: "tool", status: "done" },
+    { type: "tool", status: "error", since: 3000, until: 13400 },
+  ] };
+  assert.equal(traceSummary(trace), "Worked for 12s · 2 steps · 1 failed");
+  assert.equal(traceSummary(trace, { live: true }), "Working · 2 steps · 1 failed");
+  assert.equal(traceSummary({ items: [{ type: "tool", status: "done", since: 5, until: null }] }), "Worked · 1 step",
+    "no made-up time when the end is unknown");
+  assert.equal(traceSummary({ items: [{ type: "text", since: 0, until: 400 }] }), "Worked for 1s");
+});
+
+test("durationText reads seconds, minutes and hours", () => {
+  assert.equal(durationText(8200), "8s");
+  assert.equal(durationText(60000), "1m");
+  assert.equal(durationText(125000), "2m 5s");
+  assert.equal(durationText(3780000), "1h 3m");
+  assert.equal(durationText(7200000), "2h");
+});
+
+test("traceArguments shows the prompt on its own and labels the rest without call plumbing", () => {
+  assert.deepEqual(traceArguments({
+    prompt: "A fox in snow", model: "nano-banana-pro", aspectRatio: "16:9", durationSeconds: 5, generateAudio: false,
+    references: ["g-1", "g-2"], options: { seed: 4 }, idempotencyKey: "k", quoteToken: "q", empty: "", none: null,
+  }), {
+    prompt: "A fox in snow",
+    rows: [
+      { key: "model", label: "Model", value: "nano-banana-pro" },
+      { key: "aspectRatio", label: "Aspect ratio", value: "16:9" },
+      { key: "durationSeconds", label: "Duration", value: "5s" },
+      { key: "generateAudio", label: "Audio", value: "No" },
+      { key: "options", label: "Options", value: "{\"seed\":4}" },
+      { key: "references", label: "References", value: "g-1, g-2" },
+    ],
+  });
+  assert.deepEqual(traceArguments(undefined), { prompt: null, rows: [] });
+});
+
+test("argument rows keep one order whatever order the stored arguments come back in", () => {
+  // jsonb returns object keys sorted by length, which would put count ahead of aspect ratio.
+  const stored = { count: 2, prompt: "A fox", zeta: "z", aspectRatio: "16:9", alpha: "a", model: "nano-banana-pro" };
+  const keys = ["model", "aspectRatio", "count", "alpha", "zeta"];
+  assert.deepEqual(traceArguments(stored).rows.map((row) => row.key), keys);
+  assert.deepEqual(quoteDetails(stored).map((row) => row.key), keys);
 });

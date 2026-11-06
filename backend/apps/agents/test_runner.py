@@ -905,6 +905,28 @@ class EventTests(RunnerCase):
         self.assertEqual(len(events.page(run.id, after=0, limit=3)), 3)
 
 
+class StepArgumentsTests(RunnerCase):
+    def test_a_tool_steps_start_shows_its_call_arguments_bounded(self):
+        """The Agents tab's turn trace shows what each call asked for: the dispatched arguments (harness fields dropped,
+        the chat's folder added), with long strings cut and nesting bounded. Model steps carry none."""
+        prompt = 'a red fox ' * 100
+        self.gemini([call('search_generations', {'text': prompt, 'quoteToken': 'forged'})], [text('Found none.')])
+        run = self.start_run()
+        self.assertEqual(self.advance(run), 'completed')
+        started = [row.payload for row in AgentRunEvent.objects.filter(run_id=run.id, kind='step_started').order_by('seq')]
+        self.assertEqual([row.get('arguments') for row in started[::2]], [None, None])
+        self.assertEqual(started[1], {'stepIndex': 1, 'kind': 'tool', 'tool': 'search_generations',
+                                      'arguments': {'text': prompt[:runner.ARGUMENT_CHARS] + '…'}})
+
+    def test_shown_arguments_bound_size_and_depth(self):
+        shown = runner.shown_arguments({'ids': list(range(20)), 'nested': {'deep': {'deeper': 1}, 'list': [1, 2]},
+                                        **{f'k{index}': index for index in range(30)}})
+        self.assertEqual(shown['ids'], list(range(runner.ARGUMENT_ITEMS)))
+        self.assertEqual(shown['nested'], {'deep': '{…}', 'list': '2 items'})
+        self.assertEqual(len(shown), runner.ARGUMENT_KEYS)
+        self.assertEqual(runner.shown_arguments('not a dict'), {})
+
+
 class StepSummaryTests(RunnerCase):
     def test_a_file_the_agent_read_is_described_for_the_artist_without_its_id(self):
         document, image = uuid.uuid4(), uuid.uuid4()

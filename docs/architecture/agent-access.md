@@ -99,7 +99,20 @@ queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed
 - **Location.** A job-creating tool (`generate_image`, `generate_video`, `upscale_media`, `finalize_draft`) that got
   neither a folder nor a project lands in the chat's `default_folder_id`, else its `default_project_id`. A folder the
   model names (from `list_folders`) is kept. Other tools that take a location, such as `search_generations`, keep the
-  model's scope.
+  model's scope. A message sent with a `composer` context moves both defaults to its `projectId` and `folderId`, so
+  new work follows the folder the tab saves to.
+- **Chat name.** A chat still called "New chat" is renamed from the first message that starts a run in it
+  (`name_from_first_message` in `apps/agents/runs.py`: whitespace collapsed, cut at a word to 60 characters with "…").
+  A name the artist gave, an empty message or a chat that already has a user message keeps its name.
+- **Composer.** The Agents tab is one chat for images, videos and upscales; a conversation's `agent_kind` is optional
+  (older clients still send `agentKind`, which filters the list and is stored on the chats they create). A run message
+  may carry `composer` (`apps/agents/composer.py`): the mode tab (`image`, `video` or `upscale`), its model, the
+  generate tool's settings for that mode (`options`) or, for an upscale, `upscale` `{media, params, source?}`, plus
+  `projectId` and `folderId`. `parse` checks shape and model; the view checks the location and resolves the source (a
+  stored media URL: the caller's ready `<media>-reference` upload or a finished generation) to the `sourceId`
+  `upscale_media` takes, without reading its bytes. The context is stored on the message (`toolTrace.composer`) or
+  inbox row (`composer`), and the model gets it as a harness note beside the message; it still makes every call and
+  the tools validate it as usual. The message JSON returns it with the model's display name.
 - **Prompt design.** `design_prompt` is the harness's own tool, declared after the registry tools and accepted by the
   loop allowlist only with its exact declaration. It is a tool step that never reaches the dispatcher: one prompt-design
   sub-call through the same transport (usage purpose `design_prompt`) with the old orchestrator's prompt craft and three
@@ -151,7 +164,8 @@ queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed
   not advanced again; jobs it already queued finish into the library. A step in flight at the delete ends quietly in the
   worker, and its Gemini call is still recorded in `agent_llm_usage`, without its conversation and run.
 - **Events.** `agent_run_events` carries a gapless, strictly increasing per-run `seq`, allocated under the run row lock:
-  `run_queued`, `run_started`, `resumed`, `step_started`, `tool_called`, `job_queued`, `job_finished`, `waiting_jobs`,
+  `run_queued`, `run_started`, `resumed`, `step_started` (a tool step's carries the call's `arguments`, bounded by
+  `runner.shown_arguments`), `tool_called`, `job_queued`, `job_finished`, `waiting_jobs`,
   `quote_required`, `quote_approved`, `quote_declined`, `message_queued`, `message_delivered`, `assistant_text`,
   `paused`, `cancel_requested`, `completed`, `failed` and `cancelled`. The final model text also becomes an assistant
   `agent_conversation_messages` row. A terminal status is written with its final event.
@@ -159,7 +173,7 @@ queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed
 | Method and path (under `/api/agent-conversations/<id>`) | Purpose |
 |---|---|
 | `GET .../runs` | The chat's 20 most recent runs |
-| `POST .../runs` `{content, model?, attachments?, images?}` | Starts a run with the message (201), or writes it to the active run's inbox (202). One active run per conversation is a database constraint. `403 AGENTS_DISABLED` when the Agents tab is off for the caller, even with a run active; when no run is active, `429 AGENT_LIMIT` (with `kind` `active_runs`) at the `agentActiveRuns` cap |
+| `POST .../runs` `{content, model?, attachments?, images?, composer?}` | Starts a run with the message (201, with the conversation as it now reads, so a new name shows at once), or writes it to the active run's inbox (202). One active run per conversation is a database constraint. `403 AGENTS_DISABLED` when the Agents tab is off for the caller, even with a run active; when no run is active, `429 AGENT_LIMIT` (with `kind` `active_runs`) at the `agentActiveRuns` cap |
 | `GET .../runs/<run>/events?after=<seq>&limit=` | Up to 100 events after `seq`, with the run, `nextAfter`, `more` and the undelivered messages |
 | `POST .../runs/<run>/approve`, `.../decline` `{stepIndex}` | Answers the waiting quote; `409 NO_PENDING_QUOTE` otherwise |
 | `POST .../runs/<run>/cancel` `{cancelJobs?}` | Stop (202), or stop and cancel the run's active jobs; `409 RUN_FINISHED` once it ended |
@@ -173,9 +187,17 @@ decline and cancel are always open.
 
 ### Agents tab UI
 
+`src/components/StudioView.jsx` lays out the project's chat list beside one chat, under a header that names the
+project and the open chat and shows the folder new work saves to (the destination menu changes it). The composer's
+Image, Video and Upscale tabs set the store's `mode`, so the model and settings below the input are that mode's
+(`ComposerControls`, or `AgentUpscaleControls` with the source square for Upscale); the thread does not change.
+In Upscale the source square takes an image or a video, and what is attached picks the media; the model menu lists the
+image and video upscalers in two groups, so choosing one sets the media too. A chat still called "New chat" shows as
+"Untitled chat · <time it was made>" in the list and the header (`chatLabel` in `src/components/ChatSidebar.jsx`)
+until its first message names it.
 `src/components/StudioChat.jsx` sends every message to `POST .../runs` with `content`, the staged document upload ids
-(`attachments`) and the reference images (`images`; data-URL references are uploaded first and written back to the
-draft). Voice notes are transcribed into the composer before sending, so they take the same path. A 201 shows the
+(`attachments`), the reference images (`images`; data-URL references are uploaded first and written back to the
+draft) and `composer` (`composerContext` in `src/lib/agent-composer.js`); a sent message shows its mode and model. Voice notes are transcribed into the composer before sending, so they take the same path. A 201 shows the
 saved message and follows the new run; a 202 shows the inbox row as a dashed "Queued" bubble until `message_delivered`
 arrives, or a `pendingMessages` snapshot read after its `message_queued` no longer lists it. A refused send keeps the
 draft and staged files and shows the API's message (`AGENTS_DISABLED`, `AGENT_GRANT_INVALID` and the rest).
@@ -195,8 +217,15 @@ draft and staged files and shows the API's message (`AGENTS_DISABLED`, `AGENT_GR
   activity between them is split into segments, each after the saved message it follows. The activity is tool steps,
   jobs (a succeeded job shows its `MediaCard`, read by id through the store's `loadItem` when no loaded scope holds it;
   a running one shows `GenerationStatus`, a failed or cancelled one its text), non-final text, and, in the run's last
-  segment, queued messages, the quote, pause card, status line and how a failed or stopped run ended. While the run is
+  segment, queued messages, the quote, pause card, status line and how a failed or stopped run ended. The tool steps and
+  non-final text between two replies fold into one trace (`traceGroups`), collapsed by default to a line such as
+  "Worked for 12s · 3 steps · 1 failed" (`traceSummary`, timed from the events' `createdAt`). Opened, it lists the
+  model's notes, each tool call with its status, duration, outcome summary and arguments, and the agent model; job
+  results stay visible below it either way. It shows only what the feed records: Gemini thought summaries are not
+  requested, so there is no hidden reasoning to show. While the run is
   live and the thread has not been re-read, its replies and the messages it read come from the feed.
+- **Follow.** The feed keeps its newest content in view while feeds and media arrive; only the reader scrolling up
+  stops that, and scrolling back near the bottom resumes it.
 - **Reconnect.** Opening a conversation reads `GET .../runs` (the 20 most recent). An active run resumes from the state
   saved in `sessionStorage` (`veevee.agentRun.<run id>`: the gapless events, cursor and queued rows, written after every
   poll in try/catch), so a reload polls from the last seq with nothing duplicated; a missing or damaged save reads from
@@ -212,8 +241,13 @@ draft and staged files and shows the API's message (`AGENTS_DISABLED`, `AGENT_GR
   ("in N minutes" within the hour, else the local time). A failed run shows its error message; a cancelled one says
   whether its jobs keep running or how many the stop cancelled. While a run is active the status line offers "Stop"
   (`cancelJobs: false`) and "Stop and cancel jobs" (`true`), then shows "Stopping…" after `cancel_requested` until
-  the run ends; `409 RUN_FINISHED` is not shown as an error.
-- **Tests.** `src/lib/agent-run.test.js` covers the reducer and helpers. `tests/browser/agents-runs.spec.mjs` drives
+  the run ends; `409 RUN_FINISHED` is not shown as an error. The status line says "Starting…" only until the feed
+  shows the run started (`run_started`, `resumed` or a `step_started`), even if the run JSON it was read with is older.
+- **Arguments.** jsonb stores object keys sorted by length, so the trace's argument rows and the quote card's list
+  follow the labels' order (`ARGUMENT_LABELS`), then other keys by name, whatever order they come back in.
+- **Tests.** `src/lib/agent-run.test.js` covers the reducer and helpers, `src/lib/agent-composer.test.js` the
+  composer context, and `tests/browser/agents-chat.spec.mjs` the mode tabs, each message's `composer`, the header, the
+  collapsed trace and the phone layout. `tests/browser/agents-runs.spec.mjs` drives
   the tab against Django with no agent worker: the composer starts a real run and the spec writes the worker's events
   and run status through `fixture-db.mjs` (feed rendering, delivered message, reload from the last seq, quote approve
   with the second confirmation and decline including a 409, the pause card, Stop and cancel jobs, a failed run, a succeeded job's media card read by id, and the activity of a completed run and an earlier failed run in order

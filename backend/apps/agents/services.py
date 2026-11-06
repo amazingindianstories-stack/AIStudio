@@ -7,7 +7,7 @@ from .models import AgentConversation, AgentConversationMessage
 
 def conversation_json(row):
     return {'id': str(row.id), 'projectId': str(row.project_id), 'name': row.name,
-        'agentKind': 'video' if row.agent_kind == 'video' else 'image',
+        'agentKind': row.agent_kind if row.agent_kind in ('image', 'video') else None,
         'createdBy': str(row.created_by) if row.created_by else None,
         'createdAt': row.created_at, 'updatedAt': row.updated_at}
 
@@ -18,13 +18,15 @@ def message_json(row):
         'role': 'assistant' if row.role == 'assistant' else 'user', 'content': row.content,
         'toolTrace': row.tool_trace if row.role == 'assistant' else None, 'createdAt': row.created_at,
         **({'attachments': user_trace['attachments']} if user_trace.get('attachments') else {}),
+        **({'composer': user_trace['composer']} if user_trace.get('composer') else {}),
         # A message a run read from its inbox: the thread shows it where the run read it (before step ``deliveredStep``).
         **({'runId': user_trace['runId'], 'deliveredStep': user_trace.get('deliveredStep')} if user_trace.get('runId') else {})}
 
 
 def list_conversations(project_id, kind, owner):
-    """``owner``'s conversations of ``kind`` in the project, newest first (``runs.owned_conversation``)."""
-    rows = AgentConversation.objects.filter(Q(user_id=owner) | Q(user_id__isnull=True, created_by=owner), project_id=project_id, agent_kind=kind)
+    """``owner``'s conversations in the project (of ``kind`` when given), newest first (``runs.owned_conversation``)."""
+    rows = AgentConversation.objects.filter(Q(user_id=owner) | Q(user_id__isnull=True, created_by=owner), project_id=project_id,
+                                            **({'agent_kind': kind} if kind else {}))
     return [conversation_json(row) for row in rows.order_by('-updated_at')]
 
 

@@ -109,7 +109,8 @@ function sorted(events) {
 
 /**
  * What StudioChat renders for the run:
- * - `timeline`: model text, tool steps, quotes and delivered messages in feed order;
+ * - `timeline`: model text, tool steps (with their arguments), quotes and delivered messages in feed order, each with
+ *   `at` (when it happened) and `since`/`until` (the items around it), so a trace can say how long the work took;
  * - `jobs`: every job the run queued, with its final status once it finished; `waitingOn` lists the ids it waits for;
  * - `quote`: the quote waiting for approval, or null; `paused`, `stopping` and `outcome` describe the run's state;
  * - `queued`: messages sent while the run was busy that it has not read yet;
@@ -123,6 +124,7 @@ export function runView(state) {
   const queuedSeq = {};
   let waitingOn = [];
   let paused = null;
+  let started = false;
   let stopping = null;
   let outcome = null;
   let finalText = null;
@@ -142,17 +144,20 @@ export function runView(state) {
       case "run_started":
       case "resumed":
         paused = null;
+        started = true;
         break;
       case "step_started":
         paused = null;
-        if (payload.kind === "tool") step(payload.stepIndex, { tool: payload.tool, seq });
+        started = true;
+        if (payload.kind === "tool") step(payload.stepIndex, { tool: payload.tool, seq, at: createdAt, ...(payload.arguments ? { arguments: payload.arguments } : {}) });
         break;
       case "assistant_text":
-        timeline.push({ type: "text", seq, stepIndex: payload.stepIndex, text: payload.text, final: Boolean(payload.final) });
+        timeline.push({ type: "text", seq, stepIndex: payload.stepIndex, text: payload.text, final: Boolean(payload.final), at: createdAt });
         if (payload.final) finalText = payload.text;
         break;
       case "tool_called":
-        step(payload.stepIndex, { tool: payload.tool, outcome: payload.outcome, summary: payload.summary || "", status: payload.ok ? "done" : "error" });
+        step(payload.stepIndex, { tool: payload.tool, outcome: payload.outcome, summary: payload.summary || "", status: payload.ok ? "done" : "error",
+          endedAt: createdAt });
         break;
       case "quote_required":
         step(payload.stepIndex, {
@@ -187,7 +192,7 @@ export function runView(state) {
         // The text is known only for a message this tab saw queued; the thread shows the saved copy otherwise.
         const row = state.inbox[payload.inboxId];
         timeline.push({ type: "message", seq, inboxId: payload.inboxId, stepIndex: payload.stepIndex, content: row?.content ?? null,
-          attachments: row?.attachments || [], createdAt });
+          attachments: row?.attachments || [], createdAt, at: createdAt });
         break;
       }
       case "paused":
@@ -228,6 +233,12 @@ export function runView(state) {
       : run.status === "cancelled" ? { status: "cancelled", cancelJobs: Boolean(run.cancelJobs), jobs: [] }
         : { status: "completed", steps: run.stepCount, costCents: run.costCents };
   }
+  // Each item's span in the run: from the item before it (the run's start for the first) to the next one (the run's end
+  // for the last), so a turn's trace can say how long its work took.
+  timeline.forEach((item, index) => {
+    item.since = index ? timeline[index - 1].at ?? null : run.startedAt ?? null;
+    item.until = timeline[index + 1]?.at ?? (isTerminalStatus(run.status) ? run.finishedAt ?? null : null);
+  });
   // A step the run never got back to (a quote left waiting, a call cut off) ended with the run.
   if (outcome) for (const item of Object.values(steps)) if (["quote", "running"].includes(item.status)) item.status = "stopped";
   if (!paused && run.status === "paused_limit") paused = { reason: run.pauseReason, resumeAfter: run.resumeAfter ?? null };
@@ -238,9 +249,10 @@ export function runView(state) {
   const quote = isActiveStatus(run.status) && !stopping
     ? [...timeline].reverse().find((item) => item.quote?.state === "pending")?.quote || null : null;
   return {
-    runId: run.id || null, status: run.status || null, active: isActiveStatus(run.status), settled: isSettled(state),
+    runId: run.id || null, status: run.status || null, model: run.model || null, active: isActiveStatus(run.status), settled: isSettled(state),
     costCents: run.costCents ?? 0, timeline, jobs: Object.values(jobs).sort((left, right) => (left.seq ?? 0) - (right.seq ?? 0)),
     waitingOn: run.status === "waiting_jobs" ? waitingOn : [], quote, paused, stopping, outcome, finalText, queued, startMessageId,
+    started: started || Boolean(run.startedAt),
   };
 }
 
@@ -302,6 +314,67 @@ export function threadEntries(messages, runs) {
     }
   });
   return [...thread, ...unplaced];
+}
+
+/**
+ * A panel segment's items as the thread shows them: each run of the model's working notes (text it sent before its
+ * reply) and tool steps folds into one trace, `{ type: 'trace', key, items }`, which the panel shows collapsed. Replies
+ * and messages stay in the thread as they are.
+ */
+export function traceGroups(items) {
+  const groups = [];
+  let trace = null;
+  for (const item of items) {
+    if (item.type === "tool" || (item.type === "text" && !item.final)) {
+      if (!trace) groups.push(trace = { type: "trace", key: `trace-${item.seq}`, items: [] });
+      trace.items.push(item);
+    } else {
+      trace = null;
+      groups.push(item);
+    }
+  }
+  return groups;
+}
+
+/** `ms` as "8s", "2m 5s" or "1h 3m". */
+export function durationText(ms) {
+  const seconds = Math.max(1, Math.round(ms / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return seconds % 60 ? `${minutes}m ${seconds % 60}s` : `${minutes}m`;
+  return minutes % 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${Math.floor(minutes / 60)}h`;
+}
+
+/** A trace's collapsed line: "Worked for 12s · 3 steps · 1 failed", or "Working · 2 steps" while it is the run's
+ *  current work (`live`). The time runs from before its first item to the reply or next message after its last. */
+export function traceSummary(trace, { live = false } = {}) {
+  const tools = trace.items.filter((item) => item.type === "tool");
+  const failed = tools.filter((item) => item.status === "error").length;
+  const since = trace.items[0]?.since;
+  const until = trace.items.at(-1)?.until;
+  const timed = !live && Number.isFinite(since) && Number.isFinite(until) && until >= since;
+  return [
+    live ? "Working" : timed ? `Worked for ${durationText(until - since)}` : "Worked",
+    tools.length ? `${tools.length} step${tools.length === 1 ? "" : "s"}` : null,
+    failed ? `${failed} failed` : null,
+  ].filter(Boolean).join(" · ");
+}
+
+/** A tool step's arguments for its trace row: the prompt on its own, the rest as labelled values (lists joined, objects
+ *  as compact JSON), without call plumbing. */
+export function traceArguments(args) {
+  const rows = [];
+  let prompt = null;
+  for (const [key, value] of Object.entries(args || {})) {
+    if (value === null || value === undefined || value === "") continue;
+    if (key === "prompt" && typeof value === "string") prompt = value;
+    else if (!HIDDEN_ARGUMENTS.has(key)) {
+      const shown = Array.isArray(value) ? value.map((entry) => (entry && typeof entry === "object" ? JSON.stringify(entry) : String(entry))).join(", ")
+        : value && typeof value === "object" ? JSON.stringify(value) : argumentValue(key, value);
+      rows.push({ key, label: ARGUMENT_LABELS[key] || sentenceCase(key), value: shown });
+    }
+  }
+  return { prompt, rows: rows.sort(byArgumentOrder) };
 }
 
 /** Whether approving `costCents` needs the card's second confirmation before the approve request is sent. */
@@ -382,7 +455,8 @@ export function statusLine(view) {
     const count = view.waitingOn?.length || 0;
     return { label: `Waiting for ${count || "its"} job${count === 1 ? "" : "s"} to finish`, icon: "spin" };
   }
-  return { label: view.status === "queued" ? "Starting…" : "Working…", icon: "spin" };
+  // The run JSON can still say 'queued' after its events show it started; the events win.
+  return { label: view.status === "queued" && !view.started ? "Starting…" : "Working…", icon: "spin" };
 }
 
 /** The note under a message queued into the active run: a stopping run never reads it, so it joins the chat once the run stops. */
@@ -424,9 +498,9 @@ export function stepStatusText(step) {
 const ARGUMENT_LABELS = {
   model: "Model",
   aspectRatio: "Aspect ratio",
-  resolution: "Resolution",
   duration: "Duration",
   durationSeconds: "Duration",
+  resolution: "Resolution",
   count: "Count",
   outputs: "Count",
   seed: "Seed",
@@ -436,6 +510,13 @@ const ARGUMENT_LABELS = {
   bitrateMode: "Bitrate",
   quality: "Quality",
 };
+const ARGUMENT_ORDER = Object.keys(ARGUMENT_LABELS);
+// Stored arguments come back from jsonb with their keys sorted by length, so rows follow the labels' order (known keys
+// first), then the rest by name.
+function byArgumentOrder(a, b) {
+  const rank = (key) => (ARGUMENT_ORDER.includes(key) ? ARGUMENT_ORDER.indexOf(key) : ARGUMENT_ORDER.length);
+  return rank(a.key) - rank(b.key) || (rank(a.key) === ARGUMENT_ORDER.length ? a.key.localeCompare(b.key) : 0);
+}
 // Call plumbing the model may pass that says nothing about what the artist pays for.
 const HIDDEN_ARGUMENTS = new Set(["prompt", "wait", "maxWaitSeconds", "includePreview", "quoteToken", "idempotencyKey", "confirmedByUser"]);
 
@@ -449,7 +530,8 @@ function argumentValue(key, value) {
 export function quoteDetails(args) {
   return Object.entries(args || {})
     .filter(([key, value]) => !HIDDEN_ARGUMENTS.has(key) && value !== null && value !== undefined && typeof value !== "object")
-    .map(([key, value]) => ({ key, label: ARGUMENT_LABELS[key] || sentenceCase(key), value: argumentValue(key, value) }));
+    .map(([key, value]) => ({ key, label: ARGUMENT_LABELS[key] || sentenceCase(key), value: argumentValue(key, value) }))
+    .sort(byArgumentOrder);
 }
 
 const ACTION_ERRORS = {

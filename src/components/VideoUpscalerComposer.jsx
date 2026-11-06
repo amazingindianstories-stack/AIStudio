@@ -4,89 +4,22 @@ import { useMaintenance } from "@/lib/maintenance-client";
 
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { AlertCircle, Check, ChevronDown, Clapperboard, Info, Loader2, RotateCcw, Sparkles, UploadCloud, X } from "lucide-react";
+import { AlertCircle, Loader2, RotateCcw, Sparkles, UploadCloud, X } from "lucide-react";
 import { notify } from "@/lib/notify";
 import { useStore, findItem } from "@/lib/store";
-import {
-  MAGNIFIC_TOPAZ_INTERPOLATIONS,
-  MAGNIFIC_TOPAZ_MODELS,
-  MAGNIFIC_VIDEO_DEFAULTS,
-  MAGNIFIC_VIDEO_FLAVORS,
-  MAGNIFIC_VIDEO_MAX_SECONDS,
-  MAGNIFIC_VIDEO_OUTPUT_FORMATS,
-  MAGNIFIC_VIDEO_RESOLUTIONS,
-} from "@/lib/magnific-ui";
+import { MAGNIFIC_VIDEO_DEFAULTS, MAGNIFIC_VIDEO_MAX_SECONDS } from "@/lib/magnific-ui";
 import { isModelAvailable } from "@/lib/model-registry";
 import { cn } from "@/lib/utils";
 import { formatCost } from "@/lib/format-cost";
 import { uploadContentType, uploadFileDirect } from "@/lib/client-reference-upload";
 import { getAssetDragData, validateUpscalerDrop } from "@/lib/asset-drag-contract";
-import { Dropdown, MenuItem } from "./Dropdown";
+import { UpscaleToggle, VIDEO_UPSCALE_MODELS, VideoUpscaleSettings, resetVideoUpscale } from "./UpscaleSettings";
 import { UpscaleMediaToggle } from "./UpscaleMediaToggle";
 
 const VIDEO_TYPES = ["video/mp4", "video/quicktime", "video/x-m4v", "video/webm"];
 const MAX_BYTES = 2 * 1024 * 1024 * 1024;
-const RESOLUTION_LABELS = { "720p": "720p", "1k": "1K", "2k": "2K", "4k": "4K" };
 
-const MODELS = [
-  { id: "Magnific Video Creative", label: "Creative", badge: "AI Detail", desc: "Creative video upscaling with creativity, sharpen and grain controls (720p–4K)" },
-  { id: "Magnific Video Creative Turbo", label: "Turbo", badge: "Faster", desc: "Creative upscaling on the faster Turbo endpoint, premium quality applied automatically" },
-  { id: "Magnific Video Precision", label: "Precision", badge: "Faithful", desc: "Faithful upscaling; strength blends the original with the upscaled result" },
-  { id: "Magnific Video Topaz", label: "Topaz", badge: "Starlight", desc: "Topaz Starlight enhancement with optional AI frame interpolation" },
-];
-
-function Slider({ label, value, min = 0, max = 100, step = 1, onChange, hint }) {
-  return (
-    <div>
-      <div className="mb-1 flex items-center justify-between text-[11px]">
-        <span className="text-white/70">{label}</span>
-        <span className="rounded bg-white/10 px-1.5 py-0.2 text-[10px] font-mono text-brand">{value}</span>
-      </div>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        aria-label={label}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-ink-700 accent-brand"
-      />
-      <div className="flex justify-between text-[9px] text-white/30">
-        <span>{min}</span>
-        {hint ? <span>{hint}</span> : null}
-        <span>{max}</span>
-      </div>
-    </div>
-  );
-}
-
-function Choice({ label, options, value, onChange }) {
-  const current = options.find((option) => option.id === value) || options[0];
-  return (
-    <div>
-      <label className="mb-1 block text-[11px] font-medium text-white/60">{label}</label>
-      <Dropdown
-        label={current.label}
-        trigger={(open) => (
-          <div className="flex h-9 w-full items-center justify-between rounded-xl border border-line bg-ink-900/70 px-3 text-xs text-white hover:bg-ink-900">
-            <span className="truncate">{current.label}</span>
-            <ChevronDown className={cn("h-3.5 w-3.5 text-white/50 transition-transform", open && "rotate-180")} />
-          </div>
-        )}
-      >
-        {(close) =>
-          options.map((option) => (
-            <MenuItem key={option.id} active={value === option.id} onClick={() => { onChange(option.id); close(); }}>
-              <span className="flex-1 text-xs">{option.label}</span>
-              {value === option.id && <Check className="h-3.5 w-3.5 text-brand" />}
-            </MenuItem>
-          ))
-        }
-      </Dropdown>
-    </div>
-  );
-}
+const MODELS = VIDEO_UPSCALE_MODELS;
 
 function formatSeconds(seconds) {
   if (!Number.isFinite(seconds)) return "";
@@ -103,8 +36,6 @@ export function VideoUpscalerComposer() {
   const generating = s.generating;
   const model = params.model || MAGNIFIC_VIDEO_DEFAULTS.model;
   const models = MODELS.filter((m) => isModelAvailable(m.id, s.availableModelIds));
-  const topaz = model === "Magnific Video Topaz";
-  const precision = model === "Magnific Video Precision";
 
   const [dragging, setDragging] = useState(false);
   const [dragValid, setDragValid] = useState(true);
@@ -208,11 +139,7 @@ export function VideoUpscalerComposer() {
     if (file) handleSelectFile(file);
   };
 
-  const resetParams = () => {
-    for (const [key, value] of Object.entries(MAGNIFIC_VIDEO_DEFAULTS)) {
-      if (key !== "model") setParam(key, value);
-    }
-  };
+  const resetParams = () => resetVideoUpscale(setParam);
 
   const submit = async () => {
     setError("");
@@ -381,78 +308,7 @@ export function VideoUpscalerComposer() {
       </div>
 
       <div className="space-y-4">
-        <div className={cn("grid grid-cols-1 gap-2.5", topaz ? "sm:grid-cols-2" : "sm:grid-cols-3")}>
-          <div>
-            <label className="mb-1 block text-[11px] font-medium text-white/60">Output Resolution</label>
-            <div className="grid grid-cols-4 gap-1 rounded-xl bg-ink-900/70 p-1 ring-1 ring-line">
-              {MAGNIFIC_VIDEO_RESOLUTIONS.map((resolution) => (
-                <button
-                  key={resolution}
-                  type="button"
-                  onClick={() => setParam("resolution", resolution)}
-                  className={cn("rounded-lg py-1 text-xs font-semibold transition",
-                    params.resolution === resolution ? "bg-brand text-ink-950 shadow-sm" : "text-white/60 hover:text-white")}
-                >
-                  {RESOLUTION_LABELS[resolution]}
-                </button>
-              ))}
-            </div>
-          </div>
-          {topaz ? (
-            <Choice label="Enhancement Model" options={MAGNIFIC_TOPAZ_MODELS} value={params.enhancementModel} onChange={(value) => setParam("enhancementModel", value)} />
-          ) : (
-            <>
-              {!precision && <Choice label="Flavor" options={MAGNIFIC_VIDEO_FLAVORS} value={params.flavor} onChange={(value) => setParam("flavor", value)} />}
-              <Choice label="Output Format" options={MAGNIFIC_VIDEO_OUTPUT_FORMATS} value={params.outputFormat} onChange={(value) => setParam("outputFormat", value)} />
-            </>
-          )}
-        </div>
-
-        <div className="rounded-xl border border-line bg-ink-900/40 p-3">
-          {topaz ? (
-            <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-4">
-              <div>
-                <label className="mb-1 block text-[11px] font-medium text-white/60">Frame Rate</label>
-                <div className="grid grid-cols-2 gap-1 rounded-xl bg-ink-900/70 p-1 ring-1 ring-line">
-                  <button type="button" onClick={() => setParam("targetFps", null)}
-                    className={cn("rounded-lg py-1 text-xs font-semibold transition", !params.targetFps ? "bg-brand text-ink-950 shadow-sm" : "text-white/60 hover:text-white")}>
-                    Source
-                  </button>
-                  <button type="button" onClick={() => setParam("targetFps", params.targetFps || 30)}
-                    className={cn("rounded-lg py-1 text-xs font-semibold transition", params.targetFps ? "bg-brand text-ink-950 shadow-sm" : "text-white/60 hover:text-white")}>
-                    Target
-                  </button>
-                </div>
-              </div>
-              {params.targetFps ? (
-                <>
-                  <Slider label="Target FPS" value={params.targetFps} min={15} max={60} onChange={(value) => setParam("targetFps", value)} />
-                  <Choice label="Frame Interpolation" options={MAGNIFIC_TOPAZ_INTERPOLATIONS} value={params.frameInterpolation} onChange={(value) => setParam("frameInterpolation", value)} />
-                </>
-              ) : (
-                <p className="self-center text-[11px] text-white/40 sm:col-span-2">Keeps the source frame rate. Choose a target to interpolate (15–60 fps).</p>
-              )}
-              <Slider label="Noise" value={params.noise ?? 0} min={0} max={1} step={0.05} onChange={(value) => setParam("noise", value)} />
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
-              {precision
-                ? <Slider label="Strength" value={params.strength ?? 60} onChange={(value) => setParam("strength", value)} hint={params.fpsBoost ? "ignored with FPS boost" : undefined} />
-                : <Slider label="Creativity" value={params.creativity ?? 0} onChange={(value) => setParam("creativity", value)} />}
-              <Slider label="Sharpen" value={params.sharpen ?? 0} onChange={(value) => setParam("sharpen", value)} />
-              <Slider label="Smart Grain" value={params.smartGrain ?? 0} onChange={(value) => setParam("smartGrain", value)} />
-            </div>
-          )}
-        </div>
-
-        {!topaz && params.outputFormat === "prores_422_hq" && (
-          <div className="flex items-start gap-2.5 rounded-xl border border-blue-500/20 bg-blue-950/30 p-3 text-xs text-blue-200/90">
-            <Info className="mt-0.5 h-4 w-4 shrink-0 text-blue-400" />
-            <p className="text-[11px] leading-relaxed text-blue-200/70">
-              ProRes 422 HQ keeps the .mov master. Masters are large; very long 4K clips can exceed the download window.
-            </p>
-          </div>
-        )}
+        <VideoUpscaleSettings model={model} params={params} setParam={setParam} />
 
         {error && <p role="alert" className="text-xs text-red-300">{error}</p>}
         {lastResult && (
@@ -473,19 +329,7 @@ export function VideoUpscalerComposer() {
         )}
 
         <div className="sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 border-t border-line bg-ink-800 py-3">
-          {topaz ? (
-            <span className="flex items-center gap-2 text-xs text-white/40"><Clapperboard className="h-3.5 w-3.5" />Billed per output frame</span>
-          ) : (
-            <label className="flex cursor-pointer items-center gap-2 text-xs text-white/60 hover:text-white transition">
-              <input
-                type="checkbox"
-                checked={Boolean(params.fpsBoost)}
-                onChange={(e) => setParam("fpsBoost", e.target.checked)}
-                className="h-4 w-4 rounded border-line bg-ink-900 text-brand focus:ring-brand"
-              />
-              <span>FPS boost (smoother motion, more frames billed)</span>
-            </label>
-          )}
+          <UpscaleToggle media="video" model={model} params={params} setParam={setParam} />
           <button
             type="button"
             onClick={submit}
