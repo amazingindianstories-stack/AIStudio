@@ -182,8 +182,9 @@ export function StudioChat({ conversationId, onConversationUpdate }) {
     scrollTopRef.current = 0;
   }, [conversationId]);
 
+  // Each feed poll is a new run state, so follow only while the reader is at the newest content.
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
+    if (stickRef.current) scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [messages, sending, agentRun.state]);
 
   // Run feeds and job media arrive after the thread renders, so keep the
@@ -261,6 +262,8 @@ export function StudioChat({ conversationId, onConversationUpdate }) {
     const requestId = requestIdRef.current;
     const moved = () => requestIdRef.current !== requestId;
     setError(null);
+    // Sending returns the reader to the newest content, which the feed follows again.
+    stickRef.current = true;
     setSending(true);
     collapseOnSend();
     let shown = false;

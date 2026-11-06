@@ -555,3 +555,54 @@ test('Agents runs: a run replaced before its feed was read keeps its activity, a
   await expect(feed.getByText('Paint the lighthouse at dawn.', { exact: true })).toHaveCount(0);
   await expect(feed.getByTestId('agent-run')).toHaveCount(0);
 });
+
+test('Agents runs: reading back up the chat holds the view while the run polls and grows; the bottom and a send follow again', async ({ page, context, baseURL }) => {
+  test.setTimeout(120000);
+  await openAgents(page, context, baseURL, 'Agents run scroll');
+  const { run } = await send(page, 'Make a misty pine forest.', 201);
+  const fixture = worker(run.id);
+  // An older conversation, so the history is much taller than the feed.
+  await fixture.write(Array.from({ length: 30 }, (_, index) => fixture.db.statement`
+    INSERT INTO agent_conversation_messages (conversation_id, role, content, created_at)
+    VALUES (${run.conversationId}, ${index % 2 ? 'assistant' : 'user'}, ${`Older message ${index + 1}. ${'A line of earlier talk. '.repeat(12)}`}, ${1000 + index})`));
+  await fixture.write([
+    fixture.emit('run_started'),
+    fixture.emit('step_started', { stepIndex: 0, kind: 'llm' }),
+    fixture.emit('assistant_text', { stepIndex: 0, text: 'Planning the forest.', final: false }),
+    fixture.status('running', { steps: 1 }),
+  ]);
+  await page.setViewportSize({ width: 1280, height: 560 });
+  await page.reload();
+  await expect(page.getByRole('button', { name: /Desktop fixture/ })).toBeVisible();
+  await agentsTab(page);
+  const feed = page.getByTestId('studio-chat-feed');
+  const panel = feed.getByTestId('agent-run');
+  const fromBottom = () => feed.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight);
+  await expandTraces(panel);
+  await expect(panel.getByText('Planning the forest.', { exact: true })).toBeVisible();
+  await expect.poll(fromBottom).toBeLessThan(2);
+
+  // The artist scrolls up to read; polls (every 1.5 s while the run works) and new activity leave the view there.
+  await feed.hover();
+  await page.mouse.wheel(0, -900);
+  await expect.poll(fromBottom).toBeGreaterThan(600);
+  const reading = await feed.evaluate((el) => el.scrollTop);
+  await fixture.write([fixture.emit('assistant_text', { stepIndex: 0, text: 'Drafting the first frame now.', final: false })]);
+  await expect(panel.getByText('Drafting the first frame now.', { exact: true })).toHaveCount(1);
+  await page.waitForTimeout(4000);
+  expect(await feed.evaluate((el) => el.scrollTop)).toBe(reading);
+
+  // Back at the bottom the feed follows what arrives.
+  await page.mouse.wheel(0, 5000);
+  await expect.poll(fromBottom).toBeLessThan(2);
+  await fixture.write([fixture.emit('assistant_text', { stepIndex: 0, text: `Adding fog. ${'Soft light through the pines. '.repeat(20)}`, final: false })]);
+  await expect(panel.getByText(/^Adding fog\./)).toBeInViewport();
+  await expect.poll(fromBottom).toBeLessThan(2);
+
+  // Sending from further up returns to the newest content.
+  await page.mouse.wheel(0, -900);
+  await expect.poll(fromBottom).toBeGreaterThan(600);
+  await send(page, 'Make it colder.', 202);
+  await expect.poll(fromBottom).toBeLessThan(2);
+  await expect(page.getByTestId('agent-queued-message')).toBeInViewport();
+});
