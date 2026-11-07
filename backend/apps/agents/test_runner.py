@@ -527,6 +527,38 @@ class CancelTests(RunnerCase):
         self.assertEqual(runs.feed(run, after=0, limit=100)['pendingMessages'], [])
         self.assertEqual(AgentRun.objects.filter(conversation_id=self.conversation.id).count(), 1, 'no new run starts for the message')
 
+    def test_a_stop_accepted_after_the_worker_read_the_run_is_honored_before_the_first_model_call(self):
+        run = self.start_run()
+        bodies = self.gemini([text('Done.')])
+        real = runner.start
+
+        def stopped_first(current, now):
+            # The artist's stop commits after advance() read the run and before the step starts.
+            runs.request_cancel(run.id, cancel_jobs=False, now=now)
+            return real(current, now)
+        with patch.object(runner, 'start', stopped_first):
+            self.assertEqual(self.advance(run), 'cancelled')
+        run = self.refresh(run)
+        self.assertEqual((run.status, run.started_at, run.step_count), ('cancelled', None, 0))
+        self.assertEqual(self.kinds(run), ['cancel_requested', 'cancelled'])
+        self.assertEqual(bodies, [], 'no model call is sent')
+        self.assertFalse(AgentLlmUsage.objects.filter(run_id=run.id).exists())
+
+    def test_a_stop_accepted_while_the_step_is_prepared_is_honored_before_the_model_call(self):
+        run = self.start_run()
+        bodies = self.gemini([text('Done.')])
+        real = runner.loop_body
+
+        def stopped_while_building(*args):
+            runs.request_cancel(run.id, cancel_jobs=False, now=30)
+            return real(*args)
+        with patch.object(runner, 'loop_body', stopped_while_building):
+            self.assertEqual(self.advance(run), 'cancelled')
+        self.assertEqual(self.refresh(run).status, 'cancelled')
+        self.assertEqual(self.kinds(run), ['run_started', 'step_started', 'cancel_requested', 'cancelled'])
+        self.assertEqual(bodies, [], 'no model call is sent')
+        self.assertFalse(AgentLlmUsage.objects.filter(run_id=run.id).exists())
+
     def test_a_job_with_no_provider_task_is_cancelled_by_the_shared_service(self):
         run = self.waiting_run()
         AgentRun.objects.filter(pk=run.id).update(cancel_requested_at=99, cancel_jobs=True)
@@ -989,6 +1021,21 @@ class DesignPromptTests(RunnerCase):
         self.assertTrue(generation['name'])
         self.assertEqual(submitted, {'stepIndex': 3, 'tool': 'generate_image', 'outcome': 'running', 'ok': True,
                                      'summary': f"Queued {generation['name']}."})
+
+    def test_a_stop_accepted_before_the_design_sub_call_is_honored_before_it_is_sent(self):
+        idea = {'idea': 'a red fox in fresh snow at dawn', 'kind': 'image', 'mode': 'text'}
+        bodies = self.gemini([call('design_prompt', idea, 'd1')], [text('A red fox.')])
+        run = self.start_run()
+        real = runner.design_brief
+
+        def stopped_while_briefing(arguments):
+            runs.request_cancel(run.id, cancel_jobs=False, now=30)
+            return real(arguments)
+        with patch.object(runner, 'design_brief', stopped_while_briefing):
+            self.assertEqual(self.advance(run), 'cancelled')
+        self.assertEqual(self.refresh(run).status, 'cancelled')
+        self.assertEqual(len(bodies), 1, 'only the step that asked for the design was sent')
+        self.assertEqual(list(AgentLlmUsage.objects.filter(run_id=run.id).values_list('purpose', flat=True)), ['step'])
 
     def test_reference_and_edit_modes_brief_the_model_with_ordered_citations_and_its_limits(self):
         notes = ['the fox character, keep its face', 'the snowy pine forest', 'the warm dawn palette']
