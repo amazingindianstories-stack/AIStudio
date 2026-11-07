@@ -158,7 +158,9 @@ queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed
   than refused, so a job it submitted is never lost; a replay adds no step to the step limit, and every other limit
   still applies to it.
 - **Cancel.** A stop request sets `cancel_requested_at`; the run ends `cancelled` at its next step boundary, and jobs
-  already queued finish normally. "Stop and cancel jobs" (`cancel_jobs`) also cancels every active linked job through
+  already queued finish normally. The flag is also re-read under the row lock when a queued run starts and again right
+  before each paid model call (the step and the `design_prompt` sub-call), so a stop accepted after the worker read the
+  run is honoured before any model spend. "Stop and cancel jobs" (`cancel_jobs`) also cancels every active linked job through
   `generation/services/cancellation.cancel_generation` (deferred, so the generation worker sends any provider cancel).
   Deleting a conversation deletes its runs with it (the database cascade), so a run still active stops counting and is
   not advanced again; jobs it already queued finish into the library. A step in flight at the delete ends quietly in the
