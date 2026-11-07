@@ -176,8 +176,8 @@ which fails in seconds ("Railpack could not determine how to build the app", dep
 with no deployment logs): green-django-mcp on 2026-11-02 and green-django-agent on 2026-11-06.
 Confirm `meta.serviceManifest.build.builder` is `DOCKERFILE` in the new deployment. Railway
 health checks target `$PORT` (injected as 8080), not the domain's target port, so the API needed
-`PORT=18081` (old launcher ignores it). The previous API deployment never had a health check at all. Always confirm the applied start command in the new
-deployment's `meta.serviceManifest`.
+`PORT=18081` (old launcher ignores it). The previous API deployment never had a health check at all.
+Always confirm the applied start command in the new deployment's `meta.serviceManifest`.
 
 ## Order (one service at a time; verify before the next)
 1. **API** (health check `/__g4_readiness`, overlap 20 s, drain 30 s). A failed start or
