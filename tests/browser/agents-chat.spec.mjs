@@ -134,6 +134,7 @@ test('Agents chat: one thread works in Image, Video and Upscale, each tab with i
   await page.getByRole('menuitem', { name: 'Sparkle' }).click();
   await expect(panel).toBeVisible();
   await expect(panel.getByRole('button', { name: 'Sparkle', exact: true })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'Sparkle' })).toHaveCount(0);
   await page.keyboard.press('Escape');
   await expect(panel).toHaveCount(0);
   const upscale = await send(page, 'Upscale it, keep the grain.', 202);
