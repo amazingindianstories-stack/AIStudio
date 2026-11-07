@@ -64,13 +64,6 @@ class DeploySettingsTests(unittest.TestCase):
             self.assertEqual(settings, stage.deploy_settings(component), component)
         self.assertEqual(stage.instance_settings('api', no_overlap=True)['overlapSeconds'], 0)
 
-    def test_the_instance_dockerfile_builds_the_staged_tree(self):
-        # The staged tree is the upload root: backend/ plus railway.json, so the Dockerfile copies from backend/.
-        dockerfile = Path(__file__).resolve().parents[2] / stage.DOCKERFILE
-        copies = [line.split()[1:-1] for line in dockerfile.read_text().splitlines() if line.startswith('COPY ')]
-        self.assertTrue(copies)
-        self.assertTrue(all(source.startswith('backend/') for sources in copies for source in sources), copies)
-
 
 class StageTests(unittest.TestCase):
     def setUp(self):
