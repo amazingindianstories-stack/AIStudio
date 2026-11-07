@@ -68,6 +68,7 @@ SUBMIT_TOOLS = frozenset(('generate_image', 'generate_video', 'upscale_media', '
 ACTIVE_JOBS = cancellation.ACTIVE
 PROTOCOL = 'agent-run'
 STARTABLE = ('queued', 'waiting_jobs', 'paused_limit')
+CANCELLING = object()
 
 
 @dataclass(frozen=True)
@@ -136,6 +137,11 @@ def requeue(run_id, *, now=None):
     now = now_ms() if now is None else now
     AgentRun.objects.filter(pk=run_id, status='running').update(status='queued', updated_at=now)
     return 'stopped'
+
+
+def cancel_requested(run_id):
+    """Whether a stop was requested since the run was read; checked again right before each paid model call."""
+    return AgentRun.objects.filter(pk=run_id, cancel_requested_at__isnull=False).exists()
 
 
 def cancel(run, *, now=None, cancel_job=None):
@@ -464,6 +470,8 @@ def llm_step(run, principal, action, stop, *, now=now_ms):
     key = os.environ.get('GOOGLE_API_KEY')
     if not key:
         return fail(run.id, 'llm_unconfigured', 'The Agents tab is not configured on this server.')
+    if cancel_requested(run.id):
+        return None
     payload, retryable = ask(run, step, key, body)
     if payload is None:
         if retry(step, retryable, stop):
@@ -529,6 +537,8 @@ def design_step(run, step, stop, *, now=now_ms):
     key = os.environ.get('GOOGLE_API_KEY')
     if not key:
         return fail(run.id, 'llm_unconfigured', 'The Agents tab is not configured on this server.')
+    if cancel_requested(run.id):
+        return None
     payload, retryable = ask(run, step, key, design_body(brief), purpose=DESIGN_TOOL)
     prompt = read_prompt(payload) if payload is not None else ''
     if prompt:
@@ -724,9 +734,12 @@ def refuse_over_bound(run, action, refused, *, now=now_ms):
 
 
 def start(run, now):
-    """Move a startable run to ``running``; the first time also stamps ``started_at``."""
+    """Move a startable run to ``running``; the first time also stamps ``started_at``. ``CANCELLING`` when a stop was
+    requested after the run was read, so the caller cancels it instead of starting the step."""
     with transaction.atomic():
         locked = _locked(run.id)
+        if locked.cancel_requested_at is not None:
+            return CANCELLING
         if locked.status == 'running':
             return locked
         if locked.status not in STARTABLE:
@@ -788,9 +801,12 @@ def advance(run_id, *, lease, stop, now=now_ms):
             return limit_stop(run, hit, now=now())
         if active_ms(run) >= MAX_ACTIVE_MS:
             return pause(run.id, 'time_limit', None, now=now())
-        run = start(run, now())
-        if run is None:
+        started = start(run, now())
+        if started is None:
             return 'finished'
+        if started is CANCELLING:
+            continue
+        run = started
         if action.kind == 'llm':
             outcome = llm_step(run, principal, action, stop, now=now)
         elif refused is not None:
