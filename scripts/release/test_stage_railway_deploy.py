@@ -55,6 +55,15 @@ class DeploySettingsTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             stage.deploy_settings('web')
 
+    def test_every_service_instance_builds_from_the_dockerfile(self):
+        # Railway builds with the instance's settings: without dockerfilePath a new service is built by Railpack,
+        # which cannot build the staged tree (green-django-agent, 2026-11-06).
+        for component in stage.SERVICES:
+            settings = stage.instance_settings(component)
+            self.assertEqual(settings.pop('dockerfilePath'), 'backend/Dockerfile', component)
+            self.assertEqual(settings, stage.deploy_settings(component), component)
+        self.assertEqual(stage.instance_settings('api', no_overlap=True)['overlapSeconds'], 0)
+
 
 class StageTests(unittest.TestCase):
     def setUp(self):
@@ -76,10 +85,12 @@ class StageTests(unittest.TestCase):
         previous = Path.cwd()
         os.chdir(self.repo)
         try:
-            with unittest.mock.patch.dict(os.environ, {'VEEVEE_GATE_DIR': str(self.gates)}), contextlib.redirect_stdout(io.StringIO()):
+            output = io.StringIO()
+            with unittest.mock.patch.dict(os.environ, {'VEEVEE_GATE_DIR': str(self.gates)}), contextlib.redirect_stdout(output):
                 stage.main(self.commit, component, str(self.tmp / out), **kwargs)
         finally:
             os.chdir(previous)
+        self.printed = json.loads(output.getvalue())
         return json.loads((self.tmp / out / 'railway.json').read_text())
 
     def pass_gates(self):
@@ -103,6 +114,7 @@ class StageTests(unittest.TestCase):
         self.assertTrue((self.tmp / 'out' / 'backend' / 'app.py').exists())
         self.assertFalse((self.tmp / 'out' / 'backend' / 'railway.toml').exists())
         self.assertEqual((self.tmp / 'out' / 'STAGED_COMMIT').read_text().strip(), self.commit)
+        self.assertEqual(self.printed['serviceInstance'], {'dockerfilePath': 'backend/Dockerfile', **config['deploy']})
 
     def test_stages_mcp_and_the_no_overlap_variant(self):
         self.pass_gates()
@@ -110,6 +122,7 @@ class StageTests(unittest.TestCase):
         self.assertEqual((default['deploy']['healthcheckPath'], default['deploy']['overlapSeconds']), ('/__g4_readiness', 20))
         pause = self.stage('mcp', out='out2', no_overlap=True)
         self.assertEqual((pause['deploy']['healthcheckPath'], pause['deploy']['overlapSeconds']), ('/__g4_readiness', 0))
+        self.assertEqual(self.printed['serviceInstance']['overlapSeconds'], 0)
 
 
 if __name__ == '__main__':

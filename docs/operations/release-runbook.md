@@ -153,11 +153,15 @@ switch is a write barrier; re-establish a verified quiet window before proceedin
 ## Staging an upload
 ```
 python3 scripts/release/stage_railway_deploy.py [--no-overlap] <commit> <component> <empty-dir>
+# serviceInstanceUpdate(environmentId, serviceId, input: <the printed serviceInstance object>)
 railway up <dir> --path-as-root -p <project> -e <environment> -s <service-id> -c
 ```
 The staged directory holds only `backend/` from `git archive` and a generated `railway.json`
 (Dockerfile `backend/Dockerfile`, start command, health/overlap). Any `railway.toml` an older
-commit carries is dropped, so the generated file is the only service configuration.
+commit carries is dropped, so the generated file is the only service configuration file. Railway
+builds and deploys with the service instance's settings, not the file's, so apply the printed
+`serviceInstance` object (the same settings plus `dockerfilePath`) to the instance immediately
+before `railway up`, on every service including a new one.
 `<component>` is `api`, `mcp`, `generation`, `export`, `scheduler` or `agent`. `api` and `mcp` get the readiness
 health check and a 20 s overlap; `generation` and `agent` overlap 0; `agent` serves no HTTP, so it has no health
 check, port or domain. `--no-overlap` (`api` and `mcp` only) stages `overlapSeconds` 0 for the no-overlap pause
@@ -167,10 +171,13 @@ below; without it nothing changes.
 command (deployment meta had no file manifest), so the new image first ran the old launcher and
 failed its health check harmlessly. The start command must be set on the service instance
 (`serviceInstanceUpdate … startCommand`) immediately before `railway up`; running deployments keep
-their own snapshot. Railway health checks target `$PORT` (injected as 8080), not the domain's
-target port, so the API needed `PORT=18081` (old launcher ignores it). The previous API
-deployment never had a health check at all. Always confirm the applied start command in the new
-deployment's `meta.serviceManifest`.
+their own snapshot. **A new service** has no `dockerfilePath`, so Railway builds it with Railpack,
+which fails in seconds ("Railpack could not determine how to build the app", deployment FAILED
+with no deployment logs): green-django-mcp on 2026-11-02 and green-django-agent on 2026-11-06.
+Confirm `meta.serviceManifest.build.builder` is `DOCKERFILE` in the new deployment. Railway
+health checks target `$PORT` (injected as 8080), not the domain's target port, so the API needed
+`PORT=18081` (old launcher ignores it). The previous API deployment never had a health check at all.
+Always confirm the applied start command in the new deployment's `meta.serviceManifest`.
 
 ## Order (one service at a time; verify before the next)
 1. **API** (health check `/__g4_readiness`, overlap 20 s, drain 30 s). A failed start or
@@ -188,7 +195,7 @@ deployment's `meta.serviceManifest`.
    logs, draining over); only then apply `canvas.0019_format_payloads` (never before the pause: an
    old-image edit saved after it lands next to a stale reference, and the new release serves the
    stale payload row and drops the edit on its next save); then `railway up` the API with
-   `overlapSeconds` 0 in the staged `railway.json` (`stage_railway_deploy.py --no-overlap`), and deploy MCP
+   `overlapSeconds` 0 on its instance and in the staged `railway.json` (`stage_railway_deploy.py --no-overlap`), and deploy MCP
    from the same commit the same way before it serves again. The API and agent tools are unavailable for that pause. Promote the frontend that reads payloads
    lazily only after the new API serves: against the old API it would save format objects without
    their payloads. Later releases use the overlap above.
@@ -197,7 +204,7 @@ deployment's `meta.serviceManifest`.
 3. **Export worker**, then **scheduler**: verify startup, then an export ZIP (filenames, MOV
    bytes) and the scheduler lease.
    **Agent worker** (new service, `agent`, overlap 0, no health check or domain; stage it with
-   `stage_railway_deploy.py <commit> agent`): after the scheduler, so a stale run is re-queued. Verify the startup
+   `stage_railway_deploy.py <commit> agent` and apply its `serviceInstance` settings): after the scheduler, so a stale run is re-queued. Verify the startup
    log reaches the worker loop and a run started by an admin account reaches `completed`.
 4. Watch the rollback thresholds in `status.md` for a full reconciliation window.
 
