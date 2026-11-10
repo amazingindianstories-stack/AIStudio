@@ -14,6 +14,62 @@ preview build first. Production only receives a release after it has passed ther
 
 Legend: PASS · FAIL · NOT VERIFIED · PENDING (not started) · BLOCKED (needs owner approval)
 
+## Production incident 2026-11-09 - database TLS certificate renewal
+
+At 03:59:07 UTC the Green Postgres server certificate expired. The database stayed running and its
+volume remained mounted, but clients using the pinned CA and `sslmode=verify-full` rejected new
+connections. Public `/api/health` returned 503 with Django ready and database unavailable, so existing
+projects appeared missing. Read-only checks found the data intact: 21 users, 22 projects, 66 folders,
+9,134 generations, 106 assets and 28 boards. This was not a database-image replacement or detached
+volume: Postgres still used its October 10 deployment and pinned image.
+
+The owner approved an emergency hotfix and a new certificate authority. Before changing TLS, fresh
+custom-format logical backups of all four databases and globals without role passwords were streamed
+privately and verified with `pg_restore --list`; hashes and receipts remain in the private incident
+report. Railway had no volume backups or schedules and rejected a manual snapshot because the Hobby
+workspace requires Pro for that feature. No backup was restored and no data migration ran.
+
+A new private CA (10 years) and server leaf (5 years) were generated with the original SANs. The CA
+private key is stored only in private owner/task storage, off the database server. Old TLS files were
+retained with an expiry suffix; new files preserve ownership and mode 0600. A configuration reload
+loaded the new certificate without restarting Postgres. The served chain and server-key match were
+verified. Only `ca_base64` changed inside each app's existing configuration; all other fields were
+checked unchanged. Full TLS verification remains enabled. The new CA PEM SHA-256 is
+`2779319ac43d325d695cbda0a53256dbde69d681c6b4719b217c2b82ec1e38bb`.
+
+Five services use their exact deployed `dbd9fbd8` source plus the CA pin (`3e4edc455fe416a4ed2445386e72f804eddd521e`);
+the agent uses its deployed `490aa942` plus the pin (`7d36ab1accc27528847823efcbae37830245110b`). No other
+backend source changed. Every staged backend was compared byte-for-byte to its base, and every upload
+included `backend/config`. API/MCP retained their existing zero-overlap setting. Previous deployment
+IDs and service settings were recorded privately before deploying, and the API was deployed first.
+
+Docker was unavailable. Under the explicit incident-only emergency exception, the normal release gate
+and rehearsal were replaced by the staging comparisons, rollback records, API-first live health
+check, and all 40 `backend/deploy` tests run directly on disposable local PostgreSQL 18.4 with an
+allowlisted environment and mock providers/storage. All passed; this is not a production-image gate
+or full restore rehearsal. The normal gate remains required for subsequent releases.
+
+Public health recovered at 08:48:34 UTC: HTTP 200, Django ready, database ready. Immediately afterwards,
+all six main-table counts still matched the before-repair counts above. All six replacement application deployments completed successfully by 08:53 UTC:
+
+| Service | New deployment | Source |
+|---|---|---|
+| green-django-api | `8ea64e5c-160e-4989-b892-b62ae7617b9e` | `3e4edc455fe4` |
+| green-django-generation | `9dd55b74-f802-4f53-accb-2c7ea6d75a25` | `3e4edc455fe4` |
+| green-django-export | `1aa90ab9-312e-448c-ba0a-5aa41e4463f4` | `3e4edc455fe4` |
+| green-django-scheduler | `598b153f-e282-492b-a6e9-f7f0a45da46b` | `3e4edc455fe4` |
+| green-django-mcp | `b28adac0-1337-4f74-88d7-8703379f2300` | `3e4edc455fe4` |
+| green-django-agent | `700f7ecc-e733-4e54-8956-847ce6f657de` | `7d36ab1accc2` |
+
+Final read-only verification again matched every count above and all 99 migration-history rows.
+All six deployment log samples had no traceback, TLS-expiry, CA-pin-mismatch or database connection
+error markers; the bounded Postgres log check after the last rollout had no new TLS-expiry errors.
+There were 12 TLS 1.3 connections. Public health stayed 200, maintenance stayed off and signed-out
+folders returned 401. No signed-in user check or paid-provider canary was performed. Certificate-expiry
+alerting/renewal ownership and an isolated full restore rehearsal remain follow-up recommendations.
+
+The historical agent preparation notes below are superseded by these live deployment receipts.
+
 ## Not deployed yet - Agents tab agent worker (branch `fm/veevee-agents-p1-worker`)
 
 The Agents tab's durable runs (`docs/architecture/agent-access.md`, Agents tab runs) add a sixth Railway component,
