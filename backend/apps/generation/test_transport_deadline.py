@@ -137,7 +137,7 @@ class ProviderResponseDeadlineTests(SimpleTestCase):
     def test_status_poll_keeps_its_per_request_cap_inside_the_job_budget(self):
         self.assertEqual(self.timeouts('GET', 60, 30), (10, 60))
 
-    def test_hanging_connect_fails_in_ten_seconds_as_an_unsubmitted_request(self):
+    def hanging_connect(self, send):
         from apps.generation.services.deadline import Cancellation, QueueExecutionDeadlineError
         from apps.generation.services.executor import submission_uncertain
         timeouts = []
@@ -160,9 +160,23 @@ class ProviderResponseDeadlineTests(SimpleTestCase):
         with patch('apps.integrations.request_deadline.RESOLVER.resolve', return_value=address), \
                 patch('apps.integrations.request_deadline.socket.socket', Socket):
             with self.assertRaises(ProviderError) as failure:
-                HttpTransport(allowed_hosts=['fixture.invalid'], timeout=1800).request(
-                    'POST', 'https://fixture.invalid/paid', body={'prompt': 'fixture'}, signal=Cancellation())
+                send(Cancellation())
         self.assertNotIsInstance(failure.exception, QueueExecutionDeadlineError)
         self.assertEqual(failure.exception.code, 'connect_failed')
         self.assertFalse(submission_uncertain(failure.exception))
         self.assertEqual(timeouts, [10])
+        return failure.exception
+
+    def test_hanging_connect_fails_in_ten_seconds_as_an_unsubmitted_request(self):
+        self.hanging_connect(lambda signal: HttpTransport(allowed_hosts=['fixture.invalid'], timeout=1800).request(
+            'POST', 'https://fixture.invalid/paid', body={'prompt': 'fixture'}, signal=signal))
+
+    def test_seedream_hanging_connect_stays_an_unsubmitted_failure(self):
+        import contextlib
+        import io
+        from apps.generation.providers import seedream
+        with contextlib.redirect_stdout(io.StringIO()):
+            error = self.hanging_connect(lambda signal: seedream.generate_image({'prompt': 'a quiet forest'},
+                env={'ARK_API_KEY': 'fixture'}, signal=signal))
+        self.assertNotEqual(str(error), seedream.AMBIGUOUS_MESSAGE)
+        self.assertEqual((error.provider_response['code'], error.provider_response['phase']), ('connect_failed', 'create'))

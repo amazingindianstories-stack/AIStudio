@@ -92,9 +92,12 @@ def _generate_image(input, *, transport=None, env=None, signal=None, fetcher=Non
     except Exception as error:
         if signal:
             signal.check()
-        raise ProviderError(AMBIGUOUS_MESSAGE, code='ambiguous_submission', provider_response=provider_errors.local(
-            'seedream', getattr(error, 'code', None) or 'ambiguous_submission', str(error) or type(error).__name__,
-            phase='create')) from error
+        code = getattr(error, 'code', None)
+        record = provider_errors.local('seedream', code or 'ambiguous_submission', str(error) or type(error).__name__,
+            phase='create')
+        if getattr(error, 'may_have_submitted', True) is False:
+            raise ProviderError(str(error), code=code or 'provider_error', provider_response=record, may_have_submitted=False) from error
+        raise ProviderError(AMBIGUOUS_MESSAGE, code='ambiguous_submission', provider_response=record) from error
     try:
         result = response.json()
     except ValueError:
