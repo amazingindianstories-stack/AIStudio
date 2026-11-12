@@ -136,7 +136,8 @@ def _generate_image(input, *, transport=None, env=None, signal=None, fetcher=Non
 
 SEEDREAM_TIMEOUT_SECONDS = 30 * 60
 _DIAGNOSTIC_CODES = {'ambiguous_submission', 'request_deadline', 'response_deadline', 'response_deadline_unavailable',
-                     'queue_execution_deadline', 'invalid_provider_endpoint', 'output_download_failed', 'provider_error', 'ModelNotOpen'}
+                     'queue_execution_deadline', 'invalid_provider_endpoint', 'output_download_failed', 'provider_error', 'ModelNotOpen',
+                     'connect_failed', 'dns_capacity_busy'}
 
 
 def failure_diagnostic(error, elapsed):

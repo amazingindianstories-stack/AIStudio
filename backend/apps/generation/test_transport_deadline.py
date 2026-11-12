@@ -175,8 +175,18 @@ class ProviderResponseDeadlineTests(SimpleTestCase):
         import contextlib
         import io
         from apps.generation.providers import seedream
-        with contextlib.redirect_stdout(io.StringIO()):
+        import json
+        log = io.StringIO()
+        with contextlib.redirect_stdout(log):
             error = self.hanging_connect(lambda signal: seedream.generate_image({'prompt': 'a quiet forest'},
                 env={'ARK_API_KEY': 'fixture'}, signal=signal))
         self.assertNotEqual(str(error), seedream.AMBIGUOUS_MESSAGE)
         self.assertEqual((error.provider_response['code'], error.provider_response['phase']), ('connect_failed', 'create'))
+        diagnostic = json.loads(log.getvalue().strip().splitlines()[-1])
+        self.assertEqual(diagnostic['event'], 'SEEDREAM_OPERATIONAL_FAILURE')
+        self.assertEqual([cause['code'] for cause in diagnostic['causes']][:2], ['connect_failed', 'connect_failed'])
+
+    def test_seedream_diagnostic_keeps_dns_capacity_classification(self):
+        from apps.generation.providers import seedream
+        busy = ProviderError('Provider DNS capacity busy.', code='dns_capacity_busy', may_have_submitted=False)
+        self.assertEqual(seedream.failure_diagnostic(busy, 0)['causes'], [{'class': 'ProviderError', 'code': 'dns_capacity_busy'}])
