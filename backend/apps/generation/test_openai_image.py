@@ -98,7 +98,7 @@ class RegistryTests(SimpleTestCase):
                     'qualityPriceFactors': {'low': .03, 'medium': .25, 'high': 1, 'xhigh': 2, 'max': 4},
                     'backgrounds': ['opaque', 'transparent'], 'seed': False})
         self.assertEqual([model['id'] for model in MODEL_REGISTRY if model.get('provider') == 'openai'],
-                         ['gpt-image-2-5-sunburst', 'gpt-image-2-5-flare'])
+                         ['gpt-image-2-5-sunburst', 'gpt-image-2-5-flare', 'gpt-image-2-6-sunburst', 'gpt-image-2-6-flare'])
 
     def test_openai_images_never_spend_or_wait_on_the_gemini_window(self):
         for name, identifier, _ in MODELS:
@@ -421,8 +421,8 @@ class ExecutionTests(SimpleTestCase):
         self.assertEqual((result['status'], result['cost_cents'], result['cost_basis'], result['seed']), ('succeeded', 13, 'reconciled', None))
         self.assertTrue(result['url'])
         (call,) = self.deps.openai_generate.call_args_list
-        self.assertEqual(call.args[0], {'model': 'GPT Image 2.5 Sunburst', 'assembled': assembled(instruction='A woman reads'),
-                                        'aspectRatio': '16:9', 'resolution': '2K',
+        self.assertEqual(call.args[0], {'model': self.item.model, 'assembled': assembled(instruction='A woman reads'),
+                                        'aspectRatio': self.item.aspect_ratio, 'resolution': self.item.resolution,
                                         'options': {'quality': 'xhigh', 'background': 'transparent'}})
 
     def test_unusable_usage_keeps_the_enqueue_estimate(self):
@@ -610,3 +610,142 @@ class StatusTests(SimpleTestCase):
         with patch.dict(os.environ, {}, clear=False) as environ, override_settings(VEEVEE_OPENAI_IMAGE=True):
             environ.pop('OPENAI_API_KEY', None)
             self.assertEqual(status.openai()['status'], 'unknown')
+
+
+MODELS_26 = (('GPT Image 2.6 Sunburst', 'gpt-image-2-6-sunburst', 'gpt-image-2.6-sunburst'),
+             ('GPT Image 2.6 Flare', 'gpt-image-2-6-flare', 'gpt-image-2.6-flare'))
+STANDARD_SIZES = {'1:1': '1024x1024', '3:2': '1536x1024', '2:3': '1024x1536'}
+
+
+@override_settings(VEEVEE_OPENAI_IMAGE=True)
+class Image26Tests(SimpleTestCase):
+    def test_registry_pins_documented_ids_and_only_standard_raster_sizes(self):
+        for name, identifier, provider_id in MODELS_26:
+            definition = model_definition(identifier)
+            self.assertEqual((definition['name'], definition['providerModelId'], definition['pricingKey']),
+                             (name, provider_id, name))
+            capabilities = definition['capabilities']
+            self.assertEqual(capabilities['imageSizes'], {ratio: {'1K': size} for ratio, size in STANDARD_SIZES.items()})
+            self.assertEqual(capabilities['resolutions'], ['1K'])
+            self.assertEqual(capabilities['aspectRatios'], list(STANDARD_SIZES))
+            self.assertEqual(capabilities['qualities'], QUALITIES)
+            self.assertEqual(capabilities['backgrounds'], ['opaque', 'transparent'])
+            self.assertEqual(capabilities['maxReferenceImages'], 16)
+            self.assertNotIn('experimentalAbovePixels', capabilities)
+            for model in (name, identifier):
+                self.assertIn(model, non_gemini_image_models())
+                self.assertEqual(WorkerDeadlineTests.deadline(self, model), 570000)
+
+    def test_every_standard_size_quality_background_and_endpoint_matches_guard_and_request(self):
+        for name, identifier, provider_id in MODELS_26:
+            for model in (name, identifier):
+                for ratio, size in STANDARD_SIZES.items():
+                    for quality in QUALITIES:
+                        for background in ('opaque', 'transparent'):
+                            for references in ([], [group('Reference:', base64.b64encode(b'fixture').decode())]):
+                                with self.subTest(model=model, ratio=ratio, quality=quality, background=background, edit=bool(references)):
+                                    options = validate_openai_image({'model': model, 'resolution': '1K', 'aspectRatio': ratio},
+                                        {'imageQuality': quality, 'imageBackground': background})
+                                    url, payload = openai_image.build_payload({'model': model, 'resolution': '1K', 'aspectRatio': ratio,
+                                        'options': options, 'assembled': assembled(references)})
+                                    expected = {'model': provider_id, 'prompt': 'A woman reads by a window', 'n': 1, 'size': size,
+                                                'quality': quality, 'background': background, 'output_format': 'png'}
+                                    if references:
+                                        expected.update(prompt='Image 1: Reference:\n\nSCENE: A woman reads by a window',
+                                                        images=[{'image_url': 'data:image/png;base64,Zml4dHVyZQ=='}])
+                                    self.assertEqual(payload, expected)
+                                    self.assertEqual(url, openai_image.EDITS_URL if references else openai_image.GENERATIONS_URL)
+                                    quote = paid_guard.quote_for(contract(kind='image', model=model, resolution='1K', aspect_ratio=ratio,
+                                                                         submission_input=options), UNLIMITED)
+                                    self.assertEqual(quote['provider_payload_allowed_values'],
+                                                     {key: [value] for key, value in expected.items() if key not in ('prompt', 'images')})
+
+    def test_undocumented_sizes_are_rejected_at_enqueue_guard_adapter_and_estimate(self):
+        for name, _, _ in MODELS_26:
+            for resolution, ratio in (('2K', '1:1'), ('4K', '3:2'), ('1K', '16:9'), ('1K', '4:3')):
+                item = {'model': name, 'resolution': resolution, 'aspectRatio': ratio}
+                with self.subTest(item=item):
+                    with self.assertRaises(InvalidRequest):
+                        validate_openai_image(item, {})
+                    with self.assertRaises(ValueError):
+                        paid_guard.quote_for(contract(kind='image', model=name, resolution=resolution, aspect_ratio=ratio,
+                                                     submission_input=HIGH), UNLIMITED)
+                    with self.assertRaises(ValueError):
+                        openai_image.build_payload({**item, 'options': HIGH, 'assembled': assembled()})
+                    with self.assertRaises(ValueError):
+                        compute_cost(item, DEFAULT_PRICING)
+
+    def test_defaults_reference_limit_bad_options_and_switch_off(self):
+        for name, _, _ in MODELS_26:
+            item = {'model': name, 'aspectRatio': '1:1', 'resolution': '1K'}
+            self.assertEqual(validate_openai_image(item, {'referenceImages': ['ref'] * 16}), HIGH)
+            for body in ({'referenceImages': ['ref'] * 17}, {'imageQuality': 'auto'}, {'imageBackground': 'auto'}):
+                with self.assertRaises(InvalidRequest):
+                    validate_openai_image(item, body)
+            with override_settings(VEEVEE_OPENAI_IMAGE=False), self.assertRaisesMessage(ValueError, name + ' is not enabled.'):
+                paid_guard.quote_for(contract(kind='image', model=name, resolution='1K', aspect_ratio='1:1', submission_input=HIGH), UNLIMITED)
+
+    def test_fake_http_preserves_png_and_token_rates_reconcile_with_admin_overrides(self):
+        for name, identifier, provider_id in MODELS_26:
+            content = png()
+            transport = FakeTransport(ok(content, usage(text_in=300, image_in=2000, image_out=6240)))
+            result = openai_image.generate_image({'model': name, 'options': HIGH, 'assembled': assembled()},
+                                                 transport=transport, env={'OPENAI_API_KEY': 'fixture-only'})
+            self.assertEqual(result['content'], content)
+            self.assertEqual(transport.calls[0][3]['model'], provider_id)
+            self.assertEqual(openai_token_cost(identifier, result['usage'], DEFAULT_PRICING), 20)
+            self.assertEqual(openai_token_cost(name, usage(), []), 13)
+            stored = [{'model': name + ' · image output', 'unitCostCents': 1500, 'unit': 'per_million_tokens'}]
+            self.assertEqual(openai_token_cost(name, usage(), stored), 6)
+            rows = {row['model']: row for row in DEFAULT_PRICING}
+            self.assertEqual([rows[name + ' · ' + kind]['unitCostCents'] for kind in ('text input', 'image input', 'image output')],
+                             [500, 800, 3000])
+            for ratio in STANDARD_SIZES:
+                for quality, factor in (('low', .03), ('medium', .25), ('high', 1), ('xhigh', 2), ('max', 4)):
+                    estimate = compute_cost({'model': name, 'aspectRatio': ratio, 'resolution': '1K',
+                                             'submissionInput': {'quality': quality}}, DEFAULT_PRICING)
+                    self.assertEqual(estimate, math.floor(21 * (1 if ratio == '1:1' else 1.5) * factor + .5))
+
+
+class Image26SunburstExecutionTests(ExecutionTests):
+    def setUp(self):
+        super().setUp()
+        self.item.model = 'GPT Image 2.6 Sunburst'
+        self.item.aspect_ratio = '3:2'
+        self.item.resolution = '1K'
+
+
+class Image26FlareExecutionTests(Image26SunburstExecutionTests):
+    def setUp(self):
+        super().setUp()
+        self.item.model = 'GPT Image 2.6 Flare'
+
+
+@override_settings(VEEVEE_OPENAI_IMAGE=True)
+class Image26OneClaimTests(TransactionTestCase):
+    guarded = OneClaimPerPostTests.guarded
+    execute = OpenAIOneClaimTests.execute
+
+    def test_each_model_claims_one_post_and_rejects_payload_substitutions_before_send(self):
+        for name, _, provider_id in MODELS_26:
+            other = next(other_name for other_name, _, _ in MODELS_26 if other_name != name)
+            source = {'model': name, 'assembled': assembled(), 'aspectRatio': '3:2', 'resolution': '1K', 'options': HIGH}
+            row = SimpleNamespace(**contract(kind='image', model=name, resolution='1K', aspect_ratio='3:2', submission_input=HIGH))
+            for change in (None, {'model': other}, {'model': 'GPT Image 2.5 Flare'}, {'resolution': '2K'},
+                           {'aspectRatio': '1:1'}, {'options': {'quality': 'max', 'background': 'opaque'}},
+                           {'options': {'quality': 'high', 'background': 'transparent'}}):
+                ledger, sent = {row.id: 'RESERVED'}, []
+                with self.subTest(model=name, change=change), self.guarded(ledger, sent, self.execute({**source, **(change or {})})) as executor:
+                    if change is None:
+                        executor.execute_admitted(row)
+                    else:
+                        with self.assertRaises(ValueError):
+                            executor.execute_admitted(row)
+                self.assertEqual(len(sent), 1 if change is None else 0)
+                if sent:
+                    self.assertEqual((sent[0][2]['model'], sent[0][2]['size']), (provider_id, '1536x1024'))
+            ledger, sent = {row.id: 'RESERVED'}, []
+            with self.guarded(ledger, sent, self.execute(source, posts=2)) as executor:
+                with self.assertRaisesRegex(RuntimeError, 'No paid submission retry'):
+                    executor.execute_admitted(row)
+            self.assertEqual(len(sent), 1)

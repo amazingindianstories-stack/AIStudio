@@ -269,3 +269,14 @@ test("restoring the recent submission brings back prompt and references only, ne
     assert.equal(useStore.getState().prompt, "again");
     assert.equal(useStore.getState().model, "Nano Banana Pro");
   }));
+
+
+test("2.6 picker entries follow the same OpenAI availability answer as 2.5", () => {
+  const enabled = [...KLING_AND_MAGNIFIC_OFF, "gpt-image-2-5-sunburst", "gpt-image-2-5-flare", "gpt-image-2-6-sunburst", "gpt-image-2-6-flare"];
+  for (const model of ["GPT Image 2.6 Sunburst", "GPT Image 2.6 Flare", "gpt-image-2-6-sunburst", "gpt-image-2-6-flare"]) {
+    assert.equal(isModelAvailable(model, KLING_AND_MAGNIFIC_OFF), false);
+    assert.equal(isModelAvailable(model, enabled), true);
+  }
+  assert.deepEqual(names(pickerModels(enabled, "image")).filter((name) => name.startsWith("GPT Image")),
+    ["GPT Image 2.5 Sunburst", "GPT Image 2.5 Flare", "GPT Image 2.6 Sunburst", "GPT Image 2.6 Flare"]);
+});

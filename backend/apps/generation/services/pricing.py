@@ -44,9 +44,9 @@ def compute_cost(input, pricing):
         if truthy(input.get('hasReferenceImage')):
             row = rows.get(definition.get('imageToImagePricingKey', input['model'] + ' · image-to-image'), row)
         if definition.get('provider') == 'openai':
-            # GPT Image 2.5: the pixels of the exact size sent over 1024x1024, times the job's stored quality relative to
+            # GPT Image: the pixels of the exact size sent over 1024x1024, times the job's stored quality relative to
             # the high-quality base row (no stored quality = high).
-            width, height = map(int, image_size(input.get('resolution') or '1K', input.get('aspectRatio') or '1:1').split('x'))
+            width, height = map(int, image_size(input.get('resolution') or '1K', input.get('aspectRatio') or '1:1', input['model']).split('x'))
             quality = (input.get('submissionInput') or {}).get('quality')
             factor = width * height / (1024 * 1024) * capability(input['model'], 'qualityPriceFactors')[quality or 'high']
         else:
@@ -65,13 +65,13 @@ def seedance_token_cost(model, total_tokens, had_video_input, pricing):
     return math.floor(row['unitCostCents'] * total_tokens / 1000000 + .5) if row else None
 
 
-# OpenAI bills GPT Image 2.5 per token class (developers.openai.com/api/docs/pricing, read 2026-11-04). Text output is
+# OpenAI bills GPT Image 2.5/2.6 per token class (developers.openai.com/api/docs/pricing, read 2026-11-12). Text output is
 # not billed, and the Images API usage has no cached-input field, so the cached rates never apply to these calls.
 OPENAI_TOKEN_RATES = ('text input', 'image input', 'image output')
 
 
 def openai_token_cost(model, usage, pricing):
-    """Cents for one GPT Image 2.5 call: its reported text input, image input and image output tokens, each at its
+    """Cents for one GPT Image call: its reported text input, image input and image output tokens, each at its
     per-million rate. The generation worker reads stored prices only, so a rate nobody has saved yet comes from the
     defaults. None when the usage or a rate is unusable; the enqueue estimate then stays."""
     from apps.admin_dashboard.default_pricing import DEFAULT_PRICING

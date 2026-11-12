@@ -119,8 +119,8 @@ def kling_quote(contract,definition):
  return {'maximum_cents':0,'pricing_status':'UNLIMITED_NEW_JOB_REGISTRATION_NOT_PRICE_GATE','allowed_paid_endpoints':[endpoint],
   'provider_payload_allowed_values':{'model_name':[definition['providerModelId']],'n':[1],'aspect_ratio':[aspect],'resolution':[resolution.lower()]}}
 def openai_quote(contract,definition):
- """GPT Image 2.5 (VEEVEE_OPENAI_IMAGE, unlimited scope only): the Images API generations or edits endpoint, with this
- job's pinned snapshot, a single image, its own size from the registry table, its own stored quality and background, and PNG output pinned in the payload."""
+ """GPT Image (VEEVEE_OPENAI_IMAGE, unlimited scope only): the Images API generations or edits endpoint, with this
+ job's pinned model string, a single image, its own size from the registry table, its own stored quality and background, and PNG output pinned in the payload."""
  from apps.generation.availability import switched_on
  from apps.generation.providers import openai_image
  require(switched_on('openai'),definition['name']+' is not enabled. Choose another image model.')
@@ -131,7 +131,7 @@ def openai_quote(contract,definition):
  except ValueError:raise ValueError('Request outside the OpenAI contract') from None
  return {'maximum_cents':0,'pricing_status':'UNLIMITED_NEW_JOB_REGISTRATION_NOT_PRICE_GATE',
   'allowed_paid_endpoints':[openai_image.GENERATIONS_URL,openai_image.EDITS_URL],
-  'provider_payload_allowed_values':{'model':[definition['providerModelId']],'n':[1],'size':[openai_image.image_size(resolution,aspect)],
+  'provider_payload_allowed_values':{'model':[definition['providerModelId']],'n':[1],'size':[openai_image.image_size(resolution,aspect,contract['model'])],
    'quality':[options['quality']],'background':[options['background']],'output_format':[openai_image.OUTPUT_FORMAT]}}
 def audio_quote(contract):
  """Audio transcription (unlimited scope only): one generateContent call on the configured transcription model,

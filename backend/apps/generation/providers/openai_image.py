@@ -1,10 +1,10 @@
-"""OpenAI GPT Image 2.5 adapter: one synchronous Images API call per job, billed by the usage it returns.
+"""OpenAI GPT Image adapter: one synchronous Images API call per job, billed by the usage it returns.
 
 developers.openai.com/api/docs/guides/image-generation and /api/reference/resources/images/methods/{generate,edit}
-(read 2026-11-04): JSON bodies on /v1/images/generations and /v1/images/edits; edits take up to 16 `images` as
+(read 2026-11-04 for 2.5): JSON bodies on /v1/images/generations and /v1/images/edits; edits take up to 16 `images` as
 data URLs; prompts up to 32,000 characters; `size` is WxH with both edges multiples of 16, a long:short ratio of at
 most 3:1, a longest edge of at most 3840 and 655,360 to 8,294,400 pixels (the per-tier sizes are the registry's
-OPENAI_IMAGE_SIZES); the response carries `data[].b64_json` and a token `usage` object.
+OPENAI_IMAGE_SIZES for 2.5; 2.6 uses standard sizes only); the response carries `data[].b64_json` and a token `usage` object.
 """
 import base64
 import io
@@ -41,11 +41,13 @@ MAX_RESPONSE_BYTES = 128 * 1024 * 1024
 UNPROCESSED_STATUSES = frozenset({429, 503})
 
 
-def image_size(resolution, aspect_ratio):
+def image_size(resolution, aspect_ratio, model=None):
     """The exact WxH sent for this tier and ratio: only sizes from the registry table exist."""
-    size = OPENAI_IMAGE_SIZES.get(aspect_ratio, {}).get(resolution)
+    definition = model_definition(model) or {}
+    sizes = definition.get('capabilities', {}).get('imageSizes', {}) if model is not None else OPENAI_IMAGE_SIZES
+    size = sizes.get(aspect_ratio, {}).get(resolution)
     if size is None:
-        raise ValueError(f'GPT Image 2.5 has no {resolution} size at {aspect_ratio}.')
+        raise ValueError(f"{definition.get('name', 'GPT Image 2.5')} has no {resolution} size at {aspect_ratio}.")
     return size
 
 
@@ -130,7 +132,7 @@ def build_payload(input):
     options = request_options(input['model'], input.get('options'))
     built = build_request(input['assembled'], definition['name'])
     payload = {'model': definition['providerModelId'], 'prompt': built['prompt'], 'n': 1,
-               'size': image_size(input.get('resolution') or '1K', input.get('aspectRatio') or '1:1'),
+               'size': image_size(input.get('resolution') or '1K', input.get('aspectRatio') or '1:1', input['model']),
                'quality': options['quality'], 'background': options['background'], 'output_format': OUTPUT_FORMAT}
     if built['images']:
         images = [accepted_reference(image, position, definition['name']) for position, image in enumerate(built['images'], 1)]

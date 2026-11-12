@@ -31,6 +31,13 @@ OPENAI_IMAGE_CAPABILITIES = {'aspectRatios': list(OPENAI_IMAGE_SIZES),
                              'backgrounds': ['opaque', 'transparent'],
                              'seed': False}
 
+# Standard raster sizes only for 2.6: the API reference does not list it for arbitrary resolutions.
+OPENAI_IMAGE_26_SIZES = {'1:1': {'1K': '1024x1024'}, '3:2': {'1K': '1536x1024'}, '2:3': {'1K': '1024x1536'}}
+OPENAI_IMAGE_26_CAPABILITIES = {**{key: value for key, value in OPENAI_IMAGE_CAPABILITIES.items()
+                                 if key != 'experimentalAbovePixels'},
+                                'aspectRatios': list(OPENAI_IMAGE_26_SIZES), 'resolutions': ['1K'],
+                                'imageSizes': OPENAI_IMAGE_26_SIZES}
+
 MODEL_REGISTRY = [{'id': 'seedream-5-pro',
   'name': 'Seedream 5.0 Pro',
   'kind': 'image',
@@ -132,6 +139,36 @@ MODEL_REGISTRY = [{'id': 'seedream-5-pro',
   'hint': 'Fast everyday OpenAI image model · up to 16 references · 1K/2K/4K PNG',
   'pricingKey': 'GPT Image 2.5 Flare',
   'capabilities': OPENAI_IMAGE_CAPABILITIES},
+ # Official sources read 2026-11-12:
+ # https://developers.openai.com/api/docs/models/gpt-image-2.6-sunburst
+ # https://developers.openai.com/api/docs/models/gpt-image-2.6-flare
+ # https://developers.openai.com/api/reference/resources/images/methods/generate
+ # https://developers.openai.com/api/docs/guides/image-generation
+ # https://developers.openai.com/api/docs/pricing
+ # OpenAI publishes no dated snapshot for 2.6; pin these documented model strings without inventing one.
+ # Same Images API generations/edits, five qualities, opaque/transparent PNG, standard sizes only.
+ # Omit complexity (provider default high); SVG/GIF/markup are outside this raster integration.
+ # Per 1M tokens: text $5 (cached $1.25), image input $8 (cached $2), image output $30.
+ {'id': 'gpt-image-2-6-sunburst',
+  'name': 'GPT Image 2.6 Sunburst',
+  'kind': 'image',
+  'provider': 'openai',
+  'providerModelId': 'gpt-image-2.6-sunburst',
+  'offered': True,
+  'badge': 'NEW',
+  'hint': "Detailed visual work and precise edits · up to 16 references · standard sizes PNG",
+  'pricingKey': 'GPT Image 2.6 Sunburst',
+  'capabilities': OPENAI_IMAGE_26_CAPABILITIES},
+ {'id': 'gpt-image-2-6-flare',
+  'name': 'GPT Image 2.6 Flare',
+  'kind': 'image',
+  'provider': 'openai',
+  'providerModelId': 'gpt-image-2.6-flare',
+  'offered': True,
+  'badge': 'FAST',
+  'hint': 'Fast everyday OpenAI image model · up to 16 references · standard sizes PNG',
+  'pricingKey': 'GPT Image 2.6 Flare',
+  'capabilities': OPENAI_IMAGE_26_CAPABILITIES},
  {'id': 'seedance',
   'name': 'Seedance 2.0',
   'kind': 'video',
