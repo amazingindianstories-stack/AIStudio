@@ -213,7 +213,7 @@ class CoordinatorTests(TransactionTestCase):
     def test_stale_timeout_excludes_provider_backed_video(self):
         stale = self.job(status='running', updated_at=1)
         remote = self.job(kind='video', status='running', task_id='remote', updated_at=1)
-        self.assertEqual(admission.reap_stale_running_images(now=1000000), 1)
+        self.assertEqual(admission.reap_stale_running_images(now=2000000), 1)
         self.assertEqual(Generation.objects.get(pk=stale.id).status, 'failed')
         self.assertEqual(Generation.objects.get(pk=remote.id).status, 'running')
 

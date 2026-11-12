@@ -88,3 +88,43 @@ class ProviderResponseDeadlineTests(SimpleTestCase):
         self.assertEqual(failure.exception.code,'response_deadline_unavailable')
         response.iter_content.assert_not_called()
         timer.assert_not_called()
+
+    def test_cancellation_interrupts_a_blocked_response_without_waiting_thirty_minutes(self):
+        from apps.generation.services.deadline import Cancellation, QueueExecutionDeadlineError
+        from apps.integrations.request_deadline import SocketDeadline
+        response, thread, _ = self.response(b'x' * 100, .02)
+        signal = Cancellation()
+        transport = HttpTransport(allowed_hosts=[])
+        raw_socket = response.raw._fp.fp.raw._sock
+        cancel = threading.Timer(.05, signal.cancelled.set)
+        start = time.monotonic()
+        cancel.start()
+        try:
+            with self.assertRaises(QueueExecutionDeadlineError):
+                with response, SocketDeadline(signal.deadline, signal=signal) as guard:
+                    guard.bind(raw_socket)
+                    try:
+                        transport._read_body(response, signal.deadline, signal)
+                    finally:
+                        signal.check()
+        finally:
+            cancel.join()
+        self.assertLess(time.monotonic() - start, .7)
+
+    def test_transport_uses_remaining_job_budget_for_slow_started_post(self):
+        from apps.generation.services.deadline import Cancellation
+        clock = [0.0]
+        with patch('time.monotonic', side_effect=lambda: clock[0]), patch('requests.Session') as factory:
+            signal = Cancellation()
+            session = factory.return_value.__enter__.return_value
+            response = session.request.return_value.__enter__.return_value
+            response.status_code, response.headers = 200, {}
+            def read(*args):
+                clock[0] = 300
+                return b'master'
+            transport = HttpTransport(allowed_hosts=['fixture.invalid'], timeout=60)
+            with patch.object(transport, '_read_body', side_effect=read):
+                result = transport.request('POST', 'https://fixture.invalid/paid', signal=signal)
+            self.assertEqual(result.body, b'master')
+            self.assertEqual(session.request.call_args.kwargs['timeout'], (1800, 1800))
+            session.request.assert_called_once()

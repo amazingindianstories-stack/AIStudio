@@ -31,12 +31,16 @@ def read_assets(project_id=None):
 
 class Dependencies:
     """Override methods or supply materialized assets/pricing before timed work."""
+    def __init__(self, signal=None):
+        self.signal = signal
+
     assets = None
     pricing = None
     read_assets = staticmethod(read_assets)
     read_pricing = staticmethod(read_pricing)
     storage = staticmethod(get_storage)
-    fetcher = staticmethod(lambda url: get_media_fetcher()(url))
+    def fetcher(self, url):
+        return get_media_fetcher(signal=self.signal)(url)
     now = staticmethod(now_ms)
     monotonic = staticmethod(time.monotonic)
     random_seed = staticmethod(lambda: random.randrange(2147483647))
@@ -92,7 +96,7 @@ def execute_image(item, *, signal, dependencies=None, env=None, on_task=None):
     on_task(task_id) must durably record an accepted external task before it
     returns. A stored task_id resumes polling and never submits a duplicate.
     """
-    deps, env = dependencies or Dependencies(), os.environ if env is None else env
+    deps, env = dependencies or Dependencies(signal), os.environ if env is None else env
     signal.check()
     identifier, model = str(item.id), item.model
     prompt, ratio, resolution = item.prompt, item.aspect_ratio, item.resolution
@@ -183,11 +187,8 @@ def execute_image(item, *, signal, dependencies=None, env=None, on_task=None):
             refs = [deps.kling_prepare(ref['mimeType'], ref['data'])] if ref else []
             task_id = receipt(deps.kling_submit({'model': model, 'prompt': built['prompt'],
                 'aspectRatio': ratio, 'resolution': resolution, 'references': refs}, signal=signal, env=env))
-        deadline = deps.monotonic() + 240
         while True:
             signal.check()
-            if deps.monotonic() >= deadline:
-                raise TimeoutError('Kling image generation timed out.')
             done = deps.kling_resolve(task_id, signal=signal, env=env)
             if done.get('status') == 'succeeded':
                 break

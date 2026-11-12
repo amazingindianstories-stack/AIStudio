@@ -46,7 +46,7 @@ class HttpTransport:
             raise ProviderError('Provider endpoint is not an approved HTTPS host.', code='invalid_provider_endpoint')
         if signal:
             signal.check()
-        timeout = min(self.timeout, signal.remaining()) if signal else self.timeout
+        timeout = signal.remaining() if signal else self.timeout
         if raw_body is not None and body is not None:
             raise ValueError('body and raw_body are mutually exclusive')
         content = {'data': raw_body} if raw_body is not None else {'json': body}
@@ -54,19 +54,21 @@ class HttpTransport:
         # No retries on ambiguous POST failure and no redirect credential leak.
         # Session.trust_env=False also avoids checkout proxy/.netrc credentials.
         from .request_deadline import SocketDeadline, deadline_adapter
-        with SocketDeadline(deadline) as guard:
+        with SocketDeadline(deadline, signal=signal) as guard:
             try:
                 with requests.Session() as session:
                     session.trust_env = False
                     session.mount('https://', deadline_adapter(guard))
                     with session.request(method, url, headers=headers, **content,
-                            allow_redirects=False, timeout=(min(10, timeout), timeout), stream=True) as response:
+                            allow_redirects=False, timeout=(timeout, timeout), stream=True) as response:
                         guard.check()
                         result = HttpResult(response.status_code,
                             self._read_body(response, deadline, signal), dict(response.headers))
                         guard.check()
                         return result
             except Exception as error:
+                if signal:
+                    signal.check()
                 if guard.expired.is_set() or time.monotonic() >= deadline:
                     raise ProviderError('Provider request deadline exceeded.', code='request_deadline',
                         may_have_submitted=getattr(error,'may_have_submitted',True)) from error

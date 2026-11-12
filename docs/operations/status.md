@@ -814,3 +814,24 @@ acting on any of them.
 | ARCH-07 | Admin dashboard component is oversized | deferred | 2026-08-25 |
 | QUAL-01 | Video scaffolding is reasoned, not bake-off measured | open | 2026-08-18 |
 | QUAL-02 | Eval harness has no fixtures or CI gate | open | 2026-08-18 |
+
+
+Generation hard deadline change (local branch, not deployed): all started generation
+worker operations share a 30-minute budget across provider I/O and result download.
+Provider transport and media reads use the remaining budget and cooperative socket
+cancellation. Receipt-less stale recovery grants 31 minutes and still excludes live
+leases; admission/queue snapshots count these running rows throughout. Runtime audit
+REL-03 now checks survival beyond 270 seconds and expiry at 30 minutes. The diagnostic
+code remains `queue_execution_deadline`; public copy attributes expiry to our time limit.
+Cooperative interruption uses `queue_execution_cancelled` so shutdown does not falsely
+claim the 30-minute time limit elapsed.
+The Railway generation drain remains 120 seconds. A deploy or restart interrupts jobs
+still within their 30 minutes; release only after queued/running work has emptied.
+This is offline regression evidence only, with no live provider acceptance or release.
+
+Local validation: 92 targeted PostgreSQL tests passed for started deadlines, real
+socket/TLS/DNS cancellation, execution persistence, provider diagnostics, capacity,
+and worker shutdown. The broader generation/integration/admin suite exercised 656
+tests and exposed a DNS pre-submission flag regression, corrected and covered by
+that final passing targeted run. The undefined-name scan and `git diff --check`
+passed. These checks used disposable PostgreSQL and fake providers; no deploy ran.

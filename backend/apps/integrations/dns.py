@@ -12,7 +12,7 @@ class BoundedMediaResolver:
     def __init__(self, slots=4):
         self.capacity = threading.BoundedSemaphore(slots)
 
-    def resolve(self, lookup, *args, timeout, **kwargs):
+    def resolve(self, lookup, *args, timeout, signal=None, **kwargs):
         deadline = time.monotonic() + timeout
         if not self.capacity.acquire(blocking=False):
             raise MediaDNSCapacityError('Provider media DNS capacity busy.')
@@ -34,10 +34,17 @@ class BoundedMediaResolver:
         except BaseException:
             self.capacity.release()
             raise
-        try:
-            succeeded,value = result.get(timeout=max(.001,deadline-time.monotonic()))
-        except queue.Empty:
-            raise TimeoutError('Provider media DNS deadline exceeded.') from None
+        while True:
+            if signal:
+                signal.check()
+            remaining = deadline-time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError('Provider media DNS deadline exceeded.')
+            try:
+                succeeded,value = result.get(timeout=min(.1,remaining))
+                break
+            except queue.Empty:
+                continue
         if not succeeded:
             raise value
         return value

@@ -82,11 +82,14 @@ def video_extension(result):
 
 
 class Dependencies:
-    def __init__(self, **overrides):
+    def __init__(self, signal=None, **overrides):
+        self.signal = signal
         self.__dict__.update(overrides)
 
     now = staticmethod(now_ms)
-    save_url = staticmethod(persistence.save_from_url_with_metadata)
+    def save_url(self, url, ext, identifier, metadata):
+        return persistence.save_from_url_with_metadata(url, ext, identifier, metadata,
+            fetcher=get_media_fetcher(signal=self.signal))
     save_base64 = staticmethod(persistence.save_base64_with_metadata)
     save_buffer = staticmethod(persistence.save_buffer_with_metadata)
     extract_frame = staticmethod(persistence.extract_last_frame_server)
@@ -115,7 +118,7 @@ class Dependencies:
         # get a larger cap within the worker's per-job budget.
         import copy
         from apps.integrations.remote import SafeMediaFetcher
-        fetcher = get_media_fetcher()
+        fetcher = get_media_fetcher(signal=self.signal)
         if isinstance(fetcher, SafeMediaFetcher):
             # Same hosts, resolver and pinning; only the size cap and time budget differ.
             fetcher = copy.copy(fetcher)
@@ -125,7 +128,7 @@ class Dependencies:
     def save_omnihuman_video(self, url, ext, identifier, metadata):
         import copy
         from apps.integrations.remote import SafeMediaFetcher
-        fetcher = get_media_fetcher()
+        fetcher = get_media_fetcher(signal=self.signal)
         if isinstance(fetcher, SafeMediaFetcher):
             fetcher = copy.copy(fetcher)
             fetcher.max_bytes, fetcher.total_timeout = OMNIHUMAN_VIDEO_MAX_BYTES, OMNIHUMAN_DOWNLOAD_SECONDS
@@ -138,13 +141,13 @@ class Dependencies:
         return persistence.save_buffer_with_metadata(data, video_container(io.BytesIO(data)), identifier, metadata)
 
     def fetch(self, url):
-        return get_media_fetcher()(url)
+        return get_media_fetcher(signal=self.signal)(url)
 
     def fetch_magnific_image(self, url):
         # Stop at the cap while streaming instead of reading the fetcher's
         # general 512 MB allowance into memory first.
         from apps.integrations.remote import SafeMediaFetcher
-        fetcher = get_media_fetcher()
+        fetcher = get_media_fetcher(signal=self.signal)
         if isinstance(fetcher, SafeMediaFetcher):
             with fetcher.open_file(url, max_bytes=MAGNIFIC_IMAGE_MAX_BYTES) as (stream, mime):
                 return stream.read(), mime
@@ -328,7 +331,8 @@ def advance_magnific(item, *, signal=None, owner=None, dependencies=None):
         raise ValueError('Generation is not a Magnific job.')
     if item.status in ('succeeded', 'failed', 'cancelled'):
         return {'kind': item.status, 'item': item}
-    deps, signal = dependencies or Dependencies(), signal or Cancellation(60000)
+    signal = signal or Cancellation()
+    deps = dependencies or Dependencies(signal=signal)
     if deps.mock() and item.task_id == 'mock-magnific-'+str(item.id):
         source=(item.submission_input or {}).get('source')
         if not source:
@@ -380,7 +384,8 @@ def advance_magnific_video(item, *, signal=None, owner=None, dependencies=None):
         raise ValueError('Generation is not a Magnific video job.')
     if item.status in ('succeeded', 'failed', 'cancelled'):
         return {'kind': item.status, 'item': item}
-    deps, signal = dependencies or Dependencies(), signal or Cancellation(60000)
+    signal = signal or Cancellation()
+    deps = dependencies or Dependencies(signal=signal)
     source = (item.submission_input or {}).get('source')
     if deps.mock() and item.task_id == 'mock-magnific-'+str(item.id):
         if not source:
@@ -412,7 +417,8 @@ def advance(item, *, source='cron', signal=None, owner=None, provider=None, call
         return {'kind': item.status, 'item': item}
     if not item.task_id:
         return {'kind': 'pending', 'item': item}
-    deps, signal = dependencies or Dependencies(), signal or Cancellation(900000 if is_provider_model(item.model, 'omnihuman') else 60000)
+    signal = signal or Cancellation()
+    deps = dependencies or Dependencies(signal=signal)
     provider = dict(provider or {})
     if callback_received_at:
         provider['callback_received_at'] = callback_received_at

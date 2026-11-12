@@ -79,7 +79,8 @@ class PinnedHTTPSConnection(http.client.HTTPSConnection):
 class SafeMediaFetcher:
     def __init__(self, allowed_hosts, *, max_bytes=512*1024*1024, timeout=30,
                  resolver=socket.getaddrinfo, connection= PinnedHTTPSConnection,
-                 total_timeout=270, clock=time.monotonic, dns=None, max_redirects=5):
+                 total_timeout=270, clock=time.monotonic, dns=None, max_redirects=5, signal=None):
+        self.signal = signal
         self.allowed_hosts = None if allowed_hosts is None else tuple(allowed_hosts)
         self.max_bytes, self.timeout, self.max_redirects = max_bytes, timeout, max_redirects
         self.resolver, self.connection = resolver, connection
@@ -97,21 +98,23 @@ class SafeMediaFetcher:
         ``limit_for(content_type)`` may lower the byte limit (or raise) once the response headers arrive.
         """
         limit = self.max_bytes if max_bytes is None else min(self.max_bytes,max_bytes)
-        deadline = self.clock() + self.total_timeout
+        deadline = self.clock() + (self.signal.remaining() if self.signal else self.total_timeout)
         def remaining():
+            if self.signal:
+                self.signal.check()
             budget = deadline - self.clock()
             if budget <= 0:
                 raise TimeoutError('Provider media download exceeded its total deadline.')
-            return min(self.timeout, budget)
+            return budget if self.signal else min(self.timeout, budget)
         for _ in range(self.max_redirects+1):
             def resolve(*args,**kwargs):
-                return self.dns.resolve(self.resolver,*args,timeout=remaining(),**kwargs)
+                return self.dns.resolve(self.resolver,*args,timeout=remaining(),signal=self.signal,**kwargs)
             host,address,path = validated_target(url,self.allowed_hosts,resolve)
             connection = self.connection(host,address,remaining())
             guard = None
             try:
                 if isinstance(connection,PinnedHTTPSConnection):
-                    candidate = SocketDeadline(time.monotonic()+deadline-self.clock())
+                    candidate = SocketDeadline(time.monotonic()+deadline-self.clock(), signal=self.signal)
                     candidate.__enter__()
                     guard = candidate
                     connection.deadline_guard = guard
@@ -165,6 +168,8 @@ class SafeMediaFetcher:
                     yield incoming,mime
                 return
             except Exception:
+                if self.signal:
+                    self.signal.check()
                 if guard is not None and (guard.expired.is_set() or time.monotonic() >= guard.deadline):
                     raise TimeoutError('Provider media download exceeded its total deadline.') from None
                 raise
@@ -175,8 +180,8 @@ class SafeMediaFetcher:
         raise ValueError('Too many provider media redirects.')
 
 
-def get_media_fetcher():
+def get_media_fetcher(*, signal=None):
     fetcher = getattr(settings,'VEEVEE_MEDIA_FETCHER',None)
     if fetcher is not None:
         return fetcher
-    return SafeMediaFetcher(getattr(settings,'VEEVEE_PROVIDER_MEDIA_HOSTS',()))
+    return SafeMediaFetcher(getattr(settings,'VEEVEE_PROVIDER_MEDIA_HOSTS',()), signal=signal)

@@ -12,7 +12,7 @@ from .services.admission import reap_stale_running_images, show_worker_slot_wait
 from .services.cancellation import pending_cancellations, settle_pending
 from .services.coordinator import MAX_COORDINATOR_BATCH, select_due_generations, select_unlabelled_short_slot
 from .services.executor import process_generation
-from .services.deadline import Cancellation
+from .services.deadline import Cancellation, QUEUE_EXECUTION_DEADLINE_MS
 
 logger = logging.getLogger('veevee.generation')
 NO_PROGRESS = frozenset(('not_admitted', 'unclaimed', 'worker_error', 'stopped', 'cancel_busy'))
@@ -30,7 +30,7 @@ def release_freed_memory():
 
 
 class WorkerCancellation(Cancellation):
-    def __init__(self, stop, timeout_ms=270000):
+    def __init__(self, stop, timeout_ms=QUEUE_EXECUTION_DEADLINE_MS):
         super().__init__(timeout_ms)
         self.stop = stop
 
@@ -78,12 +78,8 @@ def handle_cancel(identifier, stop):
 
 
 def execution_deadline_ms(model):
-    """OmniHuman renders run long; GPT Image 2.5 gets its full POST timeout after reference assembly."""
-    from .model_registry import is_provider_model
-    from .providers.openai_image import WORKER_DEADLINE_MS
-    if is_provider_model(model, 'omnihuman'):
-        return 900000
-    return WORKER_DEADLINE_MS if is_provider_model(model, 'openai') else 270000
+    """One budget for provider work and result download across every model."""
+    return QUEUE_EXECUTION_DEADLINE_MS
 
 
 def handle_generation(item, process, stop):
@@ -191,5 +187,6 @@ def run_worker(*, interval=2, concurrency=4, stop=None):
                     stop.wait(interval)
     finally:
         # ThreadPoolExecutor drains in-flight calls. WorkerCancellation still
-        # interrupts cooperative waits; Railway retains its 120-second drain.
+        # interrupts provider sockets and waits; Railway retains its 120-second
+        # deploy drain. Restart interrupts work still inside its 30-minute budget.
         connections.close_all()

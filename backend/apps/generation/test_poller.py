@@ -229,6 +229,6 @@ class PollerTests(TransactionTestCase):
             def open_file(self, url, *, max_bytes=None):
                 seen.append(max_bytes)
                 yield io.BytesIO(b'png'), 'image/png'
-        with patch('apps.generation.services.poller.get_media_fetcher', lambda: Recording(['ai-statics.magnific.com'])):
+        with patch('apps.generation.services.poller.get_media_fetcher', lambda **kwargs: Recording(['ai-statics.magnific.com'])):
             self.assertEqual(poller.Dependencies().fetch_magnific_image('https://ai-statics.magnific.com/x.png'), (b'png', 'image/png'))
         self.assertEqual(seen, [poller.MAGNIFIC_IMAGE_MAX_BYTES])

@@ -108,10 +108,19 @@ class HiggsfieldTransport(HttpTransport):
     def request(self,method,url,*,headers=None,body=None,signal=None):
         if signal:
             signal.check()
-        host,address,path = validated_target(url,self.hosts)
-        timeout = min(60,signal.remaining()) if signal else 60
+        from apps.integrations.dns import MEDIA_RESOLVER
+        from apps.integrations.request_deadline import SocketDeadline
+        def resolve(*args, **kwargs):
+            import socket
+            return MEDIA_RESOLVER.resolve(socket.getaddrinfo, *args,
+                timeout=signal.remaining() if signal else 60, signal=signal, **kwargs)
+        host,address,path = validated_target(url,self.hosts,resolve)
+        timeout = signal.remaining() if signal else 60
         connection = PinnedHTTPSConnection(host,address,timeout)
         raw = json.dumps(body,separators=(',',':')).encode() if isinstance(body,(dict,list)) else body
+        guard = SocketDeadline(time.monotonic() + timeout, signal=signal)
+        connection.deadline_guard = guard
+        guard.__enter__()
         try:
             connection.request(method,path,body=raw,headers=headers or {})
             response = connection.getresponse()
@@ -123,8 +132,13 @@ class HiggsfieldTransport(HttpTransport):
                 if total > 32*1024*1024:
                     raise ProviderError('Higgsfield response exceeds the configured limit.')
                 chunks.append(chunk)
+            guard.check()
             return HttpResult(response.status,b''.join(chunks),dict(response.getheaders()))
+        except Exception:
+            guard.check()
+            raise
         finally:
+            guard.__exit__(None, None, None)
             connection.close()
 
 
@@ -446,12 +460,14 @@ class HiggsfieldClient:
     def await_job(self,job_id,options=None,signal=None):
         options = {'timeoutMs':options} if isinstance(options,(int,float)) else options or {}
         signal = signal or options.get('signal')
-        deadline = self.now()+options.get('timeoutMs',240000)
+        deadline = self.now()+(signal.remaining()*1000 if signal else options.get('timeoutMs',1800000))
         while self.now() < deadline:
             result = self.job_status(job_id,signal)
             if result['status'] in ('succeeded','failed'):
                 return result
             (signal.wait if signal else self.wait)(4000)
+        if signal:
+            signal.check()
         return {'status':'failed','error':'Higgsfield generation timed out.','providerError':provider_errors.local('higgsfield','timeout',
             'Higgsfield generation timed out.',phase='timeout',task_id=job_id)}
 

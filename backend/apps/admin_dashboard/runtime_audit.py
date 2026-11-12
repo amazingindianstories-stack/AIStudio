@@ -77,7 +77,21 @@ def flagged_check(actor_id):
 
 
 def deadline_check():
-    from apps.generation.services.deadline import settle_queue_execution
+    from apps.generation.services.deadline import settle_queue_execution, Cancellation, QueueExecutionDeadlineError
+    from unittest.mock import patch
+    from apps.generation.worker import execution_deadline_ms
+    for model in ('Seedream 5.0 Pro', 'Nano Banana Pro', 'GPT Image 2.5 Sunburst', 'OmniHuman 2.0'):
+        with patch('time.monotonic', return_value=0):
+            signal = Cancellation(execution_deadline_ms(model))
+        with patch('time.monotonic', return_value=300):
+            signal.check()
+        with patch('time.monotonic', return_value=1800):
+            try:
+                signal.check()
+            except QueueExecutionDeadlineError:
+                pass
+            else:
+                raise AssertionError('started-work hard deadline was not enforced')
     with transaction.atomic():
         row = generation()
         def failed(error):
@@ -87,7 +101,7 @@ def deadline_check():
         row.refresh_from_db()
         assert result=='failed' and row.status=='failed', 'terminal deadline state was not persisted before return'
         transaction.set_rollback(True)
-    return 'Python execution deadline persisted terminal state before return; all fixture writes rolled back'
+    return 'Python started work survived 270 s, expired at 30 minutes and persisted terminal state; fixture writes rolled back'
 
 
 def spool_check():

@@ -417,7 +417,7 @@ class StreamingSaveTests(SimpleTestCase):
         storage = StorageService(FileSystemAdapter(directory.name))
         seen = []
         base = self.fetcher_class(payload, seen)(['cdn-magnific.freepik.com'])
-        with override_settings(VEEVEE_MEDIA_STORAGE=storage), patch('apps.generation.services.poller.get_media_fetcher', lambda: base):
+        with override_settings(VEEVEE_MEDIA_STORAGE=storage), patch('apps.generation.services.poller.get_media_fetcher', lambda **kwargs: base):
             saved = poller.Dependencies().save_magnific_video('https://cdn-magnific.freepik.com/a.' + ext + '?token=t', ext, 'g/1', {'kind': 'video'})
         key = saved['url'][len('/api/media/'):]
         media = storage.open(key)

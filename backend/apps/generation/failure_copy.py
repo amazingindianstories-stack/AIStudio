@@ -22,6 +22,7 @@ AUDIO = ('The video provider rejected a reference audio clip. Use clips between 
          'in a common format such as MP3 or WAV, and try again.')
 BUSY = 'This model is busy or out of capacity right now. Try again in a few minutes or choose another model.'
 UNAVAILABLE = "This model isn't available right now. Choose another model or try again later."
+TIME_LIMIT = 'Our 30-minute generation time limit was reached before the result arrived. The provider may still finish; check before retrying.'
 DROPPED = 'The connection to the provider dropped before the result arrived. Retry the generation.'
 INTERRUPTED = 'The server was interrupted before this generation finished. Retry it.'
 PORTRAIT_ASSET = ('A portrait reference could not be used by the video provider. Open it in the Portrait Gallery to '
@@ -172,6 +173,9 @@ def public_message(row, diagnostic):
     from . import provider_errors
     entry = provider_errors.primary(getattr(row, 'provider_responses', None))
     from .providers import omnihuman
+    if entry and entry.get('source') == 'veevee' and entry.get('code') == 'queue_execution_deadline':
+        detail = provider_errors.user_detail(entry)
+        return TIME_LIMIT + (' ' + detail if detail else '')
     sentence = (omnihuman.ERROR_COPY.get(entry.get('code')) if entry and entry.get('provider') == 'omnihuman' else None) or _sentence(row, diagnostic)
     if (provider_errors.provider_for_model(row.model) == 'omnihuman' and
             any(isinstance(record, dict) and record.get('uncertainSubmission') is True
@@ -192,6 +196,8 @@ def _sentence(row, diagnostic):
     if not isinstance(diagnostic, str) or not diagnostic.strip():
         return GENERIC[kind]
     text = diagnostic.strip()
+    if text.startswith('Our generation time limit of '):
+        return TIME_LIMIT
     exact, patterns = _curated()
     from .providers.seedance import MODERATION_MESSAGE
     if text == MODERATION_MESSAGE:

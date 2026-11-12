@@ -118,10 +118,12 @@ def _generate_image(input, *, transport=None, env=None, signal=None, fetcher=Non
         signal.check()
     if fetcher is None:
         from apps.integrations.remote import get_media_fetcher
-        fetcher = get_media_fetcher()
+        fetcher = get_media_fetcher(signal=signal)
     try:
         content = fetcher(url)
     except Exception as error:
+        if signal:
+            signal.check()
         raise ProviderError(DOWNLOAD_FAILED_MESSAGE, code='output_download_failed', provider_response=provider_errors.local(
             'seedream', 'output_download_failed', str(error) or type(error).__name__, phase='download')) from error
     if signal:
@@ -129,7 +131,7 @@ def _generate_image(input, *, transport=None, env=None, signal=None, fetcher=Non
     return content[0] if isinstance(content, tuple) else content
 
 
-SEEDREAM_TIMEOUT_SECONDS = 240
+SEEDREAM_TIMEOUT_SECONDS = 30 * 60
 _DIAGNOSTIC_CODES = {'ambiguous_submission', 'request_deadline', 'response_deadline', 'response_deadline_unavailable',
                      'queue_execution_deadline', 'invalid_provider_endpoint', 'output_download_failed', 'provider_error', 'ModelNotOpen'}
 

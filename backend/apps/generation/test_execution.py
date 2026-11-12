@@ -426,7 +426,7 @@ class ExecutionPersistenceTests(TransactionTestCase):
         self.assertEqual(outcome['kind'], 'failed')
         item.refresh_from_db()
         self.assertIsNone(item.url)
-        self.assertIn('deadline', item.error)
+        self.assertIn('server process was interrupted', item.error)
 
     def test_success_persistence_error_is_not_provider_failure(self):
         item = self.job(status='running', worker_lease_id='worker', seed=42)
@@ -437,7 +437,7 @@ class ExecutionPersistenceTests(TransactionTestCase):
         self.assertEqual(item.status, 'running')
 
     def test_active_lease_and_accepted_tasks_survive_stale_reaper(self):
-        now = 1000000
+        now = 2000000
         old = self.job(status='running', updated_at=1)
         active = self.job(status='running', updated_at=1, worker_lease_until=now + 1000)
         receipt = self.job(status='running', updated_at=1, model='Kling Image 3.0', task_id='accepted')
