@@ -242,6 +242,47 @@ class PollerTests(TransactionTestCase):
         self.assertEqual(budgets, [60000, 60000, 900000])
         self.assertEqual(fetchers, [{'signal': None}])
 
+    def test_scheduler_master_download_keeps_its_own_budget_past_the_pass_deadline(self):
+        from unittest.mock import Mock
+        from apps.integrations.remote import SafeMediaFetcher
+        from .services.deadline import QueueExecutionDeadlineError
+        clock, chunks, downloads = [0.0], [], []
+        response = Mock(status=200)
+        response.getheader.side_effect = lambda name: None if name == 'Content-Length' else 'video/quicktime'
+        def read(size):
+            clock[0] += 10
+            return chunks.pop(0)
+        response.read.side_effect = read
+        connection = Mock()
+        connection.getresponse.return_value = response
+        def fetcher(signal=None):
+            return SafeMediaFetcher(['cdn.example'], resolver=lambda *args, **kwargs: [(None, None, None, None, ('93.184.216.34', 443))],
+                connection=Mock(return_value=connection), clock=lambda: clock[0], signal=signal)
+        def save(url, ext, identifier, metadata=None, fetcher=None):
+            try:
+                with fetcher.open_file(url) as (stream, _):
+                    downloads.append(stream.read())
+            except Exception as error:
+                downloads.append(type(error))
+                raise
+            return {'url': '/api/media/generations/master.' + ext}
+        def run(source):
+            chunks[:] = [b'mas', b'ter', b'']
+            clock[0] = 0.0
+            signal = Cancellation(40000)
+            clock[0] = 25.0
+            poller.advance(self.job(), source=source, signal=signal)
+            return downloads.pop()
+        with patch('time.monotonic', side_effect=lambda: clock[0]), \
+                patch.object(poller.Dependencies, 'mock', staticmethod(lambda: False)), \
+                patch.object(poller.Dependencies, 'publish', staticmethod(lambda item: None)), \
+                patch.object(poller.Dependencies, 'get_video', staticmethod(lambda *args, **kwargs: {
+                    'status': 'succeeded', 'videoUrl': 'https://cdn.example/master.mov', 'outputFormat': 'mov'})), \
+                patch('apps.generation.services.poller.get_media_fetcher', fetcher), \
+                patch.object(poller.persistence, 'save_from_url_with_metadata', save):
+            self.assertEqual(run('cron'), b'master')
+            self.assertEqual(run('worker'), QueueExecutionDeadlineError)
+
     def test_magnific_image_download_stops_at_its_cap_while_streaming(self):
         import contextlib
         from apps.integrations.remote import SafeMediaFetcher

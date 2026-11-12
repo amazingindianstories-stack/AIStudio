@@ -331,7 +331,7 @@ def advance_magnific(item, *, signal=None, owner=None, dependencies=None):
         raise ValueError('Generation is not a Magnific job.')
     if item.status in ('succeeded', 'failed', 'cancelled'):
         return {'kind': item.status, 'item': item}
-    deps, signal = dependencies or Dependencies(signal=signal), signal or Cancellation(60000)
+    deps, signal = dependencies or Dependencies(), signal or Cancellation(60000)
     if deps.mock() and item.task_id == 'mock-magnific-'+str(item.id):
         source=(item.submission_input or {}).get('source')
         if not source:
@@ -383,7 +383,7 @@ def advance_magnific_video(item, *, signal=None, owner=None, dependencies=None):
         raise ValueError('Generation is not a Magnific video job.')
     if item.status in ('succeeded', 'failed', 'cancelled'):
         return {'kind': item.status, 'item': item}
-    deps, signal = dependencies or Dependencies(signal=signal), signal or Cancellation(60000)
+    deps, signal = dependencies or Dependencies(), signal or Cancellation(60000)
     source = (item.submission_input or {}).get('source')
     if deps.mock() and item.task_id == 'mock-magnific-'+str(item.id):
         if not source:
@@ -415,7 +415,7 @@ def advance(item, *, source='cron', signal=None, owner=None, provider=None, call
         return {'kind': item.status, 'item': item}
     if not item.task_id:
         return {'kind': 'pending', 'item': item}
-    deps = dependencies or Dependencies(signal=signal)
+    deps = dependencies or Dependencies(signal=signal if source == 'worker' else None)
     signal = signal or Cancellation(900000 if is_provider_model(item.model, 'omnihuman') else 60000)
     provider = dict(provider or {})
     if callback_received_at:
