@@ -65,7 +65,8 @@ class PinnedHTTPSConnection(http.client.HTTPSConnection):
         if guard is not None:
             guard.check()
             self.timeout = min(self.timeout,max(.001,guard.deadline-time.monotonic()))
-        raw = socket.create_connection((self.address,443),self.timeout)
+        raw = socket.create_connection((self.address,443),min(10,self.timeout))
+        raw.settimeout(self.timeout)
         try:
             if guard is not None:
                 guard.bind(raw)
@@ -105,7 +106,7 @@ class SafeMediaFetcher:
             budget = deadline - self.clock()
             if budget <= 0:
                 raise TimeoutError('Provider media download exceeded its total deadline.')
-            return budget if self.signal else min(self.timeout, budget)
+            return min(self.timeout, budget)
         for _ in range(self.max_redirects+1):
             def resolve(*args,**kwargs):
                 return self.dns.resolve(self.resolver,*args,timeout=remaining(),signal=self.signal,**kwargs)

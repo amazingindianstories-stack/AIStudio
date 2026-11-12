@@ -83,8 +83,8 @@ class ProviderPersistenceTests(SimpleTestCase):
         writer.close()
         guards = []
         from apps.integrations.request_deadline import SocketDeadline
-        def guard(deadline):
-            result = SocketDeadline(deadline)
+        def guard(deadline, **kwargs):
+            result = SocketDeadline(deadline, **kwargs)
             guards.append(result)
             return result
         class Connection(PinnedHTTPSConnection):
@@ -112,8 +112,8 @@ class ProviderPersistenceTests(SimpleTestCase):
         reader,writer = socket.socketpair()
         timers = []
         from apps.integrations.request_deadline import SocketDeadline
-        def guard(deadline):
-            result = SocketDeadline(deadline)
+        def guard(deadline, **kwargs):
+            result = SocketDeadline(deadline, **kwargs)
             timers.append(result.timer)
             return result
         began = time.monotonic()

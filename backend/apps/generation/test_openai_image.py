@@ -443,8 +443,7 @@ class WorkerDeadlineTests(SimpleTestCase):
             self.assertEqual(worker.handle_generation(SimpleNamespace(id='fixture', model=model), process, Event()), 'done')
         return seen[0]
 
-    def test_openai_jobs_outlive_reference_assembly_plus_the_full_post_timeout(self):
-        self.assertEqual(openai_image.WORKER_DEADLINE_MS, 1800000)
+    def test_every_model_gets_the_thirty_minute_started_work_budget(self):
         for name, identifier, _ in MODELS:
             for model in (name, identifier):
                 with self.subTest(model=model):

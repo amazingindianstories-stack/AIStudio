@@ -113,9 +113,9 @@ class HiggsfieldTransport(HttpTransport):
         def resolve(*args, **kwargs):
             import socket
             return MEDIA_RESOLVER.resolve(socket.getaddrinfo, *args,
-                timeout=signal.remaining() if signal else 60, signal=signal, **kwargs)
+                timeout=min(60,signal.remaining()) if signal else 60, signal=signal, **kwargs)
         host,address,path = validated_target(url,self.hosts,resolve)
-        timeout = signal.remaining() if signal else 60
+        timeout = min(60,signal.remaining()) if signal else 60
         connection = PinnedHTTPSConnection(host,address,timeout)
         raw = json.dumps(body,separators=(',',':')).encode() if isinstance(body,(dict,list)) else body
         guard = SocketDeadline(time.monotonic() + timeout, signal=signal)

@@ -4,7 +4,7 @@ import os
 import re
 from apps.generation.model_registry import model_definition
 from apps.generation import provider_errors
-from apps.generation.services.deadline import Cancellation
+from apps.generation.services.deadline import Cancellation, QUEUE_EXECUTION_DEADLINE_MS
 from apps.integrations.transport import HttpTransport, ProviderError, required_key
 
 API_ROOT = 'https://generativelanguage.googleapis.com/v1beta'
@@ -84,7 +84,8 @@ def generate_image(input, *, transport=None, env=None, signal=None):
     key = required_key(env, 'GOOGLE_API_KEY')
     url = endpoint(input.get('modelDisplay'))
     body = build_payload(input)
-    transport = transport or HttpTransport(allowed_hosts=['generativelanguage.googleapis.com'])
+    transport = transport or HttpTransport(allowed_hosts=['generativelanguage.googleapis.com'],
+        timeout=QUEUE_EXECUTION_DEADLINE_MS // 1000)
     signal = signal or Cancellation()
     signal.check()
     response = transport.request('POST', url,

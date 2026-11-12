@@ -76,7 +76,8 @@ def connect_socket(connection, guard):
             source.close()
             last = error
     if last is not None:
-        raise last
+        raise ProviderError('Provider connection could not be established.', code='connect_failed',
+            may_have_submitted=False) from last
     raise OSError('Provider DNS returned no usable addresses.')
 
 

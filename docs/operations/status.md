@@ -818,8 +818,9 @@ acting on any of them.
 
 Generation hard deadline change (local branch, not deployed): all started generation
 worker operations share a 30-minute budget across provider I/O and result download.
-Provider transport and media reads use the remaining budget and cooperative socket
-cancellation. Receipt-less stale recovery grants 31 minutes and still excludes live
+Synchronous paid submits (Seedream, Gemini, OpenAI) and result downloads may use the
+remaining budget; connects stay within 10 seconds and fail as unsubmitted, and status polls
+and per-read download idle keep their per-request caps. Socket cancellation is cooperative. Receipt-less stale recovery grants 31 minutes and still excludes live
 leases; admission/queue snapshots count these running rows throughout. Runtime audit
 REL-03 now checks survival beyond 270 seconds and expiry at 30 minutes. The diagnostic
 code remains `queue_execution_deadline`; public copy attributes expiry to our time limit.

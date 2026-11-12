@@ -46,7 +46,7 @@ class HttpTransport:
             raise ProviderError('Provider endpoint is not an approved HTTPS host.', code='invalid_provider_endpoint')
         if signal:
             signal.check()
-        timeout = signal.remaining() if signal else self.timeout
+        timeout = min(self.timeout, signal.remaining()) if signal else self.timeout
         if raw_body is not None and body is not None:
             raise ValueError('body and raw_body are mutually exclusive')
         content = {'data': raw_body} if raw_body is not None else {'json': body}
@@ -60,7 +60,7 @@ class HttpTransport:
                     session.trust_env = False
                     session.mount('https://', deadline_adapter(guard))
                     with session.request(method, url, headers=headers, **content,
-                            allow_redirects=False, timeout=(timeout, timeout), stream=True) as response:
+                            allow_redirects=False, timeout=(min(10, timeout), timeout), stream=True) as response:
                         guard.check()
                         result = HttpResult(response.status_code,
                             self._read_body(response, deadline, signal), dict(response.headers))

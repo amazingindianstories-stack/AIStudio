@@ -77,21 +77,19 @@ def flagged_check(actor_id):
 
 
 def deadline_check():
-    from apps.generation.services.deadline import settle_queue_execution, Cancellation, QueueExecutionDeadlineError
-    from unittest.mock import patch
-    from apps.generation.worker import execution_deadline_ms
-    for model in ('Seedream 5.0 Pro', 'Nano Banana Pro', 'GPT Image 2.5 Sunburst', 'OmniHuman 2.0'):
-        with patch('time.monotonic', return_value=0):
-            signal = Cancellation(execution_deadline_ms(model))
-        with patch('time.monotonic', return_value=300):
-            signal.check()
-        with patch('time.monotonic', return_value=1800):
-            try:
-                signal.check()
-            except QueueExecutionDeadlineError:
-                pass
-            else:
-                raise AssertionError('started-work hard deadline was not enforced')
+    import time
+    from threading import Event
+    from apps.generation.services.deadline import settle_queue_execution, QueueExecutionDeadlineError
+    from apps.generation.worker import WorkerCancellation
+    signal = WorkerCancellation(Event())
+    assert signal.timeout_ms == 1800000 and signal.remaining() > 270, 'started work does not outlive 270 s'
+    signal.deadline = time.monotonic()
+    try:
+        signal.check()
+    except QueueExecutionDeadlineError as error:
+        assert error.code == 'queue_execution_deadline', 'started-work hard deadline reported the wrong code'
+    else:
+        raise AssertionError('started-work hard deadline was not enforced')
     with transaction.atomic():
         row = generation()
         def failed(error):

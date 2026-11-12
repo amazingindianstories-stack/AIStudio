@@ -77,16 +77,11 @@ def handle_cancel(identifier, stop):
         connections.close_all()
 
 
-def execution_deadline_ms(model):
-    """One budget for provider work and result download across every model."""
-    return QUEUE_EXECUTION_DEADLINE_MS
-
-
 def handle_generation(item, process, stop):
     try:
         if stop.is_set():
             return 'stopped'
-        cancellation = WorkerCancellation(stop, timeout_ms=execution_deadline_ms(item.model))
+        cancellation = WorkerCancellation(stop)
         cancellation.check()
         return process(item.id, owner='python-generation:' + str(uuid4()), signal=cancellation)['kind']
     except Exception:

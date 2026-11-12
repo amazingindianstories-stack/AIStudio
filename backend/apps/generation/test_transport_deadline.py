@@ -111,7 +111,7 @@ class ProviderResponseDeadlineTests(SimpleTestCase):
             cancel.join()
         self.assertLess(time.monotonic() - start, .7)
 
-    def test_transport_uses_remaining_job_budget_for_slow_started_post(self):
+    def timeouts(self, method, transport_timeout, elapsed):
         from apps.generation.services.deadline import Cancellation
         clock = [0.0]
         with patch('time.monotonic', side_effect=lambda: clock[0]), patch('requests.Session') as factory:
@@ -120,11 +120,49 @@ class ProviderResponseDeadlineTests(SimpleTestCase):
             response = session.request.return_value.__enter__.return_value
             response.status_code, response.headers = 200, {}
             def read(*args):
-                clock[0] = 300
+                clock[0] = elapsed
                 return b'master'
-            transport = HttpTransport(allowed_hosts=['fixture.invalid'], timeout=60)
+            transport = HttpTransport(allowed_hosts=['fixture.invalid'], timeout=transport_timeout)
             with patch.object(transport, '_read_body', side_effect=read):
-                result = transport.request('POST', 'https://fixture.invalid/paid', signal=signal)
+                result = transport.request(method, 'https://fixture.invalid/work', signal=signal)
             self.assertEqual(result.body, b'master')
-            self.assertEqual(session.request.call_args.kwargs['timeout'], (1800, 1800))
             session.request.assert_called_once()
+            return session.request.call_args.kwargs['timeout']
+
+    def test_started_paid_post_reads_for_the_remaining_job_budget(self):
+        from apps.generation.providers import openai_image, seedream
+        self.assertEqual(self.timeouts('POST', seedream.SEEDREAM_TIMEOUT_SECONDS, 300), (10, 1800))
+        self.assertEqual(self.timeouts('POST', openai_image.TIMEOUT_SECONDS, 300), (10, 1800))
+
+    def test_status_poll_keeps_its_per_request_cap_inside_the_job_budget(self):
+        self.assertEqual(self.timeouts('GET', 60, 30), (10, 60))
+
+    def test_hanging_connect_fails_in_ten_seconds_as_an_unsubmitted_request(self):
+        from apps.generation.services.deadline import Cancellation, QueueExecutionDeadlineError
+        from apps.generation.services.executor import submission_uncertain
+        timeouts = []
+        class Socket:
+            def __init__(self, *args):
+                pass
+            def dup(self):
+                return Socket()
+            def settimeout(self, value):
+                timeouts.append(value)
+            def connect(self, address):
+                raise socket.timeout('timed out')
+            def setsockopt(self, *args):
+                pass
+            def shutdown(self, *args):
+                pass
+            def close(self):
+                pass
+        address = [(socket.AF_INET, socket.SOCK_STREAM, 6, '', ('203.0.113.1', 443))]
+        with patch('apps.integrations.request_deadline.RESOLVER.resolve', return_value=address), \
+                patch('apps.integrations.request_deadline.socket.socket', Socket):
+            with self.assertRaises(ProviderError) as failure:
+                HttpTransport(allowed_hosts=['fixture.invalid'], timeout=1800).request(
+                    'POST', 'https://fixture.invalid/paid', body={'prompt': 'fixture'}, signal=Cancellation())
+        self.assertNotIsInstance(failure.exception, QueueExecutionDeadlineError)
+        self.assertEqual(failure.exception.code, 'connect_failed')
+        self.assertFalse(submission_uncertain(failure.exception))
+        self.assertEqual(timeouts, [10])

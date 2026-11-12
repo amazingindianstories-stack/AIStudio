@@ -220,6 +220,28 @@ class PollerTests(TransactionTestCase):
         self.assertEqual((outcome['kind'], outcome['item'].error), ('failed', poller.MAGNIFIC_SAVE_FAILED))
         self.assertEqual(saved, [])
 
+    def test_request_path_without_a_signal_keeps_short_status_and_download_budgets(self):
+        from apps.media.errors import MediaTooLargeError
+        budgets, fetchers = [], []
+        def status(result):
+            return staticmethod(lambda *args, signal, **kwargs: budgets.append(signal.timeout_ms) or result)
+        def fetcher(**kwargs):
+            fetchers.append(kwargs)
+            def fetch(url):
+                raise MediaTooLargeError('fixture')
+            return fetch
+        with patch.object(poller.Dependencies, 'mock', staticmethod(lambda: False)), \
+                patch.object(poller.Dependencies, 'publish', staticmethod(lambda item: None)), \
+                patch.object(poller.Dependencies, 'get_magnific', status({'status': 'succeeded', 'generatedUrl': 'https://fixture.invalid/x.png'})), \
+                patch.object(poller.Dependencies, 'get_video', status({'status': 'running'})), \
+                patch.object(poller.Dependencies, 'get_omnihuman', status({'status': 'running'})), \
+                patch('apps.generation.services.poller.get_media_fetcher', fetcher):
+            self.assertEqual(poller.advance_magnific(self.job(kind='image', model='Magnific Creative'))['kind'], 'failed')
+            poller.advance(self.job())
+            poller.advance(self.job(model='OmniHuman 2.0', submitted_at=9999999999999))
+        self.assertEqual(budgets, [60000, 60000, 900000])
+        self.assertEqual(fetchers, [{'signal': None}])
+
     def test_magnific_image_download_stops_at_its_cap_while_streaming(self):
         import contextlib
         from apps.integrations.remote import SafeMediaFetcher
