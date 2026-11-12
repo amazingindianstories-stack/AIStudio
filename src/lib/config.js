@@ -252,13 +252,13 @@ export function imageBackgroundFor(model, value) {
   return imageBackgroundsForModel(model).includes(value) ? value : DEFAULT_IMAGE_BACKGROUND;
 }
 
-/** The exact GPT Image 2.5 size a tier sends at this aspect ratio (registry
+/** The exact GPT Image size a tier sends at this aspect ratio (registry
  *  `imageSizes`); null for every other model. */
 export function imageSizeFor(model, aspectRatio, resolution) {
   return capability(model, "imageSizes", null)?.[aspectRatio]?.[resolution] ?? null;
 }
 
-/** A resolution as the picker shows it: GPT Image 2.5 names the exact pixels
+/** A resolution as the picker shows it: GPT Image names the exact pixels
  *  sent, e.g. "2K · 2048x2048"; other models show the plain resolution. */
 export function resolutionLabel(model, aspectRatio, resolution) {
   const size = imageSizeFor(model, aspectRatio, resolution);

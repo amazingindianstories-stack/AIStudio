@@ -14,7 +14,7 @@ ALWAYS = ['seedream-5-pro', 'nano-banana-pro', 'nano-banana-2-1', 'seedance', 's
 SWITCHED = {'omnihuman': ['omnihuman-2'], 'kling': ['kling-image-3', 'kling-image-21'], 'omni': ['gemini-omni-1-1-flash'],
             'magnific': ['magnific-creative', 'magnific-precision-v2', 'magnific-precision-v1', 'magnific-video-creative',
                          'magnific-video-creative-turbo', 'magnific-video-precision', 'magnific-video-topaz'],
-            'openai': ['gpt-image-2-5-sunburst', 'gpt-image-2-5-flare']}
+            'openai': ['gpt-image-2-5-sunburst', 'gpt-image-2-5-flare', 'gpt-image-2-6-sunburst', 'gpt-image-2-6-flare']}
 ALL_OFF = {'VEEVEE_OMNIHUMAN': False, 'VEEVEE_KLING': False, 'VEEVEE_GEMINI_OMNI': False, 'VEEVEE_MAGNIFIC_UPSCALE': False,
            'VEEVEE_OPENAI_IMAGE': False}
 ALL_ON = {name: True for name in ALL_OFF}

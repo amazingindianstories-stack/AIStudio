@@ -11,7 +11,9 @@ import {
 } from "./config";
 import { capability } from "./model-registry";
 
-const GPT_IMAGE = ["GPT Image 2.5 Sunburst", "GPT Image 2.5 Flare"];
+const GPT_IMAGE_25 = ["GPT Image 2.5 Sunburst", "GPT Image 2.5 Flare"];
+const GPT_IMAGE_26 = ["GPT Image 2.6 Sunburst", "GPT Image 2.6 Flare"];
+const GPT_IMAGE = [...GPT_IMAGE_25, ...GPT_IMAGE_26];
 
 function withStore(patch, run) {
   const previous = useStore.getState();
@@ -44,7 +46,7 @@ async function sentBody(patch) {
 }
 
 test("GPT Image 2.5 offers five qualities, two backgrounds and exact sizes per tier; other models offer none", () => {
-  for (const model of GPT_IMAGE) {
+  for (const model of GPT_IMAGE_25) {
     assert.deepEqual(imageQualitiesForModel(model), ["low", "medium", "high", "xhigh", "max"]);
     assert.deepEqual(imageBackgroundsForModel(model), ["opaque", "transparent"]);
     assert.deepEqual(resolutionsForModel(model, "image"), ["1K", "2K", "4K"]);
@@ -154,4 +156,32 @@ test("the local draft keeps a GPT Image choice and drops it for a model without 
     } finally {
       globalThis.localStorage = previousStorage;
     }
+  }));
+
+
+test("2.6 offers only standard raster sizes and clamps a switch from 2.5 custom tiers", () => {
+  for (const model of GPT_IMAGE_26) {
+    assert.deepEqual(imageQualitiesForModel(model), ["low", "medium", "high", "xhigh", "max"]);
+    assert.deepEqual(imageBackgroundsForModel(model), ["opaque", "transparent"]);
+    assert.deepEqual(resolutionsForModel(model, "image"), ["1K"]);
+    assert.deepEqual(capability(model, "aspectRatios", []), ["1:1", "3:2", "2:3"]);
+    for (const [ratio, size] of [["1:1", "1024x1024"], ["3:2", "1536x1024"], ["2:3", "1024x1536"]]) {
+      assert.equal(imageSizeFor(model, ratio, "1K"), size);
+      assert.equal(resolutionLabel(model, ratio, "1K"), `1K · ${size}`);
+      assert.equal(isExperimentalImageSize(model, ratio, "1K"), false);
+      assert.equal(imageSizeFor(model, ratio, "2K"), null);
+      assert.equal(imageSizeFor(model, ratio, "4K"), null);
+    }
+    assert.equal(imageSizeFor(model, "16:9", "1K"), null);
+  }
+});
+
+test("switching from 2.5 to 2.6 normalizes unsupported ratio and tier and preserves image options", () =>
+  withStore({ mode: "image", model: "GPT Image 2.5 Flare", aspectRatio: "16:9", resolution: "4K", imageQuality: "max", imageBackground: "transparent" }, () => {
+    useStore.getState().setModel("GPT Image 2.6 Sunburst");
+    const state = useStore.getState();
+    assert.equal(state.resolution, "1K");
+    assert.ok(["1:1", "3:2", "2:3"].includes(state.aspectRatio));
+    assert.equal(state.imageQuality, "max");
+    assert.equal(state.imageBackground, "transparent");
   }));

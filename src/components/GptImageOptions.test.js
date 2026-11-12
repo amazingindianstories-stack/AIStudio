@@ -79,3 +79,14 @@ test("the resolution picker shows GPT Image 2.5's exact pixels and marks sizes a
     assert.deepEqual(render(model, "1:1"), { buttons: ["1K", "2K", "4K"], notes: [] });
   }
 });
+
+
+test("2.6 renders the standard PNG size without experimental tiers and offers all image options", () => {
+  for (const model of ["GPT Image 2.6 Sunburst", "GPT Image 2.6 Flare"]) {
+    const size = ssr(ResolutionSegment, { model, aspectRatio: "3:2", options: ["1K"], value: "1K", onChange() {} });
+    assert.match(size, /1K · 1536x1024/);
+    assert.doesNotMatch(size, /experimental|2K|4K/);
+    const options = ssr(ImageOptionsSettings, { s: { mode: "image", model, imageQuality: "high", imageBackground: "opaque" } });
+    for (const label of ["Low", "Medium", "High", "X-High", "Max", "Opaque", "Transparent"]) assert.ok(options.includes(label));
+  }
+});

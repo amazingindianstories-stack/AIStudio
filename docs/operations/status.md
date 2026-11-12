@@ -92,6 +92,34 @@ admins only); see agent-access.md, Who may connect. No migration: the run tables
 from `agents.0005_agent_runs` (#150). The Agents tab UI sends every message to a run (the synchronous
 `POST .../messages` path is removed), so the tab needs this worker deployed with the API.
 
+## Not deployed yet - OpenAI GPT Image 2.6 (branch `fm/veevee-openai-image-2-6`)
+
+GPT Image 2.6 Sunburst and Flare use the documented model strings `gpt-image-2.6-sunburst` and
+`gpt-image-2.6-flare`. OpenAI publishes no dated 2.6 snapshots (official model pages read 2026-11-12).
+Both share the existing `VEEVEE_OPENAI_IMAGE` switch and generation-only `OPENAI_API_KEY` handling below.
+The switch remains off by default; unavailable models are hidden from pickers and refused at submission.
+No environment change or deployment is included. Enabling the switch requires owner approval.
+
+The existing Images API generation/edit path requests one lossless PNG, with quality low, medium, high,
+xhigh or max (default high) and opaque or transparent background (default opaque). Only the three documented
+standard sizes are offered: 1024x1024 (1:1), 1536x1024 (3:2), 1024x1536 (2:3), all in the 1K tier.
+2.6 does not inherit 2.5's computed custom sizes or 2K/4K tiers. The paid guard pins the model string,
+size and output options; reference conversion and the 570-second worker deadline use the existing OpenAI path.
+
+Admin rows for each 2.6 model use the published per-million-token rates: $5 text input, $8 image input,
+$30 image output. The enqueue estimate uses the existing placeholder high-square base, scaled by pixels and
+quality; it is not a published per-image quote. Successful calls reconcile the charge from returned token usage
+and admin rates. Cached rates ($1.25 text, $2 image) are published but are not applied by this direct Images API
+integration. No migration. Complexity is omitted (provider default high); exposing it is a possible follow-up.
+SVG, animated GIF and markup-guided edits are outside this raster integration. 2.5 behavior is unchanged.
+No live OpenAI call has been made, so provider acceptance is not claimed.
+
+Sources read 2026-11-12: [Sunburst](https://developers.openai.com/api/docs/models/gpt-image-2.6-sunburst),
+[Flare](https://developers.openai.com/api/docs/models/gpt-image-2.6-flare),
+[Images API](https://developers.openai.com/api/reference/resources/images/methods/generate),
+[image guide](https://developers.openai.com/api/docs/guides/image-generation),
+[pricing](https://developers.openai.com/api/docs/pricing).
+
 ## Not deployed yet - OpenAI GPT Image 2.5 (branch `fm/veevee-openai-image-2-5`)
 
 GPT Image 2.5 Sunburst and Flare (`gpt-image-2.5-sunburst-2026-09-08`, `gpt-image-2.5-flare-2026-09-08`) are image
