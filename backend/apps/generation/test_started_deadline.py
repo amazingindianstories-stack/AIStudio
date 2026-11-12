@@ -93,3 +93,14 @@ class StartedDeadlineTests(TransactionTestCase):
                 SimpleNamespace(model='Seedream 5.0 Pro', task_id=None)))
         self.assertTrue(generation_item(row)['error'].startswith(INTERRUPTED))
         self.assertNotIn('30-minute', generation_item(row)['error'])
+
+    def test_earlier_deadline_and_shutdown_rows_keep_their_original_copy(self):
+        from .failure_copy import INTERRUPTED
+        from .services.deadline import QueueExecutionDeadlineError
+        record = {'source': 'veevee', 'provider': 'seedream', 'code': 'queue_execution_deadline'}
+        for error in ('Generation exceeded the 270-second internal deadline. It may still have been accepted by the provider.',
+                      str(QueueExecutionDeadlineError(60000)), INTERRUPTED):
+            with self.subTest(error=error):
+                row = Generation(kind='image', model='Seedream 5.0 Pro', status='failed', error=error,
+                    provider_responses=[record])
+                self.assertNotIn('30-minute', generation_item(row)['error'])

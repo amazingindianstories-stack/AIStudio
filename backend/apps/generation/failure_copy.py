@@ -173,9 +173,6 @@ def public_message(row, diagnostic):
     from . import provider_errors
     entry = provider_errors.primary(getattr(row, 'provider_responses', None))
     from .providers import omnihuman
-    if entry and entry.get('source') == 'veevee' and entry.get('code') == 'queue_execution_deadline':
-        detail = provider_errors.user_detail(entry)
-        return TIME_LIMIT + (' ' + detail if detail else '')
     sentence = (omnihuman.ERROR_COPY.get(entry.get('code')) if entry and entry.get('provider') == 'omnihuman' else None) or _sentence(row, diagnostic)
     if (provider_errors.provider_for_model(row.model) == 'omnihuman' and
             any(isinstance(record, dict) and record.get('uncertainSubmission') is True
@@ -196,7 +193,8 @@ def _sentence(row, diagnostic):
     if not isinstance(diagnostic, str) or not diagnostic.strip():
         return GENERIC[kind]
     text = diagnostic.strip()
-    if text.startswith('Our generation time limit of '):
+    from .services.deadline import QueueExecutionDeadlineError
+    if text.startswith(str(QueueExecutionDeadlineError())):
         return TIME_LIMIT
     exact, patterns = _curated()
     from .providers.seedance import MODERATION_MESSAGE

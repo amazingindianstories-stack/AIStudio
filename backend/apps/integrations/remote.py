@@ -19,7 +19,7 @@ from django.conf import settings
 
 
 class UnsafeMediaURL(ValueError):
-    pass
+    may_have_submitted = False
 
 
 # IPv6 ranges that carry an IPv4 address (mapped, compatible, NAT64, 6to4, Teredo); refused outright.
