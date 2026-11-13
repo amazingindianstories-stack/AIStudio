@@ -199,8 +199,15 @@ Always confirm the applied start command in the new deployment's `meta.serviceMa
    from the same commit the same way before it serves again. The API and agent tools are unavailable for that pause. Promote the frontend that reads payloads
    lazily only after the new API serves: against the old API it would save format objects without
    their payloads. Later releases use the overlap above.
-2. **Generation worker** (overlap 0, drain 120 s): only with no queued/running jobs. Verify the
-   startup log reaches the worker loop (preflight passed) and the next real job is claimed once.
+2. **Generation worker** (overlap 0, drain 120 s): only with no queued/running jobs.
+   Started provider work and its result download share a 30-minute hard deadline. A deploy or
+   restart interrupts jobs still within their 30 minutes: SIGTERM cooperatively cancels local
+   I/O, and Railway's 120-second drain does not grant a 30-minute render window. Let the queue
+   empty before restarting; synchronous providers may still finish and bill interrupted work.
+   The stable `queue_execution_deadline` code now says our time limit was reached, rather than
+   claiming a dropped provider connection. Receipt-less orphan recovery waits 31 minutes and
+   excludes live leases; accepted provider task receipts remain recoverable without resubmission.
+   Verify the startup log reaches the worker loop (preflight passed) and the next real job is claimed once.
 3. **Export worker**, then **scheduler**: verify startup, then an export ZIP (filenames, MOV
    bytes) and the scheduler lease.
    **Agent worker** (new service, `agent`, overlap 0, no health check or domain; stage it with

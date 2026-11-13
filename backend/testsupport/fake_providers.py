@@ -576,7 +576,7 @@ class FakeProviders:
         self._stack.enter_context(patch('apps.integrations.transport.HttpTransport._send', request))
         for target in ('apps.integrations.remote.get_media_fetcher', 'apps.media.persistence.get_media_fetcher',
                        'apps.generation.services.poller.get_media_fetcher', 'apps.generation.services.image_execution.get_media_fetcher'):
-            self._stack.enter_context(patch(target, lambda: fake.fetch))
+            self._stack.enter_context(patch(target, lambda **kwargs: fake.fetch))
         return self
 
     def __exit__(self, *exc):

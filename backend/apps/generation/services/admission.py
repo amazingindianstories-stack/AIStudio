@@ -9,6 +9,7 @@ from apps.common.leases import now_ms
 from apps.generation.models import Generation
 from apps.generation.serialization import generation_item
 from .queue_snapshot import SQL as SNAPSHOT_SQL
+from .deadline import QUEUE_EXECUTION_DEADLINE_MS
 
 MAX_CONCURRENT = {'image': 10, 'video': 8, 'text': 4}    # running jobs across everyone
 PER_USER_DEFAULT = PER_USER_MAX = 8                # maxConcurrentJobs: running image/video/text jobs per user
@@ -104,7 +105,7 @@ def affordable(item, current, best_of):
 
 def reap_stale_running_images(*, now=None):
     now = now_ms() if now is None else now
-    return Generation.objects.filter(status='running', updated_at__lt=now - 420000, task_id__isnull=True).filter(
+    return Generation.objects.filter(status='running', updated_at__lt=now - QUEUE_EXECUTION_DEADLINE_MS - 60000, task_id__isnull=True).filter(
         Q(worker_lease_until__isnull=True) | Q(worker_lease_until__lte=now)).filter(
         Q(kind__in=('image', 'video', 'text'))).update(
         status='failed', error='Generation timed out — the server process was interrupted.', updated_at=now)

@@ -104,7 +104,7 @@ The existing Images API generation/edit path requests one lossless PNG, with qua
 xhigh or max (default high) and opaque or transparent background (default opaque). Only the three documented
 standard sizes are offered: 1024x1024 (1:1), 1536x1024 (3:2), 1024x1536 (2:3), all in the 1K tier.
 2.6 does not inherit 2.5's computed custom sizes or 2K/4K tiers. The paid guard pins the model string,
-size and output options; reference conversion and the 570-second worker deadline use the existing OpenAI path.
+size and output options; reference conversion and the worker deadline use the existing OpenAI path.
 
 Admin rows for each 2.6 model use the published per-million-token rates: $5 text input, $8 image input,
 $30 image output. The enqueue estimate uses the existing placeholder high-square base, scaled by pixels and
@@ -136,8 +136,8 @@ are sent as PNG; one that cannot be converted fails the job before any request. 
 with exact sizes in `OPENAI_IMAGE_SIZES` (`apps/generation/model_registry.py`, mirrored in `src/lib/model-registry.js`)
 and the picker shows them (for example `2K · 2048x2048`). Only 1K at 1:1, 3:2 and 2:3 are OpenAI's documented sizes;
 every other size is computed from OpenAI's documented constraints, not from an OpenAI table. Sizes above 2560x1440
-pixels, which OpenAI calls experimental, are marked in the picker. These jobs get a 570-second worker deadline
-(reference assembly plus the 300-second request timeout). The enqueue estimate is the 1024x1024 high row scaled by the
+pixels, which OpenAI calls experimental, are marked in the picker. Reference assembly and the request share the
+generation worker's 30-minute started-work deadline. The enqueue estimate is the 1024x1024 high row scaled by the
 exact size's pixels and by quality; the charge is reconciled from the returned token usage at the admin
 per-million-token rows (`GPT Image 2.5 <name> · text input / image input / image output`). No migration.
 No live OpenAI call has been made, so provider acceptance is not claimed.
@@ -814,3 +814,26 @@ acting on any of them.
 | ARCH-07 | Admin dashboard component is oversized | deferred | 2026-08-25 |
 | QUAL-01 | Video scaffolding is reasoned, not bake-off measured | open | 2026-08-18 |
 | QUAL-02 | Eval harness has no fixtures or CI gate | open | 2026-08-18 |
+
+
+Generation hard deadline change (local branch, not deployed): all started generation
+worker operations share a 30-minute budget across provider I/O and result download.
+Synchronous paid submits (Seedream, Gemini, OpenAI) and worker result downloads may use the
+remaining budget (scheduler and API downloads keep their own fetch budgets); connects stay within 10 seconds and fail as unsubmitted, and status polls
+and per-read download idle keep their per-request caps. Socket cancellation is cooperative.
+Receipt-less stale recovery grants 31 minutes and still excludes live leases; admission/queue
+snapshots count these running rows throughout. Runtime audit
+REL-03 now checks survival beyond 270 seconds and expiry at 30 minutes. The diagnostic
+code remains `queue_execution_deadline`; public copy attributes expiry to our time limit.
+Cooperative interruption uses `queue_execution_cancelled` so shutdown does not falsely
+claim the 30-minute time limit elapsed.
+The Railway generation drain remains 120 seconds. A deploy or restart interrupts jobs
+still within their 30 minutes; release only after queued/running work has emptied.
+This is offline regression evidence only, with no live provider acceptance or release.
+
+Local validation: 92 targeted PostgreSQL tests passed for started deadlines, real
+socket/TLS/DNS cancellation, execution persistence, provider diagnostics, capacity,
+and worker shutdown. The broader generation/integration/admin suite exercised 656
+tests and exposed a DNS pre-submission flag regression, corrected and covered by
+that final passing targeted run. The undefined-name scan and `git diff --check`
+passed. These checks used disposable PostgreSQL and fake providers; no deploy ran.

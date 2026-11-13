@@ -31,10 +31,8 @@ DEFAULT_QUALITY, DEFAULT_BACKGROUND = 'high', 'opaque'
 REFERENCE_TYPES = frozenset({'image/png', 'image/jpeg', 'image/webp'})
 MAX_REFERENCE_EDGE = 2048
 MAX_DECODED_PIXELS = 8192 * 8192
-TIMEOUT_SECONDS = 300
-# The worker deadline for these jobs: the ordinary image budget for reference assembly (Gemini identity and role
-# analysis) plus the full POST timeout, so a slow 4K call is never cut off locally after OpenAI accepted it.
-WORKER_DEADLINE_MS = QUEUE_EXECUTION_DEADLINE_MS + TIMEOUT_SECONDS * 1000
+# A started paid POST may wait for the whole worker budget; the job signal bounds it.
+TIMEOUT_SECONDS = QUEUE_EXECUTION_DEADLINE_MS // 1000
 # A 3840x2160 PNG is tens of megabytes before base64; leave room above the transport default.
 MAX_RESPONSE_BYTES = 128 * 1024 * 1024
 # Rate limit and overload reject the request before any generation, so nothing was billed.

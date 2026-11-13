@@ -33,6 +33,22 @@ class HiggsfieldTests(SimpleTestCase):
         lease.persist_rotation.side_effect=persist
         return HiggsfieldClient(transport=transport or Mock(),storage=storage,lease=lease,env={},now=now or (lambda:2000),request_id=lambda:123)
 
+    def test_dns_failure_before_submit_is_reported_unsubmitted(self):
+        import socket
+        from apps.generation.providers.higgsfield import HiggsfieldTransport
+        from apps.generation.services.executor import submission_uncertain
+        from apps.integrations import remote
+        def unresolvable(*args, **kwargs):
+            raise socket.gaierror('fixture')
+        client = self.make_client(transport=HiggsfieldTransport())
+        with patch.object(remote.validated_target, '__defaults__', (unresolvable,)), \
+                patch.object(remote.PinnedHTTPSConnection, 'request') as sent:
+            with self.assertRaises(Exception) as caught:
+                client.call_tool('generate_image', {'prompt': 'fixture'})
+        sent.assert_not_called()
+        self.assertIs(caught.exception.may_have_submitted, False)
+        self.assertFalse(submission_uncertain(caught.exception))
+
     def test_node_generation_payload_goldens(self):
         for fixture in HIGGSFIELD_GOLDENS:
             with self.subTest(input=fixture['input']):

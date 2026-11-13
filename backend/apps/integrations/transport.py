@@ -54,7 +54,7 @@ class HttpTransport:
         # No retries on ambiguous POST failure and no redirect credential leak.
         # Session.trust_env=False also avoids checkout proxy/.netrc credentials.
         from .request_deadline import SocketDeadline, deadline_adapter
-        with SocketDeadline(deadline) as guard:
+        with SocketDeadline(deadline, signal=signal) as guard:
             try:
                 with requests.Session() as session:
                     session.trust_env = False
@@ -67,6 +67,8 @@ class HttpTransport:
                         guard.check()
                         return result
             except Exception as error:
+                if signal:
+                    signal.check()
                 if guard.expired.is_set() or time.monotonic() >= deadline:
                     raise ProviderError('Provider request deadline exceeded.', code='request_deadline',
                         may_have_submitted=getattr(error,'may_have_submitted',True)) from error

@@ -4,7 +4,6 @@ import io
 import math
 import os
 import re
-import time
 from urllib.parse import quote, urlsplit
 
 from PIL import Image
@@ -190,14 +189,12 @@ def resolve_image(task_id, **options):
     return {'status': 'running' if task.get('task_status') == 'submitted' else 'queued', 'task': task}
 
 
-def generate_image(input, *, timeout_ms=240000, poll_ms=3000, signal=None, **options):
+def generate_image(input, *, timeout_ms=1800000, poll_ms=3000, signal=None, **options):
     signal = signal or Cancellation(timeout_ms)
     task_id = submit_image(input, signal=signal, **options)
-    deadline = time.monotonic() + timeout_ms / 1000
-    while time.monotonic() < deadline:
+    while True:
+        signal.check()
         signal.wait(poll_ms)
         result = resolve_image(task_id, signal=signal, **options)
         if result['status'] == 'succeeded':
             return result
-    message = f'Kling task {task_id} did not finish within {math.floor(timeout_ms / 1000 + .5)}s.'
-    raise ProviderError(message, provider_response=provider_errors.local('kling', 'timeout', message, phase='timeout', task_id=task_id))

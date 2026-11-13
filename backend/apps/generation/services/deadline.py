@@ -3,7 +3,7 @@ import queue
 import threading
 import time
 
-QUEUE_EXECUTION_DEADLINE_MS = 270000
+QUEUE_EXECUTION_DEADLINE_MS = 30 * 60 * 1000
 WORK_CAPACITY = threading.BoundedSemaphore(2)
 
 
@@ -19,7 +19,14 @@ class QueueExecutionDeadlineError(TimeoutError):
 
     def __init__(self, timeout_ms=QUEUE_EXECUTION_DEADLINE_MS):
         import math
-        super().__init__(f'Generation exceeded the {math.ceil(timeout_ms / 1000)}-second internal deadline.')
+        super().__init__(f'Our generation time limit of {math.ceil(timeout_ms / 1000)} seconds was reached before the result arrived.')
+
+
+class QueueExecutionCancelledError(QueueExecutionDeadlineError):
+    code = 'queue_execution_cancelled'
+
+    def __init__(self):
+        TimeoutError.__init__(self, 'The server process was interrupted before this generation finished.')
 
 
 class Cancellation:
@@ -29,7 +36,9 @@ class Cancellation:
         self.cancelled = threading.Event()
 
     def check(self):
-        if self.cancelled.is_set() or time.monotonic() >= self.deadline:
+        if self.cancelled.is_set():
+            raise QueueExecutionCancelledError()
+        if time.monotonic() >= self.deadline:
             raise QueueExecutionDeadlineError(self.timeout_ms)
 
     def remaining(self):

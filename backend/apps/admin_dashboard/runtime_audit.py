@@ -77,7 +77,19 @@ def flagged_check(actor_id):
 
 
 def deadline_check():
-    from apps.generation.services.deadline import settle_queue_execution
+    import time
+    from threading import Event
+    from apps.generation.services.deadline import settle_queue_execution, QueueExecutionDeadlineError
+    from apps.generation.worker import WorkerCancellation
+    signal = WorkerCancellation(Event())
+    assert signal.timeout_ms == 1800000 and signal.remaining() > 270, 'started work does not outlive 270 s'
+    signal.deadline = time.monotonic()
+    try:
+        signal.check()
+    except QueueExecutionDeadlineError as error:
+        assert error.code == 'queue_execution_deadline', 'started-work hard deadline reported the wrong code'
+    else:
+        raise AssertionError('started-work hard deadline was not enforced')
     with transaction.atomic():
         row = generation()
         def failed(error):
@@ -87,7 +99,7 @@ def deadline_check():
         row.refresh_from_db()
         assert result=='failed' and row.status=='failed', 'terminal deadline state was not persisted before return'
         transaction.set_rollback(True)
-    return 'Python execution deadline persisted terminal state before return; all fixture writes rolled back'
+    return 'Python started work survived 270 s, expired at 30 minutes and persisted terminal state; fixture writes rolled back'
 
 
 def spool_check():

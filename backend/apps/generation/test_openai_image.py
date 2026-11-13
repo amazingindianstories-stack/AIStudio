@@ -443,13 +443,12 @@ class WorkerDeadlineTests(SimpleTestCase):
             self.assertEqual(worker.handle_generation(SimpleNamespace(id='fixture', model=model), process, Event()), 'done')
         return seen[0]
 
-    def test_openai_jobs_outlive_reference_assembly_plus_the_full_post_timeout(self):
-        self.assertEqual(openai_image.WORKER_DEADLINE_MS, 270000 + openai_image.TIMEOUT_SECONDS * 1000)
+    def test_every_model_gets_the_thirty_minute_started_work_budget(self):
         for name, identifier, _ in MODELS:
             for model in (name, identifier):
                 with self.subTest(model=model):
-                    self.assertEqual(self.deadline(model), 570000)
-        for model, deadline in (('OmniHuman 2.0', 900000), ('Nano Banana Pro', 270000), ('Seedream 5.0 Pro', 270000)):
+                    self.assertEqual(self.deadline(model), 1800000)
+        for model, deadline in (('OmniHuman 2.0', 1800000), ('Nano Banana Pro', 1800000), ('Seedream 5.0 Pro', 1800000)):
             with self.subTest(model=model):
                 self.assertEqual(self.deadline(model), deadline)
 
@@ -634,7 +633,7 @@ class Image26Tests(SimpleTestCase):
             self.assertNotIn('experimentalAbovePixels', capabilities)
             for model in (name, identifier):
                 self.assertIn(model, non_gemini_image_models())
-                self.assertEqual(WorkerDeadlineTests.deadline(self, model), 570000)
+                self.assertEqual(WorkerDeadlineTests.deadline(self, model), 1800000)
 
     def test_every_standard_size_quality_background_and_endpoint_matches_guard_and_request(self):
         for name, identifier, provider_id in MODELS_26:

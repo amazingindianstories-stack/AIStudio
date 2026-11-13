@@ -18,7 +18,8 @@ input to apply to the service instance immediately before ``railway up``.
 
 ``api`` and ``mcp`` serve HTTP: a readiness health check and a 20 s overlap while the old deployment drains.
 ``generation`` and ``agent`` overlap 0 (never two workers on one job or run); ``export`` and ``scheduler`` keep
-Railway's defaults. ``agent`` serves no HTTP, so it has no health check, port or domain.
+Railway's defaults. Generation's 120 s drain is not its 30-minute work deadline: deploy or restart
+interrupts still-running jobs, so drain the queue before deployment. ``agent`` serves no HTTP, so it has no health check, port or domain.
 ``--no-overlap`` (``api`` and ``mcp`` only) stages ``overlapSeconds`` 0 for a release that must not run the old
 and new image together (the runbook's no-overlap section); without it the staged settings are unchanged.
 """

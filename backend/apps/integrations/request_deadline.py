@@ -33,10 +33,17 @@ class BoundedResolver:
         except BaseException:
             self.capacity.release()
             raise
-        try:
-            succeeded,value = result.get(timeout=max(.001,guard.deadline-time.monotonic()))
-        except queue.Empty:
-            raise ProviderError('Provider DNS deadline exceeded.',code='request_deadline',may_have_submitted=False) from None
+        while True:
+            if guard.signal:
+                guard.signal.check()
+            if time.monotonic() >= guard.deadline:
+                raise ProviderError('Provider DNS deadline exceeded.', code='request_deadline', may_have_submitted=False)
+            guard.check()
+            try:
+                succeeded,value = result.get(timeout=max(.001,min(.1,guard.deadline-time.monotonic())))
+                break
+            except queue.Empty:
+                continue
         guard.check()
         if not succeeded:
             raise value
@@ -69,13 +76,17 @@ def connect_socket(connection, guard):
             source.close()
             last = error
     if last is not None:
-        raise last
+        raise ProviderError('Provider connection could not be established.', code='connect_failed',
+            may_have_submitted=False) from last
     raise OSError('Provider DNS returned no usable addresses.')
 
 
 class SocketDeadline:
-    def __init__(self, deadline):
+    def __init__(self, deadline, *, signal=None):
         self.deadline = deadline
+        self.signal = signal
+        self.stopped = threading.Event()
+        self.watcher = None
         self.expired = threading.Event()
         self.lock = threading.Lock()
         self.socket = None
@@ -83,6 +94,8 @@ class SocketDeadline:
         self.timer.daemon = True
 
     def check(self):
+        if self.signal:
+            self.signal.check()
         if self.expired.is_set() or time.monotonic() >= self.deadline:
             raise ProviderError('Provider request deadline exceeded.', code='request_deadline')
 
@@ -108,10 +121,23 @@ class SocketDeadline:
                     pass
 
     def __enter__(self):
+        if self.signal:
+            def watch():
+                while not self.stopped.wait(.1):
+                    try:
+                        self.signal.check()
+                    except Exception:
+                        self.expire()
+                        return
+            self.watcher = threading.Thread(target=watch, name='provider-cancellation', daemon=True)
+            self.watcher.start()
         self.timer.start()
         return self
 
     def __exit__(self, *_):
+        self.stopped.set()
+        if self.watcher:
+            self.watcher.join()
         self.timer.cancel()
         self.timer.join()
         with self.lock:

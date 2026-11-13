@@ -222,3 +222,33 @@ class SocketDeadlineTests(SimpleTestCase):
                         self.assertEqual(json.loads(requests_seen[0]),{'prompt':'fixture'})
                 finally:
                     left.close();right.close();thread.join(2)
+
+
+class DNSCancellationTests(SimpleTestCase):
+    def test_blocked_provider_and_media_dns_observe_cancellation_promptly(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from apps.integrations.request_deadline import BoundedResolver
+        from apps.integrations.dns import BoundedMediaResolver
+        from apps.generation.services.deadline import Cancellation, QueueExecutionDeadlineError
+        for media in (False, True):
+            with self.subTest(media=media):
+                started, release = threading.Event(), threading.Event()
+                signal = Cancellation()
+                def lookup(*args, **kwargs):
+                    started.set()
+                    release.wait(2)
+                    return []
+                resolver = BoundedMediaResolver(slots=1) if media else BoundedResolver(slots=1, lookup=lookup)
+                with SocketDeadline(signal.deadline, signal=signal) as guard, ThreadPoolExecutor(max_workers=1) as pool:
+                    future = pool.submit(resolver.resolve, lookup, 'fixture.invalid', 443,
+                        timeout=1800, signal=signal) if media else pool.submit(resolver.resolve, 'fixture.invalid', 443, guard)
+                    try:
+                        self.assertTrue(started.wait(1))
+                        start = time.monotonic()
+                        signal.cancelled.set()
+                        with self.assertRaises(QueueExecutionDeadlineError):
+                            future.result(timeout=.7)
+                        self.assertLess(time.monotonic() - start, .7)
+                        self.assertFalse(resolver.capacity.acquire(blocking=False))
+                    finally:
+                        release.set()
