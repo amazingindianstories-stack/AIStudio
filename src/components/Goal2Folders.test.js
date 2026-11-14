@@ -68,9 +68,9 @@ test("200 projects have an independent scrolling list and pinned action footer",
   await withDom(async ({ render }) => {
     useStore.setState({ projects: Array.from({ length: 200 }, (_, i) => ({ id: `p${i}`, name: `Project ${i}` })), activeProjectId: "p0" });
     await render(React.createElement(ProjectMenu, { close() {} }));
-    assert.equal(document.querySelectorAll('[role="menuitem"]') .length, 204);
+    assert.equal(document.querySelectorAll('[role="menuitem"]') .length, 205);
     const footer = document.querySelector('[data-testid="project-actions-footer"]');
-    assert.match(footer.textContent, /New project.*Rename current project.*Delete current project/);
+    assert.match(footer.textContent, /New project.*Rename current project.*Project access.*Delete current project/);
     assert.ok(footer.classList.contains("shrink-0"));
     const projectItem = Array.from(document.querySelectorAll('[role="menuitem"]')).find((node) => node.textContent === "Project 199");
     assert.ok(projectItem.parentElement.classList.contains("overflow-y-auto"));

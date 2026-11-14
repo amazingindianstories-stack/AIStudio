@@ -6,6 +6,13 @@ from apps.projects.models import Project
 from ..models import Folder
 
 
+def _scoped(user, rows, field='project_id'):
+    if user is None:
+        return rows
+    from apps.projects import visibility
+    return visibility.visible(user, rows, field)
+
+
 def brief(folder):
     return {'id': str(folder.id), 'name': folder.name, 'color': folder.color,
             'projectId': str(folder.project_id) if folder.project_id else None,
@@ -18,9 +25,9 @@ def full(folder):
             'updatedAt': folder.updated_at}
 
 
-def tree():
+def tree(user=None):
     """Every folder, nested: the global library's and each project's, by name."""
-    folders = list(Folder.objects.order_by('name'))
+    folders = list(_scoped(user, Folder.objects.order_by('name')))
     grouped = {}
     for folder in folders:
         key = str(folder.parent_id) if folder.parent_id else ('proj:'+str(folder.project_id) if folder.project_id else 'global:root')
@@ -36,15 +43,15 @@ def tree():
     return {'globalFolders': build('global:root'), 'projects': [
         {'id': str(project.id), 'name': project.name, 'brief': project.brief,
          'createdAt': project.created_at, 'updatedAt': project.updated_at,
-         'folders': build('proj:'+str(project.id))} for project in Project.objects.order_by('name')]}
+         'folders': build('proj:'+str(project.id))} for project in _scoped(user, Project.objects.order_by('name'), 'pk')]}
 
 
-def ancestry(folder_id):
+def ancestry(folder_id, user=None):
     """The folder and its ancestors, root first."""
     identifier, visited, breadcrumbs = folder_id, set(), []
     while identifier and identifier not in visited:
         visited.add(identifier)
-        folder = Folder.objects.filter(id=identifier).first()
+        folder = _scoped(user, Folder.objects.filter(id=identifier)).first()
         if folder is None:
             break
         breadcrumbs.insert(0, brief(folder))
@@ -52,9 +59,9 @@ def ancestry(folder_id):
     return {'breadcrumbs': breadcrumbs}
 
 
-def children(parent_id=None, project_id=None):
+def children(parent_id=None, project_id=None, user=None):
     """A folder's subfolders, or with no parent the top folders of a project (or of the global library), by name."""
-    query = Folder.objects.filter(parent_id=parent_id or None)
+    query = _scoped(user, Folder.objects.filter(parent_id=parent_id or None))
     if not parent_id:
         query = query.filter(project_id=project_id or None)
     return {'folders': [full(folder) for folder in query.order_by('name')]}

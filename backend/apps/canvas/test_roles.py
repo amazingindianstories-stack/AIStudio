@@ -335,7 +335,7 @@ class BoardRoleMigrationTests(TransactionTestCase):
                               ('canvas', '0007_canvasboardsave_changes'), ('canvas', '0008_customshapepack'),
                               ('canvas', '0009_work_records'), ('canvas', '0010_work_permissions'), ('canvas', '0011_work_relation_kinds'), ('canvas', '0012_boardmedia'), ('canvas', '0013_board_templates'), ('canvas', '0014_collaboration'), ('canvas', '0015_facilitation'), ('canvas', '0016_talktrack'),
                               ('canvas', '0017_sidekicks_flows'), ('canvas', '0018_boardcaption'), ('canvas', '0019_format_payloads'),
-                              ('projects', '0002_project_members')])
+                              ('projects', '0002_project_members'), ('projects', '0003_project_access')])
             executor.migrate(final)
             row = CanvasBoard.objects.get(pk=identifier)
             self.assertEqual((row.team_role, row.name, row.data, row.updated_at), ('edit', 'Legacy', {'nodes': []}, 2))

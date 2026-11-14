@@ -1,7 +1,7 @@
 """Single-submit Seedream image adapter and exact reference/dimension rules."""
 import os
 import re
-from apps.generation.model_registry import provider_model_id
+from apps.generation.model_registry import capability, model_definition, provider_model_id
 from apps.generation.references import asset_slugs, mention_indices, TAG, FLAGS, TOKEN_END, image_typo, reference_warnings
 from apps.generation import provider_errors
 from apps.integrations.transport import HttpTransport, ProviderError, required_key
@@ -17,14 +17,21 @@ SEEDREAM_SIZES = {
 }
 
 
-def seedream_size(resolution='2K', aspect_ratio='1:1'):
+DEFAULT_MODEL = 'seedream-5-pro'
+
+
+def seedream_name(model=None):
+    return (model_definition(model or DEFAULT_MODEL) or {}).get('name', 'Seedream 5.0 Pro')
+
+
+def seedream_size(resolution='2K', aspect_ratio='1:1', model=None):
     size = SEEDREAM_SIZES.get(resolution, {}).get(aspect_ratio)
     if size is None:
-        raise ValueError('Seedream 5.0 Pro requires 1K, 1.5K, or 2K and a supported aspect ratio.')
+        raise ValueError(f'{seedream_name(model)} requires 1K, 1.5K, or 2K and a supported aspect ratio.')
     return size
 
 
-def resolve_seedream_references(prompt, assets=None, uploads=None):
+def resolve_seedream_references(prompt, assets=None, uploads=None, model=None):
     assets = assets or []
     uploads = [] if uploads is None else uploads
     if not isinstance(uploads, list) or any(not isinstance(value, str) or not value for value in uploads):
@@ -52,7 +59,7 @@ def resolve_seedream_references(prompt, assets=None, uploads=None):
         names[group['tag']] = images
         legend.append(images + ': ' + group['role'])
     if len(references) > 10:
-        raise ValueError(f'Seedream 5.0 Pro accepts at most 10 resolved images; this prompt resolves to {len(references)}. Reduce uploads or named asset images.')
+        raise ValueError(f'{seedream_name(model)} accepts at most 10 resolved images; this prompt resolves to {len(references)}. Reduce uploads or named asset images.')
     rewritten = re.sub(r'@img([1-9][0-9]*)' + TOKEN_END, lambda m: names.get(f'img{int(m[1])}', m[0]), prompt, flags=FLAGS)
     rewritten = TAG.sub(lambda m: names.get(m[1].lower(), m[0]), rewritten)
     if legend:
@@ -70,10 +77,18 @@ def seedream_payload(input, env=None):
     references = input.get('references', [])
     if len(references) > 10:
         raise ValueError('Seedream accepts at most 10 references.')
-    payload = {'model': provider_model_id('seedream-5-pro', env), 'prompt': input['prompt'],
-               'size': seedream_size(input.get('resolution', '2K'), input.get('aspectRatio', '1:1')),
+    model = input.get('model') or DEFAULT_MODEL
+    payload = {'model': provider_model_id(model, env), 'prompt': input['prompt'],
+               'size': seedream_size(input.get('resolution', '2K'), input.get('aspectRatio', '1:1'), model),
                'response_format': 'url', 'output_format': 'png', 'watermark': False,
                'optimize_prompt_options': {'mode': 'standard'}}
+    backgrounds = capability(model, 'backgrounds', [])
+    if backgrounds:
+        # Only models that document `background` take it; transparent needs PNG output, which is always sent.
+        background = input.get('background') or 'opaque'
+        if background not in backgrounds:
+            raise ValueError(f'{seedream_name(model)} background must be {" or ".join(backgrounds)}.')
+        payload['background'] = background
     if references:
         payload['image'] = references
     return payload
@@ -83,6 +98,7 @@ def _generate_image(input, *, transport=None, env=None, signal=None, fetcher=Non
     env = os.environ if env is None else env
     key = required_key(env, 'ARK_API_KEY', 'Seedream is not configured: ARK_API_KEY is missing or redacted.')
     payload = seedream_payload(input, env)
+    name = seedream_name(input.get('model'))
     # Seedream renders can take minutes; the default 60 s timeout cut off accepted work.
     transport = transport or HttpTransport(allowed_hosts=['ark.ap-southeast.bytepluses.com'], timeout=SEEDREAM_TIMEOUT_SECONDS)
     endpoint = env.get('ARK_BASE_URL', 'https://ark.ap-southeast.bytepluses.com/api/v3').rstrip('/')
@@ -104,7 +120,7 @@ def _generate_image(input, *, transport=None, env=None, signal=None, fetcher=Non
         result = None
     if not response.ok or (result or {}).get('error'):
         code = re.sub(r'[^a-zA-Z0-9_.-]', '', str(((result or {}).get('error') or {}).get('code', 'provider_error')))[:100]
-        message = ('Enable Seedream 5.0 Pro in this account’s ModelArk console.' if code == 'ModelNotOpen' else
+        message = (f'Enable {name} in this account’s ModelArk console.' if code == 'ModelNotOpen' else
                    'Seedream rate limit reached. Try again later.' if response.status == 429 else
                    'Seedream authentication or model access failed.' if response.status in (401, 403) else
                    'Seedream rejected the request. Check reference files and content requirements.')

@@ -53,6 +53,27 @@ MODEL_REGISTRY = [{'id': 'seedream-5-pro',
                    'maxReferenceImages': 10,
                    'seed': False,
                    'imagePriceScalesWithResolution': False}},
+ # docs.byteplus.com/en/docs/modelark/seedream-5-5 and /image-generation-api (read 2026-11-14): one synchronous
+ # images/generations call per job. Text-to-image, single and multi-reference (up to 10) image-to-image, native RGBA
+ # (background transparent with PNG output) and multi-turn editing (the previous output as the next reference) all share
+ # this single-image request. Sequential group output, web search and streaming are not offered for 5.5, and layer
+ # decomposition returns up to 100 images per request, which a one-image job cannot store, so it is not offered here.
+ {'id': 'seedream-5-5',
+  'name': 'Seedream 5.5',
+  'kind': 'image',
+  'provider': 'seedream',
+  'providerModelId': 'dola-seedream-5-5-261028',
+  'providerModelEnv': 'SEEDREAM_55_MODEL',
+  'offered': True,
+  'badge': 'NEW',
+  'hint': 'Consistent multi-turn edits, native transparent PNG · up to 10 references · 1K/1.5K/2K',
+  'pricingKey': 'Seedream 5.5',
+  'capabilities': {'aspectRatios': ['1:1', '3:4', '4:3', '9:16', '16:9', '3:2', '2:3', '21:9'],
+                   'resolutions': ['1K', '1.5K', '2K'],
+                   'maxReferenceImages': 10,
+                   'backgrounds': ['opaque', 'transparent'],
+                   'seed': False,
+                   'imagePriceScalesWithResolution': False}},
  {'id': 'nano-banana-pro',
   'name': 'Nano Banana Pro',
   'kind': 'image',

@@ -115,7 +115,18 @@ def image_input(body, user_id):
     validate_prompt(item['prompt'],user_id)
     if is_provider_model(model,'openai'):
         item['submissionInput'] = validate_openai_image(item, body)
+    elif capability(model,'backgrounds',[]):
+        item['submissionInput'] = validate_seedream_background(item, body)
     return clean(item)
+
+
+def validate_seedream_background(item, body):
+    """Seedream 5.5 takes an opaque or transparent background (opaque when not sent), stored as the job's submission input."""
+    name, backgrounds = model_definition(item['model'])['name'], capability(item['model'],'backgrounds',[])
+    background = body.get('imageBackground', 'opaque')
+    if background not in backgrounds:
+        raise InvalidRequest(f'{name} background must be {" or ".join(backgrounds)} (got {string(background)}).')
+    return {'background': background}
 
 
 def validate_openai_image(item, body):
@@ -219,8 +230,8 @@ def prepare_image(item, body, identifier, user_id):
     reference_count = None
     if is_provider_model(item['model'],'seedream'):
         try:
-            seedream_size(item.get('resolution','2K'),item['aspectRatio'])
-            resolved = resolve_seedream_references(item['prompt'],assets(),references if references is not None else [])
+            seedream_size(item.get('resolution','2K'),item['aspectRatio'],item['model'])
+            resolved = resolve_seedream_references(item['prompt'],assets(),references if references is not None else [],item['model'])
             if resolved['references']:
                 require_native_image_runtime()
         except ValueError as error:
@@ -228,7 +239,7 @@ def prepare_image(item, body, identifier, user_id):
         # Storage failures are internal errors, not public input validation.
         references = save_reference_images(references if references is not None else [],identifier)
         try:
-            resolved = resolve_seedream_references(item['prompt'],assets(),references)
+            resolved = resolve_seedream_references(item['prompt'],assets(),references,item['model'])
             reference_count = len(resolved['references'])
             prepare_seedream_references(resolved['references'],identifier,user_id=user_id,sign=False,persist=False)
         except ValueError as error:
@@ -250,8 +261,8 @@ def quote_image(item, body):
     reference_count = None
     if is_provider_model(item['model'],'seedream'):
         try:
-            seedream_size(item.get('resolution','2K'),item['aspectRatio'])
-            reference_count = len(resolve_seedream_references(item['prompt'],assets(),references if references is not None else [])['references'])
+            seedream_size(item.get('resolution','2K'),item['aspectRatio'],item['model'])
+            reference_count = len(resolve_seedream_references(item['prompt'],assets(),references if references is not None else [],item['model'])['references'])
         except ValueError as error:
             raise InvalidRequest(str(error)) from error
     return image_cost(item,references,reference_count)

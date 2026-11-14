@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { Check, Layers, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { Check, Layers, Lock, Pencil, Plus, Search, ShieldCheck, Trash2 } from "lucide-react";
 import { useStore } from "@/lib/store";
+import { askProjectAccess, projectAccessLabel } from "@/lib/project-access";
 import { MenuItem } from "./Dropdown";
 import { askConfirm, askText } from "@/lib/ask-text";
 
@@ -19,6 +20,7 @@ export function ProjectMenu({ close }) {
   const createProject = useStore((s) => s.createProject);
   const renameProject = useStore((s) => s.renameProject);
   const deleteProject = useStore((s) => s.deleteProject);
+  const setProjectAccess = useStore((s) => s.setProjectAccess);
 
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
@@ -92,6 +94,9 @@ export function ProjectMenu({ close }) {
             >
               <Layers className="h-4 w-4 text-white/45" />
               <span title={p.name} className="min-w-0 flex-1 truncate">{p.name}</span>
+              {p.access && p.access !== "all" && (
+                <Lock aria-label={projectAccessLabel(p.access)} className="h-3.5 w-3.5 text-white/40" />
+              )}
               {p.id === activeProjectId && <Check className="h-4 w-4 text-brand" />}
             </MenuItem>
           ))
@@ -105,8 +110,8 @@ export function ProjectMenu({ close }) {
       <MenuItem
         maintenanceWrite
         onClick={async () => {
-          const name = await askText({ title: "New project", label: "Project name", confirmLabel: "Create" });
-          if (name) void mutate(() => createProject(name));
+          const made = await askProjectAccess({ title: "New project", confirmLabel: "Create", askName: true });
+          if (made?.name) void mutate(() => createProject(made.name, made.access, made.accessUserIds));
         }}
       >
         <Plus className="h-4 w-4 text-white/60" />
@@ -124,6 +129,16 @@ export function ProjectMenu({ close }) {
           >
             <Pencil className="h-4 w-4 text-white/60" />
             <span className="flex-1">Rename current project</span>
+          </MenuItem>
+          <MenuItem
+            maintenanceWrite
+            onClick={async () => {
+              const next = await askProjectAccess({ title: "Project access", confirmLabel: "Save", access: project.access, accessUserIds: project.accessUserIds });
+              if (next) void mutate(() => setProjectAccess(project.id, next.access, next.accessUserIds));
+            }}
+          >
+            <ShieldCheck className="h-4 w-4 text-white/60" />
+            <span className="flex-1">Project access</span>
           </MenuItem>
           <MenuItem
             maintenanceWrite

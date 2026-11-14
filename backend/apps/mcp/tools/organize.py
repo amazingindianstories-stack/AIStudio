@@ -94,16 +94,18 @@ def destination_schema(where):
                       obj({'folderId': {**results.UUID, 'description': 'A folder id from list_folders.'}}, ('folderId',))]}
 
 
-def favorite(identifier, value):
+def favorite(identifier, value, user=None):
     """Set the favourite flag with the web's write; a call that changes nothing keeps the original star time."""
     with transaction.atomic():
-        current = Generation.objects.select_for_update().filter(pk=identifier).values_list('is_favorite', flat=True).first()
+        from apps.projects import visibility
+        rows = Generation.objects.select_for_update().filter(pk=identifier)
+        current = (visibility.visible(user, rows) if user is not None else rows).values_list('is_favorite', flat=True).first()
         if current is None:
             raise errors.ToolError(errors.NOT_FOUND, f'No generation {identifier} is visible to you. '
                                                      'Use search_generations to find it.')
         if current != value:
             patch_metadata({'id': identifier, 'isFavorite': value})
-    return {'generation': results.generations([reads.get_generation(identifier)], detail='summary')[0],
+    return {'generation': results.generations([reads.get_generation(identifier, user=user)], detail='summary')[0],
             'changed': current != value}
 
 
@@ -118,7 +120,7 @@ def favorite(identifier, value):
     output_schema=results.obj({'generation': results.GENERATION_SCHEMA, 'changed': BOOLEAN}))
 async def set_favorite(call):
     identifier, value = call.arguments['id'].lower(), call.arguments['favorite']
-    found = await db(favorite, identifier, value)
+    found = await db(favorite, identifier, value, call.principal.user)
     call.record['generationId'] = identifier
     name = found['generation']['name'] or identifier
     state = 'a favourite' if value else 'not a favourite'

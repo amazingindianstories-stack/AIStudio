@@ -152,6 +152,19 @@ class ImageExecutionTests(SimpleTestCase):
         self.assertEqual(self.deps.seedream_generate.call_args.args[0]['references'], ['signed-original'])
         self.assertEqual(self.stored(), png(size=(2000,1600)))
 
+    def test_seedream_55_sends_its_model_background_and_prices_inputs(self):
+        self.item.model = 'Seedream 5.5'
+        self.item.submission_input = {'background': 'transparent'}
+        self.item.reference_images = ['stored-original']
+        self.deps.seedream_resolve = Mock(return_value={'prompt':'sticker','references':['stored-original']})
+        self.deps.seedream_prepare = Mock(return_value={'urls':['signed-original'], 'stable':['one','two','three']})
+        self.deps.seedream_generate = Mock(return_value=png(size=(2000,1600)))
+        # $0.02 output + 3 x $0.008 input = 4.4 cents
+        self.assertEqual(self.execute()['cost_cents'], 4)
+        sent = self.deps.seedream_generate.call_args.args[0]
+        self.assertEqual((sent['model'], sent['background'], sent['references']), ('Seedream 5.5', 'transparent', ['signed-original']))
+        self.assertEqual(self.deps.seedream_resolve.call_args.args[3], 'Seedream 5.5')
+
     def test_seedream_requires_dimensions(self):
         self.item.model = 'Seedream 5.0 Pro'
         self.deps.seedream_resolve = Mock(return_value={'prompt':'x','references':[]})

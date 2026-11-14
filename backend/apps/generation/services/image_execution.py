@@ -149,10 +149,11 @@ def execute_image(item, *, signal, dependencies=None, env=None, on_task=None):
         signal.wait(700)
         saved = {'url': deps.mock_placeholder(identifier, prompt, ratio, model), 'aspectRatio': ratio}
     elif provider == 'seedream':
-        assembled = deps.seedream_resolve(prompt, assets(), references)
+        assembled = deps.seedream_resolve(prompt, assets(), references, model)
         prepared = deps.seedream_prepare(assembled['references'], identifier, signal=signal, user_id=item.user_id)
-        data = deps.seedream_generate({'prompt': assembled['prompt'], 'aspectRatio': ratio,
-            'resolution': resolution, 'references': prepared['urls']}, signal=signal, env=env)
+        data = deps.seedream_generate({'prompt': assembled['prompt'], 'aspectRatio': ratio, 'model': model,
+            'resolution': resolution, 'references': prepared['urls'],
+            'background': (getattr(item, 'submission_input', None) or {}).get('background')}, signal=signal, env=env)
         saved = save(data, 'png')
         if not saved.get('width') or not saved.get('height'):
             raise ValueError('Seedream output dimensions could not be read.')

@@ -14,6 +14,16 @@ def read_pricing():
 def compute_cost(input, pricing):
     definition = model_definition(input['model']) or {}
     rows = {row['model']: row for row in pricing}
+    if definition.get('provider') == 'seedream' and definition['id'] == 'seedream-5-5':
+        # Seedream 5.5: a flat $0.02 per output image plus $0.008 per input image, whatever the resolution (BytePlus
+        # model pricing, read 2026-11-14); both rates are per_1000_images rows an administrator can change.
+        def rate55(key, fallback):
+            row = rows.get(key, {'unit': 'per_1000_images', 'unitCostCents': fallback})
+            if row['unit'] != 'per_1000_images':
+                raise ValueError('Seedream pricing requires per_1000_images rates.')
+            return row['unitCostCents']
+        amount = rate55('Seedream 5.5', 2000) + input.get('referenceCount', 0) * rate55('Seedream 5.5 · input image', 800)
+        return math.floor(amount / 1000 + .5)
     if definition.get('provider') == 'seedream':
         width, height = input.get('width'), input.get('height')
         if not width or not height:

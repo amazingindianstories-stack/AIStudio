@@ -20,6 +20,7 @@ import { startFreezeWatchdog, stopFreezeWatchdog } from "@/lib/freeze-watchdog";
 import { StudioView } from "@/components/StudioView";
 import { Toaster } from "@/components/Toaster";
 import { TextPromptDialog } from "@/components/TextPromptDialog";
+import { ProjectAccessDialog } from "@/components/ProjectAccessDialog";
 import { useDesktopLayout } from "@/lib/use-desktop-layout";
 import { pageObjectLink } from "@/lib/canvas/object-link";
 import { templateRefFromSearch } from "@/lib/canvas/templates";
@@ -290,6 +291,7 @@ export default function Page() {
       </div>
       <Toaster />
       <TextPromptDialog />
+      <ProjectAccessDialog />
     </MotionConfig>
   );
 }

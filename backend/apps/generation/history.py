@@ -27,9 +27,9 @@ def history_reads(request):
         identifiers = [value for value in request.query_params.get('ids', '').split(',') if value]
         if not identifiers or len(identifiers) > MAX_BATCH:
             return Response({'error': f'Ask for 1 to {MAX_BATCH} generation ids.'}, status=400)
-        return renewed(request, Response(get_generations(identifiers, media_only=True)))
+        return renewed(request, Response(get_generations(identifiers, media_only=True, user=user)))
     try:
-        page = query_history(request.query_params)
+        page = query_history(request.query_params, user=user)
     except (ValidationError, DataError) as error:
         code = getattr(error.__cause__, 'sqlstate', None)
         if isinstance(error, DataError) and code not in ('22P02', '22003'):

@@ -90,7 +90,7 @@ Checked 2026-10-25, including persisted historical models.
 | Gemini / Nano Banana Pro | None in [generateContent](https://ai.google.dev/api/generate-content) | None documented | N/A - no supported cancellation | No Cancel |
 | Gemini / Nano Banana 2.1 | None in [generateContent](https://ai.google.dev/api/generate-content) | None documented | N/A - no supported cancellation | No Cancel |
 | Gemini / Nano Banana 2 (unoffered) | None in [generateContent](https://ai.google.dev/api/generate-content) | None documented | N/A - no supported cancellation | No Cancel |
-| Seedream / Seedream 5.0 Pro | None in [image generations](https://docs.byteplus.com/en/docs/modelark/image-generation-api) | None documented | N/A - no supported cancellation | No Cancel |
+| Seedream / Seedream 5.0 Pro / Seedream 5.5 | None in [image generations](https://docs.byteplus.com/en/docs/modelark/image-generation-api) | None documented | N/A - no supported cancellation | No Cancel |
 | Kling / Kling Image 3.0 | None in [image generation reference](https://kling.ai/document-api/api/image/3-0-omni) | None documented | N/A - no supported cancellation | No Cancel; submitted / processing / succeed / failed lifecycle |
 | Kling / Kling Image 2.1 | None documented in [image generation API](https://app.klingai.com/global/dev/document-api/apiReference/model/imageGeneration) | None documented | N/A - no supported cancellation | No Cancel; no documented cancel state |
 | OpenAI / GPT Image 2.5 Sunburst | None in [create image](https://developers.openai.com/api/reference/resources/images/methods/generate) (checked 2026-11-04) | None documented; one synchronous request | N/A - no supported cancellation | No Cancel |

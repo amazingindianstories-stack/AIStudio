@@ -6,7 +6,8 @@ from apps.library.services import folder_engine as folders
 from apps.library.services.idempotency import MISSING, OrganizationError
 from apps.generation.watermark import WHITESPACE
 from .services.projects import (ensure_default_project, read_projects, create_project,
-    rename_project, set_brief, delete_project)
+    rename_project, set_brief, delete_project, set_project_access)
+from . import visibility
 
 
 @api_view(['GET', 'POST'])
@@ -18,10 +19,17 @@ def project_reads(request):
         return Response({'error': 'UNAUTHENTICATED'}, status=401)
     if request.method == 'GET':
         from django.conf import settings
-        return renew(request, Response({'projects': read_projects() if settings.LOCAL_DATA_MODE == 'read_only_viewer' else ensure_default_project()}))
+        return renew(request, Response({'projects': read_projects(user) if settings.LOCAL_DATA_MODE == 'read_only_viewer' else ensure_default_project(user)}))
     body = body_or_empty(request)
     operation = body.get('op')
     try:
+        # A project the user may not see answers exactly like a missing one, for every operation that names it.
+        target = body.get('projectId')
+        if operation != 'createProject' and target and not visibility.can_see(user, target):
+            return renew(request, Response({'error': 'Project not found.', 'code': 'PROJECT_NOT_FOUND'}, status=404))
+        folder_target = body.get('folderId')
+        if folder_target and operation in ('renameFolder', 'deleteFolder') and not visibility.can_see_folder(user, folder_target):
+            return renew(request, Response({'error': 'Folder not found.', 'code': 'FOLDER_NOT_FOUND'}, status=404))
         if operation in ('createProject', 'renameProject', 'createFolder', 'renameFolder'):
             name = body.get('name') or ''
             if not isinstance(name, str):
@@ -30,22 +38,34 @@ def project_reads(request):
             if operation in ('createProject', 'createFolder') and not name:
                 return renew(request, Response({'error': 'Name required.'}, status=400))
         if operation == 'createProject':
-            result = create_project(name, user.id)
+            mode = body.get('access', 'all')
+            if mode not in ('all', 'users', 'admin'):
+                return renew(request, Response({'error': 'Access must be all, users or admin.', 'code': 'INVALID_ACCESS'}, status=400))
+            picked = body.get('accessUserIds') or []
+            if mode == 'users' and (not isinstance(picked, list) or not picked or not all(isinstance(value, str) for value in picked)):
+                return renew(request, Response({'error': 'Pick at least one user.', 'code': 'INVALID_ACCESS'}, status=400))
+            if mode == 'users':
+                from apps.authentication.models import User
+                if User.objects.filter(pk__in=picked, is_active=True).count() != len(set(picked)):
+                    return renew(request, Response({'error': 'Pick at least one active user.', 'code': 'INVALID_ACCESS'}, status=400))
+            result = create_project(name, user.id, mode, picked, user)
         elif operation == 'renameProject':
-            result = {'projects': rename_project(body.get('projectId'), name)}
+            result = {'projects': rename_project(body.get('projectId'), name, user)}
         elif operation == 'setBrief':
-            result = {'projects': set_brief(body.get('projectId'), body.get('brief') or '')}
+            result = {'projects': set_brief(body.get('projectId'), body.get('brief') or '', user)}
+        elif operation == 'setAccess':
+            result = {'projects': set_project_access(body.get('projectId'), body.get('access'), body.get('accessUserIds') or [], user)}
         elif operation == 'deleteProject':
-            result = {'projects': delete_project(body.get('projectId'), str(user.id))}
+            result = {'projects': delete_project(body.get('projectId'), str(user.id), user)}
         elif operation == 'createFolder':
             row = folders.create_folder(project_id=body.get('projectId') or None, name=name)
-            result = {'projects': read_projects(), 'folder': {key: row[key] for key in ('id', 'name', 'createdAt')}}
+            result = {'projects': read_projects(user), 'folder': {key: row[key] for key in ('id', 'name', 'createdAt')}}
         elif operation == 'renameFolder':
             folders.rename_folder(folder_id=body.get('folderId'), project_id=body.get('projectId', MISSING), name=name)
-            result = {'projects': read_projects()}
+            result = {'projects': read_projects(user)}
         elif operation == 'deleteFolder':
             folders.delete_folder(folder_id=body.get('folderId'), project_id=body.get('projectId', MISSING), actor_id=str(user.id))
-            result = {'projects': read_projects()}
+            result = {'projects': read_projects(user)}
         else:
             return renew(request, Response({'error': 'Unknown op.'}, status=400))
         return renew(request, Response(result))
@@ -65,7 +85,7 @@ def project_members(request, project_id):
     if user is None:
         return Response({'error': 'UNAUTHENTICATED'}, status=401)
     try:
-        if not access.project_exists(project_id):
+        if not access.project_exists(project_id) or not visibility.can_see(user, project_id):
             return renew(request, Response({'error': 'Project not found.'}, status=404))
         if request.method == 'POST':
             body = body_or_empty(request)

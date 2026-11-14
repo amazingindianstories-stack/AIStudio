@@ -60,8 +60,19 @@ def receipt_key(raw, user_id):
     return f'generation-enqueue:{user_id}:{raw}'
 
 
+def refuse_hidden_project(actor, body=None, source=None):
+    """A request that targets, or reads from, a project the actor may not see is a 404, as for a missing one."""
+    from apps.projects import visibility
+    values = body if isinstance(body, dict) else {}
+    project, folder = values.get('projectId'), values.get('folderId')
+    if (project and not visibility.can_see(actor, project)) or (folder and not visibility.can_see_folder(actor, folder)) \
+            or (source is not None and source.project_id and not visibility.can_see(actor, source.project_id)):
+        raise Refused(404, {'error': 'Project not found.', 'code': 'NOT_FOUND'})
+
+
 def validated_generation(actor, kind, body):
     """Resolve references and validate an image or video request: (resolved values, validated item)."""
+    refuse_hidden_project(actor, body)
     try:
         data = resolve_submission_references(body, actor.id)
         # Magnific models are upscales with their own durable source and params.
@@ -159,6 +170,7 @@ def draft_source(actor, source_generation_id):
         raise Refused(400, {'error': 'sourceGenerationId is required.'})
     try:
         source = Generation.objects.filter(pk=source_generation_id).first()
+        refuse_hidden_project(actor, source=source)
         # Shared studio: any signed-in user may finalize an eligible draft; the
         # final is a new generation billed to the requesting user.
         error = enqueue.validate_draft(source)
@@ -255,6 +267,7 @@ def quote_upscale(actor, body, *, origin):
     A video source is probed, since its length and frame rate set the price; an image source's bytes are checked
     only at submission.
     """
+    refuse_hidden_project(actor, body)
     try:
         data = resolve_submission_references(body, actor.id)
         if 'video' in data:
@@ -303,6 +316,7 @@ def submit_upscale(actor, body, *, origin, idempotency_key=None, created_by=None
     and ``source_id`` when they picked the source generation by id, which the intent records as ``sourceGenerationId``.
     The web passes none of them.
     """
+    refuse_hidden_project(actor, body)
     submitted, key = copy.deepcopy(body), receipt_key(idempotency_key, actor.id)
     agent = dict(submitted=submitted, key=key, created_by=created_by, admit=admit, source_id=source_id)
     try:

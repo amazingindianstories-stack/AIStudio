@@ -118,7 +118,7 @@ export function aspectRatiosForModel(model, kind) {
  */
 export function reconcileGenerationSettings(model, kind, previous, hasReference = false) {
   const resolutions = resolutionsForModel(model, kind, hasReference);
-  const seedreamPro = model === "Seedream 5.0 Pro" || model === "seedream-5-pro";
+  const seedreamPro = ["Seedream 5.0 Pro", "seedream-5-pro", "Seedream 5.5", "seedream-5-5"].includes(model);
   const resolution = seedreamPro && model !== previous.model
     ? "2K"
     : resolutions.includes(previous.resolution)

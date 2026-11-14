@@ -51,12 +51,23 @@ def patch_metadata(body):
     return generation_item(row) if row else None
 
 
+def can_see_generation(user, identifier):
+    """False for a generation inside a project the user may not see; a missing id stays the caller's 404."""
+    from apps.projects import visibility
+    try:
+        return not Generation.objects.filter(pk=identifier, project_id__in=visibility.hidden_project_ids(user)).exists()
+    except (ValidationError, DataError, ValueError):
+        return True
+
+
 def history_mutation(request, user):
     try:
         if request.method == 'PATCH':
             body = body_or_empty(request)
             if not body.get('id'):
                 return Response({'error': 'Missing id.'}, status=400)
+            if not can_see_generation(user, body['id']):
+                return Response({'error': 'Not found.'}, status=404)
             if type(body.get('isFavorite')) is not bool and type(body.get('flagged')) is not bool and user.role != 'admin':
                 return Response({'error': 'Only admins can move generations.'}, status=403)
             with transaction.atomic():

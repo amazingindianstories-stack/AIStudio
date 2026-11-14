@@ -114,3 +114,10 @@ reader.
 | `depth-worker/` | GPU depth worker |
 | `infra/gcp/` | Media bucket CORS and lifecycle configuration |
 | `docs/` | This documentation |
+
+## Project access
+
+`Project.access` is `all` (default, preserves earlier visibility), `users` (the `project_access_users` list plus the
+creator) or `admin`. `apps/projects/visibility.py` holds the single rule; admins always see every project. A hidden
+project answers like a missing one (404 or an absent row) across projects, folders, library, history, counts, enqueue,
+boards, assets, exports and MCP. Changing access needs project owner or co-owner level, or admin.

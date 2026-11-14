@@ -17,9 +17,10 @@ class PureProviderParityTests(SimpleTestCase):
         # the frozen Node registry; compare the frozen entries and assert the additions explicitly.
         # Gemini Omni Flash 1.1 (2026-10-18) postdates it as well.
         added = [item for item in MODEL_REGISTRY if item.get('capabilities', {}).get('upscaleMedia') == 'video'
-                 or item['id'] in ('nano-banana-2-1', 'gemini-omni-1-1-flash', 'omnihuman-2', 'gpt-image-2-5-sunburst', 'gpt-image-2-5-flare', 'gpt-image-2-6-sunburst', 'gpt-image-2-6-flare')]
-        # GPT Image 2.5 Sunburst and Flare (2026-11-04) postdate it too.
+                 or item['id'] in ('seedream-5-5', 'nano-banana-2-1', 'gemini-omni-1-1-flash', 'omnihuman-2', 'gpt-image-2-5-sunburst', 'gpt-image-2-5-flare', 'gpt-image-2-6-sunburst', 'gpt-image-2-6-flare')]
+        # GPT Image 2.5 Sunburst and Flare (2026-11-04) and Seedream 5.5 (2026-11-14) postdate it too.
         self.assertEqual([(item['name'], item['provider'], item['kind'], item['pricingKey']) for item in added], [
+            ('Seedream 5.5', 'seedream', 'image', 'Seedream 5.5'),
             ('Nano Banana 2.1', 'gemini', 'image', 'Nano Banana 2.1'),
             ('GPT Image 2.5 Sunburst', 'openai', 'image', 'GPT Image 2.5 Sunburst'),
             ('GPT Image 2.5 Flare', 'openai', 'image', 'GPT Image 2.5 Flare'),
@@ -123,6 +124,66 @@ class PureProviderParityTests(SimpleTestCase):
         self.assertEqual(len(captured), 1)
         self.assertEqual(captured[0][2]['body']['output_format'], 'png')
         self.assertEqual(captured[0][2]['body']['image'], ['signed-ref'])
+
+    def test_seedream_55_payload_modes(self):
+        env = {}
+        text = seedream_payload({'model': 'seedream-5-5', 'prompt': 'a fox'}, env)
+        self.assertEqual((text['model'], text['size'], text['output_format'], text['background'], text['watermark']),
+                         ('dola-seedream-5-5-261028', '2048x2048', 'png', 'opaque', False))
+        self.assertNotIn('image', text)
+        single = seedream_payload({'model': 'Seedream 5.5', 'prompt': 'edit', 'references': ['a'], 'resolution': '1K',
+                                   'aspectRatio': '16:9', 'background': 'transparent'}, env)
+        self.assertEqual((single['image'], single['size'], single['background']), (['a'], '1424x800', 'transparent'))
+        multi = seedream_payload({'model': 'seedream-5-5', 'prompt': 'blend', 'references': ['r'] * 10}, env)
+        self.assertEqual(len(multi['image']), 10)
+        with self.assertRaisesRegex(ValueError, 'at most 10'):
+            seedream_payload({'model': 'seedream-5-5', 'prompt': 'blend', 'references': ['r'] * 11}, env)
+        with self.assertRaisesRegex(ValueError, 'Seedream 5.5 background must be opaque or transparent'):
+            seedream_payload({'model': 'seedream-5-5', 'prompt': 'x', 'background': 'auto'}, env)
+        with self.assertRaisesRegex(ValueError, 'Seedream 5.5 requires 1K'):
+            seedream_payload({'model': 'seedream-5-5', 'prompt': 'x', 'resolution': '4K'}, env)
+        self.assertEqual(seedream_payload({'model': 'seedream-5-5', 'prompt': 'x'}, {'SEEDREAM_55_MODEL': 'pinned'})['model'], 'pinned')
+
+    def test_seedream_55_cost_is_flat_output_plus_input_images(self):
+        from .services.pricing import compute_cost
+        cost = lambda refs, pricing=(): compute_cost({'model': 'Seedream 5.5', 'width': 2048, 'height': 2048, 'referenceCount': refs}, list(pricing))
+        self.assertEqual([cost(0), cost(3), cost(10)], [2, 4, 10])
+        custom = [{'model': 'Seedream 5.5', 'unit': 'per_1000_images', 'unitCostCents': 3000},
+                  {'model': 'Seedream 5.5 \u00b7 input image', 'unit': 'per_1000_images', 'unitCostCents': 1000}]
+        self.assertEqual(cost(2, custom), 5)
+        self.assertEqual(compute_cost({'model': 'Seedream 5.0 Pro', 'width': 1024, 'height': 1024, 'referenceCount': 0}, []), 5)
+
+    def test_seedream_55_background_is_validated_and_stored(self):
+        from .services.enqueue import InvalidRequest, validate_seedream_background
+        item = {'model': 'Seedream 5.5'}
+        self.assertEqual(validate_seedream_background(item, {}), {'background': 'opaque'})
+        self.assertEqual(validate_seedream_background(item, {'imageBackground': 'transparent'}), {'background': 'transparent'})
+        with self.assertRaisesRegex(InvalidRequest, 'background must be opaque or transparent'):
+            validate_seedream_background(item, {'imageBackground': 'auto'})
+
+    def test_seedream_5_pro_payload_has_no_background(self):
+        payload = seedream_payload({'prompt': 'x', 'background': 'transparent'}, {})
+        self.assertEqual(payload['model'], 'dola-seedream-5-0-pro-260628')
+        self.assertNotIn('background', payload)
+
+    def test_seedream_55_sends_one_request_and_names_the_model_when_not_enabled(self):
+        captured = []
+        class Transport:
+            def request(self, method, url, **kwargs):
+                captured.append(kwargs['body'])
+                return HttpResult(200, b'{"data":[{"url":"https://fixture.invalid/image.png"}]}')
+        data = b'\x89PNG\r\n\x1a\nrgba-master'
+        result = generate_image({'model': 'seedream-5-5', 'prompt': 'sticker', 'background': 'transparent'},
+            env={'ARK_API_KEY': 'synthetic'}, transport=Transport(), fetcher=lambda _url: (data, 'image/png'))
+        self.assertEqual(result, data)
+        self.assertEqual((len(captured), captured[0]['model'], captured[0]['background'], captured[0]['output_format']),
+                         (1, 'dola-seedream-5-5-261028', 'transparent', 'png'))
+        class Closed:
+            def request(self, *args, **kwargs):
+                return HttpResult(400, json.dumps({'error': {'code': 'ModelNotOpen'}}).encode())
+        with self.assertRaisesRegex(ProviderError, 'Enable Seedream 5.5 in'):
+            generate_image({'model': 'seedream-5-5', 'prompt': 'x'}, env={'ARK_API_KEY': 'synthetic'}, transport=Closed(),
+                           fetcher=lambda url: self.fail('Error response must not download'))
 
     def test_seedream_error_classification_and_no_download_on_error(self):
         for status, code, phrase in [(429, 'rate', 'rate limit'), (403, 'denied', 'authentication'),

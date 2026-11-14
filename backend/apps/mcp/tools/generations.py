@@ -16,9 +16,9 @@ def not_found(identifier):
     return errors.ToolError(errors.NOT_FOUND, f'No generation {identifier} is visible to you. Use search_generations to find it.')
 
 
-def detail(identifier, *, until=None):
+def detail(identifier, *, until=None, user=None):
     """``(item, Generation)`` for an id, with fresh links; None when no generation has that id."""
-    item = reads.get_generation(identifier)
+    item = reads.get_generation(identifier, user=user)
     return (item, results.generations([item], until=until)[0]) if item else None
 
 
@@ -63,10 +63,10 @@ async def get_generation(call):
     identifier = arguments['id'].lower()
     note = None
     if arguments.get('wait'):
-        if not await db(hold.status_of, identifier):
+        if not await db(hold.status_of, identifier) or not await db(detail, identifier, user=call.principal.user):
             raise not_found(identifier)
         note = await hold.hold(call, identifier, max_wait_seconds=arguments.get('maxWaitSeconds'))
-    found = await db(detail, identifier, until=hold.reply_deadline(call))
+    found = await db(lambda: detail(identifier, until=hold.reply_deadline(call), user=call.principal.user))
     if found is None:
         raise not_found(identifier)
     return await generation_reply(call, found, note=note, include_preview=arguments.get('includePreview', True))

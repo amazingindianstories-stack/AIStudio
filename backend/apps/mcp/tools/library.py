@@ -78,12 +78,12 @@ def history_params(arguments, user_id):
     return params
 
 
-def search(arguments, user_id):
-    params = history_params(arguments, user_id)
+def search(arguments, user):
+    params = history_params(arguments, user.id)
     options = {'names': True, 'subfolders': bool(arguments.get('includeSubfolders'))}
     try:
-        page = reads.query_history(params, options=options)
-        total = reads.count_history(params, options=options)
+        page = reads.query_history(params, options=options, user=user)
+        total = reads.count_history(params, options=options, user=user)
     except ValidationError as error:
         raise refused(error) from None
     return {'items': results.generations(page['items'], detail='summary'), 'nextCursor': page['nextCursor'], 'total': total}
@@ -122,7 +122,7 @@ SEARCH_OUTPUT = results.obj({'items': {'type': 'array', 'items': results.GENERAT
                  'get_generation or get_download_links for full links. ' + URL_EXPIRY + ' ' + USER_DATA),
     input_schema=SEARCH_INPUT, output_schema=SEARCH_OUTPUT)
 async def search_generations(call):
-    found = await db(search, call.arguments, call.principal.user.id)
+    found = await db(search, call.arguments, call.principal.user)
     shown = len(found['items'])
     more = ' Pass nextCursor for more.' if found['nextCursor'] else ''
     return ToolResult(found, f"{found['total']} generation{'' if found['total'] == 1 else 's'} match; showing {shown}.{more}")
@@ -132,9 +132,9 @@ def item_error(code, message):
     return {'code': code, 'message': message}
 
 
-def download_links(ids, variants):
+def download_links(ids, variants, user):
     wanted = list(dict.fromkeys(identifier.lower() for identifier in ids))
-    found = {item['id']: item for item in reads.get_generations(wanted)['items']}
+    found = {item['id']: item for item in reads.get_generations(wanted, user=user)['items']}
     ready = [found[identifier] for identifier in wanted
              if identifier in found and found[identifier]['status'] == 'succeeded' and found[identifier].get('url')]
     resolved = dict(zip([item['id'] for item in ready], links.resolve_many(ready, variants, measure='original' in variants)))
@@ -173,15 +173,15 @@ LINKS_OUTPUT = results.obj({'items': {'type': 'array', 'items': {'anyOf': [
     output_schema=LINKS_OUTPUT)
 async def get_download_links(call):
     variants = [variant for variant in results.FULL_VARIANTS if variant in call.arguments.get('variants', ['original', 'thumbnail'])]
-    found = await db(download_links, call.arguments['ids'], variants)
+    found = await db(download_links, call.arguments['ids'], variants, call.principal.user)
     ready = sum('outputs' in entry for entry in found['items'])
     return ToolResult(found, f"Fresh links for {ready} of {len(found['items'])} generation{'' if len(found['items']) == 1 else 's'}.")
 
 
-def folder_tree(project_filter, depth):
+def folder_tree(project_filter, depth, user):
     """The folder tree with SQL item counts per folder, the global library and each project (read-only)."""
-    tree = folder_reads.tree()
-    counts = reads.location_counts()
+    tree = folder_reads.tree(user)
+    counts = reads.location_counts(user)
     by_folder = {}
     for (_, folder), count in counts.items():
         if folder is not None:
@@ -240,7 +240,7 @@ FOLDERS_OUTPUT = {**results.obj({
     output_schema=FOLDERS_OUTPUT)
 async def list_folders(call):
     project = call.arguments.get('projectId')
-    found = await db(folder_tree, project.lower() if project and project != GLOBAL else project, call.arguments.get('depth', 20))
+    found = await db(folder_tree, project.lower() if project and project != GLOBAL else project, call.arguments.get('depth', 20), call.principal.user)
 
     def count(folders):
         return sum(1 + count(folder['children']) for folder in folders)

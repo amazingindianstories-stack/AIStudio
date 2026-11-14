@@ -28,6 +28,7 @@ import {
   supportsDraftMode,
   supportsBitrateMode,
   imageQualitiesForModel,
+  imageBackgroundsForModel,
   imageQualityFor,
   imageBackgroundFor,
   DEFAULT_IMAGE_QUALITY,
@@ -1253,7 +1254,7 @@ export const useStore = create((set, get) => ({
       generateAudio: s.generateAudio,
       draftMode: s.draftMode,
       bitrateMode: s.bitrateMode,
-      ...(s.mode === "image" && imageQualitiesForModel(s.model).length
+      ...(s.mode === "image" && (imageQualitiesForModel(s.model).length || imageBackgroundsForModel(s.model).length)
         ? { imageQuality: s.imageQuality, imageBackground: s.imageBackground }
         : {}),
       videoTaskMode,
@@ -2464,13 +2465,14 @@ export const useStore = create((set, get) => ({
       ...(s.activeFolderId !== id ? CLEAR_SELECTION_PATCH : {}),
     })),
 
-  createProject: async (name) => {
+  createProject: async (name, access = "all", accessUserIds = []) => {
     const res = await apiFetch("/api/projects", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ op: "createProject", name }),
+      body: JSON.stringify({ op: "createProject", name, ...(access !== "all" ? { access, accessUserIds } : {}) }),
     });
     const json = await res.json();
+    if (!res.ok && json.error) throw new Error(json.error);
     if (json.projects) {
       set((s) => ({
         projects: json.projects,
@@ -2480,6 +2482,18 @@ export const useStore = create((set, get) => ({
       }));
       void get().loadLibraryTree();
     }
+  },
+
+  setProjectAccess: async (id, access, accessUserIds = []) => {
+    const res = await apiFetch("/api/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ op: "setAccess", projectId: id, access, accessUserIds }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || "Could not change project access.");
+    set({ projects: json.projects });
+    void get().loadLibraryTree();
   },
 
   renameProject: async (id, name) => {
