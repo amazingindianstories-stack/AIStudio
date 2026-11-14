@@ -171,7 +171,9 @@ class PureProviderParityTests(SimpleTestCase):
         for references in ([], ['a', 'b']):
             with self.assertRaisesRegex(ValueError, 'exactly one source image'):
                 seedream_payload({'model': 'seedream-5-5', 'prompt': 'x', 'references': references, 'layers': layers}, {})
-        for bad in (1, 101, 2.5, True):
+        whole = seedream_payload({'model': 'seedream-5-5', 'prompt': 'x', 'references': ['a'], 'layers': {'maxImages': 15.0}}, {})
+        self.assertIs(type(whole['layer_decomposition_options']['max_images']), int)
+        for bad in (1, 101, 2.5, True, float('nan'), float('inf')):
             with self.assertRaisesRegex(ValueError, 'max images'):
                 seedream_payload({'model': 'seedream-5-5', 'prompt': 'x', 'references': ['a'], 'layers': {'maxImages': bad}}, {})
         with self.assertRaisesRegex(ValueError, 'does not support layer decomposition'):

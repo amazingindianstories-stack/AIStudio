@@ -107,14 +107,14 @@ def layer_payload(input, model, env=None):
         raise ValueError('Layer decomposition takes exactly one source image.')
     options = input['layers']
     maximum = options.get('maxImages', limits['defaultImages'])
-    if type(maximum) is not int or not limits['minImages'] <= maximum <= limits['maxImages']:
+    if type(maximum) not in (int, float) or not limits['minImages'] <= maximum <= limits['maxImages'] or maximum != int(maximum):
         raise ValueError(f'Layer decomposition max images must be {limits["minImages"]} to {limits["maxImages"]}.')
     resolution = input.get('resolution') or '2K'
     if resolution not in capability(model, 'resolutions', []):
         raise ValueError(f'{seedream_name(model)} layer decomposition requires 1K, 1.5K, or 2K.')
     return {'model': provider_model_id(model, env), 'prompt': input['prompt'], 'image': references[0],
             'size': resolution, 'layer_decomposition': True,
-            'layer_decomposition_options': {'max_images': maximum, 'text_recognition': bool(options.get('textRecognition'))},
+            'layer_decomposition_options': {'max_images': int(maximum), 'text_recognition': bool(options.get('textRecognition'))},
             'response_format': 'url', 'output_format': 'png', 'watermark': False}
 
 

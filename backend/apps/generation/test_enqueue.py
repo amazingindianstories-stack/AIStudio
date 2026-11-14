@@ -507,6 +507,25 @@ class EnqueueContractTests(TransactionTestCase):
             self.assertTrue(result['urls'][0])
         self.assertEqual(Generation.objects.count(),1)
 
+    def test_seedream_55_layers_request_from_the_composer_is_accepted_with_max_images(self):
+        self.cookie()
+        storage=StorageService(MemoryAdapter())
+        storage.primary.put('assets/source.png',picture(),'image/png','private')
+        Asset.objects.create(kind='character',name='Hero',slug='hero',images=['/api/media/assets/source.png'],created_at=1,updated_at=1)
+        with override_settings(VEEVEE_MEDIA_STORAGE=storage):
+            response=self.post('image',dict(prompt='@hero split',model='Seedream 5.5',
+                imageLayers={'maxImages':10,'textRecognition':True}))
+            self.assertEqual(response.status_code,200,response.content)
+            row=Generation.objects.get(pk=response.json()['id'])
+            stored=row.submission_input['layers']
+            self.assertEqual(stored,{'maxImages':10,'textRecognition':True})
+            self.assertIs(type(stored['maxImages']),int)
+            for bad in (1,101,2.5):
+                refused=self.post('image',dict(prompt='@hero split',model='Seedream 5.5',imageLayers={'maxImages':bad}))
+                self.assertEqual(refused.status_code,400,bad)
+                self.assertIn('maxImages',refused.json()['error'])
+        self.assertEqual(Generation.objects.count(),1)
+
     def test_video_frames_render_controls_refs_and_validation(self):
         self.cookie()
         storage=StorageService(MemoryAdapter())

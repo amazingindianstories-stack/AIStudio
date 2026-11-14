@@ -133,14 +133,14 @@ def validate_layer_decomposition(item, body):
     if not isinstance(options, dict):
         raise InvalidRequest('imageLayers must be an object.')
     maximum = options.get('maxImages', limits['defaultImages'])
-    if type(maximum) is not int or not limits['minImages'] <= maximum <= limits['maxImages']:
+    if not integer(maximum) or not limits['minImages'] <= maximum <= limits['maxImages']:
         raise InvalidRequest(f'imageLayers.maxImages must be a whole number from {limits["minImages"]} to {limits["maxImages"]}.')
     text = options.get('textRecognition', False)
     if type(text) is not bool:
         raise InvalidRequest('imageLayers.textRecognition must be true or false.')
     if body.get('imageBackground') not in (None, 'opaque'):
         raise InvalidRequest('Layer decomposition always returns transparent layers; do not send a background.')
-    return {'maxImages': maximum, 'textRecognition': text}
+    return {'maxImages': int(maximum), 'textRecognition': text}
 
 
 def validate_seedream_background(item, body):
