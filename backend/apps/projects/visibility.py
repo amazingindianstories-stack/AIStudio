@@ -63,15 +63,23 @@ def can_see_generation(user, generation_id):
 def can_see_media_key(user, key):
     """False for stored media of a generation or asset inside a project the user may not see.
 
-    `generations/<id>...` and `references/<id>-...` name their generation; legacy `generated/...` masters and
+    `generations/<id>...`, `references/<id>-...` and `depth-output/<id>...` name their generation, and
+    `canvas/<board>/...` and `talktrack/<board>/...` their board; legacy `generated/...` masters and
     `assets/...` images name none, so the generation or asset row that stores the key is looked up."""
     import re
     from apps.assets.models import Asset
+    from apps.canvas.models import CanvasBoard
     from apps.generation.models import Generation
-    match = re.match(r'(?:generations/|references/)([0-9a-fA-F-]{36})(?:[./-]|$)', key)
+    match = re.match(r'(?:generations/|references/|depth-output/)([0-9a-fA-F-]{36})(?:[./-]|$)', key)
     if match:
         return can_see_generation(user, match[1])
     hidden = hidden_project_ids(user)
+    board = re.match(r'(?:canvas|talktrack)/([0-9a-fA-F-]{36})/', key)
+    if board:
+        try:
+            return not CanvasBoard.objects.filter(pk=board[1], project_id__in=hidden).exists()
+        except MALFORMED:
+            return True
     if key.startswith('generated/'):
         return not Generation.objects.filter(project_id__in=hidden, url__endswith='/' + key).exists()
     if key.startswith('assets/'):

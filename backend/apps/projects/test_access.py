@@ -210,19 +210,24 @@ class ProjectAccessTests(TransactionTestCase):
 
     def test_reference_asset_and_legacy_media_of_a_hidden_project_are_hidden(self):
         project = self.make('admin')
-        _, generation, _ = self.seed(project)
+        _, generation, board = self.seed(project)
         Generation.objects.filter(pk=generation.pk).update(url='/api/media/generated/legacy.png')
         Asset.objects.create(kind='character', name='Hidden', slug='hidden', project_id=project.id,
                              images=['/api/media/assets/hidden.png'], created_at=1, updated_at=1)
         Asset.objects.create(kind='character', name='Shared', slug='shared', project_id=self.open.id,
                              images=['/api/media/assets/shared.png'], created_at=1, updated_at=1)
         keys = (f'references/{generation.id}-0.png', f'references/{generation.id}-seedream-1.png',
-                'assets/hidden.png', 'thumbs/512/assets/hidden.png.webp', 'generated/legacy.png')
+                'assets/hidden.png', 'thumbs/512/assets/hidden.png.webp', 'generated/legacy.png',
+                f'depth-output/{generation.id}.mp4', f'depth-output/{generation.id}/claim.mp4',
+                f'canvas/{board.id}/row.png', f'thumbs/512/canvas/{board.id}/row.png.webp', f'talktrack/{board.id}/cut.webm')
         for key in keys:
             with self.assertRaises(MediaHidden, msg=key):
                 authorize_media_key(key, self.outsider)
             self.assertEqual(authorize_media_key(key, self.admin), key)
         self.assertEqual(authorize_media_key('assets/shared.png', self.outsider), 'assets/shared.png')
+        open_board = CanvasBoard.objects.create(project_id=self.open.id, name='Open', created_by=self.creator.id,
+                                                data={}, created_at=1, updated_at=1)
+        self.assertEqual(authorize_media_key(f'canvas/{open_board.id}/row.png', self.outsider), f'canvas/{open_board.id}/row.png')
 
     def test_a_failed_visibility_check_fails_closed(self):
         with patch.object(visibility, 'hidden_project_ids', side_effect=OperationalError('connection reset')):
