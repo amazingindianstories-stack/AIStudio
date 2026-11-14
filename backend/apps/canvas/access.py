@@ -98,9 +98,9 @@ def project_level(user, project_id):
 
 
 def can_create_board(user, project_id):
+    """Every teammate adds boards until the project has a member besides its creator; then editors and above."""
     if not visibility.can_see(user, project_id):
         return False
-    """Every teammate adds boards until the project has a member besides its creator; then editors and above."""
     creator = Project.objects.filter(pk=project_id).values_list('created_by', flat=True).first()
     restricted = ProjectMember.objects.filter(project_id=project_id).exclude(user_id=creator).exists()
     return not restricted or project_level(user, project_id) >= EDIT
