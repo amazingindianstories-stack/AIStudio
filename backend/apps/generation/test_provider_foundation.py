@@ -161,6 +161,76 @@ class PureProviderParityTests(SimpleTestCase):
         with self.assertRaisesRegex(InvalidRequest, 'background must be opaque or transparent'):
             validate_seedream_background(item, {'imageBackground': 'auto'})
 
+    def test_seedream_55_layer_decomposition_payload_and_validation(self):
+        layers = {'maxImages': 15, 'textRecognition': True}
+        payload = seedream_payload({'model': 'seedream-5-5', 'prompt': 'split', 'references': ['src'], 'resolution': '1.5K',
+                                    'layers': layers, 'background': 'transparent'}, {})
+        self.assertEqual(payload, {'model': 'dola-seedream-5-5-261028', 'prompt': 'split', 'image': 'src', 'size': '1.5K',
+            'layer_decomposition': True, 'layer_decomposition_options': {'max_images': 15, 'text_recognition': True},
+            'response_format': 'url', 'output_format': 'png', 'watermark': False})
+        for references in ([], ['a', 'b']):
+            with self.assertRaisesRegex(ValueError, 'exactly one source image'):
+                seedream_payload({'model': 'seedream-5-5', 'prompt': 'x', 'references': references, 'layers': layers}, {})
+        for bad in (1, 101, 2.5, True):
+            with self.assertRaisesRegex(ValueError, 'max images'):
+                seedream_payload({'model': 'seedream-5-5', 'prompt': 'x', 'references': ['a'], 'layers': {'maxImages': bad}}, {})
+        with self.assertRaisesRegex(ValueError, 'does not support layer decomposition'):
+            seedream_payload({'model': 'seedream-5-pro', 'prompt': 'x', 'references': ['a'], 'layers': layers}, {})
+
+    def test_seedream_55_layer_decomposition_downloads_base_and_layers_with_ocr(self):
+        captured = []
+        body = {'data': [
+            {'url': 'https://fixture.invalid/text.png', 'size': '300x80', 'z_index': 2,
+             'bounding_box': {'absolute': [1, 2, 3, 4], 'normalized': [5, 6, 7, 8]}, 'text_recognition': {'text': 'Hello'}},
+            {'url': 'https://fixture.invalid/base.png', 'size': '1000x800', 'z_index': 0},
+            {'url': 'https://fixture.invalid/obj.png', 'size': '200x200', 'z_index': 1}]}
+        class Transport:
+            def request(self, method, url, **kwargs):
+                captured.append(kwargs['body'])
+                return HttpResult(200, json.dumps(body).encode())
+        fetched = []
+        def fetcher(url):
+            fetched.append(url)
+            return (b'png:' + url.rsplit('/', 1)[1].encode(), 'image/png')
+        result = generate_image({'model': 'seedream-5-5', 'prompt': 'split', 'references': ['src'],
+                                 'layers': {'maxImages': 3, 'textRecognition': True}},
+            env={'ARK_API_KEY': 'synthetic'}, transport=Transport(), fetcher=fetcher)
+        self.assertEqual(len(captured), 1)
+        self.assertEqual(result['base'], b'png:base.png')
+        self.assertEqual([(l['zIndex'], l['content']) for l in result['layers']], [(1, b'png:obj.png'), (2, b'png:text.png')])
+        self.assertEqual(result['layers'][1]['textRecognition'], {'text': 'Hello'})
+        self.assertEqual(result['layers'][1]['boundingBox']['normalized'], [5, 6, 7, 8])
+        self.assertNotIn('textRecognition', result['layers'][0])
+        for data in ([{'url': 'https://fixture.invalid/only.png'}], [{'url': 'http://insecure/x.png'}, {'url': 'https://a/b.png'}]):
+            class Short:
+                def request(self, *args, **kwargs):
+                    return HttpResult(200, json.dumps({'data': data}).encode())
+            with self.assertRaises(ProviderError):
+                generate_image({'model': 'seedream-5-5', 'prompt': 'x', 'references': ['s'], 'layers': {'maxImages': 2}},
+                    env={'ARK_API_KEY': 'synthetic'}, transport=Short(), fetcher=lambda url: self.fail('no download'))
+
+    def test_seedream_55_layer_options_are_validated_and_stored(self):
+        from .services.enqueue import InvalidRequest, validate_seedream_background
+        item, src = {'model': 'Seedream 5.5'}, ['data:image/png;base64,AA==']
+        self.assertEqual(validate_seedream_background(item, {'imageLayers': {}, 'referenceImages': src}),
+                         {'layers': {'maxImages': 30, 'textRecognition': False}})
+        self.assertEqual(validate_seedream_background(item, {'imageLayers': {'maxImages': 15, 'textRecognition': True}, 'referenceImages': src}),
+                         {'layers': {'maxImages': 15, 'textRecognition': True}})
+        for options, phrase in [({'imageLayers': {'maxImages': 1}, 'referenceImages': src}, 'maxImages'),
+                                ({'imageLayers': {'textRecognition': 'yes'}, 'referenceImages': src}, 'textRecognition'),
+                                ({'imageLayers': 5, 'referenceImages': src}, 'must be an object'),
+                                ({'imageLayers': {}, 'referenceImages': src * 2}, 'exactly one source'),
+                                ({'imageLayers': {}}, 'exactly one source'),
+                                ({'imageLayers': {}, 'referenceImages': src, 'imageBackground': 'transparent'}, 'do not send a background')]:
+            with self.assertRaisesRegex(InvalidRequest, phrase):
+                validate_seedream_background(item, options)
+
+    def test_seedream_55_layer_cost_bills_every_returned_image(self):
+        from .services.pricing import compute_cost
+        base = {'model': 'Seedream 5.5', 'referenceCount': 1, 'submissionInput': {'layers': {'maxImages': 30}}}
+        self.assertEqual(compute_cost(base, []), 61)  # 30 x $0.02 + $0.008 reserved at admission
+        self.assertEqual(compute_cost({**base, 'outputImages': 13}, []), 27)  # 13 x $0.02 + $0.008 once billed
+
     def test_seedream_5_pro_payload_has_no_background(self):
         payload = seedream_payload({'prompt': 'x', 'background': 'transparent'}, {})
         self.assertEqual(payload['model'], 'dola-seedream-5-0-pro-260628')

@@ -57,7 +57,8 @@ MODEL_REGISTRY = [{'id': 'seedream-5-pro',
  # images/generations call per job. Text-to-image, single and multi-reference (up to 10) image-to-image, native RGBA
  # (background transparent with PNG output) and multi-turn editing (the previous output as the next reference) all share
  # this single-image request. Sequential group output, web search and streaming are not offered for 5.5, and layer
- # decomposition returns up to 100 images per request, which a one-image job cannot store, so it is not offered here.
+ # decomposition (one base image plus up to 99 PNG layers, optional rich-text OCR per text layer) is the same call with
+ # layer_decomposition set; its layers are stored on the job (Generation.layers) next to the base image.
  {'id': 'seedream-5-5',
   'name': 'Seedream 5.5',
   'kind': 'image',
@@ -72,6 +73,7 @@ MODEL_REGISTRY = [{'id': 'seedream-5-pro',
                    'resolutions': ['1K', '1.5K', '2K'],
                    'maxReferenceImages': 10,
                    'backgrounds': ['opaque', 'transparent'],
+                   'layerDecomposition': {'minImages': 2, 'maxImages': 100, 'defaultImages': 30},
                    'seed': False,
                    'imagePriceScalesWithResolution': False}},
  {'id': 'nano-banana-pro',

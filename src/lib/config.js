@@ -244,6 +244,19 @@ export function imageBackgroundsForModel(model) {
   return capability(model, "backgrounds", []);
 }
 
+/** Seedream 5.5 layer decomposition limits ({ minImages, maxImages, defaultImages }); null for every other model. */
+export function imageLayerLimitsForModel(model) {
+  return capability(model, "layerDecomposition", null);
+}
+
+/** The `imageLayers` request value for the composer's layer setting, or null when the model or the setting is off. */
+export function imageLayersRequest(model, layers) {
+  const limits = imageLayerLimitsForModel(model);
+  if (!limits || !layers?.enabled) return null;
+  const maxImages = Math.min(limits.maxImages, Math.max(limits.minImages, Math.round(Number(layers.maxImages)) || limits.defaultImages));
+  return { maxImages, textRecognition: layers.textRecognition === true };
+}
+
 export function imageQualityFor(model, value) {
   return imageQualitiesForModel(model).includes(value) ? value : DEFAULT_IMAGE_QUALITY;
 }

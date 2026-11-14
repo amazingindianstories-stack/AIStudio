@@ -22,7 +22,11 @@ def compute_cost(input, pricing):
             if row['unit'] != 'per_1000_images':
                 raise ValueError('Seedream pricing requires per_1000_images rates.')
             return row['unitCostCents']
-        amount = rate55('Seedream 5.5', 2000) + input.get('referenceCount', 0) * rate55('Seedream 5.5 · input image', 800)
+        layers = (input.get('submissionInput') or {}).get('layers')
+        # Layer decomposition bills every returned image (base plus layers): the reserved maximum at admission, the
+        # actual count (outputImages) once the response is in.
+        outputs = input.get('outputImages') or (layers['maxImages'] if layers else 1)
+        amount = outputs * rate55('Seedream 5.5', 2000) + input.get('referenceCount', 0) * rate55('Seedream 5.5 · input image', 800)
         return math.floor(amount / 1000 + .5)
     if definition.get('provider') == 'seedream':
         width, height = input.get('width'), input.get('height')

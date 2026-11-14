@@ -11,7 +11,7 @@ OPTIONAL = ('resolution', 'duration', 'url', 'poster', 'reference_images', 'refe
     'progress_percent', 'progress_message', 'track_characters', 'depth_claim_id',
     'depth_claim_worker_id', 'project_id', 'folder_id', 'user_id', 'cost_cents', 'seed',
     'candidate_task_ids', 'continuation_frame_url', 'last_frame_url', 'favorited_at',
-    'flagged_at', 'flag_reason', 'judge_score')
+    'flagged_at', 'flag_reason', 'judge_score', 'layers')
 
 
 def camel(name):
@@ -55,6 +55,8 @@ def generation_item(row, filename=None):
         for key, name in (('quality', 'imageQuality'), ('background', 'imageBackground')):
             if isinstance(row.submission_input.get(key), str):
                 result[name] = row.submission_input[key]
+        if isinstance(row.submission_input.get('layers'), dict):
+            result['imageLayers'] = row.submission_input['layers']
     # Transcriptions list under their file name, as the transcription response describes them.
     if row.kind == 'audio' and isinstance(row.submission_input, dict) and row.submission_input.get('operation') == 'audio-transcription':
         original = row.submission_input.get('originalName')

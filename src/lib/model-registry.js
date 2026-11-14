@@ -61,7 +61,7 @@ export const MODEL_REGISTRY = [
     pricingKey: "Seedream 5.5",
     capabilities: {
       aspectRatios: ["1:1", "3:4", "4:3", "9:16", "16:9", "3:2", "2:3", "21:9"], resolutions: ["1K", "1.5K", "2K"],
-      maxReferenceImages: 10, backgrounds: ["opaque", "transparent"], seed: false, imagePriceScalesWithResolution: false,
+      maxReferenceImages: 10, backgrounds: ["opaque", "transparent"], layerDecomposition: { minImages: 2, maxImages: 100, defaultImages: 30 }, seed: false, imagePriceScalesWithResolution: false,
     },
   },
   {

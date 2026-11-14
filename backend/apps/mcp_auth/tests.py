@@ -870,7 +870,7 @@ class MigrationTests(TransactionTestCase):
             self.assertEqual(sorted((migration.app_label, migration.name) for migration, backward in plan),
                              [('generation', '0008_generation_mcp_origin'), ('generation', '0009_generation_url_lookup'),
                               ('generation', '0010_generation_output'), ('generation', '0011_generation_agent_run'),
-                              ('generation', '0012_generation_agent_run_index'), ('mcp_auth', '0001_initial')])
+                              ('generation', '0012_generation_agent_run_index'), ('generation', '0013_generation_layers'), ('mcp_auth', '0001_initial')])
             executor.migrate(final)
             row = Generation.objects.get(pk=identifier)
             self.assertEqual((row.created_via, row.mcp_token_id, row.mcp_client_id, row.cost_cents), (None, None, None, 4))

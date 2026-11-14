@@ -121,3 +121,10 @@ reader.
 creator) or `admin`. `apps/projects/visibility.py` holds the single rule; admins always see every project. A hidden
 project answers like a missing one (404 or an absent row) across projects, folders, library, history, counts, enqueue,
 boards, assets, exports and MCP. Changing access needs project owner or co-owner level, or admin.
+
+## Seedream 5.5 layer decomposition
+
+`imageLayers: {maxImages 2-100, textRecognition}` on a Seedream 5.5 image job (exactly one source image) calls the same
+`images/generations` endpoint with `layer_decomposition`. The base image is the job's `url`; each PNG layer is stored under
+`generations/{id}/layers/` and listed, with z-order, bounding box and any OCR, in `Generation.layers`. Cost is billed per
+returned image: reserved at `maxImages` at admission, reconciled to the returned count on completion.

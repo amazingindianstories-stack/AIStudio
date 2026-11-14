@@ -29,6 +29,7 @@ import {
   supportsBitrateMode,
   imageQualitiesForModel,
   imageBackgroundsForModel,
+  imageLayersRequest,
   imageQualityFor,
   imageBackgroundFor,
   DEFAULT_IMAGE_QUALITY,
@@ -502,6 +503,7 @@ export const useStore = create((set, get) => ({
   // and generate omits them for any other model.
   imageQuality: DEFAULT_IMAGE_QUALITY,
   imageBackground: DEFAULT_IMAGE_BACKGROUND,
+  imageLayers: { enabled: false, maxImages: 30, textRecognition: false },
   // The Agents chat's LLM and thinking level (agent-model.js); setAgentModel clamps the level.
   agentModel: DEFAULT_AGENT_MODEL,
   agentThinking: DEFAULT_AGENT_THINKING,
@@ -764,6 +766,7 @@ export const useStore = create((set, get) => ({
     bitrateMode: bitrateMode === "standard" ? "standard" : "high",
   }),
   setImageQuality: (imageQuality) => set((s) => ({ imageQuality: imageQualityFor(s.model, imageQuality) })),
+  setImageLayers: (patch) => set((s) => ({ imageLayers: { ...s.imageLayers, ...patch } })),
   setImageBackground: (imageBackground) => set((s) => ({ imageBackground: imageBackgroundFor(s.model, imageBackground) })),
   setAgentModel: (model) => set((s) => {
     const agent = agentModel(model) ? model : DEFAULT_AGENT_MODEL;
@@ -1256,6 +1259,10 @@ export const useStore = create((set, get) => ({
       bitrateMode: s.bitrateMode,
       ...(s.mode === "image" && (imageQualitiesForModel(s.model).length || imageBackgroundsForModel(s.model).length)
         ? { imageQuality: s.imageQuality, imageBackground: s.imageBackground }
+        : {}),
+      // Layer decomposition always returns transparent layers, so it never sends a background.
+      ...(s.mode === "image" && imageLayersRequest(s.model, s.imageLayers)
+        ? { imageLayers: imageLayersRequest(s.model, s.imageLayers), imageBackground: undefined }
         : {}),
       videoTaskMode,
       // Only ever non-null when regenerateWithSameSeed set it deliberately —
@@ -2031,6 +2038,9 @@ export const useStore = create((set, get) => ({
         supportsBitrateMode(item.model) && item.bitrateMode === "standard" ? "standard" : "high",
       imageQuality: imageQualityFor(composerModel(item.model), item.imageQuality),
       imageBackground: imageBackgroundFor(composerModel(item.model), item.imageBackground),
+      imageLayers: item.imageLayers
+        ? { enabled: true, maxImages: item.imageLayers.maxImages, textRecognition: item.imageLayers.textRecognition === true }
+        : { enabled: false, maxImages: 30, textRecognition: false },
       videoTaskMode: supportsVideoEditExtend(item.model)
         ? item.videoTaskMode ?? "generate"
         : "generate",

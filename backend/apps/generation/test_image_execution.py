@@ -165,6 +165,36 @@ class ImageExecutionTests(SimpleTestCase):
         self.assertEqual((sent['model'], sent['background'], sent['references']), ('Seedream 5.5', 'transparent', ['signed-original']))
         self.assertEqual(self.deps.seedream_resolve.call_args.args[3], 'Seedream 5.5')
 
+    def test_seedream_55_layer_decomposition_stores_layers_and_bills_returned_images(self):
+        self.item.model = 'Seedream 5.5'
+        self.item.submission_input = {'layers': {'maxImages': 30, 'textRecognition': True}}
+        self.item.reference_images = ['stored-original']
+        self.deps.seedream_resolve = Mock(return_value={'prompt':'split','references':['stored-original']})
+        self.deps.seedream_prepare = Mock(return_value={'urls':['signed-original'], 'stable':['one']})
+        ocr = {'text': 'Hi', 'lines': []}
+        self.deps.seedream_generate = Mock(return_value={'base': png(size=(1000,800)), 'layers': [
+            {'content': b'layer-one', 'zIndex': 1, 'size': '200x100', 'boundingBox': {'normalized': [1, 2, 3, 4]}},
+            {'content': b'layer-two', 'zIndex': 2, 'size': 'bad', 'textRecognition': ocr}]})
+        result = self.execute()
+        # base + 2 layers at $0.02 + one $0.008 input = 6.8 cents
+        self.assertEqual(result['cost_cents'], 7)
+        self.assertEqual(self.deps.seedream_generate.call_args.args[0]['layers'], {'maxImages': 30, 'textRecognition': True})
+        base = [key for key in self.adapter.objects if key.startswith('generations/fixture/') and '/layers/' not in key]
+        self.assertEqual([self.storage.read(key) for key in base], [png(size=(1000,800))])
+        first, second = result['layers']
+        self.assertEqual((first['zIndex'], first['width'], first['height'], first['boundingBox']), (1, 200, 100, {'normalized': [1, 2, 3, 4]}))
+        self.assertEqual((second['zIndex'], second['textRecognition'], 'width' in second), (2, ocr, False))
+        keys = sorted(key for key in self.adapter.objects if key.startswith('generations/fixture/layers/'))
+        self.assertEqual([self.storage.read(key) for key in keys].count(b'layer-one'), 1)
+        self.assertEqual(len(keys), 2)
+
+    def test_single_image_result_has_no_layers_field(self):
+        self.item.model = 'Seedream 5.5'
+        self.deps.seedream_resolve = Mock(return_value={'prompt':'x','references':[]})
+        self.deps.seedream_prepare = Mock(return_value={'urls':[], 'stable':[]})
+        self.deps.seedream_generate = Mock(return_value=png())
+        self.assertNotIn('layers', self.execute())
+
     def test_seedream_requires_dimensions(self):
         self.item.model = 'Seedream 5.0 Pro'
         self.deps.seedream_resolve = Mock(return_value={'prompt':'x','references':[]})

@@ -120,9 +120,37 @@ def image_input(body, user_id):
     return clean(item)
 
 
+def validate_layer_decomposition(item, body):
+    """Seedream 5.5 layer decomposition (`imageLayers`): one source image in, a base image and up to 99 layers out, with
+    optional rich-text OCR. The provider returns transparent PNG layers itself, so a background choice is refused."""
+    options = body.get('imageLayers')
+    if options is None:
+        return None
+    name, limits = model_definition(item['model'])['name'], capability(item['model'],'layerDecomposition',None)
+    if limits is None:
+        raise InvalidRequest(f'{name} does not support layer decomposition.')
+    if not isinstance(options, dict):
+        raise InvalidRequest('imageLayers must be an object.')
+    maximum = options.get('maxImages', limits['defaultImages'])
+    if type(maximum) is not int or not limits['minImages'] <= maximum <= limits['maxImages']:
+        raise InvalidRequest(f'imageLayers.maxImages must be a whole number from {limits["minImages"]} to {limits["maxImages"]}.')
+    text = options.get('textRecognition', False)
+    if type(text) is not bool:
+        raise InvalidRequest('imageLayers.textRecognition must be true or false.')
+    if body.get('imageBackground') not in (None, 'opaque'):
+        raise InvalidRequest('Layer decomposition always returns transparent layers; do not send a background.')
+    sources = body.get('referenceImages')
+    if not isinstance(sources, list) or len(sources) != 1:
+        raise InvalidRequest('Layer decomposition needs exactly one source image.')
+    return {'maxImages': maximum, 'textRecognition': text}
+
+
 def validate_seedream_background(item, body):
     """Seedream 5.5 takes an opaque or transparent background (opaque when not sent), stored as the job's submission input."""
     name, backgrounds = model_definition(item['model'])['name'], capability(item['model'],'backgrounds',[])
+    layers = validate_layer_decomposition(item, body)
+    if layers is not None:
+        return {'layers': layers}
     background = body.get('imageBackground', 'opaque')
     if background not in backgrounds:
         raise InvalidRequest(f'{name} background must be {" or ".join(backgrounds)} (got {string(background)}).')
@@ -241,12 +269,18 @@ def prepare_image(item, body, identifier, user_id):
         try:
             resolved = resolve_seedream_references(item['prompt'],assets(),references,item['model'])
             reference_count = len(resolved['references'])
+            require_single_layer_source(item, reference_count)
             prepare_seedream_references(resolved['references'],identifier,user_id=user_id,sign=False,persist=False)
         except ValueError as error:
             raise InvalidRequest(str(error)) from error
     prepared = {'costCents':image_cost(item,references,reference_count)}
     if has_length(references): prepared['referenceImages'] = save_reference_images(references,identifier)
     return prepared
+
+
+def require_single_layer_source(item, reference_count):
+    if (item.get('submissionInput') or {}).get('layers') and reference_count != 1:
+        raise ValueError('Layer decomposition takes exactly one source image; this prompt resolves to %d.' % reference_count)
 
 
 def image_cost(item, references, reference_count=None):
@@ -263,6 +297,7 @@ def quote_image(item, body):
         try:
             seedream_size(item.get('resolution','2K'),item['aspectRatio'],item['model'])
             reference_count = len(resolve_seedream_references(item['prompt'],assets(),references if references is not None else [],item['model'])['references'])
+            require_single_layer_source(item, reference_count)
         except ValueError as error:
             raise InvalidRequest(str(error)) from error
     return image_cost(item,references,reference_count)

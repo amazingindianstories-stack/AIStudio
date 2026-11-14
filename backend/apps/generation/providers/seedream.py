@@ -78,6 +78,8 @@ def seedream_payload(input, env=None):
     if len(references) > 10:
         raise ValueError('Seedream accepts at most 10 references.')
     model = input.get('model') or DEFAULT_MODEL
+    if input.get('layers'):
+        return layer_payload(input, model, env)
     payload = {'model': provider_model_id(model, env), 'prompt': input['prompt'],
                'size': seedream_size(input.get('resolution', '2K'), input.get('aspectRatio', '1:1'), model),
                'response_format': 'url', 'output_format': 'png', 'watermark': False,
@@ -92,6 +94,42 @@ def seedream_payload(input, env=None):
     if references:
         payload['image'] = references
     return payload
+
+
+def layer_payload(input, model, env=None):
+    """Seedream 5.5 layer decomposition: one source image, a base image plus layers back. `background` is rejected by
+    the API for this mode, and layers are always PNG, so neither is sent."""
+    limits = capability(model, 'layerDecomposition', None)
+    if limits is None:
+        raise ValueError(f'{seedream_name(model)} does not support layer decomposition.')
+    references = input.get('references', [])
+    if len(references) != 1:
+        raise ValueError('Layer decomposition takes exactly one source image.')
+    options = input['layers']
+    maximum = options.get('maxImages', limits['defaultImages'])
+    if type(maximum) is not int or not limits['minImages'] <= maximum <= limits['maxImages']:
+        raise ValueError(f'Layer decomposition max images must be {limits["minImages"]} to {limits["maxImages"]}.')
+    resolution = input.get('resolution') or '2K'
+    if resolution not in capability(model, 'resolutions', []):
+        raise ValueError(f'{seedream_name(model)} layer decomposition requires 1K, 1.5K, or 2K.')
+    return {'model': provider_model_id(model, env), 'prompt': input['prompt'], 'image': references[0],
+            'size': resolution, 'layer_decomposition': True,
+            'layer_decomposition_options': {'max_images': maximum, 'text_recognition': bool(options.get('textRecognition'))},
+            'response_format': 'url', 'output_format': 'png', 'watermark': False}
+
+
+def parse_layers(data):
+    """Order the response items into the base image (lowest z_index, else first) and its layers; every item needs an
+    https URL. Returns [(item, url)] with the base first."""
+    items = [item for item in data if isinstance(item, dict)]
+    if len(items) != len(data) or len(items) < 1:
+        return None
+    urls = [item.get('url') for item in items]
+    if any(not isinstance(url, str) or not url.startswith('https://') for url in urls):
+        return None
+    indices = [item.get('z_index') for item in items]
+    order = sorted(range(len(items)), key=lambda i: (indices[i] if type(indices[i]) is int else i, i))
+    return [(items[i], urls[i]) for i in order]
 
 
 def _generate_image(input, *, transport=None, env=None, signal=None, fetcher=None):
@@ -128,6 +166,8 @@ def _generate_image(input, *, transport=None, env=None, signal=None, fetcher=Non
                             provider_response=provider_errors.capture('seedream', phase='create', status=response.status,
                                                                       body=response.text, headers=response.headers))
     data = (result or {}).get('data') or []
+    if payload.get('layer_decomposition'):
+        return _download_layers(data, response, signal, fetcher)
     url = data[0].get('url') if len(data) == 1 and isinstance(data[0], dict) else None
     if not isinstance(url, str) or not url.startswith('https://'):
         raise ProviderError(NO_RESULT_MESSAGE, provider_response=provider_errors.local(
@@ -148,6 +188,41 @@ def _generate_image(input, *, transport=None, env=None, signal=None, fetcher=Non
     if signal:
         signal.check()
     return content[0] if isinstance(content, tuple) else content
+
+
+def _download_layers(data, response, signal, fetcher):
+    """{'base': bytes, 'layers': [{content, zIndex, size, boundingBox, textRecognition?}]}; the base is the lowest layer."""
+    parsed = parse_layers(data)
+    if not parsed or len(parsed) < 2:
+        raise ProviderError(NO_RESULT_MESSAGE, provider_response=provider_errors.local(
+            'seedream', 'no_result', NO_RESULT_MESSAGE, phase='create', status=response.status, body=response.text,
+            headers=response.headers))
+    if fetcher is None:
+        from apps.integrations.remote import get_media_fetcher
+        fetcher = get_media_fetcher(signal=signal)
+    downloaded = []
+    for item, url in parsed:
+        if signal:
+            signal.check()
+        try:
+            content = fetcher(url)
+        except Exception as error:
+            if signal:
+                signal.check()
+            raise ProviderError(DOWNLOAD_FAILED_MESSAGE, code='output_download_failed', provider_response=provider_errors.local(
+                'seedream', 'output_download_failed', str(error) or type(error).__name__, phase='download')) from error
+        downloaded.append((item, content[0] if isinstance(content, tuple) else content))
+    if signal:
+        signal.check()
+    layers = []
+    for item, content in downloaded[1:]:
+        layer = {'content': content, 'zIndex': item.get('z_index'), 'size': item.get('size')}
+        if isinstance(item.get('bounding_box'), dict):
+            layer['boundingBox'] = item['bounding_box']
+        if isinstance(item.get('text_recognition'), dict):
+            layer['textRecognition'] = item['text_recognition']
+        layers.append(layer)
+    return {'base': downloaded[0][1], 'layers': layers}
 
 
 SEEDREAM_TIMEOUT_SECONDS = 30 * 60
