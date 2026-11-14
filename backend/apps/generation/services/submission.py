@@ -95,7 +95,7 @@ def quote_generation(actor, kind, body):
     """
     data, item = validated_generation(actor, kind, body)
     try:
-        cost = enqueue.quote_image(item, data, actor.id) if kind == 'image' else enqueue.quote_video(item, data)
+        cost = enqueue.quote_image(item, data, actor.id) if kind == 'image' else enqueue.quote_video(item, data, actor.id)
     except enqueue.InvalidRequest as error:
         raise invalid(error) from None
     except Exception:
@@ -124,7 +124,7 @@ def submit_generation(actor, kind, body, *, idempotency_key=None, origin=None, a
     key = receipt_key(idempotency_key, actor.id)
     identifier, now = uuid.uuid4(), now_ms()
     try:
-        prepared = enqueue.prepare_image(item, data, str(identifier), actor.id) if kind == 'image' else enqueue.prepare_video(item, data, str(identifier))
+        prepared = enqueue.prepare_image(item, data, str(identifier), actor.id) if kind == 'image' else enqueue.prepare_video(item, data, str(identifier), actor.id)
     except enqueue.PortraitUnavailable as error:
         raise Refused(400, {'error': str(error), 'code': 'PORTRAIT_UNAVAILABLE', 'referenceIndex': error.reference_index}) from None
     except enqueue.ReferenceAudioRejected as error:

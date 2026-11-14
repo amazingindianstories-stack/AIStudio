@@ -219,11 +219,24 @@ class PureProviderParityTests(SimpleTestCase):
         for options, phrase in [({'imageLayers': {'maxImages': 1}, 'referenceImages': src}, 'maxImages'),
                                 ({'imageLayers': {'textRecognition': 'yes'}, 'referenceImages': src}, 'textRecognition'),
                                 ({'imageLayers': 5, 'referenceImages': src}, 'must be an object'),
-                                ({'imageLayers': {}, 'referenceImages': src * 2}, 'exactly one source'),
-                                ({'imageLayers': {}}, 'exactly one source'),
                                 ({'imageLayers': {}, 'referenceImages': src, 'imageBackground': 'transparent'}, 'do not send a background')]:
             with self.assertRaisesRegex(InvalidRequest, phrase):
                 validate_seedream_background(item, options)
+
+    def test_seedream_55_layer_source_may_be_one_named_asset_image(self):
+        from unittest.mock import patch
+        from .services import enqueue
+        hero = {'kind': 'character', 'name': 'Hero', 'slug': 'hero', 'images': ['/api/media/assets/hero.png']}
+        item = {'model': 'Seedream 5.5', 'prompt': '@hero split', 'aspectRatio': '1:1',
+                'submissionInput': {'layers': {'maxImages': 30}}}
+        with patch.object(enqueue, 'read_pricing', lambda: []):
+            with patch.object(enqueue, 'assets', lambda user_id: [hero]):
+                self.assertEqual(enqueue.quote_image(item, {}, None), 61)
+                with self.assertRaisesRegex(enqueue.InvalidRequest, 'exactly one source image; this prompt resolves to 2'):
+                    enqueue.quote_image(item, {'referenceImages': ['data:image/png;base64,AA==']}, None)
+            with patch.object(enqueue, 'assets', lambda user_id: [{**hero, 'images': hero['images'] * 2}]):
+                with self.assertRaisesRegex(enqueue.InvalidRequest, 'exactly one source image; this prompt resolves to 2'):
+                    enqueue.quote_image(item, {}, None)
 
     def test_seedream_55_layer_cost_bills_every_returned_image(self):
         from .services.pricing import compute_cost

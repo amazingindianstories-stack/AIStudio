@@ -208,6 +208,22 @@ class ProjectAccessTests(TransactionTestCase):
         self.assertEqual({row['slug'] for row in enqueue.assets(self.outsider.id)}, {'shared'})
         self.assertEqual({row['slug'] for row in enqueue.assets(self.admin.id)}, {'hidden', 'shared'})
 
+    def test_reference_asset_and_legacy_media_of_a_hidden_project_are_hidden(self):
+        project = self.make('admin')
+        _, generation, _ = self.seed(project)
+        Generation.objects.filter(pk=generation.pk).update(url='/api/media/generated/legacy.png')
+        Asset.objects.create(kind='character', name='Hidden', slug='hidden', project_id=project.id,
+                             images=['/api/media/assets/hidden.png'], created_at=1, updated_at=1)
+        Asset.objects.create(kind='character', name='Shared', slug='shared', project_id=self.open.id,
+                             images=['/api/media/assets/shared.png'], created_at=1, updated_at=1)
+        keys = (f'references/{generation.id}-0.png', f'references/{generation.id}-seedream-1.png',
+                'assets/hidden.png', 'thumbs/512/assets/hidden.png.webp', 'generated/legacy.png')
+        for key in keys:
+            with self.assertRaises(MediaHidden, msg=key):
+                authorize_media_key(key, self.outsider)
+            self.assertEqual(authorize_media_key(key, self.admin), key)
+        self.assertEqual(authorize_media_key('assets/shared.png', self.outsider), 'assets/shared.png')
+
     def test_a_failed_visibility_check_fails_closed(self):
         with patch.object(visibility, 'hidden_project_ids', side_effect=OperationalError('connection reset')):
             for check in (visibility.can_see, visibility.can_see_folder, visibility.can_see_generation):

@@ -74,8 +74,8 @@ def authorize_media_key(path, user=None):
     """Shared-studio read policy for an authenticated actor; raises for hidden keys.
 
     Any signed-in user may read a READY upload; unfinished or cancelled uploads
-    stay hidden. With ``user``, a generation's media inside a project that user
-    may not see is hidden too. ZIP exports have their own owner/expiry checks
+    stay hidden. With ``user``, a generation's or asset's media inside a project
+    that user may not see is hidden too. ZIP exports have their own owner/expiry checks
     and are never served here.
     """
     key = validate_key(path)

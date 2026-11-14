@@ -61,10 +61,22 @@ def can_see_generation(user, generation_id):
 
 
 def can_see_media_key(user, key):
-    """False for a generation's stored media (`generations/<id>.<ext>`, `generations/<id>/...`) in a hidden project."""
+    """False for stored media of a generation or asset inside a project the user may not see.
+
+    `generations/<id>...` and `references/<id>-...` name their generation; legacy `generated/...` masters and
+    `assets/...` images name none, so the generation or asset row that stores the key is looked up."""
     import re
-    match = re.match(r'generations/([0-9a-fA-F-]{36})(?:[./]|$)', key)
-    return can_see_generation(user, match[1]) if match else True
+    from apps.assets.models import Asset
+    from apps.generation.models import Generation
+    match = re.match(r'(?:generations/|references/)([0-9a-fA-F-]{36})(?:[./-]|$)', key)
+    if match:
+        return can_see_generation(user, match[1])
+    hidden = hidden_project_ids(user)
+    if key.startswith('generated/'):
+        return not Generation.objects.filter(project_id__in=hidden, url__endswith='/' + key).exists()
+    if key.startswith('assets/'):
+        return not Asset.objects.filter(project_id__in=hidden, images__icontains=key).exists()
+    return True
 
 
 def visible(user, rows, field='project_id'):

@@ -120,7 +120,8 @@ reader.
 `Project.access` is `all` (default, preserves earlier visibility), `users` (the `project_access_users` list plus the
 creator) or `admin`. `apps/projects/visibility.py` holds the single rule; admins always see every project. A hidden
 project answers like a missing one (404 or an absent row) across projects, folders, library, history, counts, enqueue,
-boards, assets, @tag asset pools, exports, downloads, `/api/media` generation keys, agent attachments and MCP.
+boards, assets, @tag asset pools, exports, downloads, `/api/media` keys (generation, reference, asset and legacy
+`generated/` media, and their thumbnails), agent attachments and MCP.
 A visibility check that fails (for example a database error) propagates rather than granting access. Changing access needs project owner or co-owner level, or admin.
 
 ## Seedream 5.5 layer decomposition

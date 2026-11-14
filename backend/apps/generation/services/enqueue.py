@@ -140,9 +140,6 @@ def validate_layer_decomposition(item, body):
         raise InvalidRequest('imageLayers.textRecognition must be true or false.')
     if body.get('imageBackground') not in (None, 'opaque'):
         raise InvalidRequest('Layer decomposition always returns transparent layers; do not send a background.')
-    sources = body.get('referenceImages')
-    if not isinstance(sources, list) or len(sources) != 1:
-        raise InvalidRequest('Layer decomposition needs exactly one source image.')
     return {'maxImages': maximum, 'textRecognition': text}
 
 
@@ -475,7 +472,7 @@ class ReferenceImageRejected(InvalidRequest):
 IMAGE_CHECK_BUDGET_SECONDS = 8.0
 
 
-def verify_reference_image_sizes(item, body, measure=None, *, budget_seconds=IMAGE_CHECK_BUDGET_SECONDS, clock=time.monotonic):
+def verify_reference_image_sizes(item, body, user_id, measure=None, *, budget_seconds=IMAGE_CHECK_BUDGET_SECONDS, clock=time.monotonic):
     """Refuse Seedance image references the provider would reject on size, before anything is queued.
 
     BytePlus needs a short side of at least 300 px and a ratio of 0.4-2.5. Larger images are not an error:
@@ -487,7 +484,7 @@ def verify_reference_image_sizes(item, body, measure=None, *, budget_seconds=IMA
         return
     from .video_execution import combined_references, read_assets
     uploads = list(body.get('referenceImages') or [])
-    labelled = [(ref['tag'], ref['imageUrl'], int(tag[4:]) if (tag := ref['tag']).startswith('@img') and tag[4:].isdigit() else None) for ref in combined_references(item.get('prompt'), read_assets(item.get('projectId')), uploads)]
+    labelled = [(ref['tag'], ref['imageUrl'], int(tag[4:]) if (tag := ref['tag']).startswith('@img') and tag[4:].isdigit() else None) for ref in combined_references(item.get('prompt'), read_assets(item.get('projectId'), user_id), uploads)]
     labelled += [(label, item.get(key), None) for key, label in (('firstFrame', 'The first frame'), ('lastFrame', 'The last frame'))]
     measure = measure or image_limits.reference_dimensions
     deadline = clock() + budget_seconds
@@ -502,12 +499,12 @@ def verify_reference_image_sizes(item, body, measure=None, *, budget_seconds=IMA
             raise ReferenceImageRejected(image_limits.seedance_message(label, *size, image_limits.SIZE_TAIL), index)
 
 
-def omnihuman_cost(item, body):
+def omnihuman_cost(item, body, user_id):
     """Check OmniHuman's one image and one audio, set the duration from the audio, and price it."""
     from .omnihuman_inputs import validate
     from .video_execution import combined_references, read_assets
     from apps.generation.references import resolve_references
-    combined = combined_references(item['prompt'], read_assets(item.get('projectId')), body.get('referenceImages') or [])
+    combined = combined_references(item['prompt'], read_assets(item.get('projectId'), user_id), body.get('referenceImages') or [])
     audios = resolve_references(item['prompt'], item.get('referenceAudios') or [], 'audio')
     try:
         seconds = validate([ref['imageUrl'] for ref in combined], audios)
@@ -520,16 +517,16 @@ def omnihuman_cost(item, body):
         raise InvalidRequest(str(error)) from None
 
 
-def quote_video(item, body):
+def quote_video(item, body, user_id):
     """The estimate prepare_video records, without its reference checks or storing references."""
     if is_provider_model(item.get('model'), 'omnihuman'):
-        return omnihuman_cost(item, body)
+        return omnihuman_cost(item, body, user_id)
     return compute_cost(item, read_pricing())
 
 
-def prepare_video(item, body, identifier):
+def prepare_video(item, body, identifier, user_id):
     if is_provider_model(item.get('model'), 'omnihuman'):
-        cost = omnihuman_cost(item, body)
+        cost = omnihuman_cost(item, body, user_id)
         refs = save_reference_images(body.get('referenceImages') or [], identifier)
         return {'referenceImages': refs, 'costCents': cost}
     verify_reference_audio_durations(item)
@@ -540,7 +537,7 @@ def prepare_video(item, body, identifier):
         verify_no_retired_portrait_links(item, body)
     elif not managed:
         verify_portrait_references(item, body)
-    verify_reference_image_sizes(item, body)
+    verify_reference_image_sizes(item, body, user_id)
     if not pooled:
         verify_registered_portraits(item, body)
     result = {'costCents':compute_cost(item,read_pricing())}
