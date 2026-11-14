@@ -39,7 +39,8 @@ def asset_reads(request):
         return delete_catalog_asset(request, actor)
     project_values = request.query_params.getlist('projectId')
     project = project_values[0] if project_values else None
-    query = Asset.objects.all()
+    from apps.projects import visibility
+    query = visibility.visible(actor, Asset.objects.all())
     if project:
         query = query.filter(project_id=project)
     response = Response({'assets': [serialize(asset) for asset in query.order_by('-created_at')]})

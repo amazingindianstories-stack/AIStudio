@@ -20,11 +20,12 @@ from apps.integrations.transport import ProviderError
 from apps.generation.references import asset_slugs, resolve_references, mention_indices, TOKEN_END
 from apps.media.keys import media_key_from_ref
 from apps.media.storage import get_storage
+from apps.projects import visibility
 from apps.assets.provider_projection import provider_asset_projection
 
 
-def read_assets(project_id=None):
-    query = Asset.objects.all()
+def read_assets(project_id=None, user_id=None):
+    query = visibility.visible_to(user_id, Asset.objects.all())
     if project_id:
         query = query.filter(project_id=project_id)
     return [provider_asset_projection(asset) for asset in query.order_by('-created_at')]
@@ -227,7 +228,7 @@ def submit_video(item, *, signal, on_task, count=1, dependencies=None, env=None)
         return {**base, 'task_id': task_id}
     if is_provider_model(item.model, 'omnihuman'):
         from .omnihuman_inputs import validate
-        combined = combined_references(item.prompt, deps.assets(item.project_id), item.reference_images or [])
+        combined = combined_references(item.prompt, deps.assets(item.project_id, item.user_id), item.reference_images or [])
         images = [ref['imageUrl'] for ref in combined]
         audios = resolve_references(item.prompt, item.reference_audios or [], 'audio')
         seconds = validate(images, audios)
@@ -240,7 +241,7 @@ def submit_video(item, *, signal, on_task, count=1, dependencies=None, env=None)
         on_task(task_id, 0, 1)
         return {**base, 'task_id': task_id}
     if is_provider_model(item.model, 'omni'):
-        assembled = deps.assemble(item.prompt, deps.assets(item.project_id), item.reference_images or [], {'aspectRatio': item.aspect_ratio, 'medium': 'video'})
+        assembled = deps.assemble(item.prompt, deps.assets(item.project_id, item.user_id), item.reference_images or [], {'aspectRatio': item.aspect_ratio, 'medium': 'video'})
         task_id = deps.omni_submit({'assembled': assembled, 'aspectRatio': item.aspect_ratio, 'duration': item.duration or 4,
                                     'resolution': item.resolution, 'modelDisplay': item.model}, signal=signal)
         on_task(task_id, 0, 1)
@@ -263,7 +264,7 @@ def submit_video(item, *, signal, on_task, count=1, dependencies=None, env=None)
             'duration': item.duration, 'resolution': item.resolution, 'mediaIds': media_ids}, signal=signal)
         on_task(task_id, 0, 1)
         return {**base, **extra, 'task_id': task_id}
-    combined = combined_references(item.prompt, deps.assets(item.project_id), item.reference_images or [])
+    combined = combined_references(item.prompt, deps.assets(item.project_id, item.user_id), item.reference_images or [])
     from .portrait_prepare import applies as managed_applies, assets_for, storage_key, video_assets_for
     verify_reference_image_sizes(item, combined)       # before the first inline read or provider call: nothing is billed
     managed = {'managed': assets_for(item.id)} if managed_applies(item) else {}

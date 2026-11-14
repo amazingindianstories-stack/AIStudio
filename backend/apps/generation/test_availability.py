@@ -10,7 +10,7 @@ from deploy import legacy_config
 from .availability import SWITCHES, availability, available
 from .model_registry import MODEL_REGISTRY
 
-ALWAYS = ['seedream-5-pro', 'nano-banana-pro', 'nano-banana-2-1', 'seedance', 'seedance-25', 'depth-anything-local']
+ALWAYS = ['seedream-5-pro', 'seedream-5-5', 'nano-banana-pro', 'nano-banana-2-1', 'seedance', 'seedance-25', 'depth-anything-local']
 SWITCHED = {'omnihuman': ['omnihuman-2'], 'kling': ['kling-image-3', 'kling-image-21'], 'omni': ['gemini-omni-1-1-flash'],
             'magnific': ['magnific-creative', 'magnific-precision-v2', 'magnific-precision-v1', 'magnific-video-creative',
                          'magnific-video-creative-turbo', 'magnific-video-precision', 'magnific-video-topaz'],

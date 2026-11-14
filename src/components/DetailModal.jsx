@@ -533,6 +533,29 @@ export function DetailModal() {
                 )}
               </div>
 
+              {item.layers?.length > 0 && (
+                <div data-testid="layer-list" className="mb-3">
+                  <p className="mb-1 text-xs font-medium uppercase tracking-wide text-white/40">
+                    {`Layers (${item.layers.length})`}
+                  </p>
+                  <ul className="max-h-40 space-y-1 overflow-y-auto scroll-thin">
+                    {item.layers.map((layer, index) => (
+                      <li key={layer.url} className="flex items-center gap-2 text-xs text-white/70">
+                        <a href={layer.url} target="_blank" rel="noreferrer" className="shrink-0 text-brand hover:underline">
+                          {`Layer ${index + 1}`}
+                        </a>
+                        {layer.width && layer.height && <span className="text-white/40">{`${layer.width}×${layer.height}`}</span>}
+                        {layer.textRecognition?.text && (
+                          <span title={layer.textRecognition.text} className="min-w-0 flex-1 truncate">
+                            {layer.textRecognition.text}
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
               {item.referenceImages && item.referenceImages.length > 0 && (
                 <ReferenceCollage images={item.referenceImages} />
               )}

@@ -28,6 +28,8 @@ import {
   supportsDraftMode,
   supportsBitrateMode,
   imageQualitiesForModel,
+  imageBackgroundsForModel,
+  imageLayersRequest,
   imageQualityFor,
   imageBackgroundFor,
   DEFAULT_IMAGE_QUALITY,
@@ -501,6 +503,7 @@ export const useStore = create((set, get) => ({
   // and generate omits them for any other model.
   imageQuality: DEFAULT_IMAGE_QUALITY,
   imageBackground: DEFAULT_IMAGE_BACKGROUND,
+  imageLayers: { enabled: false, maxImages: 30, textRecognition: false },
   // The Agents chat's LLM and thinking level (agent-model.js); setAgentModel clamps the level.
   agentModel: DEFAULT_AGENT_MODEL,
   agentThinking: DEFAULT_AGENT_THINKING,
@@ -763,6 +766,7 @@ export const useStore = create((set, get) => ({
     bitrateMode: bitrateMode === "standard" ? "standard" : "high",
   }),
   setImageQuality: (imageQuality) => set((s) => ({ imageQuality: imageQualityFor(s.model, imageQuality) })),
+  setImageLayers: (patch) => set((s) => ({ imageLayers: { ...s.imageLayers, ...patch } })),
   setImageBackground: (imageBackground) => set((s) => ({ imageBackground: imageBackgroundFor(s.model, imageBackground) })),
   setAgentModel: (model) => set((s) => {
     const agent = agentModel(model) ? model : DEFAULT_AGENT_MODEL;
@@ -1253,8 +1257,12 @@ export const useStore = create((set, get) => ({
       generateAudio: s.generateAudio,
       draftMode: s.draftMode,
       bitrateMode: s.bitrateMode,
-      ...(s.mode === "image" && imageQualitiesForModel(s.model).length
+      ...(s.mode === "image" && (imageQualitiesForModel(s.model).length || imageBackgroundsForModel(s.model).length)
         ? { imageQuality: s.imageQuality, imageBackground: s.imageBackground }
+        : {}),
+      // Layer decomposition always returns transparent layers, so it never sends a background.
+      ...(s.mode === "image" && imageLayersRequest(s.model, s.imageLayers)
+        ? { imageLayers: imageLayersRequest(s.model, s.imageLayers), imageBackground: undefined }
         : {}),
       videoTaskMode,
       // Only ever non-null when regenerateWithSameSeed set it deliberately —
@@ -2030,6 +2038,9 @@ export const useStore = create((set, get) => ({
         supportsBitrateMode(item.model) && item.bitrateMode === "standard" ? "standard" : "high",
       imageQuality: imageQualityFor(composerModel(item.model), item.imageQuality),
       imageBackground: imageBackgroundFor(composerModel(item.model), item.imageBackground),
+      imageLayers: item.imageLayers
+        ? { enabled: true, maxImages: item.imageLayers.maxImages, textRecognition: item.imageLayers.textRecognition === true }
+        : { enabled: false, maxImages: 30, textRecognition: false },
       videoTaskMode: supportsVideoEditExtend(item.model)
         ? item.videoTaskMode ?? "generate"
         : "generate",
@@ -2464,13 +2475,14 @@ export const useStore = create((set, get) => ({
       ...(s.activeFolderId !== id ? CLEAR_SELECTION_PATCH : {}),
     })),
 
-  createProject: async (name) => {
+  createProject: async (name, access = "all", accessUserIds = []) => {
     const res = await apiFetch("/api/projects", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ op: "createProject", name }),
+      body: JSON.stringify({ op: "createProject", name, ...(access !== "all" ? { access, accessUserIds } : {}) }),
     });
     const json = await res.json();
+    if (!res.ok && json.error) throw new Error(json.error);
     if (json.projects) {
       set((s) => ({
         projects: json.projects,
@@ -2480,6 +2492,18 @@ export const useStore = create((set, get) => ({
       }));
       void get().loadLibraryTree();
     }
+  },
+
+  setProjectAccess: async (id, access, accessUserIds = []) => {
+    const res = await apiFetch("/api/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ op: "setAccess", projectId: id, access, accessUserIds }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || "Could not change project access.");
+    set({ projects: json.projects });
+    void get().loadLibraryTree();
   },
 
   renameProject: async (id, name) => {

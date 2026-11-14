@@ -124,7 +124,9 @@ def shallow(node):
 
 def folder(identifier, user_id):
     """The folder (or the global library), its direct subfolders with counts and its first 20 items, newest first."""
-    tree = folder_tree(None, 20)
+    from apps.projects import visibility
+    user = visibility.for_user_id(user_id)
+    tree = folder_tree(None, 20, user)
     if identifier == 'global':
         scope = tree['global']
         node = {'id': None, 'name': scope['name'], 'path': scope['name'], 'itemCount': scope['unsortedCount'],
@@ -141,7 +143,7 @@ def folder(identifier, user_id):
         node = {**found, 'children': [shallow(child) for child in found['children']]}
         node.pop('childrenOmitted', None)
         arguments = {'folderId': identifier}
-    page = search({**arguments, 'limit': FOLDER_ITEMS}, user_id)
+    page = search({**arguments, 'limit': FOLDER_ITEMS}, user)
     return {'folder': node, 'items': page['items'], 'total': page['total'],
             'next': results.call('search_generations', {**arguments, 'cursor': page['nextCursor']},
                                  'Lists the rest of this folder.') if page['nextCursor'] else None}

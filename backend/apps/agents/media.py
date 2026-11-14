@@ -37,6 +37,7 @@ from apps.media.models import UploadSession
 from apps.integrations.transport import ProviderError
 from apps.media.storage import MediaNotFoundError, get_storage
 from apps.mcp import errors
+from apps.projects import visibility
 from .loop_llm import (FILE_URI, FILES_DISPLAY_NAME, FILES_UPLOAD, LOOP_MODEL, MEDIA_MIME, AgentLoopTransport, GeminiFilesTransport,
                        media_body, transcribe_body)
 from . import limits
@@ -156,8 +157,8 @@ def _read(storage, key, max_bytes, asset_id):
 
 
 def load(user_id, asset_id, *, storage=None):
-    """The user's ready upload, or any finished image, video or audio generation of the shared library, ``asset_id``,
-    within the user's attachment caps."""
+    """The user's ready upload, or any finished image, video or audio generation of the shared library outside the
+    projects the user may not see, ``asset_id``, within the user's attachment caps."""
     try:
         identifier = uuid.UUID(str(asset_id))
     except ValueError:
@@ -167,8 +168,8 @@ def load(user_id, asset_id, *, storage=None):
     if upload:
         key, declared = upload['key'], upload['content_type']
     else:
-        row = (Generation.objects.filter(id=identifier, status='succeeded', kind__in=('image', 'video', 'audio'))
-               .values('url').first())
+        row = (visibility.visible_to(user_id, Generation.objects.filter(id=identifier, status='succeeded',
+               kind__in=('image', 'video', 'audio'))).values('url').first())
         key = media_key_from_ref(row['url'], getattr(settings, 'GCP_MEDIA_CDN_URL', '')) if row else None
         if not key or is_protected_key(key):
             raise not_found(asset_id)

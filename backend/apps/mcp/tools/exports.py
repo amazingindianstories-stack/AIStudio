@@ -123,12 +123,13 @@ def owned(export_id, user_id):
     return job
 
 
-def folder_selection(folder_id, subfolders):
+def folder_selection(folder_id, subfolders, user=None):
     """The finished, downloadable items in a folder (and its subfolders), oldest first, at most ``MAX_IDS``."""
-    if not Folder.objects.filter(pk=folder_id).exists():
+    from apps.projects import visibility
+    if not Folder.objects.filter(pk=folder_id).exists() or (user is not None and not visibility.can_see_folder(user, folder_id)):
         raise errors.ToolError(errors.NOT_FOUND, f'No folder {folder_id} is visible to you. Call list_folders.')
     try:
-        rows = reads.source_history(reads.query_params({'folderId': folder_id}), options={'subfolders': subfolders})
+        rows = reads.source_history(reads.query_params({'folderId': folder_id}), options={'subfolders': subfolders}, user=user)
     except ValidationError as error:
         raise errors.ToolError(errors.INVALID_INPUT, error.detail.get('error', 'This folder cannot be exported.')) from None
     ids = [str(identifier) for identifier in rows.filter(status='succeeded', kind__in=EXPORTABLE).exclude(Q(url=None) | Q(url=''))
@@ -165,7 +166,7 @@ def create(call):
     key = arguments.get('idempotencyKey')
 
     def mutation():
-        ids = selection.get('ids') or folder_selection(selection['folderId'], selection['includeSubfolders'])
+        ids = selection.get('ids') or folder_selection(selection['folderId'], selection['includeSubfolders'], call.principal.user)
         if not ids:
             raise errors.ToolError(errors.INVALID_INPUT, 'This folder has no finished items to export.')
         return build(user_id, ids)

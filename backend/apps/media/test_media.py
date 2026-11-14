@@ -334,7 +334,8 @@ class EndpointTests(TransactionTestCase):
         self.assertEqual(self.client.get('/api/media/generated/movie.mov').status_code,401)
 
     def test_media_cookie_validation_checks_current_user(self):
-        with self.assertNumQueries(1):
+        # The current user row, then the project-visibility check for the key.
+        with self.assertNumQueries(2):
             response=self.client.get('/api/media/generated/movie.mov')
         response.close()
 

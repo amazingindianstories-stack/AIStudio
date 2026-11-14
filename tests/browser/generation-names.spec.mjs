@@ -202,12 +202,18 @@ test('ZIPs from All generations, folder views and a cross-folder selection name 
       const selected = await panel.locator('[data-asset-card-id]').evaluateAll(cards => cards
         .filter(card => card.querySelector('[role="checkbox"][aria-checked="true"]'))
         .map(card => [card.dataset.assetCardId, card.querySelector('[data-generation-name]').getAttribute('title')]));
+      // A reload restores the previous ZIP's status, so wait for this export's own link.
+      const created = page.waitForResponse(response => response.request().method() === 'POST'
+        && new URL(response.url()).pathname === '/api/history/exports');
       await panel.getByRole('button', { name: 'Download ZIP', exact: true }).click();
+      const { id: exportId } = await (await created).json();
+      exports.push(exportId);
       const status = panel.getByRole('status', { name: 'ZIP export' });
+      const link = status.getByRole('link', { name: 'Download', exact: true });
       await expect(status.filter({ hasText: 'ZIP ready' })).toBeVisible({ timeout: 60000 });
-      exports.push(...(await db`SELECT id FROM media_exports WHERE user_id=${USER_ID} ORDER BY created_at DESC LIMIT 1`).map(row => row.id));
+      await expect(link).toHaveAttribute('href', `/api/history/exports/${exportId}/download`, { timeout: 60000 });
       const downloading = page.waitForEvent('download');
-      await status.getByRole('link', { name: 'Download', exact: true }).click();
+      await link.click();
       const download = await downloading;
       const path = testInfo.outputPath(`${label}.zip`);
       await download.saveAs(path);

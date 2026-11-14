@@ -20,10 +20,11 @@ from .pricing import read_pricing, compute_cost, kling_units_to_cents, openai_to
 from .seedream_references import prepare_seedream_references
 
 
-def read_assets(project_id=None):
+def read_assets(project_id=None, user_id=None):
     from apps.assets.models import Asset
     from apps.assets.provider_projection import provider_asset_projection
-    query = Asset.objects.all()
+    from apps.projects import visibility
+    query = visibility.visible_to(user_id, Asset.objects.all())
     if project_id:
         query = query.filter(project_id=project_id)
     return [provider_asset_projection(asset) for asset in query.order_by('-created_at')]
@@ -80,6 +81,25 @@ def task_ended(result, fallback, provider, task_id):
     return error
 
 
+def store_layers(deps, identifier, layers, signal):
+    """Upload each decomposition layer as its own immutable PNG next to the base image; the stored record keeps what
+    the provider reported (position, z-order and any rich-text OCR) so a design tool can rebuild the composition."""
+    stored = []
+    for layer in layers:
+        signal.check()
+        url = deps.storage().upload_buffer(layer['content'], f'generations/{identifier}/layers/{uuid4().hex}.png', 'png')
+        signal.check()
+        record = {'url': url, 'zIndex': layer.get('zIndex')}
+        width, _, height = str(layer.get('size') or '').partition('x')
+        if width.isdigit() and height.isdigit():
+            record.update(width=int(width), height=int(height))
+        for key in ('boundingBox', 'textRecognition'):
+            if layer.get(key) is not None:
+                record[key] = layer[key]
+        stored.append(record)
+    return stored
+
+
 def bounded_best_of(configured, image_size):
     try:
         requested = float(configured or 2)
@@ -106,6 +126,7 @@ def execute_image(item, *, signal, dependencies=None, env=None, on_task=None):
     seed = item.seed
     if seed is None and capability(model, 'seed') and not getattr(item, 'draft_task_id', None):
         seed = deps.random_seed()
+    layers = None
     cost, basis, judge_score = item.cost_cents or 0, 'reconciled' if item.cost_basis == 'reconciled' else 'estimated', None
     metadata = {'kind': 'image', 'model': model, 'requestedAspectRatio': ratio,
                 'supportedRatios': capability(model, 'aspectRatios', None)}
@@ -125,7 +146,7 @@ def execute_image(item, *, signal, dependencies=None, env=None, on_task=None):
         return result[0] if isinstance(result, tuple) else result
 
     def assets():
-        return deps.assets if deps.assets is not None else deps.read_assets(item.project_id)
+        return deps.assets if deps.assets is not None else deps.read_assets(item.project_id, item.user_id)
 
     def assemble(with_ratio=True):
         options = {'aspectRatio': ratio} if with_ratio else {}
@@ -149,16 +170,23 @@ def execute_image(item, *, signal, dependencies=None, env=None, on_task=None):
         signal.wait(700)
         saved = {'url': deps.mock_placeholder(identifier, prompt, ratio, model), 'aspectRatio': ratio}
     elif provider == 'seedream':
-        assembled = deps.seedream_resolve(prompt, assets(), references)
+        assembled = deps.seedream_resolve(prompt, assets(), references, model)
         prepared = deps.seedream_prepare(assembled['references'], identifier, signal=signal, user_id=item.user_id)
-        data = deps.seedream_generate({'prompt': assembled['prompt'], 'aspectRatio': ratio,
-            'resolution': resolution, 'references': prepared['urls']}, signal=signal, env=env)
-        saved = save(data, 'png')
+        options = getattr(item, 'submission_input', None) or {}
+        data = deps.seedream_generate({'prompt': assembled['prompt'], 'aspectRatio': ratio, 'model': model,
+            'resolution': resolution, 'references': prepared['urls'], 'layers': options.get('layers'),
+            'background': options.get('background')}, signal=signal, env=env)
+        layered = isinstance(data, dict)
+        saved = save(data['base'] if layered else data, 'png')
         if not saved.get('width') or not saved.get('height'):
             raise ValueError('Seedream output dimensions could not be read.')
+        if layered:
+            layers = store_layers(deps, identifier, data['layers'], signal)
         pricing = deps.pricing if deps.pricing is not None else deps.read_pricing()
         cost = compute_cost({'model': model, 'width': saved['width'], 'height': saved['height'],
-            'referenceCount': len(prepared['stable'])}, pricing)
+            'referenceCount': len(prepared['stable']),
+            'submissionInput': {'layers': options['layers']} if layered else None,
+            'outputImages': 1 + len(data['layers']) if layered else None}, pricing)
         basis = 'estimated'
     elif provider == 'higgsfield':
         task_id = item.task_id
@@ -252,4 +280,5 @@ def execute_image(item, *, signal, dependencies=None, env=None, on_task=None):
         saved = save(base64.b64decode(encoded, validate=True), 'jpg' if 'jpeg' in mime else 'png')
     signal.check()
     return {'status': 'succeeded', 'url': saved['url'], 'aspect_ratio': saved['aspectRatio'],
-            'cost_cents': cost, 'cost_basis': basis, 'seed': seed, 'judge_score': judge_score, 'updated_at': deps.now()}
+            'cost_cents': cost, 'cost_basis': basis, 'seed': seed, 'judge_score': judge_score, 'updated_at': deps.now(),
+            **({'layers': layers} if layers is not None else {})}

@@ -14,6 +14,7 @@ from apps.library.models import Folder
 from apps.library.services.folder_engine import move_generations
 from apps.library.services.idempotency import MISSING, OrganizationError, now_ms
 from apps.library.views import body_or_empty
+from apps.projects import visibility
 from .models import Generation
 from .serialization import generation_item
 
@@ -57,6 +58,8 @@ def history_mutation(request, user):
             body = body_or_empty(request)
             if not body.get('id'):
                 return Response({'error': 'Missing id.'}, status=400)
+            if not visibility.can_see_generation(user, body['id']):
+                return Response({'error': 'Not found.'}, status=404)
             if type(body.get('isFavorite')) is not bool and type(body.get('flagged')) is not bool and user.role != 'admin':
                 return Response({'error': 'Only admins can move generations.'}, status=403)
             with transaction.atomic():

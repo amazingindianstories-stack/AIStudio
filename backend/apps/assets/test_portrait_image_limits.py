@@ -70,9 +70,9 @@ class SeedanceReferenceLimits(GalleryBase):
     def test_other_models_and_the_time_budget_are_left_alone(self):
         small = data_url(png(100, 100))
         item = {'model': 'Gemini Omni Flash 1.1', 'prompt': '@img1'}
-        enqueue.verify_reference_image_sizes(item, {'referenceImages': [small]})
+        enqueue.verify_reference_image_sizes(item, {'referenceImages': [small]}, None)
         ticks = iter(range(0, 1000, 20))
-        enqueue.verify_reference_image_sizes({'model': 'Seedance 2.5', 'prompt': '@img1'}, {'referenceImages': [small]},
+        enqueue.verify_reference_image_sizes({'model': 'Seedance 2.5', 'prompt': '@img1'}, {'referenceImages': [small]}, None,
                                              budget_seconds=8, clock=lambda: next(ticks))      # out of budget at the first image
 
     def test_the_worker_refuses_what_enqueue_could_not_check_before_any_paid_call(self):

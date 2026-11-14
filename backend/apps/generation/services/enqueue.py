@@ -19,6 +19,7 @@ from apps.generation import image_limits
 from apps.generation.availability import available
 from apps.generation.model_registry import capability, is_provider_model, model_definition, retirement_message
 from apps.generation.models import Generation
+from apps.projects import visibility
 from apps.generation.providers.seedream import seedream_size, resolve_seedream_references
 from apps.generation.serialization import camel
 from apps.generation.references import mention_indices, reference_warnings
@@ -115,7 +116,43 @@ def image_input(body, user_id):
     validate_prompt(item['prompt'],user_id)
     if is_provider_model(model,'openai'):
         item['submissionInput'] = validate_openai_image(item, body)
+    elif capability(model,'backgrounds',[]):
+        item['submissionInput'] = validate_seedream_background(item, body)
     return clean(item)
+
+
+def validate_layer_decomposition(item, body):
+    """Seedream 5.5 layer decomposition (`imageLayers`): one source image in, a base image and up to 99 layers out, with
+    optional rich-text OCR. The provider returns transparent PNG layers itself, so a background choice is refused."""
+    options = body.get('imageLayers')
+    if options is None:
+        return None
+    name, limits = model_definition(item['model'])['name'], capability(item['model'],'layerDecomposition',None)
+    if limits is None:
+        raise InvalidRequest(f'{name} does not support layer decomposition.')
+    if not isinstance(options, dict):
+        raise InvalidRequest('imageLayers must be an object.')
+    maximum = options.get('maxImages', limits['defaultImages'])
+    if not integer(maximum) or not limits['minImages'] <= maximum <= limits['maxImages']:
+        raise InvalidRequest(f'imageLayers.maxImages must be a whole number from {limits["minImages"]} to {limits["maxImages"]}.')
+    text = options.get('textRecognition', False)
+    if type(text) is not bool:
+        raise InvalidRequest('imageLayers.textRecognition must be true or false.')
+    if body.get('imageBackground') not in (None, 'opaque'):
+        raise InvalidRequest('Layer decomposition always returns transparent layers; do not send a background.')
+    return {'maxImages': int(maximum), 'textRecognition': text}
+
+
+def validate_seedream_background(item, body):
+    """Seedream 5.5 takes an opaque or transparent background (opaque when not sent), stored as the job's submission input."""
+    name, backgrounds = model_definition(item['model'])['name'], capability(item['model'],'backgrounds',[])
+    layers = validate_layer_decomposition(item, body)
+    if layers is not None:
+        return {'layers': layers}
+    background = body.get('imageBackground', 'opaque')
+    if background not in backgrounds:
+        raise InvalidRequest(f'{name} background must be {" or ".join(backgrounds)} (got {string(background)}).')
+    return {'background': background}
 
 
 def validate_openai_image(item, body):
@@ -210,8 +247,9 @@ def has_length(value):
     return bool(value) if isinstance(value,(str,list)) else bool(value.get('length')) if isinstance(value,dict) else False
 
 
-def assets():
-    return [asset_json(row) for row in Asset.objects.all()]
+def assets(user_id):
+    """The asset pool @tags resolve against for ``user_id``: none from a project that user may not see."""
+    return [asset_json(row) for row in visibility.visible_to(user_id, Asset.objects.all())]
 
 
 def prepare_image(item, body, identifier, user_id):
@@ -219,8 +257,8 @@ def prepare_image(item, body, identifier, user_id):
     reference_count = None
     if is_provider_model(item['model'],'seedream'):
         try:
-            seedream_size(item.get('resolution','2K'),item['aspectRatio'])
-            resolved = resolve_seedream_references(item['prompt'],assets(),references if references is not None else [])
+            seedream_size(item.get('resolution','2K'),item['aspectRatio'],item['model'])
+            resolved = resolve_seedream_references(item['prompt'],assets(user_id),references if references is not None else [],item['model'])
             if resolved['references']:
                 require_native_image_runtime()
         except ValueError as error:
@@ -228,8 +266,9 @@ def prepare_image(item, body, identifier, user_id):
         # Storage failures are internal errors, not public input validation.
         references = save_reference_images(references if references is not None else [],identifier)
         try:
-            resolved = resolve_seedream_references(item['prompt'],assets(),references)
+            resolved = resolve_seedream_references(item['prompt'],assets(user_id),references,item['model'])
             reference_count = len(resolved['references'])
+            require_single_layer_source(item, reference_count)
             prepare_seedream_references(resolved['references'],identifier,user_id=user_id,sign=False,persist=False)
         except ValueError as error:
             raise InvalidRequest(str(error)) from error
@@ -238,20 +277,26 @@ def prepare_image(item, body, identifier, user_id):
     return prepared
 
 
+def require_single_layer_source(item, reference_count):
+    if (item.get('submissionInput') or {}).get('layers') and reference_count != 1:
+        raise ValueError('Layer decomposition takes exactly one source image; this prompt resolves to %d.' % reference_count)
+
+
 def image_cost(item, references, reference_count=None):
     cost_input = {**item,'hasReferenceImage':has_length(references)}
     if reference_count is not None: cost_input['referenceCount'] = reference_count
     return compute_cost(cost_input,read_pricing())
 
 
-def quote_image(item, body):
+def quote_image(item, body, user_id):
     """The estimate prepare_image records, without storing references; their bytes are checked at submission."""
     references = body.get('referenceImages')
     reference_count = None
     if is_provider_model(item['model'],'seedream'):
         try:
-            seedream_size(item.get('resolution','2K'),item['aspectRatio'])
-            reference_count = len(resolve_seedream_references(item['prompt'],assets(),references if references is not None else [])['references'])
+            seedream_size(item.get('resolution','2K'),item['aspectRatio'],item['model'])
+            reference_count = len(resolve_seedream_references(item['prompt'],assets(user_id),references if references is not None else [],item['model'])['references'])
+            require_single_layer_source(item, reference_count)
         except ValueError as error:
             raise InvalidRequest(str(error)) from error
     return image_cost(item,references,reference_count)
@@ -427,7 +472,7 @@ class ReferenceImageRejected(InvalidRequest):
 IMAGE_CHECK_BUDGET_SECONDS = 8.0
 
 
-def verify_reference_image_sizes(item, body, measure=None, *, budget_seconds=IMAGE_CHECK_BUDGET_SECONDS, clock=time.monotonic):
+def verify_reference_image_sizes(item, body, user_id, measure=None, *, budget_seconds=IMAGE_CHECK_BUDGET_SECONDS, clock=time.monotonic):
     """Refuse Seedance image references the provider would reject on size, before anything is queued.
 
     BytePlus needs a short side of at least 300 px and a ratio of 0.4-2.5. Larger images are not an error:
@@ -439,7 +484,7 @@ def verify_reference_image_sizes(item, body, measure=None, *, budget_seconds=IMA
         return
     from .video_execution import combined_references, read_assets
     uploads = list(body.get('referenceImages') or [])
-    labelled = [(ref['tag'], ref['imageUrl'], int(tag[4:]) if (tag := ref['tag']).startswith('@img') and tag[4:].isdigit() else None) for ref in combined_references(item.get('prompt'), read_assets(item.get('projectId')), uploads)]
+    labelled = [(ref['tag'], ref['imageUrl'], int(tag[4:]) if (tag := ref['tag']).startswith('@img') and tag[4:].isdigit() else None) for ref in combined_references(item.get('prompt'), read_assets(item.get('projectId'), user_id), uploads)]
     labelled += [(label, item.get(key), None) for key, label in (('firstFrame', 'The first frame'), ('lastFrame', 'The last frame'))]
     measure = measure or image_limits.reference_dimensions
     deadline = clock() + budget_seconds
@@ -454,12 +499,12 @@ def verify_reference_image_sizes(item, body, measure=None, *, budget_seconds=IMA
             raise ReferenceImageRejected(image_limits.seedance_message(label, *size, image_limits.SIZE_TAIL), index)
 
 
-def omnihuman_cost(item, body):
+def omnihuman_cost(item, body, user_id):
     """Check OmniHuman's one image and one audio, set the duration from the audio, and price it."""
     from .omnihuman_inputs import validate
     from .video_execution import combined_references, read_assets
     from apps.generation.references import resolve_references
-    combined = combined_references(item['prompt'], read_assets(item.get('projectId')), body.get('referenceImages') or [])
+    combined = combined_references(item['prompt'], read_assets(item.get('projectId'), user_id), body.get('referenceImages') or [])
     audios = resolve_references(item['prompt'], item.get('referenceAudios') or [], 'audio')
     try:
         seconds = validate([ref['imageUrl'] for ref in combined], audios)
@@ -472,16 +517,16 @@ def omnihuman_cost(item, body):
         raise InvalidRequest(str(error)) from None
 
 
-def quote_video(item, body):
+def quote_video(item, body, user_id):
     """The estimate prepare_video records, without its reference checks or storing references."""
     if is_provider_model(item.get('model'), 'omnihuman'):
-        return omnihuman_cost(item, body)
+        return omnihuman_cost(item, body, user_id)
     return compute_cost(item, read_pricing())
 
 
-def prepare_video(item, body, identifier):
+def prepare_video(item, body, identifier, user_id):
     if is_provider_model(item.get('model'), 'omnihuman'):
-        cost = omnihuman_cost(item, body)
+        cost = omnihuman_cost(item, body, user_id)
         refs = save_reference_images(body.get('referenceImages') or [], identifier)
         return {'referenceImages': refs, 'costCents': cost}
     verify_reference_audio_durations(item)
@@ -492,7 +537,7 @@ def prepare_video(item, body, identifier):
         verify_no_retired_portrait_links(item, body)
     elif not managed:
         verify_portrait_references(item, body)
-    verify_reference_image_sizes(item, body)
+    verify_reference_image_sizes(item, body, user_id)
     if not pooled:
         verify_registered_portraits(item, body)
     result = {'costCents':compute_cost(item,read_pricing())}
@@ -523,7 +568,7 @@ def _persist(item):
 def finish_enqueue(item, prepared, identifier, now, user_id):
     result = {**item,**prepared,'id':str(identifier),'status':'queued','createdAt':now,'updatedAt':now}
     if user_id is not None: result['userId'] = str(user_id)
-    warnings = reference_warnings(item['prompt'], result.get('referenceImages'), assets())
+    warnings = reference_warnings(item['prompt'], result.get('referenceImages'), assets(user_id))
     row = persist(result)
     from apps.generation.serialization import generation_item
     public = generation_item(row)

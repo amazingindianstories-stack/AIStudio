@@ -55,6 +55,16 @@ export const MODEL_REGISTRY = [
     capabilities: { aspectRatios: IMAGE_ASPECTS, resolutions: ["1K", "1.5K", "2K"], maxReferenceImages: 10, seed: false, imagePriceScalesWithResolution: false },
   },
   {
+    id: "seedream-5-5", name: "Seedream 5.5", kind: "image", provider: "seedream",
+    providerModelId: "dola-seedream-5-5-261028", providerModelEnv: "SEEDREAM_55_MODEL",
+    offered: true, badge: "NEW", hint: "Consistent multi-turn edits, native transparent PNG · up to 10 references · 1K/1.5K/2K",
+    pricingKey: "Seedream 5.5",
+    capabilities: {
+      aspectRatios: ["1:1", "3:4", "4:3", "9:16", "16:9", "3:2", "2:3", "21:9"], resolutions: ["1K", "1.5K", "2K"],
+      maxReferenceImages: 10, backgrounds: ["opaque", "transparent"], layerDecomposition: { minImages: 2, maxImages: 100, defaultImages: 30 }, seed: false, imagePriceScalesWithResolution: false,
+    },
+  },
+  {
     id: "nano-banana-pro",
     name: "Nano Banana Pro",
     kind: "image",

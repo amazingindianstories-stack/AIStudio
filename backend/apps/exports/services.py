@@ -62,7 +62,11 @@ def _append_items(export_id, user_id, raw_ids, now=None):
         raise ExportError('EXPORT_NOT_FOUND')
     if job.status != 'draft':
         raise ExportError('EXPORT_NOT_DRAFT')
-    rows = {str(row.id): row for row in Generation.objects.filter(pk__in=ids).only('id', 'kind', 'url')}
+    from apps.projects import visibility
+    owner = visibility.for_user_id(user_id)
+    found = Generation.objects.filter(pk__in=ids)
+    # An item inside a project the exporter may not see is rejected like a missing one.
+    rows = {str(row.id): row for row in (visibility.visible(owner, found) if owner else found).only('id', 'kind', 'url')}
     existing = {str(value) for value in MediaExportItem.objects.filter(export=job).values_list('generation_id', flat=True)}
     accepted, rejected = [], []
     position = len(existing)

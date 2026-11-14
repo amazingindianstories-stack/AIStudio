@@ -118,7 +118,7 @@ export function aspectRatiosForModel(model, kind) {
  */
 export function reconcileGenerationSettings(model, kind, previous, hasReference = false) {
   const resolutions = resolutionsForModel(model, kind, hasReference);
-  const seedreamPro = model === "Seedream 5.0 Pro" || model === "seedream-5-pro";
+  const seedreamPro = ["Seedream 5.0 Pro", "seedream-5-pro", "Seedream 5.5", "seedream-5-5"].includes(model);
   const resolution = seedreamPro && model !== previous.model
     ? "2K"
     : resolutions.includes(previous.resolution)
@@ -242,6 +242,19 @@ export function imageQualitiesForModel(model) {
 
 export function imageBackgroundsForModel(model) {
   return capability(model, "backgrounds", []);
+}
+
+/** Seedream 5.5 layer decomposition limits ({ minImages, maxImages, defaultImages }); null for every other model. */
+export function imageLayerLimitsForModel(model) {
+  return capability(model, "layerDecomposition", null);
+}
+
+/** The `imageLayers` request value for the composer's layer setting, or null when the model or the setting is off. */
+export function imageLayersRequest(model, layers) {
+  const limits = imageLayerLimitsForModel(model);
+  if (!limits || !layers?.enabled) return null;
+  const maxImages = Math.min(limits.maxImages, Math.max(limits.minImages, Math.round(Number(layers.maxImages)) || limits.defaultImages));
+  return { maxImages, textRecognition: layers.textRecognition === true };
 }
 
 export function imageQualityFor(model, value) {

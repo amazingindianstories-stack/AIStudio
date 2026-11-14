@@ -23,11 +23,11 @@ def folder_reads(request):
         except OrganizationError as exc:
             return renew(request, Response({'error': str(exc), 'code': exc.code}, status=exc.status))
     if params.get('tree') in ('1', 'true'):
-        result = folders.tree()
+        result = folders.tree(user)
     elif params.get('ancestry'):
-        result = folders.ancestry(params['ancestry'])
+        result = folders.ancestry(params['ancestry'], user)
     else:
-        result = folders.children(params.get('parentId'), params.get('projectId'))
+        result = folders.children(params.get('parentId'), params.get('projectId'), user)
     response = Response(result)
     if hasattr(request, 'renewed_session'):
         from django.conf import settings
@@ -62,6 +62,15 @@ def folder_mutation(request, user):
     key = body.get('idempotencyKey') or request.headers.get('x-idempotency-key') or request.headers.get('idempotency-key')
     common = {'actor_id': str(user.id), 'idempotency_key': key}
     try:
+        from apps.projects import visibility
+        hidden = (body.get('projectId') and not visibility.can_see(user, body.get('projectId'))) or any(
+            value and not visibility.can_see_folder(user, value) for value in (body.get('parentId'), body.get('id'), body.get('folderId')))
+        destination = body.get('destination')
+        if isinstance(destination, dict):
+            hidden = hidden or (destination.get('projectId') and not visibility.can_see(user, destination['projectId'])) or (
+                destination.get('folderId') and not visibility.can_see_folder(user, destination['folderId']))
+        if hidden:
+            return renew(request, Response({'error': 'Not found.', 'code': 'NOT_FOUND'}, status=404))
         if request.method == 'POST':
             result = {'folder': service.create_folder(name=body.get('name'), color=body.get('color'),
                 project_id=body.get('projectId') or None, parent_id=body.get('parentId') or None, **common)}

@@ -25,6 +25,7 @@ import {
   supportsBitrateMode,
   imageQualitiesForModel,
   imageBackgroundsForModel,
+  imageLayerLimitsForModel,
   isExperimentalImageSize,
   resolutionLabel,
   IMAGE_QUALITY_LABELS,
@@ -542,10 +543,54 @@ export function ImageOptionsSummary({ s }) {
   );
 }
 
+/** Seedream 5.5 layer decomposition: one source image in, a base image and transparent layers out, with optional OCR. */
+function ImageLayerSettings({ s }) {
+  const limits = s.mode === "image" ? imageLayerLimitsForModel(s.model) : null;
+  if (!limits) return null;
+  const layers = s.imageLayers;
+  return (
+    <div>
+      <Segment
+        label="Output"
+        options={["Single image", "Layers"]}
+        value={layers.enabled ? "Layers" : "Single image"}
+        onChange={(v) => s.setImageLayers({ enabled: v === "Layers" })}
+      />
+      {layers.enabled && (
+        <div className="mt-2 space-y-2">
+          <label className="flex items-center gap-2 text-xs text-white/65">
+            <span>Max images</span>
+            <input
+              type="number"
+              min={limits.minImages}
+              max={limits.maxImages}
+              value={layers.maxImages}
+              onChange={(e) => s.setImageLayers({ maxImages: e.target.value === "" ? "" : Number(e.target.value) })}
+              className="w-16 rounded-lg bg-ink-700 px-2 py-1 text-xs ring-1 ring-line"
+            />
+          </label>
+          <label className="flex items-center gap-2 text-xs text-white/65">
+            <input
+              type="checkbox"
+              checked={layers.textRecognition}
+              onChange={(e) => s.setImageLayers({ textRecognition: e.target.checked })}
+            />
+            <span>Read text layers (OCR)</span>
+          </label>
+          <p className="text-[11px] leading-snug text-white/35">
+            Attach exactly one source image. Every returned image (base and layers) is billed.
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ImageOptionsSettings({ s }) {
   const { qualities, backgrounds } = imageOptions(s);
   return (
     <>
+      <ImageLayerSettings s={s} />
       {qualities.length > 0 && (
         <div>
           <Segment
@@ -557,7 +602,7 @@ export function ImageOptionsSettings({ s }) {
           <p className="mt-1 text-[11px] leading-snug text-white/35">Higher quality costs more and takes longer.</p>
         </div>
       )}
-      {backgrounds.length > 0 && (
+      {backgrounds.length > 0 && !(s.imageLayers?.enabled && imageLayerLimitsForModel(s.model)) && (
         <Segment
           label="Background"
           options={backgrounds.map((b) => IMAGE_BACKGROUND_LABELS[b])}

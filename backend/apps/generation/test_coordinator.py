@@ -175,10 +175,10 @@ class CoordinatorTests(TransactionTestCase):
         # Kling and OpenAI bill their own accounts, like Seedream; they share only the image concurrency and per-user limits.
         self.assertEqual(admission.non_gemini_image_models(), ['GPT Image 2.5 Flare', 'GPT Image 2.5 Sunburst',
                                                                 'GPT Image 2.6 Flare', 'GPT Image 2.6 Sunburst', 'Kling Image 2.1',
-                                                                'Kling Image 3.0', 'Seedream 5.0 Pro', 'gpt-image-2-5-flare',
+                                                                'Kling Image 3.0', 'Seedream 5.0 Pro', 'Seedream 5.5', 'gpt-image-2-5-flare',
                                                                 'gpt-image-2-5-sunburst', 'gpt-image-2-6-flare',
                                                                 'gpt-image-2-6-sunburst', 'kling-image-21', 'kling-image-3',
-                                                                'seedream-5-pro'])
+                                                                'seedream-5-5', 'seedream-5-pro'])
         kling = self.job(status='succeeded', model='Kling Image 3.0', cost_cents=140)
         self.assertFalse(admission.bills_gemini(kling))
         self.assertTrue(admission.bills_gemini(self.job(status='succeeded', model='Higgsfield Nano Banana Pro', cost_cents=0)))

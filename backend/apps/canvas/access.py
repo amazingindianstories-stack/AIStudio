@@ -10,6 +10,7 @@ from django.db.models import Q
 from apps.authentication.models import User
 from apps.projects.models import PROJECT_ROLES, Project, ProjectMember
 from .models import BOARD_ROLES, BoardMember, CanvasBoard
+from apps.projects import visibility
 from . import services
 
 NONE, VIEW, COMMENT, EDIT, CO_OWNER, OWNER = range(6)
@@ -43,7 +44,10 @@ def roles_for(user, boards):
     projects = {row['project_id'] for row in boards}
     board_roles = dict(BoardMember.objects.filter(user_id=user.id, board_id__in=ids).values_list('board_id', 'role')) if ids else {}
     project_roles = dict(ProjectMember.objects.filter(user_id=user.id, project_id__in=projects).values_list('project_id', 'role')) if projects else {}
-    return {str(row['id']): _level(user, row, board_roles.get(row['id']), project_roles.get(row['project_id'])) for row in boards}
+    # A board inside a project the user may not see has no level at all, whatever else would grant one.
+    hidden = set(visibility.hidden_project_ids(user).filter(pk__in=projects).values_list('id', flat=True)) if projects else set()
+    return {str(row['id']): NONE if row['project_id'] in hidden else
+            _level(user, row, board_roles.get(row['id']), project_roles.get(row['project_id'])) for row in boards}
 
 
 def readable(user):
@@ -51,7 +55,7 @@ def readable(user):
     still decides each board's level."""
     if user.role == 'admin':
         return Q()
-    return (Q(created_by=user.id) | Q(team_role__in=BOARD_LEVELS)
+    return ~Q(project_id__in=visibility.hidden_project_ids(user)) & (Q(created_by=user.id) | Q(team_role__in=BOARD_LEVELS)
             | Q(id__in=BoardMember.objects.filter(user_id=user.id, role__in=BOARD_LEVELS).values('board_id'))
             | Q(project_id__in=ProjectMember.objects.filter(user_id=user.id, role__in=PROJECT_LEVELS).values('project_id')))
 
@@ -65,7 +69,7 @@ def readable_boards(user):
         boards = boards.filter(Q(created_by=user.id) | Q(team_role__in=board_roles)
             | Q(pk__in=BoardMember.objects.filter(user_id=user.id, role__in=board_roles).values('board_id'))
             | Q(project_id__in=ProjectMember.objects.filter(user_id=user.id, role__in=project_roles).values('project_id')))
-    return boards.values('id')
+    return boards.exclude(project_id__in=visibility.hidden_project_ids(user)).values('id')
 
 
 def role_for(user, board):
@@ -87,12 +91,16 @@ def board_row(identifier):
 def project_level(user, project_id):
     if user.role == 'admin':
         return OWNER
+    if not visibility.can_see(user, project_id):
+        return NONE
     role = ProjectMember.objects.filter(project_id=project_id, user_id=user.id).values_list('role', flat=True).first()
     return PROJECT_LEVELS.get(role, NONE)
 
 
 def can_create_board(user, project_id):
     """Every teammate adds boards until the project has a member besides its creator; then editors and above."""
+    if not visibility.can_see(user, project_id):
+        return False
     creator = Project.objects.filter(pk=project_id).values_list('created_by', flat=True).first()
     restricted = ProjectMember.objects.filter(project_id=project_id).exclude(user_id=creator).exists()
     return not restricted or project_level(user, project_id) >= EDIT

@@ -56,9 +56,13 @@ def filters(params):
     return (None if project == 'none' else project), (kind if kind in ('image', 'video', 'audio') else None), query
 
 
-def base_query(kind, query, *, names=False):
+def base_query(kind, query, *, names=False, user=None):
     # Text jobs (board AI) are not library media: no scope lists them.
     rows = Generation.objects.exclude(kind='text')
+    if user is not None:
+        # Generations inside a project the user may not see are in no scope, search or count.
+        from apps.projects import visibility
+        rows = visibility.visible(user, rows)
     if kind != 'audio':
         rows = rows.exclude(kind='audio')
     if kind:
@@ -97,25 +101,25 @@ def grouped(rows):
     return result
 
 
-def count_library(params):
+def count_library(params, user=None):
     """SQL counts per scope: the project's and the global library's folders, all assets and favorites."""
     project, kind, query = filters(query_params(params))
-    rows = base_query(kind, query)
+    rows = base_query(kind, query, user=user)
     return {'project': grouped(rows.filter(project_id=project)) if project else {'total': 0, 'unsorted': 0, 'byFolder': {}},
         'globalLibrary': grouped(rows.filter(project_id=None)),
         'allAssets': rows.count(), 'favorites': rows.filter(is_favorite=True).count()}
 
 
-def location_counts():
+def location_counts(user=None):
     """SQL item counts per ``(project_id, folder_id)`` over the library (audio excluded, as in every scope's default)."""
     return {(row['project_id'], row['folder_id']): row['n']
-            for row in base_query(None, '').order_by().values('project_id', 'folder_id').annotate(n=Count('*'))}
+            for row in base_query(None, '', user=user).order_by().values('project_id', 'folder_id').annotate(n=Count('*'))}
 
 
-def source_history(params, *, search=True, options=None):
+def source_history(params, *, search=True, options=None, user=None):
     options = options or {}
     project, kind, query = filters(params)
-    rows = base_query(kind if search else None, query if search else '', names=options.get('names', False))
+    rows = base_query(kind if search else None, query if search else '', names=options.get('names', False), user=user)
     if first(params, 'projectId') == 'none' or project:
         rows = rows.filter(project_id=project)
     folder = first(params, 'folderId')
@@ -131,22 +135,22 @@ def source_history(params, *, search=True, options=None):
     return rows
 
 
-def count_history(params, *, options=None):
+def count_history(params, *, options=None, user=None):
     """The SQL total of a library scope or search with its filters: every matching row, never a loaded page."""
     params = query_params(params)
-    return apply_library_filters(source_history(params, options=options), parse_library_filters(params)).count()
+    return apply_library_filters(source_history(params, options=options, user=user), parse_library_filters(params)).count()
 
 
-def query_history(params, *, options=None):
+def query_history(params, *, options=None, user=None):
     """One page of a library scope or search: ``{'items', 'nextCursor'}``, or ``{'options'}`` with ``options=1``.
 
     ``options`` (agent tools only) is ``{'names': bool, 'subfolders': bool}``; with it, cursors always carry the
     query fingerprint, so a cursor from another query is refused."""
     params = query_params(params)
     if first(params, 'options') == '1':
-        return {'options': library_options(source_history(params, search=False))}
+        return {'options': library_options(source_history(params, search=False, user=user))}
     selected_filters = parse_library_filters(params)
-    rows = apply_library_filters(source_history(params, options=options), selected_filters)
+    rows = apply_library_filters(source_history(params, options=options, user=user), selected_filters)
     favorite = first(params, 'favorite') == '1'
     sort_mode = selected_filters.get('sort', 'starred' if favorite else 'newest')
     sort = 'favorited_at' if sort_mode == 'starred' else 'created_at'
@@ -187,7 +191,7 @@ def canonical_id(value):
         return None
 
 
-def get_generations(identifiers, *, media_only=False):
+def get_generations(identifiers, *, media_only=False, user=None):
     """Up to MAX_BATCH generations by id: ``items`` in the order asked, each generation once, and ``missing``,
     the ids that are malformed or name no generation. ``media_only`` leaves out board text jobs, as every library
     scope does (``base_query``)."""
@@ -196,6 +200,9 @@ def get_generations(identifiers, *, media_only=False):
         raise ValueError(f'At most {MAX_BATCH} generations can be read at once.')
     wanted = {value: canonical_id(value) for value in identifiers}
     source = Generation.objects.exclude(kind='text') if media_only else Generation.objects
+    if user is not None:
+        from apps.projects import visibility
+        source = visibility.visible(user, source)
     rows = {str(row.id): row for row in source.filter(pk__in=[value for value in wanted.values() if value])}
     names = batch_resolve_generation_filenames(list(rows))
     items, missing, seen = [], [], set()
@@ -209,7 +216,7 @@ def get_generations(identifiers, *, media_only=False):
     return {'items': items, 'missing': missing}
 
 
-def get_generation(identifier):
+def get_generation(identifier, user=None):
     """One generation's public item, or None when the id is malformed or names no generation."""
-    items = get_generations([identifier])['items']
+    items = get_generations([identifier], user=user)['items']
     return items[0] if items else None

@@ -151,7 +151,7 @@ def partial_submission_check():
         owner='audit:'+str(uuid.uuid4())
         row=generation(kind='video',model='Seedance 2.0',seed=700,cost_cents=100,reference_images=['synthetic-reference'],
             worker_lease_id=owner,worker_lease_until=now_ms()+60000)
-        deps=Dependencies(); deps.assets=lambda project:[]; deps.inline=lambda values,signal:['synthetic-inline' for _ in values]
+        deps=Dependencies(); deps.assets=lambda project,user=None:[]; deps.inline=lambda values,signal:['synthetic-inline' for _ in values]
         seeds=[]
         def submit(input,**kwargs):
             index=len(seeds);seeds.append(input['seed'])

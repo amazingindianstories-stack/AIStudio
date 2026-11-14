@@ -13,6 +13,7 @@ from apps.generation.models import Generation
 from apps.generation.services import submission
 from apps.media.models import UploadSession
 from apps.mcp_auth import controls
+from apps.projects import visibility
 from .. import catalog, errors, paid, quotes, results
 from ..registry import URL_EXPIRY, USER_DATA, obj, register
 from ..runtime import db
@@ -52,7 +53,7 @@ def site_origin():
 def upscale_source(user, identifier):
     """``(media, url, generation id)`` of a finished image or video generation, or of the caller's own ready image/video
     upload (no generation id)."""
-    row = Generation.objects.filter(pk=identifier).values('kind', 'status', 'url').first()
+    row = visibility.visible(user, Generation.objects.filter(pk=identifier)).values('kind', 'status', 'url').first()
     if row is None:
         upload = UploadSession.objects.filter(pk=identifier, actor_id=user.id).first()
         if upload is None:

@@ -53,7 +53,7 @@ def reference_urls(item):
     source = item
     if item.draft_task_id and item.source_generation_id:
         source = Generation.objects.filter(pk=item.source_generation_id).first() or item
-    refs = [ref['imageUrl'] for ref in combined_references(source.prompt, read_assets(source.project_id), source.reference_images or [])]
+    refs = [ref['imageUrl'] for ref in combined_references(source.prompt, read_assets(source.project_id, source.user_id), source.reference_images or [])]
     refs += [value for value in (source.continuation_frame_url, source.last_frame_url) if value]
     return refs
 
