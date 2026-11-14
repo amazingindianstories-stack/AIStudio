@@ -14,7 +14,7 @@ class Project(models.Model):
     created_at = models.BigIntegerField()
     updated_at = models.BigIntegerField()
     # Who may see the project at all: everyone, only the users in ProjectAccessUser (and its creator), or admins.
-    access = models.TextField(default='all')
+    access = models.TextField(default='all', db_default='all')
 
     class Meta:
         managed = True

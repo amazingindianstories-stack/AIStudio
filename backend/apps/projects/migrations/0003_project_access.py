@@ -1,4 +1,4 @@
-"""Project visibility. Existing projects get 'all', so nobody loses sight of anything."""
+"""Project visibility. Existing projects, and rows inserted without the column, get 'all', so nobody loses sight of anything."""
 import django.db.models.deletion
 from django.db import migrations, models
 
@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(model_name='project', name='access', field=models.TextField(default='all')),
+        migrations.AddField(model_name='project', name='access', field=models.TextField(default='all', db_default='all')),
         migrations.AddConstraint(model_name='project', constraint=models.CheckConstraint(
             condition=models.Q(('access__in', ('all', 'users', 'admin'))), name='projects_access_check')),
         migrations.CreateModel(

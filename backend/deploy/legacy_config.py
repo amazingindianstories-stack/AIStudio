@@ -20,14 +20,15 @@ WORKER_VARIABLE = 'GOAL4_PREVIEW_WORKER_CONFIGURATION'
 DATABASE_HOST = 'green-postgres18.railway.internal:5432'
 CA_SHA256 = '2779319ac43d325d695cbda0a53256dbde69d681c6b4719b217c2b82ec1e38bb'
 SYSTEM_IDENTIFIER = '7694884166196781094'
-MIGRATION_ROWS = (60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99)  # 67 includes generation.0006 (additive cancellation reconciliation); 68 adds generation.0007 (explicit, audited folder name rename); 69-70 add generation.0008 and mcp_auth.0001 (additive agent access); 71 adds generation.0009 (concurrent generations.url index); 72-73 add canvas.0002 and projects.0002 (additive board and project roles); 74-75 add canvas.0003 and canvas.0004 (board version and saves); 76-78 add generation.0010 (nullable text-job output), canvas.0005 (board activity history) and canvas.0006 (board AI jobs table); 79-80 add canvas.0007 (board save changes) and canvas.0008 (custom shape packs); 81 adds assets.0007 (portrait media kind)
+MIGRATION_ROWS = (60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101)  # 67 includes generation.0006 (additive cancellation reconciliation); 68 adds generation.0007 (explicit, audited folder name rename); 69-70 add generation.0008 and mcp_auth.0001 (additive agent access); 71 adds generation.0009 (concurrent generations.url index); 72-73 add canvas.0002 and projects.0002 (additive board and project roles); 74-75 add canvas.0003 and canvas.0004 (board version and saves); 76-78 add generation.0010 (nullable text-job output), canvas.0005 (board activity history) and canvas.0006 (board AI jobs table); 79-80 add canvas.0007 (board save changes) and canvas.0008 (custom shape packs); 81 adds assets.0007 (portrait media kind)
 # 82-83 add canvas.0009 and canvas.0010 (shared work records and in-app notifications);
 # 84 adds canvas.0011 (work relation kinds); 85 adds canvas.0012 (board media); 86 adds canvas.0013 (board templates, blueprints, usage, likes and comments); 87 adds canvas.0014 (board comments, notifications, presence and push subscriptions);
 # 88-89 add canvas.0015 and canvas.0016 (facilitation timers, voting and private mode, then Talktracks); 90 adds canvas.0017 (Sidekicks, Sidekick chats, board visits and Flow output history);
 # 91 adds canvas.0018 (board video captions); 92 adds canvas.0019 (format payload rows).
 # 93-95 add agents.0003, agents.0004 and agents.0005 (Gemini agent conversation fields, the messages foreign key, and
 # the grant, run, journal, event, inbox, chat asset and usage tables); 96-97 add generation.0011 and generation.0012
-# (generations.agent_run_id and its concurrent partial index); 98 adds agents.0006 (the inbox composer column); 99 adds agents.0007 (the run thinking level).
+# (generations.agent_run_id and its concurrent partial index); 98 adds agents.0006 (the inbox composer column); 99 adds agents.0007 (the run thinking level);
+# 100-101 add generation.0013 and projects.0003 (generations.layers, then project access and its user list).
 API_ROLE = 'goal4_green_preview_api'
 PROVIDER_KEYS = {'ARK_API_KEY', 'ARK_BASE_URL', 'GOOGLE_API_KEY', 'SEEDANCE_MODEL', 'SEEDANCE_MODEL_FAST'}
 BYTEPLUS_KEYS = {'BYTEPLUS_ACCESS_KEY_ID', 'BYTEPLUS_SECRET_ACCESS_KEY', 'BYTEPLUS_ARK_REGION', 'BYTEPLUS_ARK_HOST', 'BYTEPLUS_ARK_BASE_URL'}
