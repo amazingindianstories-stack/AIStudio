@@ -11,6 +11,7 @@ from django.views.decorators.http import require_http_methods
 from apps.authentication.session import lookup
 from apps.generation.models import Generation
 from apps.library.filenames import batch_resolve_generation_filenames
+from apps.projects import visibility
 from .grants import verify_media_grant
 from .keys import validate_key, InvalidMediaKey, media_key_from_ref, is_export_key
 from .storage import get_storage, MediaNotFoundError, InvalidMediaRangeError, FileSystemAdapter, PrefixedGCSAdapter
@@ -69,12 +70,13 @@ class MediaHidden(Exception):
     """The key is valid but this route must not expose it."""
 
 
-def authorize_media_key(path):
+def authorize_media_key(path, user=None):
     """Shared-studio read policy for an authenticated actor; raises for hidden keys.
 
     Any signed-in user may read a READY upload; unfinished or cancelled uploads
-    stay hidden. ZIP exports have their own owner/expiry checks and are never
-    served here.
+    stay hidden. With ``user``, a generation's media inside a project that user
+    may not see is hidden too. ZIP exports have their own owner/expiry checks
+    and are never served here.
     """
     key = validate_key(path)
     original_key = key
@@ -90,6 +92,8 @@ def authorize_media_key(path):
             raise MediaHidden(key)
     if is_export_key(key):
         raise MediaHidden(key)
+    if user is not None and not visibility.can_see_media_key(user, original_key):
+        raise MediaHidden(key)
     return key
 
 
@@ -99,7 +103,7 @@ def media(request, path):
     if not user:
         return JsonResponse({'error':'UNAUTHENTICATED'},status=401)
     try:
-        key = authorize_media_key(path)
+        key = authorize_media_key(path, user)
     except (InvalidMediaKey, MediaHidden):
         return HttpResponse('Not Found',status=404)
     try:
@@ -247,7 +251,8 @@ def local_upload(request):
 
 @require_http_methods(['GET','HEAD'])
 def generation_download(request,id):
-    if not lookup(request):
+    user = lookup(request)
+    if not user:
         return JsonResponse({'error':'UNAUTHENTICATED'},status=401)
     if not id:
         return JsonResponse({'error':'INVALID_GENERATION_ID'},status=400)
@@ -255,7 +260,7 @@ def generation_download(request,id):
         generation = Generation.objects.filter(id=id).first()
     except (ValidationError,ValueError):
         generation = None
-    if not generation:
+    if not generation or not visibility.can_see_generation(user,generation.id):
         return JsonResponse({'error':'GENERATION_NOT_FOUND'},status=404)
     if generation.status in ('pending','running'):
         return JsonResponse({'error':'GENERATION_PROCESSING','message':'Generation is still processing.'},status=409)
@@ -294,12 +299,12 @@ RESOLVE_URL_LIFETIME_MS = (PrefixedGCSAdapter.READ_URL_SECONDS - 60) * 1000
 RESOLVE_WORKERS = 8
 
 
-def _resolve_one(storage, ref, width):
+def _resolve_one(storage, user, ref, width):
     """Return a short-lived direct URL, or None to make the client use /api/media."""
     try:
         if not isinstance(ref, str) or not ref.startswith('/api/media/'):
             return None
-        key = authorize_media_key(unquote(ref[len('/api/media/'):].split('?', 1)[0].split('#', 1)[0]))
+        key = authorize_media_key(unquote(ref[len('/api/media/'):].split('?', 1)[0].split('#', 1)[0]), user)
         target = key
         step = next((step for step in (512, 1280) if width and step >= width), None)
         if step and (is_thumbnailable(key) or ready_upload_is_image(key)):
@@ -313,11 +318,11 @@ def _resolve_one(storage, ref, width):
         return None
 
 
-def _resolve_slice(storage, pairs):
+def _resolve_slice(storage, user, pairs):
     """Resolve on a pool thread, then close its connection: CONN_MAX_AGE would leave it open."""
     from django.db import connection
     try:
-        return [_resolve_one(storage, *pair) for pair in pairs]
+        return [_resolve_one(storage, user, *pair) for pair in pairs]
     finally:
         connection.close()
 
@@ -329,7 +334,8 @@ def media_resolve(request):
     One small JSON request replaces one proxied redirect per thumbnail. Signed
     URLs are bearer capabilities: never persist them as canonical references.
     """
-    if lookup(request) is None:
+    user = lookup(request)
+    if user is None:
         return JsonResponse({'error': 'UNAUTHENTICATED'}, status=401)
     try:
         items = json.loads(request.body or b'{}').get('items')
@@ -342,7 +348,7 @@ def media_resolve(request):
     from concurrent.futures import ThreadPoolExecutor
     slices = [requests_[i::RESOLVE_WORKERS] for i in range(RESOLVE_WORKERS)]
     with ThreadPoolExecutor(max_workers=RESOLVE_WORKERS) as pool:
-        resolved = list(pool.map(lambda pairs: _resolve_slice(storage, pairs), slices))
+        resolved = list(pool.map(lambda pairs: _resolve_slice(storage, user, pairs), slices))
     results = [resolved[i % RESOLVE_WORKERS][i // RESOLVE_WORKERS] for i in range(len(requests_))]
     response = JsonResponse({'items': [{'ref': ref, **(result or {'url': None})} for (ref, _), result in zip(requests_, results)]})
     response['Cache-Control'] = 'private, no-store'

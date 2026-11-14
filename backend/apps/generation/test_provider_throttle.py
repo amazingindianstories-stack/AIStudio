@@ -275,11 +275,11 @@ class SeedreamOverloadCopyTests(TransactionTestCase):
 class BestOfMarkerTests(SimpleTestCase):
     def submit(self, error, count=3):
         deps = video_execution.Dependencies()
-        deps.assets, deps.inline, deps.sign = lambda _: [], lambda refs, signal: [], lambda ref: ref
+        deps.assets, deps.inline, deps.sign = lambda *_: [], lambda refs, signal: [], lambda ref: ref
         deps.seedance_submit = Mock(side_effect=error)
         item = SimpleNamespace(id=uuid4(), status='running', task_id=None, draft_task_id=None, model='Seedance 2.5', prompt='x',
             aspect_ratio='16:9', duration=5, resolution='1080p', reference_images=[], reference_videos=[], reference_audios=[],
-            project_id=None, continuation_frame_url=None, last_frame_url=None, generate_audio=True, draft_mode=False,
+            project_id=None, user_id=None, continuation_frame_url=None, last_frame_url=None, generate_audio=True, draft_mode=False,
             bitrate_mode='high', video_task_mode=None, seed=17, cost_cents=120)
         with self.assertRaises(ProviderError) as caught:
             video_execution.submit_video(item, signal=Cancellation(), on_task=lambda *args: None, count=count, dependencies=deps, env={})

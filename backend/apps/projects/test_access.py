@@ -4,13 +4,22 @@ A user who may not see a project gets no trace of it in any listing, and a 404 (
 from every direct fetch by id.
 """
 import json
+from types import SimpleNamespace
+from unittest.mock import patch
 from uuid import uuid4
+from django.db import OperationalError
 from django.test import TransactionTestCase, override_settings
+from apps.agents import media as agent_media
+from apps.assets.models import Asset
 from apps.authentication.models import User
 from apps.authentication.session import sign_session
 from apps.canvas.models import CanvasBoard
 from apps.generation.models import Generation
+from apps.generation.services import enqueue, submission
 from apps.library.models import Folder
+from apps.mcp import errors as mcp_errors
+from apps.mcp.tools import finishing, organize
+from apps.media.views import MediaHidden, authorize_media_key
 from .models import Project, ProjectAccessUser, ProjectMember
 from . import visibility
 
@@ -42,6 +51,8 @@ class ProjectAccessTests(TransactionTestCase):
         folder = Folder.objects.create(project=project, name='F', name_normalized='f', created_at=1, updated_at=1)
         generation = Generation.objects.create(kind='image', status='succeeded', prompt='secret prompt', model='fixture',
             aspect_ratio='1:1', project=project, folder=folder, url='generations/x.png', created_at=1, updated_at=1)
+        generation.url = f'/api/media/generations/{generation.id}.png'
+        generation.save(update_fields=['url'])
         board = CanvasBoard.objects.create(project_id=project.id, name='Board', created_by=self.creator.id,
             data={}, created_at=1, updated_at=1)
         return folder, generation, board
@@ -146,11 +157,63 @@ class ProjectAccessTests(TransactionTestCase):
             content_type='application/json').status_code, 404)
         self.assertEqual(self.client.post('/api/generate/image', json.dumps({'prompt': 'x', 'model': 'seedream-5-5',
             'projectId': str(project.id)}), content_type='application/json').status_code, 404)
+        download = self.client.get(f'/api/generations/{generation.id}/download')
+        self.assertEqual((download.status_code, download.json()['error']), (404, 'GENERATION_NOT_FOUND'))
+        for key in (f'generations/{generation.id}.png', f'generations/{generation.id}/layers/a.png',
+                    f'thumbs/512/generations/{generation.id}.png.webp'):
+            with self.assertRaises(MediaHidden, msg=key):
+                authorize_media_key(key, user)
+        with self.assertRaises(mcp_errors.ToolError):
+            agent_media.load(user.id, str(generation.id))
+        with self.assertRaises(mcp_errors.ToolError):
+            finishing.upscale_source(user, str(generation.id))
 
     def assert_visible(self, user, project, folder, generation, board):
         self.assertIn(project.name, self.listed(user))
         self.assertEqual([row['id'] for row in self.client.get(f'/api/history?ids={generation.id}').json()['items']], [str(generation.id)])
         self.assertEqual(len(self.client.get(f'/api/folders?projectId={project.id}').json()['folders']), 1)
+        self.assertEqual(authorize_media_key(f'generations/{generation.id}/layers/a.png', user),
+                         f'generations/{generation.id}/layers/a.png')
+        self.assertEqual(finishing.upscale_source(user, str(generation.id))[1], generation.url)
+
+    def call(self, user, **arguments):
+        return SimpleNamespace(principal=SimpleNamespace(user=user), arguments=arguments, record={})
+
+    def test_agent_folder_writes_refuse_a_hidden_project_or_folder(self):
+        project = self.make('admin')
+        folder, _, _ = self.seed(project)
+        writes = ((organize.create, {'name': 'N', 'in': {'projectId': str(project.id)}}),
+                  (organize.create, {'name': 'N', 'in': {'folderId': str(folder.id)}}),
+                  (organize.rename, {'folderId': str(folder.id), 'name': 'N', 'expectedVersion': 1}),
+                  (organize.move, {'folderId': str(folder.id), 'destination': 'global', 'expectedVersion': 1}))
+        for write, arguments in writes:
+            with self.assertRaises(mcp_errors.ToolError) as refused:
+                write(self.call(self.outsider, **arguments))
+            self.assertEqual(refused.exception.code, mcp_errors.NOT_FOUND, arguments)
+        self.assertEqual(list(Folder.objects.filter(project=project).values_list('name', flat=True)), ['F'])
+        made = organize.create(self.call(self.admin, name='N', **{'in': {'projectId': str(project.id)}}))
+        self.assertEqual(made['folder']['name'], 'N')
+
+    def test_finalizing_a_draft_in_a_hidden_project_is_a_404(self):
+        project = self.make('admin')
+        _, generation, _ = self.seed(project)
+        with self.assertRaises(submission.Refused) as refused:
+            submission.draft_source(self.outsider, str(generation.id))
+        self.assertEqual(refused.exception.status, 404)
+
+    def test_asset_tags_never_resolve_to_a_hidden_project_asset(self):
+        project = self.make('admin')
+        Asset.objects.create(kind='character', name='Hidden', slug='hidden', project_id=project.id, created_at=1, updated_at=1)
+        Asset.objects.create(kind='character', name='Shared', slug='shared', project_id=self.open.id, created_at=1, updated_at=1)
+        self.assertEqual({row['slug'] for row in enqueue.assets(self.outsider.id)}, {'shared'})
+        self.assertEqual({row['slug'] for row in enqueue.assets(self.admin.id)}, {'hidden', 'shared'})
+
+    def test_a_failed_visibility_check_fails_closed(self):
+        with patch.object(visibility, 'hidden_project_ids', side_effect=OperationalError('connection reset')):
+            for check in (visibility.can_see, visibility.can_see_folder, visibility.can_see_generation):
+                with self.assertRaises(OperationalError):
+                    check(self.outsider, self.open.id)
+        self.assertTrue(visibility.can_see(self.outsider, 'not-a-uuid'))
 
     def test_visibility_helper_matches_every_mode(self):
         users = self.make('users', [self.invited])

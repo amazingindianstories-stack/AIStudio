@@ -12,6 +12,7 @@ from apps.generation.services import reads
 from apps.library.models import Folder
 from apps.library.services import folder_engine
 from apps.library.services.idempotency import OrganizationError
+from apps.projects import visibility
 from .. import errors, paid, results
 from ..registry import USER_DATA, ToolResult, obj, register
 from ..runtime import db
@@ -79,8 +80,16 @@ def place(destination):
     return 'project', destination['projectId'].lower()
 
 
-def organise(call, tool, operation):
-    """Run a folder engine write; the caller's idempotencyKey, when sent, makes a retry replay the first result."""
+def organise(call, tool, operation, places):
+    """Run a folder engine write; the caller's idempotencyKey, when sent, makes a retry replay the first result.
+
+    ``places`` are the ``(kind, id)`` projects and folders the write names; one inside a project the caller may not see
+    is refused as missing, as on the web."""
+    user = call.principal.user
+    if any(kind == 'project' and not visibility.can_see(user, identifier) or
+           kind == 'folder' and not visibility.can_see_folder(user, identifier) for kind, identifier in places):
+        raise errors.ToolError(errors.NOT_FOUND, 'No such project or folder is visible to you. Call list_folders for the '
+                                                 'current folders.', next=LIST_FOLDERS)
     try:
         return operation(actor_id=str(call.principal.user.id), idempotency_key=call.arguments.get('idempotencyKey'))
     except OrganizationError as error:
@@ -97,7 +106,6 @@ def destination_schema(where):
 def favorite(identifier, value, user=None):
     """Set the favourite flag with the web's write; a call that changes nothing keeps the original star time."""
     with transaction.atomic():
-        from apps.projects import visibility
         rows = Generation.objects.select_for_update().filter(pk=identifier)
         current = (visibility.visible(user, rows) if user is not None else rows).values_list('is_favorite', flat=True).first()
         if current is None:
@@ -132,7 +140,7 @@ def create(call):
     kind, identifier = place(arguments.get('in', GLOBAL))
     found = organise(call, 'create_folder', lambda **common: folder_engine.create_folder(
         name=arguments['name'], color=arguments.get('color'), project_id=identifier if kind == 'project' else None,
-        parent_id=identifier if kind == 'folder' else None, **common))
+        parent_id=identifier if kind == 'folder' else None, **common), places=[(kind, identifier)])
     return {'folder': folder_of(found['id'])}
 
 
@@ -157,7 +165,8 @@ def rename(call):
     arguments = call.arguments
     identifier = arguments['folderId'].lower()
     found = organise(call, 'rename_folder', lambda **common: folder_engine.rename_folder(
-        folder_id=identifier, name=arguments['name'], expected_version=arguments['expectedVersion'], **common))
+        folder_id=identifier, name=arguments['name'], expected_version=arguments['expectedVersion'], **common),
+        places=[('folder', identifier)])
     return {'folder': folder_of(found['id'])}
 
 
@@ -184,7 +193,8 @@ def move(call):
     destination = ({'type': 'global_root'} if kind == GLOBAL else {'type': 'project_root', 'projectId': target}
                    if kind == 'project' else {'type': 'folder', 'folderId': target})
     found = organise(call, 'move_folder', lambda **common: folder_engine.move_folder(
-        folder_id=identifier, destination=destination, expected_version=arguments['expectedVersion'], **common))
+        folder_id=identifier, destination=destination, expected_version=arguments['expectedVersion'], **common),
+        places=[('folder', identifier), (kind, target)])
     return {**found, 'folder': folder_of(found['folder']['id'])}
 
 
@@ -215,7 +225,7 @@ def move_items(call):
     destination = ({'type': 'global_unsorted'} if kind == GLOBAL else {'type': 'project_unsorted', 'projectId': target}
                    if kind == 'project' else {'type': 'folder', 'folderId': target})
     found = organise(call, 'move_to_folder', lambda **common: folder_engine.move_generations(
-        ids=ids, destination=destination, **common))
+        ids=ids, destination=destination, **common), places=[(kind, target)])
     moved = reads.get_generations(found['updatedIds'])['items']
     location = {'projectId': found['projectId'], 'folderId': found['folderId'],
                 'folderPath': results.folder_paths([found['folderId']]).get(found['folderId']) if found['folderId'] else None}

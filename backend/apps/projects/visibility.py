@@ -4,7 +4,12 @@
 `ProjectAccessUser`, the project's creator and admins. 'admin' is open to admins only. A user who may not see a
 project gets the same answer as for a missing one. `hidden_project_ids` is the SQL twin of `can_see`.
 """
+from django.core.exceptions import ValidationError
+from django.db import DataError
 from apps.projects.models import PROJECT_ACCESS_MODES, Project, ProjectAccessUser
+
+# A malformed id matches no row; only these mean "not hidden". Any other failure propagates, so a check fails closed.
+MALFORMED = (ValidationError, DataError, ValueError, TypeError)
 
 
 def hidden_project_ids(user):
@@ -19,9 +24,11 @@ def hidden_project_ids(user):
 def for_user_id(user_id):
     """The user row for a bare id (what export and worker code carry), or None for an unknown id."""
     from apps.authentication.models import User
+    if not user_id:
+        return None
     try:
         return User.objects.filter(pk=user_id).only('id', 'role').first()
-    except Exception:
+    except MALFORMED:
         return None
 
 
@@ -31,7 +38,7 @@ def can_see(user, project_id):
         return True
     try:
         return not Project.objects.filter(pk=project_id, pk__in=hidden_project_ids(user)).exists()
-    except Exception:
+    except MALFORMED:
         return True
 
 
@@ -40,13 +47,35 @@ def can_see_folder(user, folder_id):
     from apps.library.models import Folder
     try:
         return not Folder.objects.filter(pk=folder_id, project_id__in=hidden_project_ids(user)).exists()
-    except Exception:
+    except MALFORMED:
         return True
+
+
+def can_see_generation(user, generation_id):
+    """False for a generation inside a project the user may not see; a missing id stays the caller's 404."""
+    from apps.generation.models import Generation
+    try:
+        return not Generation.objects.filter(pk=generation_id, project_id__in=hidden_project_ids(user)).exists()
+    except MALFORMED:
+        return True
+
+
+def can_see_media_key(user, key):
+    """False for a generation's stored media (`generations/<id>.<ext>`, `generations/<id>/...`) in a hidden project."""
+    import re
+    match = re.match(r'generations/([0-9a-fA-F-]{36})(?:[./]|$)', key)
+    return can_see_generation(user, match[1]) if match else True
 
 
 def visible(user, rows, field='project_id'):
     """`rows` without the ones inside a project the user may not see; rows outside any project stay."""
     return rows.exclude(**{f'{field}__in': hidden_project_ids(user)})
+
+
+def visible_to(user_id, rows, field='project_id'):
+    """`visible` for a bare user id, as workers carry it; rows of an unknown user are left as they are."""
+    owner = for_user_id(user_id)
+    return visible(owner, rows, field) if owner else rows
 
 
 def set_access(project_id, mode, user_ids, now):

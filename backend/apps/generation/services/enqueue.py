@@ -19,6 +19,7 @@ from apps.generation import image_limits
 from apps.generation.availability import available
 from apps.generation.model_registry import capability, is_provider_model, model_definition, retirement_message
 from apps.generation.models import Generation
+from apps.projects import visibility
 from apps.generation.providers.seedream import seedream_size, resolve_seedream_references
 from apps.generation.serialization import camel
 from apps.generation.references import mention_indices, reference_warnings
@@ -249,8 +250,9 @@ def has_length(value):
     return bool(value) if isinstance(value,(str,list)) else bool(value.get('length')) if isinstance(value,dict) else False
 
 
-def assets():
-    return [asset_json(row) for row in Asset.objects.all()]
+def assets(user_id):
+    """The asset pool @tags resolve against for ``user_id``: none from a project that user may not see."""
+    return [asset_json(row) for row in visibility.visible_to(user_id, Asset.objects.all())]
 
 
 def prepare_image(item, body, identifier, user_id):
@@ -259,7 +261,7 @@ def prepare_image(item, body, identifier, user_id):
     if is_provider_model(item['model'],'seedream'):
         try:
             seedream_size(item.get('resolution','2K'),item['aspectRatio'],item['model'])
-            resolved = resolve_seedream_references(item['prompt'],assets(),references if references is not None else [],item['model'])
+            resolved = resolve_seedream_references(item['prompt'],assets(user_id),references if references is not None else [],item['model'])
             if resolved['references']:
                 require_native_image_runtime()
         except ValueError as error:
@@ -267,7 +269,7 @@ def prepare_image(item, body, identifier, user_id):
         # Storage failures are internal errors, not public input validation.
         references = save_reference_images(references if references is not None else [],identifier)
         try:
-            resolved = resolve_seedream_references(item['prompt'],assets(),references,item['model'])
+            resolved = resolve_seedream_references(item['prompt'],assets(user_id),references,item['model'])
             reference_count = len(resolved['references'])
             require_single_layer_source(item, reference_count)
             prepare_seedream_references(resolved['references'],identifier,user_id=user_id,sign=False,persist=False)
@@ -289,14 +291,14 @@ def image_cost(item, references, reference_count=None):
     return compute_cost(cost_input,read_pricing())
 
 
-def quote_image(item, body):
+def quote_image(item, body, user_id):
     """The estimate prepare_image records, without storing references; their bytes are checked at submission."""
     references = body.get('referenceImages')
     reference_count = None
     if is_provider_model(item['model'],'seedream'):
         try:
             seedream_size(item.get('resolution','2K'),item['aspectRatio'],item['model'])
-            reference_count = len(resolve_seedream_references(item['prompt'],assets(),references if references is not None else [],item['model'])['references'])
+            reference_count = len(resolve_seedream_references(item['prompt'],assets(user_id),references if references is not None else [],item['model'])['references'])
             require_single_layer_source(item, reference_count)
         except ValueError as error:
             raise InvalidRequest(str(error)) from error
@@ -569,7 +571,7 @@ def _persist(item):
 def finish_enqueue(item, prepared, identifier, now, user_id):
     result = {**item,**prepared,'id':str(identifier),'status':'queued','createdAt':now,'updatedAt':now}
     if user_id is not None: result['userId'] = str(user_id)
-    warnings = reference_warnings(item['prompt'], result.get('referenceImages'), assets())
+    warnings = reference_warnings(item['prompt'], result.get('referenceImages'), assets(user_id))
     row = persist(result)
     from apps.generation.serialization import generation_item
     public = generation_item(row)

@@ -22,14 +22,14 @@ class VideoPreparationTests(SimpleTestCase):
         return SimpleNamespace(**{'id': uuid4(), 'status': 'running', 'task_id': None, 'draft_task_id': None,
             'model': 'Seedance 2.5', 'prompt': '@sati and @img2 then @vid3 with @audio2', 'aspect_ratio': '16:9',
             'duration': 5, 'resolution': '1080p', 'reference_images': ['one', 'two'], 'reference_videos': ['v1', 'v2', 'v3'],
-            'reference_audios': ['a1', 'a2'], 'project_id': None, 'continuation_frame_url': None, 'last_frame_url': None,
+            'reference_audios': ['a1', 'a2'], 'project_id': None, 'user_id': None, 'continuation_frame_url': None, 'last_frame_url': None,
             'generate_audio': True, 'draft_mode': False, 'bitrate_mode': 'high', 'video_task_mode': None,
             'seed': 17, 'cost_cents': 120, **values})
 
     def test_reference_groups_order_remapping_and_partial_receipts(self):
         calls, receipts = [], []
         deps = video_execution.Dependencies()
-        deps.assets = lambda _: [{'slug': 'sati', 'kind': 'character', 'name': 'Sati', 'images': ['sati-url']}]
+        deps.assets = lambda *_: [{'slug': 'sati', 'kind': 'character', 'name': 'Sati', 'images': ['sati-url']}]
         deps.inline = lambda refs, signal: ['inline:' + ref for ref in refs]
         deps.sign = lambda ref: 'signed:' + ref
         def submit(input, *, signal):
@@ -50,7 +50,7 @@ class VideoPreparationTests(SimpleTestCase):
 
     def test_receipt_failure_stops_further_billed_submissions(self):
         deps = video_execution.Dependencies()
-        deps.assets, deps.inline, deps.sign = lambda _: [], lambda refs, signal: [], lambda ref: ref
+        deps.assets, deps.inline, deps.sign = lambda *_: [], lambda refs, signal: [], lambda ref: ref
         submitted = []
         deps.seedance_submit = lambda *args, **kwargs: submitted.append('accepted') or 'real-task'
         def persist(*args):
@@ -61,7 +61,7 @@ class VideoPreparationTests(SimpleTestCase):
 
     def test_ambiguous_candidate_timeout_stops_later_paid_submissions(self):
         deps = video_execution.Dependencies()
-        deps.assets, deps.inline, deps.sign = lambda _: [], lambda refs, signal: [], lambda ref: ref
+        deps.assets, deps.inline, deps.sign = lambda *_: [], lambda refs, signal: [], lambda ref: ref
         submitted=[]
         def submit(*args,**kwargs):
             submitted.append('remote-attempt')
@@ -76,7 +76,7 @@ class VideoPreparationTests(SimpleTestCase):
 
     def test_accepted_candidate_receipt_precedes_later_ambiguous_timeout(self):
         deps = video_execution.Dependencies()
-        deps.assets, deps.inline, deps.sign = lambda _: [], lambda refs, signal: [], lambda ref: ref
+        deps.assets, deps.inline, deps.sign = lambda *_: [], lambda refs, signal: [], lambda ref: ref
         submitted,receipts=[],[]
         def submit(*args,**kwargs):
             submitted.append('remote-attempt')
@@ -94,7 +94,7 @@ class VideoPreparationTests(SimpleTestCase):
         deps = video_execution.Dependencies()
         calls = []
         deps.seedance_final = lambda input, **kwargs: calls.append(input) or 'final-task'
-        deps.assets = lambda _: self.fail('Draft finalization assembled references')
+        deps.assets = lambda *_: self.fail('Draft finalization assembled references')
         outcome = video_execution.submit_video(self.item(draft_task_id='draft-id'), signal=Cancellation(), on_task=lambda *args: None,
             count=3, dependencies=deps, env={'SEEDANCE_CALLBACK_URL': 'https://app.example/api/webhooks/seedance?token=old', 'SEEDANCE_CALLBACK_SECRET': 'fixture'})
         self.assertEqual(outcome['task_id'], 'final-task')
@@ -397,7 +397,7 @@ class ExecutionPersistenceTests(TransactionTestCase):
         item = self.job(kind='video', model='Seedance 2.5', reference_images=['ref'], cost_cents=40)
         submitted=[]
         deps=video_execution.Dependencies()
-        deps.assets,deps.inline,deps.sign=lambda _:[],lambda refs,signal:['inline:'+ref for ref in refs],lambda ref:ref
+        deps.assets,deps.inline,deps.sign=lambda *_:[],lambda refs,signal:['inline:'+ref for ref in refs],lambda ref:ref
         def remote(*args,**kwargs):
             submitted.append('remote-attempt')
             if len(submitted)==2:

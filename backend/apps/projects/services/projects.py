@@ -41,7 +41,25 @@ def ensure_default_project(user=None):
     return read_projects(user)
 
 
-def create_project(name, actor_id=None, access='all', access_user_ids=(), user=None):
+def validate_access(mode, user_ids):
+    """Refuse an unknown access mode, and a 'users' mode without a list of active users."""
+    from apps.authentication.models import User
+    if mode not in ('all', 'users', 'admin'):
+        raise OrganizationError('INVALID_ACCESS', 'Access must be all, users or admin.')
+    if not isinstance(user_ids, list) or not all(isinstance(value, str) for value in user_ids):
+        raise OrganizationError('INVALID_ACCESS', 'userIds must be a list of user ids.')
+    if mode == 'users':
+        try:
+            found = set(str(value) for value in User.objects.filter(pk__in=user_ids, is_active=True).values_list('id', flat=True))
+        except visibility.MALFORMED:
+            found = set()
+        if not user_ids or found != set(user_ids):
+            raise OrganizationError('INVALID_ACCESS', 'Pick at least one active user.')
+
+
+def create_project(name, actor_id=None, access='all', access_user_ids=None, user=None):
+    access_user_ids = [] if access_user_ids is None else access_user_ids
+    validate_access(access, access_user_ids)
     now = now_ms()
     with transaction.atomic():
         row = Project.objects.create(name=name, created_by=actor_id, created_at=now, updated_at=now)
@@ -67,20 +85,9 @@ def set_brief(project_id, brief, user=None):
 def set_project_access(project_id, mode, user_ids, user):
     """Admins and project owners/co-owners choose who sees a project; 'users' needs a list of active users."""
     from apps.canvas import access
-    from apps.authentication.models import User
-    if mode not in ('all', 'users', 'admin'):
-        raise OrganizationError('INVALID_ACCESS', 'Access must be all, users or admin.')
-    if not isinstance(user_ids, list) or not all(isinstance(value, str) for value in user_ids):
-        raise OrganizationError('INVALID_ACCESS', 'userIds must be a list of user ids.')
+    validate_access(mode, user_ids)
     if access.project_level(user, project_id) < access.CO_OWNER:
         raise OrganizationError('FORBIDDEN', 'Only admins and project owners can change project access.', 403)
-    if mode == 'users':
-        try:
-            found = set(str(value) for value in User.objects.filter(pk__in=user_ids, is_active=True).values_list('id', flat=True))
-        except Exception:
-            found = set()
-        if not user_ids or found != set(user_ids):
-            raise OrganizationError('INVALID_ACCESS', 'Pick at least one active user.')
     visibility.set_access(project_id, mode, user_ids, now_ms())
     return read_projects(user)
 

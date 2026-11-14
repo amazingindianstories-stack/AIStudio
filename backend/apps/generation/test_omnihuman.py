@@ -360,7 +360,7 @@ class OmniHumanLifecycleTests(TransactionTestCase):
         storage.primary.put('assets/voice.wav', audio(300), 'audio/wav', 'private')
         row = self.job(task_id=None, reference_images=['/api/media/assets/hero.png'], reference_audios=['/api/media/assets/voice.wav'])
         deps = video_execution.Dependencies()
-        deps.assets = lambda _: []
+        deps.assets = lambda *_: []
         deps.sign = lambda ref: 'https://fixture.invalid/' + ref.rsplit('/', 1)[-1]
         deps.inline = Mock(side_effect=AssertionError('Vision must never register or transform a portrait'))
         receipts = []

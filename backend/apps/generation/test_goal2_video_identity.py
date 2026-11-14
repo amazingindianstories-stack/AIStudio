@@ -46,7 +46,7 @@ class Goal2VideoIdentityTests(TransactionTestCase):
                     try:
                         item = Generation.objects.get(pk=identifier)
                         deps = video_execution.Dependencies()
-                        deps.assets = lambda _: []
+                        deps.assets = lambda *_: []
                         deps.inline = lambda values, signal: values
                         deps.sign = lambda ref: ref
                         def provider(value, **kwargs):

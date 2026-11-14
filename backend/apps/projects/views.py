@@ -38,17 +38,7 @@ def project_reads(request):
             if operation in ('createProject', 'createFolder') and not name:
                 return renew(request, Response({'error': 'Name required.'}, status=400))
         if operation == 'createProject':
-            mode = body.get('access', 'all')
-            if mode not in ('all', 'users', 'admin'):
-                return renew(request, Response({'error': 'Access must be all, users or admin.', 'code': 'INVALID_ACCESS'}, status=400))
-            picked = body.get('accessUserIds') or []
-            if mode == 'users' and (not isinstance(picked, list) or not picked or not all(isinstance(value, str) for value in picked)):
-                return renew(request, Response({'error': 'Pick at least one user.', 'code': 'INVALID_ACCESS'}, status=400))
-            if mode == 'users':
-                from apps.authentication.models import User
-                if User.objects.filter(pk__in=picked, is_active=True).count() != len(set(picked)):
-                    return renew(request, Response({'error': 'Pick at least one active user.', 'code': 'INVALID_ACCESS'}, status=400))
-            result = create_project(name, user.id, mode, picked, user)
+            result = create_project(name, user.id, body.get('access', 'all'), body.get('accessUserIds') or [], user)
         elif operation == 'renameProject':
             result = {'projects': rename_project(body.get('projectId'), name, user)}
         elif operation == 'setBrief':

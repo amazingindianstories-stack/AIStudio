@@ -20,10 +20,11 @@ from .pricing import read_pricing, compute_cost, kling_units_to_cents, openai_to
 from .seedream_references import prepare_seedream_references
 
 
-def read_assets(project_id=None):
+def read_assets(project_id=None, user_id=None):
     from apps.assets.models import Asset
     from apps.assets.provider_projection import provider_asset_projection
-    query = Asset.objects.all()
+    from apps.projects import visibility
+    query = visibility.visible_to(user_id, Asset.objects.all())
     if project_id:
         query = query.filter(project_id=project_id)
     return [provider_asset_projection(asset) for asset in query.order_by('-created_at')]
@@ -145,7 +146,7 @@ def execute_image(item, *, signal, dependencies=None, env=None, on_task=None):
         return result[0] if isinstance(result, tuple) else result
 
     def assets():
-        return deps.assets if deps.assets is not None else deps.read_assets(item.project_id)
+        return deps.assets if deps.assets is not None else deps.read_assets(item.project_id, item.user_id)
 
     def assemble(with_ratio=True):
         options = {'aspectRatio': ratio} if with_ratio else {}

@@ -95,7 +95,7 @@ def quote_generation(actor, kind, body):
     """
     data, item = validated_generation(actor, kind, body)
     try:
-        cost = enqueue.quote_image(item, data) if kind == 'image' else enqueue.quote_video(item, data)
+        cost = enqueue.quote_image(item, data, actor.id) if kind == 'image' else enqueue.quote_video(item, data)
     except enqueue.InvalidRequest as error:
         raise invalid(error) from None
     except Exception:
@@ -170,7 +170,10 @@ def draft_source(actor, source_generation_id):
         raise Refused(400, {'error': 'sourceGenerationId is required.'})
     try:
         source = Generation.objects.filter(pk=source_generation_id).first()
-        refuse_hidden_project(actor, source=source)
+    except Exception:
+        raise Refused(500) from None
+    refuse_hidden_project(actor, source=source)
+    try:
         # Shared studio: any signed-in user may finalize an eligible draft; the
         # final is a new generation billed to the requesting user.
         error = enqueue.validate_draft(source)
