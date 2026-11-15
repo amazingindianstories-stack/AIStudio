@@ -27,11 +27,13 @@ import {
 } from "lucide-react";
 import { GenerationFolderCue, GenerationTimestamp } from "./MediaCard";
 import { ViewerMedia } from "./ViewerMedia";
+import { LayerPicker } from "./LayeredImage";
+import { generationPieces, layeredResultLabel, pieceDownload } from "@/lib/layered-generations";
 import { viewerList } from "@/lib/viewer-navigation";
 import { stepViewer } from "@/lib/viewer-step";
 import { useViewerPreload } from "@/lib/viewer-media";
 import { useStore } from "@/lib/store";
-import { cn, thumbUrl, referenceDisplayUrl, generationDownloadUrl } from "@/lib/utils";
+import { cn, thumbUrl, referenceDisplayUrl } from "@/lib/utils";
 import { DEPTH_ENCODER_LABELS, IMAGE_BACKGROUND_LABELS, IMAGE_QUALITY_LABELS } from "@/lib/config";
 import {
   supportsFirstFrameContinuation,
@@ -222,6 +224,8 @@ export function DetailModal() {
   const confirmation = useConfirmedAction();
   const [closing, setClosing] = useState(false);
   const [unplayableUrl, setUnplayableUrl] = useState(null);
+  const [pieceSelection, setPieceSelection] = useState(null);
+  const portraitAssets = useStore((s) => s.portraits.items);
   const closingRef = useRef(false);
   const suppressNextNativeFullscreenEscapeRef = useRef(false);
   const escapeCloseTimerRef = useRef(null);
@@ -236,6 +240,13 @@ export function DetailModal() {
     threadItems.find((i) => i.id === activeId) ||
     looseItems.find((i) => i.id === activeId) ||
     null;
+  const pieces = generationPieces(item, portraitAssets);
+  const selectedPiece = pieces.find((piece) =>
+    pieceSelection?.id === item?.id && piece.key === pieceSelection.key
+  ) || pieces[0];
+  const selectedUrl = selectedPiece?.url || item?.url;
+  const download = item ? pieceDownload(item, selectedPiece) : null;
+  const actionPiece = selectedPiece ? ` ${selectedPiece.label.toLowerCase()}` : "";
   const navigableItems = useMemo(
     () =>
       items.filter(
@@ -412,13 +423,14 @@ export function DetailModal() {
                 <X className="h-5 w-5" />
               </button>
 
-              <div className="h-full min-h-0 w-full max-w-5xl overflow-hidden rounded-2xl bg-black ring-1 ring-white/10">
+              <div className={cn("relative h-full min-h-0 w-full max-w-5xl overflow-hidden rounded-2xl bg-black ring-1 ring-white/10", pieces.length > 0 && "layer-checkerboard")}>
                 <ViewerMedia
-                  item={item}
+                  item={selectedPiece ? { ...item, url: selectedUrl, prompt: `${selectedPiece.label}: ${item.prompt}` } : item}
                   source={activeSource}
                   unplayableUrl={unplayableUrl}
                   onUnplayable={setUnplayableUrl}
                 />
+                {selectedPiece && <p className="pointer-events-none absolute bottom-3 left-3 rounded-lg bg-black/80 px-3 py-1 text-xs text-white">{selectedPiece.label}{selectedPiece.key === "source" ? " (original input)" : ""}</p>}
               </div>
             </div>
 
@@ -437,7 +449,7 @@ export function DetailModal() {
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-white">{item.model}</p>
-                  <p className="text-xs capitalize text-white/45">{item.kind} generation</p>
+                  <p className="text-xs capitalize text-white/45">{layeredResultLabel(pieces) || `${item.kind} generation`}</p>
                 </div>
                 <button
                   disabled={maintenance}
@@ -533,27 +545,9 @@ export function DetailModal() {
                 )}
               </div>
 
-              {item.layers?.length > 0 && (
-                <div data-testid="layer-list" className="mb-3">
-                  <p className="mb-1 text-xs font-medium uppercase tracking-wide text-white/40">
-                    {`Layers (${item.layers.length})`}
-                  </p>
-                  <ul className="max-h-40 space-y-1 overflow-y-auto scroll-thin">
-                    {item.layers.map((layer, index) => (
-                      <li key={layer.url} className="flex items-center gap-2 text-xs text-white/70">
-                        <a href={layer.url} target="_blank" rel="noreferrer" className="shrink-0 text-brand hover:underline">
-                          {`Layer ${index + 1}`}
-                        </a>
-                        {layer.width && layer.height && <span className="text-white/40">{`${layer.width}×${layer.height}`}</span>}
-                        {layer.textRecognition?.text && (
-                          <span title={layer.textRecognition.text} className="min-w-0 flex-1 truncate">
-                            {layer.textRecognition.text}
-                          </span>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
+              {pieces.length > 0 && (
+                <LayerPicker pieces={pieces} selectedKey={selectedPiece.key}
+                  onSelect={(key) => setPieceSelection({ id: item.id, key })} />
               )}
 
               {item.referenceImages && item.referenceImages.length > 0 && (
@@ -572,6 +566,7 @@ export function DetailModal() {
 
               {/* sticky bottom actions */}
               <div className="flex flex-col gap-2 p-5 pt-2 border-t border-white/5 bg-ink-850/95 backdrop-blur z-10 shadow-[0_-10px_20px_rgba(0,0,0,0.2)]">
+                {selectedPiece && <p className="text-center text-xs text-white/60">Actions use: {selectedPiece.label}{selectedPiece.key === "source" ? " (original input)" : ""}</p>}
                 {canFinalizeDraft(item) && (
                   <button disabled={maintenance}
                     onClick={() => {
@@ -591,33 +586,33 @@ export function DetailModal() {
                   <>
                     <button
                       onClick={() => {
-                        addReferenceFromUrl(item.url);
+                        addReferenceFromUrl(selectedUrl);
                         setMode("image");
                         setActiveId(null);
                       }}
                       className="flex items-center justify-center gap-2 rounded-xl border border-brand/40 bg-brand/15 py-2.5 text-sm font-semibold text-brand hover:bg-brand/25"
-                      title="Add this image as a reference — generate a clean hero, then place them in a crowd"
+                      title={`Add this${actionPiece || " image"} as a reference`}
                     >
-                      <ImagePlus className="h-4 w-4" /> Use as reference
+                      <ImagePlus className="h-4 w-4" /> Use{actionPiece} as reference
                     </button>
                     <div className="grid grid-cols-2 gap-2">
                       <button
                         onClick={async () => {
-                          await setAsFirstFrame(item.url);
+                          await setAsFirstFrame(selectedUrl);
                           setActiveId(null);
                         }}
                         className="flex items-center justify-center gap-1.5 rounded-xl border border-line bg-white/[0.06] py-2 text-xs font-semibold text-white/85 hover:bg-white/[0.1]"
-                        title="Set this image as the first frame for video generation"
+                        title={`Set this${actionPiece || " image"} as the first frame for video generation`}
                       >
                         <Play className="h-3.5 w-3.5 text-brand" /> Use as first frame
                       </button>
                       <button
                         onClick={async () => {
-                          await setAsLastFrame(item.url);
+                          await setAsLastFrame(selectedUrl);
                           setActiveId(null);
                         }}
                         className="flex items-center justify-center gap-1.5 rounded-xl border border-line bg-white/[0.06] py-2 text-xs font-semibold text-white/85 hover:bg-white/[0.1]"
-                        title="Set this image as the optional last frame for video generation"
+                        title={`Set this${actionPiece || " image"} as the optional last frame for video generation`}
                       >
                         <Flag className="h-3.5 w-3.5 text-amber-400" /> Use as last frame
                       </button>
@@ -755,12 +750,12 @@ export function DetailModal() {
                 <div className="flex gap-2">
                   {item.url && (
                     <a
-                      href={generationDownloadUrl(item.id)}
-                      download={item.filename || true}
-                      title={item.filename ? `Download ${item.filename}` : "Download"}
+                      href={download.url}
+                      download={download.filename}
+                      title={selectedPiece ? `Download original ${selectedPiece.label.toLowerCase()}` : item.filename ? `Download ${item.filename}` : "Download"}
                       className="flex flex-1 items-center justify-center gap-2 rounded-xl border border-line bg-ink-700 py-2.5 text-sm text-white/80 hover:text-white"
                     >
-                      <Download className="h-4 w-4" /> Download
+                      <Download className="h-4 w-4" /> Download{actionPiece}
                     </a>
                   )}
                   {isAdmin && (

@@ -37,7 +37,7 @@ export function ViewerMedia({ item, source, unplayableUrl, onUnplayable }) {
   if (item.kind === "image" && item.url) {
     return (
       <div className="relative h-full w-full" data-viewer-item-id={item.id}>
-        {stand && (
+        {stand && !fullLoaded && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={stand}
