@@ -147,7 +147,10 @@ test("ordinary single images keep their viewer and actions", async () => {
   const plain = { ...fixture, layers: null };
   await harness(plain, async (calls) => {
     assert.equal(document.querySelector('[data-testid="layer-list"]'), null);
-    assert.equal((await waitForViewerImage()).getAttribute("src"), plain.url);
+    const image = await waitForViewerImage();
+    assert.equal(image.getAttribute("src"), plain.url);
+    await act(async () => image.dispatchEvent(new window.Event("load")));
+    assert.ok(document.querySelector("[data-viewer-stand-in]"), "opaque masters fade in over their stand-in");
     assert.equal(download().textContent.trim(), "Download");
     assert.equal(download().getAttribute("href"), `/api/generations/${plain.id}/download?signed=1`);
     await select("Use as reference");

@@ -429,6 +429,7 @@ export function DetailModal() {
                   source={activeSource}
                   unplayableUrl={unplayableUrl}
                   onUnplayable={setUnplayableUrl}
+                  transparent={Boolean(selectedPiece)}
                 />
                 {selectedPiece && <p className="pointer-events-none absolute bottom-3 left-3 rounded-lg bg-black/80 px-3 py-1 text-xs text-white">{selectedPiece.label}{selectedPiece.key === "source" ? " (original input)" : ""}</p>}
               </div>
