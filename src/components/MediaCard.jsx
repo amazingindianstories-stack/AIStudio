@@ -33,6 +33,8 @@ import { CardContextMenu } from "./CardContextMenu";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
 import { CreatorAvatar, GenerationDetails } from "./GenerationDetails";
 import { useConfirmedAction } from "./useConfirmedAction";
+import { LayeredCardPreview } from "./LayeredImage";
+import { generationPieces } from "@/lib/layered-generations";
 import { ProgressiveImage } from "./ProgressiveImage";
 import { GenerationStatus, waitingNote } from "./GenerationStatus";
 import { setAssetDragData } from "@/lib/asset-drag-contract";
@@ -299,6 +301,7 @@ export function MediaCard({
   const editable = item.kind !== "depth";
 
   const maintenance = useMaintenance((s) => s.enabled);
+  const layered = generationPieces(item).length > 0;
   const menuGroups = [
     [
       pending && item.canCancel && canCancelAsActor && {
@@ -351,8 +354,8 @@ export function MediaCard({
       },
       done && item.url && {
         key: "download",
-        label: "Download",
-        hint: item.filename ? `Download ${item.filename}` : "Download the original",
+        label: layered ? "Download background" : "Download",
+        hint: layered ? "Download the original background; open details to choose a layer" : item.filename ? `Download ${item.filename}` : "Download the original",
         detail: downloadExtension,
         icon: Download,
         onSelect: ask("downloadOriginal", () => {
@@ -475,7 +478,8 @@ export function MediaCard({
     >
       <div style={{ paddingBottom: aspectToPadding(item.aspectRatio) }} className="media-card-body relative w-full">
         {/* media */}
-        {done && item.kind === "image" && item.url && (
+        {done && layered && <LayeredCardPreview item={item} />}
+        {done && item.kind === "image" && item.url && !layered && (
           <ProgressiveImage
             src={imageMedia.src}
             onSourceError={imageMedia.onError}

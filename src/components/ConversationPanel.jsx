@@ -25,6 +25,8 @@ import { GenerationFolderCue, GenerationName, GenerationTimestamp } from "./Medi
 import { GenerationStatus, waitingNote } from "./GenerationStatus";
 import { useConfirmedAction } from "./useConfirmedAction";
 import { aspectMaxWidth, aspectToPadding, cn, thumbUrl, generationDownloadUrl } from "@/lib/utils";
+import { LayeredCardPreview } from "./LayeredImage";
+import { generationPieces } from "@/lib/layered-generations";
 import { setAssetDragData } from "@/lib/asset-drag-contract";
 
 // Feed images render inside a max-w-3xl (768px) column; cap requests well
@@ -173,6 +175,7 @@ function PromptText({ text }) {
 }
 
 export function FeedBlock({ item, index }) {
+  const layered = generationPieces(item).length > 0;
   const maintenance = useMaintenance((s) => s.enabled);
   const setActiveId = useStore((s) => s.setActiveId);
   const cloneToComposer = useStore((s) => s.cloneToComposer);
@@ -240,7 +243,8 @@ export function FeedBlock({ item, index }) {
       >
         <div style={{ paddingBottom: aspectToPadding(item.aspectRatio) }} className="relative w-full">
           <GenerationName item={item} numberOnly={false} className="generation-name-overlay chat-generation-name z-20" />
-          {item.status === "succeeded" && item.kind === "image" && item.url && (
+          {item.status === "succeeded" && layered && <LayeredCardPreview item={item} />}
+          {item.status === "succeeded" && item.kind === "image" && item.url && !layered && (
             <img
               src={thumbUrl(item.url, FEED_THUMB_WIDTH)}
               alt={item.prompt}
@@ -337,8 +341,8 @@ export function FeedBlock({ item, index }) {
                   download={item.filename || true}
                   onClick={(e) => e.stopPropagation()}
                   className="grid h-8 w-8 place-items-center rounded-lg bg-black/55 text-white/85 backdrop-blur-sm transition hover:bg-white/15 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/35"
-                  aria-label={item.filename ? `Download ${item.filename}` : "Download"}
-                  title={item.filename ? `Download ${item.filename}` : "Download"}
+                  aria-label={layered ? "Download background" : item.filename ? `Download ${item.filename}` : "Download"}
+                  title={layered ? "Download background; open details to choose a layer" : item.filename ? `Download ${item.filename}` : "Download"}
                 >
                   <Download className="h-4 w-4" />
                 </a>

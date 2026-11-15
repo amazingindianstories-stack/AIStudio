@@ -496,3 +496,10 @@ html[data-board-reduce-motion="true"] *::after {
   .library-filter-header { padding-block: 6px; }
 }
 @media (max-width: 430px) { .library-filter-footer > span { display: none; } .library-filter-footer { justify-content: flex-end; } }
+
+/* Transparent layer previews stay legible without flattening their originals. */
+.layer-checkerboard {
+  background-color: #c5c5c5;
+  background-image: conic-gradient(#e7e7e7 25%, transparent 0 50%, #e7e7e7 0 75%, transparent 0);
+  background-size: 16px 16px;
+}

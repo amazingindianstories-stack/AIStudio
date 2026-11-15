@@ -13,9 +13,11 @@ const THREAD_THUMB_WIDTH = 1200;
  *
  * Images paint the already-loaded card thumbnail at once and fade the original
  * in on top when it has arrived, so stepping with the arrow keys never shows a
- * blank frame. Videos are the original file, never a preview transcode.
+ * blank frame. A transparent master drops the stand-in once loaded so its alpha
+ * is not painted over the thumbnail. Videos are the original file, never a
+ * preview transcode.
  */
-export function ViewerMedia({ item, source, unplayableUrl, onUnplayable }) {
+export function ViewerMedia({ item, source, unplayableUrl, onUnplayable, transparent = false }) {
   const fromThread = source === "thread";
   const thumbRef = item.kind === "image" ? item.url : item.poster;
   const stand = standInUrl(thumbRef, fromThread ? THREAD_THUMB_WIDTH : VIEWER_THUMB_WIDTH);
@@ -37,7 +39,7 @@ export function ViewerMedia({ item, source, unplayableUrl, onUnplayable }) {
   if (item.kind === "image" && item.url) {
     return (
       <div className="relative h-full w-full" data-viewer-item-id={item.id}>
-        {stand && (
+        {stand && !(transparent && fullLoaded) && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={stand}
