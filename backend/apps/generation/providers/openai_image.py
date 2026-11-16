@@ -1,10 +1,10 @@
 """OpenAI GPT Image adapter: one synchronous Images API call per job, billed by the usage it returns.
 
 developers.openai.com/api/docs/guides/image-generation and /api/reference/resources/images/methods/{generate,edit}
-(read 2026-11-04 for 2.5): JSON bodies on /v1/images/generations and /v1/images/edits; edits take up to 16 `images` as
+(read 2026-11-04 for 2.5, 2026-11-16 for 2.6): JSON bodies on /v1/images/generations and /v1/images/edits; edits take up to 16 `images` as
 data URLs; prompts up to 32,000 characters; `size` is WxH with both edges multiples of 16, a long:short ratio of at
 most 3:1, a longest edge of at most 3840 and 655,360 to 8,294,400 pixels (the per-tier sizes are the registry's
-OPENAI_IMAGE_SIZES for 2.5; 2.6 uses standard sizes only); the response carries `data[].b64_json` and a token `usage` object.
+OPENAI_IMAGE_SIZES, shared by 2.5 and 2.6); the response carries `data[].b64_json` and a token `usage` object.
 """
 import base64
 import io

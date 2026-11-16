@@ -611,41 +611,41 @@ class StatusTests(SimpleTestCase):
             self.assertEqual(status.openai()['status'], 'unknown')
 
 
+SIZE_ROWS = [(ratio, resolution, size) for ratio, tiers in OPENAI_IMAGE_SIZES.items() for resolution, size in tiers.items()]
 MODELS_26 = (('GPT Image 2.6 Sunburst', 'gpt-image-2-6-sunburst', 'gpt-image-2.6-sunburst'),
              ('GPT Image 2.6 Flare', 'gpt-image-2-6-flare', 'gpt-image-2.6-flare'))
-STANDARD_SIZES = {'1:1': '1024x1024', '3:2': '1536x1024', '2:3': '1024x1536'}
 
 
 @override_settings(VEEVEE_OPENAI_IMAGE=True)
 class Image26Tests(SimpleTestCase):
-    def test_registry_pins_documented_ids_and_only_standard_raster_sizes(self):
+    def test_registry_pins_documented_ids_and_shares_the_2_5_size_table_and_options(self):
         for name, identifier, provider_id in MODELS_26:
             definition = model_definition(identifier)
             self.assertEqual((definition['name'], definition['providerModelId'], definition['pricingKey']),
                              (name, provider_id, name))
             capabilities = definition['capabilities']
-            self.assertEqual(capabilities['imageSizes'], {ratio: {'1K': size} for ratio, size in STANDARD_SIZES.items()})
-            self.assertEqual(capabilities['resolutions'], ['1K'])
-            self.assertEqual(capabilities['aspectRatios'], list(STANDARD_SIZES))
+            self.assertEqual(capabilities['imageSizes'], OPENAI_IMAGE_SIZES)
+            self.assertEqual(capabilities['resolutions'], ['1K', '2K', '4K'])
+            self.assertEqual(capabilities['aspectRatios'], RATIOS)
             self.assertEqual(capabilities['qualities'], QUALITIES)
             self.assertEqual(capabilities['backgrounds'], ['opaque', 'transparent'])
             self.assertEqual(capabilities['maxReferenceImages'], 16)
-            self.assertNotIn('experimentalAbovePixels', capabilities)
+            self.assertEqual(capabilities['experimentalAbovePixels'], 2560 * 1440)
             for model in (name, identifier):
                 self.assertIn(model, non_gemini_image_models())
                 self.assertEqual(WorkerDeadlineTests.deadline(self, model), 1800000)
 
-    def test_every_standard_size_quality_background_and_endpoint_matches_guard_and_request(self):
+    def test_every_size_quality_background_and_endpoint_matches_guard_and_request(self):
         for name, identifier, provider_id in MODELS_26:
             for model in (name, identifier):
-                for ratio, size in STANDARD_SIZES.items():
+                for ratio, resolution, size in SIZE_ROWS:
                     for quality in QUALITIES:
                         for background in ('opaque', 'transparent'):
                             for references in ([], [group('Reference:', base64.b64encode(b'fixture').decode())]):
-                                with self.subTest(model=model, ratio=ratio, quality=quality, background=background, edit=bool(references)):
-                                    options = validate_openai_image({'model': model, 'resolution': '1K', 'aspectRatio': ratio},
+                                with self.subTest(model=model, ratio=ratio, resolution=resolution, quality=quality, background=background, edit=bool(references)):
+                                    options = validate_openai_image({'model': model, 'resolution': resolution, 'aspectRatio': ratio},
                                         {'imageQuality': quality, 'imageBackground': background})
-                                    url, payload = openai_image.build_payload({'model': model, 'resolution': '1K', 'aspectRatio': ratio,
+                                    url, payload = openai_image.build_payload({'model': model, 'resolution': resolution, 'aspectRatio': ratio,
                                         'options': options, 'assembled': assembled(references)})
                                     expected = {'model': provider_id, 'prompt': 'A woman reads by a window', 'n': 1, 'size': size,
                                                 'quality': quality, 'background': background, 'output_format': 'png'}
@@ -654,14 +654,14 @@ class Image26Tests(SimpleTestCase):
                                                         images=[{'image_url': 'data:image/png;base64,Zml4dHVyZQ=='}])
                                     self.assertEqual(payload, expected)
                                     self.assertEqual(url, openai_image.EDITS_URL if references else openai_image.GENERATIONS_URL)
-                                    quote = paid_guard.quote_for(contract(kind='image', model=model, resolution='1K', aspect_ratio=ratio,
+                                    quote = paid_guard.quote_for(contract(kind='image', model=model, resolution=resolution, aspect_ratio=ratio,
                                                                          submission_input=options), UNLIMITED)
                                     self.assertEqual(quote['provider_payload_allowed_values'],
                                                      {key: [value] for key, value in expected.items() if key not in ('prompt', 'images')})
 
     def test_undocumented_sizes_are_rejected_at_enqueue_guard_adapter_and_estimate(self):
         for name, _, _ in MODELS_26:
-            for resolution, ratio in (('2K', '1:1'), ('4K', '3:2'), ('1K', '16:9'), ('1K', '4:3')):
+            for resolution, ratio in (('1.5K', '1:1'), ('8K', '16:9'), ('1K', '4:1'), ('1K', 'wide')):
                 item = {'model': name, 'resolution': resolution, 'aspectRatio': ratio}
                 with self.subTest(item=item):
                     with self.assertRaises(InvalidRequest):
@@ -699,11 +699,12 @@ class Image26Tests(SimpleTestCase):
             rows = {row['model']: row for row in DEFAULT_PRICING}
             self.assertEqual([rows[name + ' · ' + kind]['unitCostCents'] for kind in ('text input', 'image input', 'image output')],
                              [500, 800, 3000])
-            for ratio in STANDARD_SIZES:
+            for ratio, resolution, size in SIZE_ROWS:
+                width, height = map(int, size.split('x'))
                 for quality, factor in (('low', .03), ('medium', .25), ('high', 1), ('xhigh', 2), ('max', 4)):
-                    estimate = compute_cost({'model': name, 'aspectRatio': ratio, 'resolution': '1K',
+                    estimate = compute_cost({'model': name, 'aspectRatio': ratio, 'resolution': resolution,
                                              'submissionInput': {'quality': quality}}, DEFAULT_PRICING)
-                    self.assertEqual(estimate, math.floor(21 * (1 if ratio == '1:1' else 1.5) * factor + .5))
+                    self.assertEqual(estimate, math.floor(21 * width * height / 1024 ** 2 * factor + .5))
 
 
 class Image26SunburstExecutionTests(ExecutionTests):

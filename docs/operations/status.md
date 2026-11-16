@@ -101,10 +101,12 @@ The switch remains off by default; unavailable models are hidden from pickers an
 No environment change or deployment is included. Enabling the switch requires owner approval.
 
 The existing Images API generation/edit path requests one lossless PNG, with quality low, medium, high,
-xhigh or max (default high) and opaque or transparent background (default opaque). Only the three documented
-standard sizes are offered: 1024x1024 (1:1), 1536x1024 (3:2), 1024x1536 (2:3), all in the 1K tier.
-2.6 does not inherit 2.5's computed custom sizes or 2K/4K tiers. The paid guard pins the model string,
-size and output options; reference conversion and the worker deadline use the existing OpenAI path.
+xhigh or max (default high) and opaque or transparent background (default opaque). 2.6 offers the same ten
+aspect ratios and 1K/2K/4K resolution tiers as 2.5, from the registry's shared size table (OpenAI's image generation
+guide, read 2026-11-16, accepts any WIDTHxHEIGHT within its limits; the generate reference names only 2.5 for that
+rule). Owner-approved live check, 2026-11-16: two `gpt-image-2.6-sunburst` generations at quality low were accepted
+(HTTP 200, image returned) at 1280x720 (12 input / 446 output tokens) and 3808x1632 (12 input / 971 output tokens).
+The paid guard pins the model string, size and output options; reference conversion and the worker deadline use the existing OpenAI path.
 
 Admin rows for each 2.6 model use the published per-million-token rates: $5 text input, $8 image input,
 $30 image output. The enqueue estimate uses the existing placeholder high-square base, scaled by pixels and
@@ -112,7 +114,7 @@ quality; it is not a published per-image quote. Successful calls reconcile the c
 and admin rates. Cached rates ($1.25 text, $2 image) are published but are not applied by this direct Images API
 integration. No migration. Complexity is omitted (provider default high); exposing it is a possible follow-up.
 SVG, animated GIF and markup-guided edits are outside this raster integration. 2.5 behavior is unchanged.
-No live OpenAI call has been made, so provider acceptance is not claimed.
+Provider acceptance is claimed only for the two Sunburst sizes above; Flare and other sizes have not been called live.
 
 Sources read 2026-11-12: [Sunburst](https://developers.openai.com/api/docs/models/gpt-image-2.6-sunburst),
 [Flare](https://developers.openai.com/api/docs/models/gpt-image-2.6-flare),

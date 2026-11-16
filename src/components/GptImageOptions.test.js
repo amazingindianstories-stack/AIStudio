@@ -63,13 +63,13 @@ test("the collapsed settings chip names the quality and only a transparent backg
   assert.equal(render({ mode: "image", model: "Nano Banana Pro", imageQuality: "max", imageBackground: "transparent" }), "");
 });
 
-test("the resolution picker shows GPT Image 2.5's exact pixels and marks sizes above 2560x1440 experimental", () => {
+test("the resolution picker shows GPT Image 2.5 and 2.6's exact pixels and marks sizes above 2560x1440 experimental", () => {
   const render = (model, aspectRatio) => {
     const { document } = new JSDOM(ssr(ResolutionSegment, { model, aspectRatio, options: ["1K", "2K", "4K"], value: "2K", onChange() {} })).window;
     return { buttons: [...document.querySelectorAll("button")].map((button) => button.textContent),
       notes: [...document.querySelectorAll("p")].map((paragraph) => paragraph.textContent).slice(1) };
   };
-  for (const model of ["GPT Image 2.5 Sunburst", "GPT Image 2.5 Flare"]) {
+  for (const model of ["GPT Image 2.5 Sunburst", "GPT Image 2.5 Flare", "GPT Image 2.6 Sunburst", "GPT Image 2.6 Flare"]) {
     assert.deepEqual(render(model, "1:1"), { buttons: ["1K · 1024x1024", "2K · 2048x2048", "4K · 2880x2880"],
       notes: ["2K and 4K are experimental at OpenAI (above 2560×1440 pixels)."] });
     assert.deepEqual(render(model, "16:9"), { buttons: ["1K · 1280x720", "2K · 2048x1152", "4K · 3840x2160"],
@@ -81,11 +81,8 @@ test("the resolution picker shows GPT Image 2.5's exact pixels and marks sizes a
 });
 
 
-test("2.6 renders the standard PNG size without experimental tiers and offers all image options", () => {
+test("2.6 offers every image option next to the resolution tiers", () => {
   for (const model of ["GPT Image 2.6 Sunburst", "GPT Image 2.6 Flare"]) {
-    const size = ssr(ResolutionSegment, { model, aspectRatio: "3:2", options: ["1K"], value: "1K", onChange() {} });
-    assert.match(size, /1K · 1536x1024/);
-    assert.doesNotMatch(size, /experimental|2K|4K/);
     const options = ssr(ImageOptionsSettings, { s: { mode: "image", model, imageQuality: "high", imageBackground: "opaque" } });
     for (const label of ["Low", "Medium", "High", "X-High", "Max", "Opaque", "Transparent"]) assert.ok(options.includes(label));
   }

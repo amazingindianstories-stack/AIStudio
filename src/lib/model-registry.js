@@ -29,16 +29,6 @@ const OPENAI_IMAGE_CAPABILITIES = {
   backgrounds: ["opaque", "transparent"],
   seed: false,
 };
-// 2.6 only offers the three documented standard raster sizes, mirrored in Python.
-const OPENAI_IMAGE_26_SIZES = {
-  "1:1": { "1K": "1024x1024" }, "3:2": { "1K": "1536x1024" }, "2:3": { "1K": "1024x1536" },
-};
-const OPENAI_IMAGE_26_CAPABILITIES = {
-  aspectRatios: Object.keys(OPENAI_IMAGE_26_SIZES), resolutions: ["1K"], imageSizes: OPENAI_IMAGE_26_SIZES,
-  maxReferenceImages: 16, qualities: ["low", "medium", "high", "xhigh", "max"],
-  qualityPriceFactors: { low: 0.03, medium: 0.25, high: 1, xhigh: 2, max: 4 },
-  backgrounds: ["opaque", "transparent"], seed: false,
-};
 const SEEDANCE_20_DURATIONS = [4, 5, 8, 10, 15];
 const HIGGSFIELD_DURATIONS = [3, 4, 5, 6, 8, 10, 12];
 
@@ -174,7 +164,10 @@ export const MODEL_REGISTRY = [
     // https://developers.openai.com/api/docs/guides/image-generation
     // https://developers.openai.com/api/docs/pricing
     // OpenAI publishes no dated snapshot for 2.6; pin these documented model strings without inventing one.
-    // Same Images API generations/edits, five qualities, opaque/transparent PNG, standard sizes only.
+    // Same Images API generations/edits, five qualities, opaque/transparent PNG, and the same size table as 2.5 (the
+    // guide's "Size and quality options" and its 2.6 cost calculator accept any WIDTHxHEIGHT within the documented limits;
+    // the generate reference lists the arbitrary-size rule by 2.5 model id only; live calls on gpt-image-2.6-sunburst
+    // at 1280x720 and 3808x1632 were accepted on 2026-11-16).
     // Omit complexity (provider default high); SVG/GIF/markup are outside this raster integration.
     // Per 1M tokens: text $5 (cached $1.25), image input $8 (cached $2), image output $30.
     id: "gpt-image-2-6-sunburst",
@@ -184,9 +177,9 @@ export const MODEL_REGISTRY = [
     providerModelId: "gpt-image-2.6-sunburst",
     offered: true,
     badge: "NEW",
-    hint: "Detailed visual work and precise edits · up to 16 references · standard sizes PNG",
+    hint: "Detailed visual work and precise edits · up to 16 references · 1K/2K/4K PNG",
     pricingKey: "GPT Image 2.6 Sunburst",
-    capabilities: OPENAI_IMAGE_26_CAPABILITIES,
+    capabilities: OPENAI_IMAGE_CAPABILITIES,
   },
   {
     id: "gpt-image-2-6-flare",
@@ -196,9 +189,9 @@ export const MODEL_REGISTRY = [
     providerModelId: "gpt-image-2.6-flare",
     offered: true,
     badge: "FAST",
-    hint: "Fast everyday OpenAI image model · up to 16 references · standard sizes PNG",
+    hint: "Fast everyday OpenAI image model · up to 16 references · 1K/2K/4K PNG",
     pricingKey: "GPT Image 2.6 Flare",
-    capabilities: OPENAI_IMAGE_26_CAPABILITIES,
+    capabilities: OPENAI_IMAGE_CAPABILITIES,
   },
   {
     id: "seedance",

@@ -139,7 +139,7 @@ DEFAULT_PRICING = [{'model': 'OmniHuman 2.0', 'unitCostCents': 0, 'unit': 'per_s
   'unitCostCents': 21,
   'unit': 'per_image',
   'notes': 'PLACEHOLDER enqueue-time estimate only, base = 1024x1024 high quality, scaled by the exact size sent '
-           '(its pixels over 1024x1024, standard landscape/portrait x1.5) and by quality (low x0.03, medium x0.25, high x1, xhigh x2, '
+           '(its pixels over 1024x1024, e.g. 2880x2880 x7.91) and by quality (low x0.03, medium x0.25, high x1, xhigh x2, '
            'max x4). OpenAI publishes no per-image price for '
            'gpt-image-2.6-sunburst (2026-11-12); 21 cents is GPT Image 2 high quality at 1024x1024, and the low/medium '
            'factors are GPT Image 2 low ($0.006) and medium ($0.053) over high ($0.211). xhigh and max have no published '
@@ -164,7 +164,7 @@ DEFAULT_PRICING = [{'model': 'OmniHuman 2.0', 'unitCostCents': 0, 'unit': 'per_s
   'unitCostCents': 21,
   'unit': 'per_image',
   'notes': 'PLACEHOLDER enqueue-time estimate only, base = 1024x1024 high quality, scaled by the exact size sent '
-           '(its pixels over 1024x1024, standard landscape/portrait x1.5) and by quality (low x0.03, medium x0.25, high x1, xhigh x2, '
+           '(its pixels over 1024x1024, e.g. 2880x2880 x7.91) and by quality (low x0.03, medium x0.25, high x1, xhigh x2, '
            'max x4). OpenAI publishes no per-image price for '
            'gpt-image-2.6-flare (2026-11-12); 21 cents is GPT Image 2 high quality at 1024x1024, and the low/medium '
            'factors are GPT Image 2 low ($0.006) and medium ($0.053) over high ($0.211). xhigh and max have no published '
