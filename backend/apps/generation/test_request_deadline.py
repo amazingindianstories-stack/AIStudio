@@ -5,7 +5,7 @@ import time
 from django.test import SimpleTestCase
 from apps.integrations.request_deadline import SocketDeadline, deadline_adapter
 from apps.integrations.transport import ProviderError, HttpTransport
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 class SocketDeadlineTests(SimpleTestCase):
@@ -52,30 +52,55 @@ class SocketDeadlineTests(SimpleTestCase):
             left.close();right.close()
 
     def test_actual_tls_handshake_is_interrupted_without_paid_request_retry(self):
+        import requests
+
         left,right=socket.socketpair()
-        right.settimeout(1)
+        right.settimeout(5)
         received=[]
+        clock=Mock()
+        clock.monotonic.return_value=100
+        # Setup (including loading CA certificates) must not consume the TLS
+        # deadline. Drive the timer at that deadline only after a ClientHello.
+        timer=Mock()
         def peer():
             try:
-                while True:
-                    data=right.recv(65536)
-                    if not data:break
+                data=right.recv(65536)
+                if data:
                     received.append(data)
+                    _,expire=deadline_threads.Timer.call_args.args
+                    clock.monotonic.return_value=expire.__self__.deadline
+                    expire()  # Real SocketDeadline shutdown of the TLS socket.
+                    while True:
+                        data=right.recv(65536)
+                        if not data:break
+                        received.append(data)
             except OSError:
                 pass
-            finally:
-                right.close()
+            # Keep the peer open until the request has failed: peer EOF must
+            # not be what interrupts the handshake.
         thread=threading.Thread(target=peer)
-        thread.start()
         try:
-            start=time.monotonic()
-            with patch('apps.integrations.request_deadline.connect_socket',return_value=left) as connect:
+            with patch('apps.integrations.request_deadline.time',clock), patch(
+                    'apps.integrations.transport.time',clock), patch(
+                    'apps.integrations.request_deadline.threading',wraps=threading) as deadline_threads, patch(
+                    'apps.integrations.request_deadline.connect_socket',return_value=left) as connect:
+                deadline_threads.Timer.return_value=timer
+                thread.start()
                 with self.assertRaises(ProviderError) as failure:
-                    HttpTransport(allowed_hosts=['fixture.invalid'],timeout=.15).request(
+                    HttpTransport(allowed_hosts=['fixture.invalid'],timeout=30).request(
                         'POST','https://fixture.invalid/paid',body={'prompt':'never transmitted'})
                 connect.assert_called_once()
+                deadline_threads.Timer.assert_called_once()
+                interval,expire=deadline_threads.Timer.call_args.args
+                self.assertEqual(interval,30)
+                self.assertTrue(expire.__self__.expired.is_set())
+                timer.start.assert_called_once_with()
+                timer.cancel.assert_called_once_with()
+                timer.join.assert_called_once_with()
             self.assertEqual(failure.exception.code,'request_deadline')
-            self.assertLess(time.monotonic()-start,.8)
+            # A socket timeout is a ReadTimeout, not the TLS error caused by
+            # shutdown. The socket timeout is only a failure backstop.
+            self.assertIsInstance(failure.exception.__cause__,requests.exceptions.SSLError)
             thread.join(1)
             self.assertFalse(thread.is_alive())
             self.assertTrue(received)  # TLS ClientHello; peer never completes TLS.
