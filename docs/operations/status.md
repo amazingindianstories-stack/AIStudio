@@ -106,8 +106,7 @@ aspect ratios and 1K/2K/4K resolution tiers as 2.5, from the registry's shared s
 guide, read 2026-11-16, accepts any WIDTHxHEIGHT within its limits; the generate reference names only 2.5 for that
 rule). Owner-approved live check, 2026-11-16: two `gpt-image-2.6-sunburst` generations at quality low were accepted
 (HTTP 200, image returned) at 1280x720 (12 input / 446 output tokens) and 3808x1632 (12 input / 971 output tokens).
-The paid guard pins the model string,
-size and output options; reference conversion and the worker deadline use the existing OpenAI path.
+The paid guard pins the model string, size and output options; reference conversion and the worker deadline use the existing OpenAI path.
 
 Admin rows for each 2.6 model use the published per-million-token rates: $5 text input, $8 image input,
 $30 image output. The enqueue estimate uses the existing placeholder high-square base, scaled by pixels and
