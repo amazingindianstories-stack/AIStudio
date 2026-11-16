@@ -101,9 +101,10 @@ The switch remains off by default; unavailable models are hidden from pickers an
 No environment change or deployment is included. Enabling the switch requires owner approval.
 
 The existing Images API generation/edit path requests one lossless PNG, with quality low, medium, high,
-xhigh or max (default high) and opaque or transparent background (default opaque). Only the three documented
-standard sizes are offered: 1024x1024 (1:1), 1536x1024 (3:2), 1024x1536 (2:3), all in the 1K tier.
-2.6 does not inherit 2.5's computed custom sizes or 2K/4K tiers. The paid guard pins the model string,
+xhigh or max (default high) and opaque or transparent background (default opaque). 2.6 offers the same ten
+aspect ratios and 1K/2K/4K resolution tiers as 2.5, from the registry's shared size table (OpenAI's image generation
+guide, read 2026-11-16, accepts any WIDTHxHEIGHT within its limits; the generate reference names only 2.5 for that
+rule, so 2.6 follows the guide). The paid guard pins the model string,
 size and output options; reference conversion and the worker deadline use the existing OpenAI path.
 
 Admin rows for each 2.6 model use the published per-million-token rates: $5 text input, $8 image input,

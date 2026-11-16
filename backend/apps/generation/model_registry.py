@@ -1,8 +1,8 @@
 """Source-equivalent model/capability registry; stable IDs and legacy names."""
 import os
 
-# GPT Image 2.5 `size` per aspect ratio and tier (mirrored in src/lib/model-registry.js). OpenAI documents three sizes
-# (developers.openai.com/api/docs/guides/image-generation, read 2026-11-04), used exactly for 1K at 1:1, 3:2 and 2:3.
+# GPT Image 2.5 and 2.6 `size` per aspect ratio and tier (mirrored in src/lib/model-registry.js). OpenAI documents three sizes
+# (developers.openai.com/api/docs/guides/image-generation, read 2026-11-04, and again 2026-11-16 for 2.6), used exactly for 1K at 1:1, 3:2 and 2:3.
 # Every other entry is computed from OpenAI's documented size constraints, not taken from an OpenAI table: both edges
 # multiples of 16, longest edge at most 3840, long:short at most 3:1 and 655,360 to 8,294,400 pixels. Each is the valid
 # size nearest the exact ratio, then nearest the tier's target: about 1024x1024 pixels for 1K, a 2048 long edge for 2K
@@ -30,13 +30,6 @@ OPENAI_IMAGE_CAPABILITIES = {'aspectRatios': list(OPENAI_IMAGE_SIZES),
                              'qualityPriceFactors': {'low': .03, 'medium': .25, 'high': 1, 'xhigh': 2, 'max': 4},
                              'backgrounds': ['opaque', 'transparent'],
                              'seed': False}
-
-# Standard raster sizes only for 2.6: the API reference does not list it for arbitrary resolutions.
-OPENAI_IMAGE_26_SIZES = {'1:1': {'1K': '1024x1024'}, '3:2': {'1K': '1536x1024'}, '2:3': {'1K': '1024x1536'}}
-OPENAI_IMAGE_26_CAPABILITIES = {**{key: value for key, value in OPENAI_IMAGE_CAPABILITIES.items()
-                                 if key != 'experimentalAbovePixels'},
-                                'aspectRatios': list(OPENAI_IMAGE_26_SIZES), 'resolutions': ['1K'],
-                                'imageSizes': OPENAI_IMAGE_26_SIZES}
 
 MODEL_REGISTRY = [{'id': 'seedream-5-pro',
   'name': 'Seedream 5.0 Pro',
@@ -169,7 +162,9 @@ MODEL_REGISTRY = [{'id': 'seedream-5-pro',
  # https://developers.openai.com/api/docs/guides/image-generation
  # https://developers.openai.com/api/docs/pricing
  # OpenAI publishes no dated snapshot for 2.6; pin these documented model strings without inventing one.
- # Same Images API generations/edits, five qualities, opaque/transparent PNG, standard sizes only.
+ # Same Images API generations/edits, five qualities, opaque/transparent PNG, and the same size table as 2.5 (the guide's
+ # "Size and quality options" and its 2.6 cost calculator accept any WIDTHxHEIGHT within the documented limits; the
+ # generate reference lists the arbitrary-size rule by 2.5 model id only, so 2.6 follows the guide).
  # Omit complexity (provider default high); SVG/GIF/markup are outside this raster integration.
  # Per 1M tokens: text $5 (cached $1.25), image input $8 (cached $2), image output $30.
  {'id': 'gpt-image-2-6-sunburst',
@@ -179,9 +174,9 @@ MODEL_REGISTRY = [{'id': 'seedream-5-pro',
   'providerModelId': 'gpt-image-2.6-sunburst',
   'offered': True,
   'badge': 'NEW',
-  'hint': "Detailed visual work and precise edits · up to 16 references · standard sizes PNG",
+  'hint': "Detailed visual work and precise edits · up to 16 references · 1K/2K/4K PNG",
   'pricingKey': 'GPT Image 2.6 Sunburst',
-  'capabilities': OPENAI_IMAGE_26_CAPABILITIES},
+  'capabilities': OPENAI_IMAGE_CAPABILITIES},
  {'id': 'gpt-image-2-6-flare',
   'name': 'GPT Image 2.6 Flare',
   'kind': 'image',
@@ -189,9 +184,9 @@ MODEL_REGISTRY = [{'id': 'seedream-5-pro',
   'providerModelId': 'gpt-image-2.6-flare',
   'offered': True,
   'badge': 'FAST',
-  'hint': 'Fast everyday OpenAI image model · up to 16 references · standard sizes PNG',
+  'hint': 'Fast everyday OpenAI image model · up to 16 references · 1K/2K/4K PNG',
   'pricingKey': 'GPT Image 2.6 Flare',
-  'capabilities': OPENAI_IMAGE_26_CAPABILITIES},
+  'capabilities': OPENAI_IMAGE_CAPABILITIES},
  {'id': 'seedance',
   'name': 'Seedance 2.0',
   'kind': 'video',
