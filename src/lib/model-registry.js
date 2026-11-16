@@ -166,7 +166,8 @@ export const MODEL_REGISTRY = [
     // OpenAI publishes no dated snapshot for 2.6; pin these documented model strings without inventing one.
     // Same Images API generations/edits, five qualities, opaque/transparent PNG, and the same size table as 2.5 (the
     // guide's "Size and quality options" and its 2.6 cost calculator accept any WIDTHxHEIGHT within the documented limits;
-    // the generate reference lists the arbitrary-size rule by 2.5 model id only, so 2.6 follows the guide).
+    // the generate reference lists the arbitrary-size rule by 2.5 model id only; live calls on gpt-image-2.6-sunburst
+    // at 1280x720 and 3808x1632 were accepted on 2026-11-16).
     // Omit complexity (provider default high); SVG/GIF/markup are outside this raster integration.
     // Per 1M tokens: text $5 (cached $1.25), image input $8 (cached $2), image output $30.
     id: "gpt-image-2-6-sunburst",
