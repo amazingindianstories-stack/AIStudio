@@ -817,7 +817,7 @@ function MediaKindIcon({ kind }) {
   const marker = MEDIA_KIND_ICONS[kind];
   if (!marker) return null;
   const { Icon, type, label } = marker;
-  return <Icon data-media-kind={type} aria-label={label} role="img" className="mr-1 h-[1.3em] w-[1.3em] shrink-0 text-white last:mr-0" />;
+  return <Icon data-media-kind={type} aria-label={label} role="img" className="mr-1 h-[1.3em] w-[1.3em] shrink-0 text-white drop-shadow-[0_0_3px_rgb(0_0_0/0.7)] last:mr-0" />;
 }
 
 export function GenerationName({ item, className, numberOnly = true, kind }) {

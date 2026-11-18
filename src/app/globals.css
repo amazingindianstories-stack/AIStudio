@@ -387,7 +387,11 @@ body {
   top: var(--face-inset);
   left: calc(var(--face-inset) + var(--name-controls));
   max-width: calc(100% - var(--face-inset) - var(--name-controls) - var(--name-right));
+  padding: 0;
+  border-radius: 0;
+  background: none;
   font-size: var(--face-label);
+  text-shadow: 0 0 3px rgb(0 0 0 / 0.7), 0 1px 2px rgb(0 0 0 / 0.6);
 }
 .media-card[data-draft="true"] .media-card-name { --name-right: calc(var(--face-inset) + 34px); }
 .media-card[data-selectable="true"]:is(:hover, :focus-visible, :has(:focus-visible), [data-selected="true"]) .media-card-name {
