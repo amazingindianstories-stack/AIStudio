@@ -8,15 +8,18 @@ import {
   CheckSquare,
   Download,
   FolderOpen,
+  ImageIcon,
   Layers,
   Maximize2,
   MoreHorizontal,
+  Music,
   Pencil,
   RefreshCw,
   ShieldAlert,
   Square,
   Star,
   Trash2,
+  Video,
   Wand2,
   Check,
 } from "lucide-react";
@@ -143,6 +146,8 @@ export function MediaCard({
   const imageMedia = useDirectMediaUrl(done && item.kind === "image" ? item.url : null, CARD_THUMB_WIDTH);
   const posterMedia = useDirectMediaUrl(done && item.poster ? item.poster : null, CARD_THUMB_WIDTH);
   const videoMedia = useDirectMediaUrl(done && (item.kind === "video" || item.kind === "depth") ? item.url : null);
+  // #t makes browsers that stop at metadata (iOS Safari) still decode and paint the first frame.
+  const videoSrc = videoMedia.src ? `${videoMedia.src}#t=0.001` : videoMedia.src;
   const depthStepIndex =
     item.kind === "depth" && item.progressMessage
       ? depthStepList(item.trackCharacters).indexOf(item.progressMessage) + 1 || null
@@ -492,10 +497,24 @@ export function MediaCard({
         )}
         {done && item.kind === "video" && (
           <>
+            {!item.poster && (
+              // No poster: this stays visible under the <video> until it has a
+              // frame to show, and for good if it never decodes one, so the
+              // tile is never an empty dark card. Unmounting the <video> off
+              // screen leaves the same placeholder.
+              <div data-video-placeholder className="absolute inset-0 grid place-items-center bg-ink-800">
+                <Video className="h-6 w-6 text-white/20" />
+              </div>
+            )}
             {unplayableUrl === item.url && (
               <div className="absolute inset-0 flex items-center justify-center bg-ink-800 p-4 text-center text-xs text-white/70">Preview unavailable. Open to download the original.</div>
             )}
             {item.poster && (
+              // `loading="lazy"` is load-bearing, not decoration. Without it
+              // every card the user scrolls past fetches its poster eagerly,
+              // and each distinct (key, width) miss is a real /api/media
+              // invocation. content-visibility does NOT defer this: it skips
+              // layout and paint, not resource loading.
               <ProgressiveImage
                 src={posterMedia.src}
                 onSourceError={posterMedia.onError}
@@ -508,12 +527,12 @@ export function MediaCard({
             )}
             {item.url && nearViewport && (
               <video
-                src={videoMedia.src}
+                src={videoSrc}
                 muted
                 loop
                 playsInline
                 preload="metadata"
-                onCanPlay={(e) => e.currentTarget.classList.remove("opacity-0")}
+                onLoadedData={(e) => e.currentTarget.classList.remove("opacity-0")}
                 onError={() => { if (!videoMedia.onError()) setUnplayableUrl(item.url); }}
                 onMouseEnter={(e) => e.currentTarget.play().catch(() => {})}
                 onMouseLeave={(e) => {
@@ -522,20 +541,6 @@ export function MediaCard({
                 }}
                 className="absolute inset-0 h-full w-full object-cover opacity-0 transition-opacity duration-200"
               />
-            )}
-            {!item.poster && !nearViewport && (
-              // Either scrolled away (the <video> is unmounted rather than left
-              // holding a decoder) or still rendering (no url yet). Same markup
-              // for both: the poster is what a <video> displays until it is
-              // hovered, so the pixels are identical either way.
-              //
-              // `loading="lazy"` is load-bearing, not decoration. Without it
-              // every card the user scrolls past fetches its poster eagerly,
-              // and each distinct (key, width) miss is a real /api/media
-              // invocation — trading one leaked decoder per row for one eager
-              // request per row. content-visibility does NOT defer this: it
-              // skips layout and paint, not resource loading.
-              <div className="absolute inset-0 bg-ink-800" />
             )}
           </>
         )}
@@ -554,7 +559,7 @@ export function MediaCard({
                 rendering anyway under content-visibility. */}
             {nearViewport ? (
               <video
-                src={videoMedia.src}
+                src={videoSrc}
                 onError={() => videoMedia.onError()}
                 muted
                 loop
@@ -659,7 +664,11 @@ export function MediaCard({
 
         {/* card face */}
         <div className="media-card-face pointer-events-none absolute inset-0 z-30">
-          <GenerationName item={item} className="generation-name-overlay media-card-name" />
+          <GenerationName item={item} kind={item.kind} className="generation-name-overlay media-card-name" />
+          {/* Without a filename there is no name chip to carry the icon. */}
+          {!item.filename && MEDIA_KIND_ICONS[item.kind] && (
+            <div className="generation-name-overlay media-card-name"><MediaKindIcon kind={item.kind} /></div>
+          )}
           {isDraft && (
             <span data-draft-label className="media-card-draft absolute right-0 top-0 flex items-start justify-end font-semibold leading-none tracking-wide text-white">
               Draft
@@ -795,7 +804,23 @@ export function resolveGenerationFolder(item, tree) {
   return { label: `${root} / ${path ? path.join(" / ") : "Folder unavailable"}`, navigable: Boolean(path) };
 }
 
-export function GenerationName({ item, className, numberOnly = true }) {
+// Depth output is a video file, so it carries the video marker.
+const MEDIA_KIND_ICONS = {
+  image: { Icon: ImageIcon, type: "image", label: "Image" },
+  video: { Icon: Video, type: "video", label: "Video" },
+  depth: { Icon: Video, type: "video", label: "Video" },
+  audio: { Icon: Music, type: "audio", label: "Audio" },
+};
+
+/** Marks a tile as an image, a video or audio; the label is for assistive tech only. */
+function MediaKindIcon({ kind }) {
+  const marker = MEDIA_KIND_ICONS[kind];
+  if (!marker) return null;
+  const { Icon, type, label } = marker;
+  return <Icon data-media-kind={type} aria-label={label} role="img" className="mr-1 h-[1.3em] w-[1.3em] shrink-0 text-white last:mr-0" />;
+}
+
+export function GenerationName({ item, className, numberOnly = true, kind }) {
   const displayName = item.filename?.replace(/\.[^.]+$/, "") || "";
   if (!displayName) return null;
   // Keep the entire sequence, including values longer than four digits.
@@ -805,6 +830,7 @@ export function GenerationName({ item, className, numberOnly = true }) {
   return (
     <div data-generation-name title={item.filename} className={cn("flex min-w-0 items-center", className)}>
       {item.filename && <span className="sr-only">{item.filename}</span>}
+      {kind && <MediaKindIcon kind={kind} />}
       {(!numberOnly || !nameParts) && <span aria-hidden="true" className="min-w-0 truncate">{nameParts ? nameParts[1] : displayName}</span>}
       {nameParts && <span aria-hidden="true" className="shrink-0">{numberOnly ? nameParts[2].slice(1) : nameParts[2]}</span>}
     </div>

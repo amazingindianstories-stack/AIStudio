@@ -9,13 +9,13 @@ import { FeedBlock } from './ConversationPanel.jsx';
 import { useMaintenance } from '../lib/maintenance-client.js';
 import { __setMediaResolverFetch } from '../lib/media-resolver.js';
 
-async function harness(item, run, state = {}, Component = MediaCard) {
+async function harness(item, run, state = {}, Component = MediaCard, globals = {}) {
   const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost', pretendToBeVisual: true });
   const names = ['window', 'document', 'HTMLElement', 'React', 'IS_REACT_ACT_ENVIRONMENT', 'fetch', 'ResizeObserver', 'IntersectionObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'KeyboardEvent'];
   const prior = Object.fromEntries(names.map(name => [name, globalThis[name]]));
   Object.assign(globalThis, { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, React,
     IS_REACT_ACT_ENVIRONMENT: true, requestAnimationFrame: cb => setTimeout(cb, 0), cancelAnimationFrame: id => clearTimeout(id),
-    ResizeObserver: class { observe() {} unobserve() {} disconnect() {} }, IntersectionObserver: class { observe() {} unobserve() {} disconnect() {} } });
+    ResizeObserver: class { observe() {} unobserve() {} disconnect() {} }, IntersectionObserver: class { observe() {} unobserve() {} disconnect() {} }, ...globals });
   dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
   const original = useStore.getState();
   const calls = [];
@@ -242,4 +242,39 @@ test('cancelled cards render their terminal label using the existing failure tre
     await openMenu(card);
     assert.equal(menuItem('delete').getAttribute('aria-disabled'), null);
   });
+});
+
+test('library tiles mark videos, depth videos, images and audio with a media-kind icon, with or without a filename', async () => {
+  const base = { status: 'succeeded', prompt: 'p', model: 'Seedance 2.5', aspectRatio: '1:1', createdAt: 1 };
+  const cases = [
+    [{ ...base, id: 'k1', kind: 'video', url: '/api/media/generations/a.mp4', filename: 'x_0001.mp4' }, 'video'],
+    [{ ...base, id: 'k2', kind: 'image', url: '/api/media/generations/a.png', filename: 'x_0002.png' }, 'image'],
+    [{ ...base, id: 'k3', kind: 'video', url: '/api/media/generations/b.mp4' }, 'video'],
+    [{ ...base, id: 'k4', kind: 'depth', url: '/api/media/generations/d.mp4', filename: 'x_0004.mp4' }, 'video'],
+    [{ ...base, id: 'k5', kind: 'audio', url: '/api/media/generations/v.mp3', filename: 'x_0005.mp3' }, 'audio'],
+  ];
+  for (const [item, kind] of cases) {
+    await harness(item, async ({ card }) => {
+      const icons = card.querySelectorAll('[data-media-kind]');
+      assert.equal(icons.length, 1);
+      assert.equal(icons[0].dataset.mediaKind, kind);
+    });
+  }
+});
+
+test('an on-screen video tile without a poster shows a video placeholder until its first frame decodes, and keeps it if none ever does', async () => {
+  const item = { id: 'np1', kind: 'video', status: 'succeeded', prompt: 'p', model: 'Seedance 2.5', aspectRatio: '16:9', createdAt: 1,
+    url: '/api/media/generations/0222.mov', filename: 'x_0222.mov' };
+  // No IntersectionObserver: the card counts as on screen and mounts its <video>.
+  await harness(item, async ({ card }) => {
+    const video = card.querySelector('video');
+    assert.ok(video, 'the on-screen tile mounts its video');
+    assert.match(video.getAttribute('src'), /#t=0\.001$/);
+    assert.ok(video.classList.contains('opacity-0'), 'no frame yet, so the video stays transparent');
+    const placeholder = card.querySelector('[data-video-placeholder]');
+    assert.ok(placeholder, 'a visible video placeholder sits under the transparent video');
+    assert.ok(placeholder.querySelector('svg'));
+    await act(async () => video.dispatchEvent(new window.Event('loadeddata')));
+    assert.equal(video.classList.contains('opacity-0'), false, 'the first decoded frame reveals the video');
+  }, {}, MediaCard, { IntersectionObserver: undefined });
 });
