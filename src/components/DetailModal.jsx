@@ -24,6 +24,7 @@ import {
   BadgeCheck,
   SkipForward,
   Flag,
+  Music,
 } from "lucide-react";
 import { GenerationFolderCue, GenerationTimestamp } from "./MediaCard";
 import { ViewerMedia } from "./ViewerMedia";
@@ -33,7 +34,7 @@ import { viewerList } from "@/lib/viewer-navigation";
 import { stepViewer } from "@/lib/viewer-step";
 import { useViewerPreload } from "@/lib/viewer-media";
 import { useStore } from "@/lib/store";
-import { cn, thumbUrl, referenceDisplayUrl } from "@/lib/utils";
+import { cn, thumbUrl, referenceDisplayUrl, inlineMediaUrl } from "@/lib/utils";
 import { DEPTH_ENCODER_LABELS, IMAGE_BACKGROUND_LABELS, IMAGE_QUALITY_LABELS } from "@/lib/config";
 import {
   supportsFirstFrameContinuation,
@@ -144,48 +145,110 @@ function CopyPromptButton({ text }) {
   );
 }
 
-function ReferenceCollage({ images }) {
+/** Original bytes: no `?w=` resize hint, same-origin so `download` is honoured. */
+function referenceDownload(src, fallback) {
+  const href = inlineMediaUrl(referenceDisplayUrl(src));
+  const base = (href || "").split(/[?#]/)[0].split("/").pop() || "";
+  let name = fallback;
+  try { name = decodeURIComponent(base) || fallback; } catch { /* keep fallback */ }
+  return { href, name };
+}
+
+function ReferenceDownload({ src, label }) {
+  const { href, name } = referenceDownload(src, label);
+  if (!href) return null;
+  return (
+    <a
+      href={href}
+      download={name}
+      title={`Download original ${label.toLowerCase()}`}
+      aria-label={`Download original ${label.toLowerCase()}`}
+      className="absolute right-1.5 top-1.5 grid h-7 w-7 place-items-center rounded-full bg-black/60 text-white/90 backdrop-blur-sm transition hover:bg-black/80 hover:text-white"
+    >
+      <Download className="h-3.5 w-3.5" />
+    </a>
+  );
+}
+
+function ReferenceCollage({ images = [], videos: allVideos = [], audios: allAudios = [] }) {
+  // asset:// refs with no resolvable URL have nothing to preview or download.
+  const videos = allVideos.filter((src) => referenceDisplayUrl(src));
+  const audios = allAudios.filter((src) => referenceDisplayUrl(src));
   // Every reference is shown — this panel scrolls (its parent carries
-  // overflow-y-auto), so there's no layout reason to truncate. This used to
-  // slice(0, 4) and print a "+N more" count for the rest with no way to
-  // actually open them, so a job with more than 4 references had references
-  // the user could never see or click through to.
+  // overflow-y-auto), so there's no layout reason to truncate. Video and audio
+  // references are listed with the images: they were sent to the model too.
+  const tile = "group relative overflow-hidden rounded-xl border border-line bg-ink-700 ring-1 ring-white/5 transition hover:border-brand/40 hover:ring-brand/20";
   const layoutClass = images.length === 1 ? "grid-cols-1" : "grid-cols-2";
 
   return (
     <div className="mb-5">
-      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-white/40">
-        Reference images
-      </p>
-      <div className={cn("grid gap-2", layoutClass)}>
-        {images.map((src, i) => {
-          const displaySrc = referenceDisplayUrl(src);
-          return (
-            <a
-              key={i}
-              href={displaySrc}
-              target="_blank"
-              rel="noreferrer"
-              className={cn(
-                "group relative overflow-hidden rounded-xl border border-line bg-ink-700 ring-1 ring-white/5 transition hover:border-brand/40 hover:ring-brand/20",
-                images.length === 2 && "min-h-24"
-              )}
-              title="Open reference image"
-            >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={thumbUrl(displaySrc, 320)}
-                alt=""
-                className="h-full w-full object-cover"
-                onError={(e) => {
-                  e.currentTarget.style.display = "none";
-                }}
-              />
-              <span className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent opacity-0 transition group-hover:opacity-100" />
-            </a>
-          );
-        })}
-      </div>
+      {images.length > 0 && (
+        <>
+          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-white/40">Reference images</p>
+          <div className={cn("grid gap-2", layoutClass)}>
+            {images.map((src, i) => {
+              const displaySrc = referenceDisplayUrl(src);
+              return (
+                <div key={i} className={cn(tile, images.length === 2 && "min-h-24")}>
+                  <a href={displaySrc} target="_blank" rel="noreferrer" title="Open reference image" className="block h-full w-full">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={thumbUrl(displaySrc, 320)}
+                      alt=""
+                      className="h-full w-full object-cover"
+                      onError={(e) => {
+                        e.currentTarget.style.display = "none";
+                      }}
+                    />
+                  </a>
+                  <ReferenceDownload src={src} label={`Reference image ${i + 1}`} />
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+      {videos.length > 0 && (
+        <>
+          <p className={cn("mb-2 text-xs font-medium uppercase tracking-wide text-white/40", images.length > 0 && "mt-4")}>Reference videos</p>
+          <div className="grid grid-cols-1 gap-2">
+            {videos.map((src, i) => (
+              <div key={i} data-reference-kind="video" className={tile}>
+                <video
+                  src={`${referenceDisplayUrl(src)}#t=0.001`}
+                  controls
+                  muted
+                  playsInline
+                  preload="metadata"
+                  className="block max-h-56 w-full bg-black object-contain"
+                />
+                <ReferenceDownload src={src} label={`Reference video ${i + 1}`} />
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+      {audios.length > 0 && (
+        <>
+          <p className={cn("mb-2 text-xs font-medium uppercase tracking-wide text-white/40", (images.length > 0 || videos.length > 0) && "mt-4")}>Reference audio</p>
+          <div className="grid grid-cols-1 gap-2">
+            {audios.map((src, i) => {
+              const { name } = referenceDownload(src, `Reference audio ${i + 1}`);
+              const label = `Reference audio ${i + 1}`;
+              return (
+                <div key={i} data-reference-kind="audio" className={cn(tile, "p-2.5 pr-11")}>
+                  <p className="mb-1.5 flex items-center gap-1.5 truncate text-xs text-white/70" title={name}>
+                    <Music className="h-3.5 w-3.5 shrink-0 text-white/50" />
+                    <span className="truncate">{label}</span>
+                  </p>
+                  <audio src={referenceDisplayUrl(src)} controls preload="metadata" className="h-8 w-full" />
+                  <ReferenceDownload src={src} label={`Reference audio ${i + 1}`} />
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -551,8 +614,8 @@ export function DetailModal() {
                   onSelect={(key) => setPieceSelection({ id: item.id, key })} />
               )}
 
-              {item.referenceImages && item.referenceImages.length > 0 && (
-                <ReferenceCollage images={item.referenceImages} />
+              {(item.referenceImages?.length > 0 || item.referenceVideos?.length > 0 || item.referenceAudios?.length > 0) && (
+                <ReferenceCollage images={item.referenceImages} videos={item.referenceVideos} audios={item.referenceAudios} />
               )}
 
               <div className="mb-1 flex items-center justify-between">

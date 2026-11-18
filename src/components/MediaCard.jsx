@@ -8,6 +8,7 @@ import {
   CheckSquare,
   Download,
   FolderOpen,
+  ImageIcon,
   Layers,
   Maximize2,
   MoreHorizontal,
@@ -17,6 +18,7 @@ import {
   Square,
   Star,
   Trash2,
+  Video,
   Wand2,
   Check,
 } from "lucide-react";
@@ -508,7 +510,8 @@ export function MediaCard({
             )}
             {item.url && nearViewport && (
               <video
-                src={videoMedia.src}
+                // #t paints the first frame where preload=metadata alone shows nothing (iOS Safari).
+                src={videoMedia.src ? `${videoMedia.src}#t=0.001` : videoMedia.src}
                 muted
                 loop
                 playsInline
@@ -659,7 +662,11 @@ export function MediaCard({
 
         {/* card face */}
         <div className="media-card-face pointer-events-none absolute inset-0 z-30">
-          <GenerationName item={item} className="generation-name-overlay media-card-name" />
+          <GenerationName item={item} kind={item.kind} className="generation-name-overlay media-card-name" />
+          {/* Without a filename there is no name chip to carry the icon. */}
+          {!item.filename && MEDIA_KIND_ICONS[item.kind] && (
+            <div className="generation-name-overlay media-card-name"><MediaKindIcon kind={item.kind} /></div>
+          )}
           {isDraft && (
             <span data-draft-label className="media-card-draft absolute right-0 top-0 flex items-start justify-end font-semibold leading-none tracking-wide text-white">
               Draft
@@ -795,7 +802,16 @@ export function resolveGenerationFolder(item, tree) {
   return { label: `${root} / ${path ? path.join(" / ") : "Folder unavailable"}`, navigable: Boolean(path) };
 }
 
-export function GenerationName({ item, className, numberOnly = true }) {
+const MEDIA_KIND_ICONS = { image: ImageIcon, video: Video };
+
+/** Marks a tile as an image or a video; the label is for assistive tech only. */
+function MediaKindIcon({ kind }) {
+  const Icon = MEDIA_KIND_ICONS[kind];
+  if (!Icon) return null;
+  return <Icon data-media-kind={kind} aria-label={kind === "video" ? "Video" : "Image"} role="img" className="mr-1 h-[1.3em] w-[1.3em] shrink-0 text-white last:mr-0" />;
+}
+
+export function GenerationName({ item, className, numberOnly = true, kind }) {
   const displayName = item.filename?.replace(/\.[^.]+$/, "") || "";
   if (!displayName) return null;
   // Keep the entire sequence, including values longer than four digits.
@@ -805,6 +821,7 @@ export function GenerationName({ item, className, numberOnly = true }) {
   return (
     <div data-generation-name title={item.filename} className={cn("flex min-w-0 items-center", className)}>
       {item.filename && <span className="sr-only">{item.filename}</span>}
+      {kind && <MediaKindIcon kind={kind} />}
       {(!numberOnly || !nameParts) && <span aria-hidden="true" className="min-w-0 truncate">{nameParts ? nameParts[1] : displayName}</span>}
       {nameParts && <span aria-hidden="true" className="shrink-0">{numberOnly ? nameParts[2].slice(1) : nameParts[2]}</span>}
     </div>

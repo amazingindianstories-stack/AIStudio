@@ -243,3 +243,19 @@ test('cancelled cards render their terminal label using the existing failure tre
     assert.equal(menuItem('delete').getAttribute('aria-disabled'), null);
   });
 });
+
+test('library tiles mark videos and images with a media-kind icon, with or without a filename', async () => {
+  const base = { status: 'succeeded', prompt: 'p', model: 'Seedance 2.5', aspectRatio: '1:1', createdAt: 1 };
+  const cases = [
+    [{ ...base, id: 'k1', kind: 'video', url: '/api/media/generations/a.mp4', filename: 'x_0001.mp4' }, 'video'],
+    [{ ...base, id: 'k2', kind: 'image', url: '/api/media/generations/a.png', filename: 'x_0002.png' }, 'image'],
+    [{ ...base, id: 'k3', kind: 'video', url: '/api/media/generations/b.mp4' }, 'video'],
+  ];
+  for (const [item, kind] of cases) {
+    await harness(item, async ({ card }) => {
+      const icons = card.querySelectorAll('[data-media-kind]');
+      assert.equal(icons.length, 1);
+      assert.equal(icons[0].dataset.mediaKind, kind);
+    });
+  }
+});
