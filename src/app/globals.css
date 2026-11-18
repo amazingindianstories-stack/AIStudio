@@ -371,11 +371,14 @@ body {
   left: 10px;
   width: max-content;
   max-width: calc(100% - 20px);
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgb(0 0 0 / 0.65);
   color: white;
   font-size: 11px;
   line-height: 16px;
   pointer-events: auto;
-  text-shadow: 0 0 3px rgb(0 0 0 / 0.7), 0 1px 2px rgb(0 0 0 / 0.6);
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.45);
   transition: left 150ms ease, max-width 150ms ease;
 }
 .media-card-name {
@@ -384,7 +387,11 @@ body {
   top: var(--face-inset);
   left: calc(var(--face-inset) + var(--name-controls));
   max-width: calc(100% - var(--face-inset) - var(--name-controls) - var(--name-right));
+  padding: 0;
+  border-radius: 0;
+  background: none;
   font-size: var(--face-label);
+  text-shadow: 0 0 3px rgb(0 0 0 / 0.7), 0 1px 2px rgb(0 0 0 / 0.6);
 }
 .media-card[data-draft="true"] .media-card-name { --name-right: calc(var(--face-inset) + 34px); }
 .media-card[data-selectable="true"]:is(:hover, :focus-visible, :has(:focus-visible), [data-selected="true"]) .media-card-name {
