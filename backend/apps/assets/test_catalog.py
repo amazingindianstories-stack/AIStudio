@@ -126,3 +126,14 @@ class CatalogTests(TransactionTestCase):
         self.assertEqual(response.status_code, 404)
         self.assertIsNone(Asset.objects.get(pk=visible['id']).project_id)
         self.assertEqual(self.save({'id': str(uuid4()), 'name': 'X', 'kind': 'prop', 'images': ['data:image/png;base64,YQ==']}).status_code, 404)
+
+    def test_refused_project_writes_nothing_to_storage(self):
+        self.cookie()
+        adapter = MemoryAdapter()
+        with override_settings(VEEVEE_MEDIA_STORAGE=StorageService(adapter)):
+            for project_id in (str(uuid4()), 'not-a-uuid'):
+                response = self.save({'name': 'Leak', 'kind': 'prop', 'images': ['data:image/png;base64,YQ=='],
+                                      'projectId': project_id})
+                self.assertEqual((response.status_code, response.json()), (404, {'error': 'Project not found.'}))
+        self.assertEqual(adapter.objects, {})
+        self.assertFalse(Asset.objects.filter(name='Leak').exists())

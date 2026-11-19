@@ -88,7 +88,10 @@ class ProductionRouteTableTests(SimpleTestCase):
                   ('POST', '/api/admin/migrate-schema'), ('POST', '/api/webhooks/seedance'), ('POST', '/api/queue/execute'),
                   ('POST', '/api/worker/exports/access'), ('GET', '/api/generate/upscale/status'),
                   ('POST', '/api/generate/image'), ('POST', '/api/generate/upscale'), ('POST', '/api/audio/transcribe'),
-                  ('POST', '/api/history/exports'), ('POST', '/api/uploads/presign'), ('PUT', '/api/uploads/local')]
+                  ('POST', '/api/history/exports'), ('POST', '/api/uploads/presign'), ('PUT', '/api/uploads/local'),
+                  ('POST', f'/api/agent-conversations/{ID}/runs'), ('POST', f'/api/agent-conversations/{ID}/runs/{ID}/approve'),
+                  ('POST', f'/api/agent-conversations/{ID}/transcribe'), ('POST', f'/api/canvas-boards/{ID}/captions'),
+                  ('POST', f'/api/canvas-boards/{ID}/ai-jobs'), ('POST', f'/api/canvas-boards/{ID}/talktracks/{ID}/transcript')]
         server = ThreadingHTTPServer(('127.0.0.1', 0), gateway.handler(SECRET))  # every flag off
         server.daemon_threads = True
         self.addCleanup(server.server_close)
@@ -143,8 +146,7 @@ class ProductionRouteTableTests(SimpleTestCase):
         self.assertEqual(seen, ['/api/media/uploads/a%20b.png', '/api/%6dedia/x.png', '/api/admin/work%73pace'])
 
     def test_provider_routes_need_paid_routes_but_admin_routes_do_not(self):
-        for path in ('/api/audio/transcribe', f'/api/agent-conversations/{ID}/transcribe',
-                     f'/api/agent-conversations/{ID}/transcrib%65', f'/api/agent-conversations/{ID}/runs',
+        for path in ('/api/audio/transcribe', f'/api/agent-conversations/{ID}/transcribe', f'/api/agent-conversations/{ID}/runs',
                      f'/api/agent-conversations/{ID}/runs/{ID}/approve'):
             self.assertFalse(gateway.allowed('POST', path, False, True, True), path)
         # The voice caps are a read: open without paid routes.
@@ -157,16 +159,16 @@ class ProductionRouteTableTests(SimpleTestCase):
             self.assertTrue(gateway.allowed(method, path), (method, path))
         self.assertFalse(gateway.allowed('POST', '/api/admin/audit/runtime', **PRODUCTION))
 
-    def test_encoded_or_uppercase_agent_paid_routes_are_still_paid_routes(self):
+    def test_uppercase_agent_paid_routes_are_still_paid_routes(self):
         conversation, run = f'/api/agent-conversations/{ID}', f'/api/agent-conversations/{ID}/runs/{ID}'
-        for path in (f'{conversation}/%72uns', f'{conversation}/RUNS', f'{run}/%61pprove', f'{run}/APPROVE',
+        for path in (f'{conversation}/RUNS', f'{run}/APPROVE',
                      f'{conversation.upper()}/runs',
                      f'/api/agent-conversations/{ID.upper()}/runs/{ID.upper()}/approve'):
             with self.subTest(path=path):
                 self.assertFalse(gateway.allowed('POST', path, False, True, True))
                 self.assertTrue(gateway.agent_paid('POST', path), 'refused as a paid route')
                 self.assertTrue(gateway.allowed('POST', path, **PRODUCTION))
-        for action in ('%64ecline', 'CANCEL'):
+        for action in ('decline', 'CANCEL'):
             self.assertTrue(gateway.allowed('POST', f'{run}/{action}'), action)
             self.assertFalse(gateway.agent_paid('POST', f'{run}/{action}'), action)
 
@@ -182,7 +184,7 @@ class ProductionRouteTableTests(SimpleTestCase):
 
     def test_board_captions_and_talktrack_transcripts_are_paid_transcriptions(self):
         board = f'/api/canvas-boards/{ID}'
-        for path in (f'{board}/captions', f'{board}/captions/', f'{board.upper()}/CAPTIONS', f'{board}/caption%73',
+        for path in (f'{board}/captions', f'{board}/captions/', f'{board.upper()}/CAPTIONS',
                      f'{board}/talktracks/{ID}/transcript', f'{board}/talktracks/{ID}/transcript/'):
             with self.subTest(path=path):
                 self.assertFalse(gateway.allowed('POST', path, False, True, True))

@@ -65,6 +65,14 @@ def save_catalog_asset(request, actor):
                 existing = None
             if existing is None:
                 return Response({'error': 'Material not found.'}, status=404)
+        project_id = data.get('projectId') or (existing.project_id if existing else None)
+        if data.get('projectId'):
+            try:
+                project_visible = visibility.visible(actor, Project.objects.filter(pk=project_id), field='id').exists()
+            except (ValueError, ValidationError):
+                project_visible = False
+            if not project_visible:
+                return Response({'error': 'Project not found.'}, status=404)
         images = []
         for value in inputs:
             if isinstance(value, dict):
@@ -95,14 +103,6 @@ def save_catalog_asset(request, actor):
             images.extend(existing.images)
         if not images:
             return Response({'error': 'A reference image is required for this material.'}, status=400)
-        project_id = data.get('projectId') or (existing.project_id if existing else None)
-        if data.get('projectId'):
-            try:
-                project_visible = visibility.visible(actor, Project.objects.filter(pk=project_id), field='id').exists()
-            except (ValueError, ValidationError):
-                project_visible = False
-            if not project_visible:
-                return Response({'error': 'Project not found.'}, status=404)
         slug = (unique_slug(data['slug'], existing.id if existing else None, project_id) if data.get('slug') else
                 existing.slug if existing else unique_slug(name, project_id=project_id))
         now = now_ms()

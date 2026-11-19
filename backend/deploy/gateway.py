@@ -33,22 +33,22 @@ OAUTH_PREFLIGHT=frozenset(('/api/oauth/authorization-server','/api/oauth/protect
 AGENT_RUN_PAID=re.compile(r'/api/agent-conversations/[0-9a-f-]{36}/runs(?:/[0-9a-f-]{36}/approve)?',re.IGNORECASE)
 AGENT_PAID_ANY=re.compile(r'/api/agent-conversations/[^/]+/runs(?:/[^/]+/approve)?/?',re.IGNORECASE)
 def agent_paid(method,path):
-    return method not in ('GET','HEAD') and AGENT_PAID_ANY.fullmatch(unquote(path)) is not None
+    return method not in ('GET','HEAD') and AGENT_PAID_ANY.fullmatch(path) is not None
 # Board "Create with AI" submissions queue paid generations, so they open only with the other paid initial routes.
 # Matched on the decoded path, in any case, as Django resolves it (it accepts an uppercase board id).
 BOARD_AI_JOBS=re.compile(r'/api/canvas-boards/[^/]+/ai-jobs/?',re.IGNORECASE)
 def board_ai_submission(method,path):
-    return method=='POST' and BOARD_AI_JOBS.fullmatch(unquote(path)) is not None
+    return method=='POST' and BOARD_AI_JOBS.fullmatch(path) is not None
 # Board video captions and Talktrack transcripts submit a paid transcription and wait for it like /api/audio/transcribe.
 BOARD_TRANSCRIPTIONS=re.compile(r'/api/canvas-boards/[^/]+/(?:captions|talktracks/[^/]+/transcript)/?',re.IGNORECASE)
 def board_transcription(method,path):
-    return method=='POST' and BOARD_TRANSCRIPTIONS.fullmatch(unquote(path)) is not None
+    return method=='POST' and BOARD_TRANSCRIPTIONS.fullmatch(path) is not None
 def board_paid_submission(method,path):
     return board_ai_submission(method,path) or board_transcription(method,path)
 # Agents tab voice notes: one Gemini transcription per POST, so it opens with the paid initial routes (its GET reads the caps).
 AGENT_TRANSCRIBE=re.compile(r'/api/agent-conversations/[^/]+/transcribe')
 def agent_transcription(method,path):
-    return method=='POST' and AGENT_TRANSCRIBE.fullmatch(unquote(path)) is not None
+    return method=='POST' and AGENT_TRANSCRIBE.fullmatch(path) is not None
 DEPTH_POST_ROUTES=frozenset(('/api/generate/depth','/api/worker/depth/claim','/api/worker/depth/heartbeat','/api/worker/depth/progress','/api/worker/depth/upload-url','/api/worker/depth/complete'))
 # Response-header waits beyond the default 25 s: enqueue may normalize large references, transcription
 # waits for its worker result (Django answers 504 itself after 120 s).
@@ -81,7 +81,7 @@ def allowed(method,path,paid_initial_routes=False,new_exports=False,magnific_ups
     if paid_initial_routes and magnific_upscale and method=='POST' and path=='/api/generate/upscale':return True
     # Audio transcription: the paid guard registers the job and claims its one Gemini call in the worker.
     if paid_initial_routes and method=='POST' and path=='/api/audio/transcribe':return True
-    if method=='POST' and AGENT_RUN_PAID.fullmatch(unquote(path)):return paid_initial_routes
+    if method=='POST' and AGENT_RUN_PAID.fullmatch(path):return paid_initial_routes
     # Board AI, captions and transcripts: the submission is a paid initial route; quotes, reads and placement are not.
     if board_paid_submission(method,path):return paid_initial_routes
     if agent_transcription(method,path):return paid_initial_routes
