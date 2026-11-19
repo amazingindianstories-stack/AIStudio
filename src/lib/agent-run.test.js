@@ -246,6 +246,7 @@ test("a paused run says why in plain words and when it tries again", () => {
   assert.equal(resumeText(now + 60000, now), "It tries again in a moment.");
   assert.equal(resumeText(now + 61000, now), "It tries again in 2 minutes.");
   assert.equal(resumeText(null, now), "It continues when you send a message.");
+  assert.equal(resumeText(null, now, "time_limit"), "Start a new run to continue.");
   const later = new Date(2026, 10, 4, 15, 30).getTime();
   assert.equal(resumeText(later, now), `It tries again at ${new Date(later).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.`);
   const tomorrow = new Date(2026, 10, 5, 8, 0).getTime();

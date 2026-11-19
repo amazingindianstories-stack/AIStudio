@@ -578,9 +578,8 @@ class BoundaryTests(RunnerCase):
     def assert_paused_at(self, run, reason, resume_after=None):
         run = self.refresh(run)
         self.assertEqual((run.status, run.pause_reason, run.resume_after), ('paused_limit', reason, resume_after))
-        if reason != 'time_limit':
-            hits = [] if reason in limits.WAIT_KINDS else [reason]
-            self.assertEqual((run.error['code'], run.error['kind'], run.error['hits']), ('limit_paused', reason, hits))
+        hits = [] if reason in limits.WAIT_KINDS else [reason]
+        self.assertEqual((run.error['code'], run.error['kind'], run.error['hits']), ('limit_paused', reason, hits))
         self.assertEqual(AgentRunEvent.objects.get(run_id=run.id, kind='paused').payload, {'reason': reason, 'resumeAfter': resume_after})
         if resume_after is None:
             self.assertNotIn(run.id, worker.runnable(), 'it waits for the artist instead of retrying into the bound')
@@ -903,6 +902,25 @@ class BoundaryTests(RunnerCase):
         self.assertEqual(self.advance(run, now=lambda: clock[0]), 'paused')
         self.assert_paused_at(run, 'time_limit')
         self.assertEqual([step.kind for step in self.steps(run)], ['llm'])
+
+    def test_a_message_after_the_time_limit_fails_the_run_instead_of_looping(self):
+        clock = [1_000_000]
+
+        def slow():
+            clock[0] += runner.MAX_ACTIVE_MS
+            return [call('list_models', {})]
+        self.gemini(slow)
+        run = self.start_run()
+        self.assertEqual(self.advance(run, now=lambda: clock[0]), 'paused')
+        self.assert_paused_at(run, 'time_limit')
+        ok, hit = limits.resume_run(run.id, now=clock[0])
+        self.assertEqual((ok, hit.kind), (False, 'time_limit'))
+        sent = runs.post_message(self.conversation, self.user, 'Keep going please', now=clock[0])
+        self.assertEqual(sent['delivery'], 'inbox')
+        self.assertEqual(self.advance(run, now=lambda: clock[0]), 'failed')
+        run = self.refresh(run)
+        self.assertEqual((run.status, run.error['code'], run.error['kind']), ('failed', 'limit', 'time_limit'))
+        self.assertIsNotNone(AgentInboxMessage.objects.get(run_id=run.id).delivered_at)
 
     def test_a_revoked_grant_fails_the_run_with_a_clear_error(self):
         run = self.start_run()

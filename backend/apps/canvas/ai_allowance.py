@@ -8,6 +8,7 @@ in the submit transaction path, after the idempotency lookup, so a replayed requ
 """
 import datetime
 
+from django.db import connection
 from django.db.models import Sum
 
 from apps.common.leases import now_ms
@@ -26,6 +27,14 @@ def next_month_start_ms(now=None):
     start = datetime.datetime.fromtimestamp(month_start_ms(now) / 1000, datetime.timezone.utc)
     following = (start.replace(day=28) + datetime.timedelta(days=4)).replace(day=1)
     return int(following.timestamp() * 1000)
+
+
+def lock(user_id):
+    """Serialize one user's allowance checks until the surrounding transaction ends, so concurrent submits cannot overshoot."""
+    if not connection.in_atomic_block:
+        raise RuntimeError('ai_allowance.lock must run inside the transaction that creates the generation')
+    with connection.cursor() as cursor:
+        cursor.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))', ['board-ai-allowance:' + str(user_id)])
 
 
 def cap_cents(user_id):

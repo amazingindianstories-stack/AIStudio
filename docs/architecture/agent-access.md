@@ -143,10 +143,11 @@ queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed
   inbox, and checks the limits with `limits.check_step`, read at call time (the `agentsEnabled` switch, which is how to
   stop runs during a maintenance write freeze since the runner does not observe it yet; `agentMaxStepsPerRun`;
   `agentMaxRunCostCents` with the run's model token spend; and the user, grant and global daily caps), then the
-  active-time bound. A hit goes through `apply_limit_hit` (above). `time_limit` pauses the run at 2 hours spent inside
-  steps, where each step counts from its latest attempt to its outcome, so waiting for approval, jobs or a limit is not
-  counted. A message wakes a paused run and is delivered to the chat; a run still at `steps` or `run_cost` then fails
-  as a second refusal, while a run at `disabled` or a daily cap only ever pauses again. Stopping it keeps its jobs. A paid
+  active-time bound. A hit goes through `apply_limit_hit` (above). `time_limit` is a per-run bound checked by
+  `check_step` at 2 hours spent inside steps, where each step counts from its latest attempt to its outcome, so waiting
+  for approval, jobs or a limit is not counted. A message wakes a paused run and is delivered to the chat; a run still at
+  `steps`, `run_cost` or `time_limit` then fails as a second refusal (`error.code` `limit`; Resume is refused with the
+  same hit, and the artist starts a new run), while a run at `disabled` or a daily cap only ever pauses again. Stopping it keeps its jobs. A paid
   call whose price (or approved quote) would alone take the run past `agentMaxRunCostCents` is never sent and not
   retried: it is journaled as its own tool step with outcome `COST_LIMIT` and a `COST_LIMIT` function response
   (nothing was charged; suggest a cheaper option or ask the artist), and the model's next turn can explain or offer a

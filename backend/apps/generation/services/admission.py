@@ -18,6 +18,8 @@ PER_USER_DEFAULT = PER_USER_MAX = 8                # maxConcurrentJobs: running 
 LANE_SETTING, LANE_DEFAULT, LANE_MAX = 'seedanceConcurrency', 3, 50
 SLOT_WAITING = 'SLOT_WAITING'
 WORKER_SLOT_WAITING = 'WORKER_SLOT_WAITING'
+SUBMISSION_PENDING = 'SUBMISSION_PENDING'
+SUBMISSION_UNCERTAIN = 'SUBMISSION_UNCERTAIN'
 WORKER_SLOT_MESSAGE = 'Waiting for a free worker slot'
 SPEND_WINDOW_MS = 600000
 HELD_MESSAGE = 'Waiting for the API rate-limit window to clear — this will start automatically.'
@@ -105,10 +107,14 @@ def affordable(item, current, best_of):
 
 def reap_stale_running_images(*, now=None):
     now = now_ms() if now is None else now
-    return Generation.objects.filter(status='running', updated_at__lt=now - QUEUE_EXECUTION_DEADLINE_MS - 60000, task_id__isnull=True).filter(
+    stale = Generation.objects.filter(status='running', updated_at__lt=now - QUEUE_EXECUTION_DEADLINE_MS - 60000, task_id__isnull=True).filter(
         Q(worker_lease_until__isnull=True) | Q(worker_lease_until__lte=now)).filter(
-        Q(kind__in=('image', 'video', 'text'))).update(
-        status='failed', error='Generation timed out — the server process was interrupted.', updated_at=now)
+        Q(kind__in=('image', 'video', 'text')))
+    # A row that died between the provider's acceptance and its receipt may be billed: keep the marker the delete and retry flows read.
+    uncertain = stale.filter(provider_status=SUBMISSION_PENDING).update(
+        status='failed', provider_status=SUBMISSION_UNCERTAIN, updated_at=now,
+        error='Generation timed out - the server process was interrupted. It may still have been accepted by the provider; check before retrying.')
+    return uncertain + stale.update(status='failed', error='Generation timed out - the server process was interrupted.', updated_at=now)
 
 
 def queue_position(identifier, *, now=None):

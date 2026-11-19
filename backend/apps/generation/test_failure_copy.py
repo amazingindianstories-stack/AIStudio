@@ -22,7 +22,7 @@ SEEDANCE_CASES = (
     ('The request failed because the output audio may be related to copyright restrictions. Request id: 0217abcdef', copy.COPYRIGHT),
     ('The request failed because the output video may be related to copyright restrictions.', copy.COPYRIGHT),
     ('permission denied for table users', GENERIC_VIDEO),
-    ('Generation timed out — the server process was interrupted.', copy.INTERRUPTED),
+    ('Generation timed out - the server process was interrupted.', copy.INTERRUPTED),
     ("name 'provider_asset_projection' is not defined", GENERIC_VIDEO),
     ('Generation exceeded the 270-second internal deadline.', 'Generation exceeded the 270-second internal deadline.'),
     ("('Connection aborted.', TimeoutError('The write operation timed out'))", copy.DROPPED),

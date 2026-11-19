@@ -414,7 +414,8 @@ export function pauseReasonText(reason) {
 }
 
 /** When a paused run tries again: relative within the hour, else the local time (and date when not today). */
-export function resumeText(resumeAfter, now = Date.now()) {
+export function resumeText(resumeAfter, now = Date.now(), reason = null) {
+  if (reason === "time_limit") return "Start a new run to continue.";
   if (resumeAfter === null || resumeAfter === undefined) return "It continues when you send a message.";
   const wait = resumeAfter - now;
   if (wait <= 60000) return "It tries again in a moment.";

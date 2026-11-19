@@ -4,7 +4,8 @@ lane_running skips video jobs whose provider task has finished (poller.DOWNLOAD_
 succeeded) and only our download is left: BytePlus no longer runs them. Spend skips failures marked unbilled (a throttle)
 and images billed outside the Gemini key (admission.non_gemini_image_models: Seedream, Kling), and work cancelled before
 any provider task existed. Text jobs (board AI) call Gemini on the same key: they count toward per-user concurrency and
-the spend window like Gemini images.
+the spend window like Gemini images. A finished row counts at the time it finished (completed_at, else submitted_at, else
+created_at), not at updated_at, which favoriting or moving a library item also writes; a running row counts from updated_at.
 """
 SQL = r'''
 with global_user_limit as (
@@ -55,7 +56,7 @@ with global_user_limit as (
           case when status = 'running' then cost_cents * %(best_of)s else cost_cents end
         ), 0) from generations
         where created_at > %(skirt_start)s
-          and updated_at >= %(window_start)s
+          and (case when status = 'running' then updated_at else coalesce(completed_at, submitted_at, created_at) end) >= %(window_start)s
           and status in ('running', 'succeeded', 'failed', 'cancelled')
           and not (status = 'cancelled' and task_id is null)
           and ((kind = 'image' and not model = any(%(non_gemini_image_models)s::text[])) or kind = 'text' or model = any(%(gemini_video_models)s::text[]))
@@ -63,15 +64,15 @@ with global_user_limit as (
       ) as window_cents,
       (select count(*) from generations
         where created_at > %(skirt_start)s
-          and updated_at >= %(window_start)s
+          and (case when status = 'running' then updated_at else coalesce(completed_at, submitted_at, created_at) end) >= %(window_start)s
           and status in ('running', 'succeeded', 'failed', 'cancelled')
           and not (status = 'cancelled' and task_id is null)
           and ((kind = 'image' and not model = any(%(non_gemini_image_models)s::text[])) or kind = 'text' or model = any(%(gemini_video_models)s::text[]))
           and not (status = 'failed' and (coalesce(error, '') like '%%429%%' or coalesce(provider_responses @> '[{"unbilled": true}]', false)))
       ) as window_rows,
-      (select min(updated_at) from generations
+      (select min(case when status = 'running' then updated_at else coalesce(completed_at, submitted_at, created_at) end) from generations
         where created_at > %(skirt_start)s
-          and updated_at >= %(window_start)s
+          and (case when status = 'running' then updated_at else coalesce(completed_at, submitted_at, created_at) end) >= %(window_start)s
           and status in ('running', 'succeeded', 'failed', 'cancelled')
           and not (status = 'cancelled' and task_id is null)
           and ((kind = 'image' and not model = any(%(non_gemini_image_models)s::text[])) or kind = 'text' or model = any(%(gemini_video_models)s::text[]))

@@ -20,6 +20,20 @@ from .pricing import read_pricing, compute_cost, kling_units_to_cents, openai_to
 from .seedream_references import prepare_seedream_references
 
 
+# One execution waits this long on an accepted asynchronous task, then frees its worker slot (the executor
+# defers the row and the coordinator polls it again). The executor abandons the row at the limits below.
+TASK_WAIT_MS = 10 * 60 * 1000
+TASK_GIVE_UP_MS = 2 * 60 * 60 * 1000
+TASK_MAX_DEFERRALS = 12
+TASK_ABANDONED = ('The provider did not finish this image within 2 hours, so it was stopped. It may still finish '
+                  'there; nothing was resubmitted.')
+
+
+def task_pending():
+    from apps.integrations.transport import ProviderError
+    return ProviderError('The provider has not finished this image yet.', code='task_pending')
+
+
 def read_assets(project_id=None, user_id=None):
     from apps.assets.models import Asset
     from apps.assets.provider_projection import provider_asset_projection
@@ -203,7 +217,7 @@ def execute_image(item, *, signal, dependencies=None, env=None, on_task=None):
                        'mediaIds': media_ids or None}
             payload.update({'resolution': (resolution or '2K').lower()} if nano else {'quality': '1.5k' if resolution == '1K' else '2k'})
             task_id = receipt(deps.higgsfield_submit(payload, signal=signal))
-        done = deps.higgsfield_await(task_id, signal=signal)
+        done = deps.higgsfield_await(task_id, TASK_WAIT_MS, signal=signal)
         if done.get('status') != 'succeeded' or not done.get('url'):
             raise task_ended(done, 'Higgsfield image generation failed.', 'higgsfield', task_id)
         saved = save(fetch(done['url']), 'png')
@@ -215,6 +229,7 @@ def execute_image(item, *, signal, dependencies=None, env=None, on_task=None):
             refs = [deps.kling_prepare(ref['mimeType'], ref['data'])] if ref else []
             task_id = receipt(deps.kling_submit({'model': model, 'prompt': built['prompt'],
                 'aspectRatio': ratio, 'resolution': resolution, 'references': refs}, signal=signal, env=env))
+        wait_ends = deps.monotonic() + TASK_WAIT_MS / 1000
         while True:
             signal.check()
             done = deps.kling_resolve(task_id, signal=signal, env=env)
@@ -222,6 +237,8 @@ def execute_image(item, *, signal, dependencies=None, env=None, on_task=None):
                 break
             if done.get('status') == 'failed':
                 raise task_ended(done, 'Kling image generation failed.', 'kling', task_id)
+            if deps.monotonic() >= wait_ends:
+                raise task_pending()
             signal.wait(3000)
         reconciled = kling_units_to_cents(done.get('unitDeduction'))
         if reconciled is not None:

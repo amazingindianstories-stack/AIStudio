@@ -15,7 +15,7 @@ enforces ``agentMaxConcurrentRuns`` through its global slot leases (``apps.agent
 A limit is never retried into. The switch and the daily caps (``WAIT_KINDS``) are waits, never refusals: each hit
 pauses the run (``paused_limit``) with a fresh ``resume_after``, however often it recurs, and never fails it. A run
 paused by the switch is retried every ``SWITCH_RETRY_MS``, so it resumes once an admin turns agents back on. A per-run
-bound (steps, run cost) is a refusal: the first pauses the run, the second of the same kind in the same run ends it
+bound (steps, run cost, time) is a refusal: the first pauses the run, the second of the same kind in the same run ends it
 ``failed`` with ``error = {'code': 'limit', 'kind': ...}``. Pauses are recorded in ``agent_runs.error`` as
 ``{'code': 'limit_paused', 'kind', 'hits': [refusal kinds], 'costCents', ...}``, where ``costCents`` is the refused
 step's estimate that Resume re-checks; no schema change is needed.
@@ -24,10 +24,10 @@ from dataclasses import dataclass
 from typing import Optional
 
 from django.db import connection, transaction
-from django.db.models import Sum
+from django.db.models import F, Sum
 
 from apps.common.leases import now_ms
-from .models import ACTIVE_RUN_STATUSES, AgentGrant, AgentLlmUsage, AgentRun
+from .models import ACTIVE_RUN_STATUSES, AgentGrant, AgentLlmUsage, AgentRun, AgentRunStep
 
 ENABLED = 'agentsEnabled'
 RUN_KEYS = ('agentActiveRuns', 'agentMaxStepsPerRun', 'agentMaxRunCostCents')
@@ -40,10 +40,11 @@ PAUSED = 'paused_limit'
 SWITCH_RETRY_MS = 60_000
 
 # LimitHit.kind values
-DISABLED, ACTIVE_RUNS, STEPS, RUN_COST = 'disabled', 'active_runs', 'steps', 'run_cost'
+DISABLED, ACTIVE_RUNS, STEPS, RUN_COST, TIME_LIMIT = 'disabled', 'active_runs', 'steps', 'run_cost', 'time_limit'
 DAILY_CAP, GRANT_DAILY_CAP, GLOBAL_DAILY_CAP = 'daily_cap', 'grant_daily_cap', 'global_daily_cap'
 DAILY_CAPS = frozenset((DAILY_CAP, GRANT_DAILY_CAP, GLOBAL_DAILY_CAP))
 WAIT_KINDS = DAILY_CAPS | {DISABLED}   # lifted by time or an admin, not by the run
+MAX_ACTIVE_MS = 2 * 60 * 60 * 1000     # time spent in steps; waits for approval, jobs or a limit are not counted
 
 
 @dataclass(frozen=True)
@@ -196,11 +197,18 @@ def check_run_admission(user):
     return None
 
 
+def active_ms(run):
+    """Time the run spent in its finished steps; a step's ``started_at`` is when its latest attempt began."""
+    spent = AgentRunStep.objects.filter(run_id=run.id, outcome__isnull=False) \
+        .aggregate(total=Sum(F('finished_at') - F('started_at')))['total']
+    return spent or 0
+
+
 def check_step(run, *, cost_cents=0, count_step=True, now=None):
     """Evaluated before each LLM or paid tool step: None, or the first ``LimitHit`` that refuses it.
 
     ``cost_cents`` is the step's estimated cost (0 for a free tool). Order: switch, steps (skipped with ``count_step``
-    False, for a step already journaled that is replayed), run cost, user daily cap, the grant's own daily cap, global
+    False, for a step already journaled that is replayed), active time, run cost, user daily cap, the grant's own daily cap, global
     daily cap. Reads are unlocked; ``controls.admit_paid_submission`` is the atomic check for paid jobs. The global daily
     cap is enforced here only, never in MCP admission.
     """
@@ -211,6 +219,8 @@ def check_step(run, *, cost_cents=0, count_step=True, now=None):
     limits = run_limits(run.user_id)
     if count_step and run.step_count >= limits['agentMaxStepsPerRun']:
         return LimitHit(STEPS, f'This run reached its limit of {limits["agentMaxStepsPerRun"]} steps.', None, 'user', cost_cents)
+    if active_ms(run) >= MAX_ACTIVE_MS:
+        return LimitHit(TIME_LIMIT, 'This run reached its time limit.', None, 'user', cost_cents)
     run_spent = run.cost_cents + _run_llm_cents(run.id)
     if run_spent + cost_cents > limits['agentMaxRunCostCents']:
         return LimitHit(RUN_COST, f'The next step would pass this run\'s {_dollars(limits["agentMaxRunCostCents"])} cost limit '
@@ -256,7 +266,8 @@ def apply_limit_hit(run, hit, *, now=None):
         if locked is None or locked.status in ('completed', 'failed', 'cancelled'):
             return locked.status if locked else None
         hits = list((locked.error or {}).get('hits', []))
-        if hit.kind in hits:
+        # A run paused on the time bound before it was recorded in ``hits`` fails on its next refusal too.
+        if hit.kind in hits or (hit.kind == TIME_LIMIT and locked.pause_reason == TIME_LIMIT):
             locked.status, locked.pause_reason, locked.resume_after, locked.finished_at = 'failed', None, None, now
             locked.error = {'code': 'limit', 'kind': hit.kind, 'message': hit.message, 'scope': hit.scope, 'hits': hits}
         else:
