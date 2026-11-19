@@ -19,10 +19,12 @@ MAX_TOTAL_BYTES=16*1024*1024
 SAFE_READ=re.compile(r'^/api/[^?]+$')
 SAFE_POST=re.compile(r'^/api/(?:auth/(?:login|logout)|uploads/init|uploads/[0-9a-f-]{36}/(?:finalize|cancel))$')
 SAFE_PUT=re.compile(r'^/api/uploads/[0-9a-f-]{36}/local$')
-ADMIN_READ_PATHS=frozenset(('/api/admin/data','/api/admin/logs','/api/admin/errors','/api/admin/activity','/api/admin/status'))
+ADMIN_READ_PATHS=frozenset(('/api/admin/data','/api/admin/logs','/api/admin/errors','/api/admin/activity','/api/admin/status',
+                            '/api/admin/workspace','/api/admin/template-usage','/api/admin/content-log','/api/admin/ai-log'))
 # Admin data mutations (Django answers 401 without a session and 403 for a non-admin).
 ADMIN_MUTATIONS={'/api/admin/users':('POST','PATCH','DELETE'),'/api/admin/pricing':('POST',),'/api/admin/limits':('POST',),'/api/admin/user-limits':('POST',),
-                 '/api/admin/agent-access':('POST',),'/api/admin/agent-access/revoke':('POST',)}
+                 '/api/admin/agent-access':('POST',),'/api/admin/agent-access/revoke':('POST',),'/api/admin/workspace':('POST',)}
+LEGACY_UPLOAD_PATHS=frozenset(('/api/uploads/presign','/api/uploads/local'))
 # CORS preflights for the OAuth endpoints browser-based agent clients call (Django answers them).
 OAUTH_PREFLIGHT=frozenset(('/api/oauth/authorization-server','/api/oauth/protected-resource','/api/oauth/register','/api/oauth/token','/api/oauth/revoke'))
 # Agent routes are matched on the decoded path, in any case, as Django resolves them.
@@ -65,6 +67,8 @@ def allowed(method,path,paid_initial_routes=False,new_exports=False,magnific_ups
     # Exact DB-backed Django admin reads plus the read-only dependency status; Django still checks the session role.
     # Runtime audit stays closed: it writes (rolled-back) fixtures into the live database and runs the executor.
     # Higgsfield token seeding stays closed: no offered model uses it, and it stores a provider credential.
+    # Legacy presign/local upload routes bypass UploadSession, sniffing and the SVG hiding rule; the resumable /api/uploads/init path replaces them.
+    if path in LEGACY_UPLOAD_PATHS:return False
     if method in ('GET','HEAD') and path in ADMIN_READ_PATHS:return True
     if method in ADMIN_MUTATIONS.get(path,()):return True
     if method=='OPTIONS' and path in OAUTH_PREFLIGHT:return True
@@ -101,7 +105,12 @@ def handler(secret,paid_initial_routes=False,new_exports=False,magnific_upscale=
             target=urlsplit(self.path)
             if target.scheme or target.netloc or not self.path.startswith("/") or self.path.startswith("//") or target.fragment:
                 self.send_error(400);return
-            path=target.path
+            # One decoding point: every allowlist decision uses the path Django will resolve (gunicorn decodes PATH_INFO).
+            # The raw path is still forwarded unchanged. Ambiguous paths (double encoding, NUL, dot segments, empty segments) are refused.
+            raw_path=target.path
+            path=unquote(raw_path)
+            if '%' in path or '\x00' in path or '//' in path or '/./' in path or '/../' in path or path.endswith(('/.','/..')):
+                self.send_error(400);return
             # Public readiness only: no credentials, customer data or paid operation.
             if (self.command=='GET' and path=='/__g4_readiness' and not target.query
                 and self.headers.get('Content-Length') in (None,'0')
@@ -149,7 +158,7 @@ def handler(secret,paid_initial_routes=False,new_exports=False,magnific_upscale=
             conn=http.client.HTTPConnection('127.0.0.1',upstream_port,timeout=25)
             headers_sent=False
             try:
-                conn.request(self.command,path + ('?' + target.query if target.query else ''),body=body,headers=headers)
+                conn.request(self.command,raw_path + ('?' + target.query if target.query else ''),body=body,headers=headers)
                 upstream_socket=conn.sock
                 # Only response headers get the longer wait; streaming the body stays on 25 s.
                 upstream_socket.settimeout(upstream_wait(self.command,path,mode))

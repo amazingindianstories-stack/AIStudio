@@ -23,7 +23,11 @@ def save_asset_image(data_url):
 
 
 def delete_asset_image(url):
-    if url:
+    # The catalog owns only the assets/ namespace; masters, references and READY uploads are never deleted here.
+    from django.conf import settings
+    from .keys import media_key_from_ref
+    key = media_key_from_ref(url or '', getattr(settings, 'GCP_MEDIA_CDN_URL', ''))
+    if key and key.startswith('assets/'):
         get_storage().delete_by_urls([url])
 
 

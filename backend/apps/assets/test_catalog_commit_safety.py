@@ -25,9 +25,10 @@ class CatalogCommitSafetyTests(TransactionTestCase):
         asset = Asset.objects.create(name='Old', kind='character', slug='old',
             images=['/api/media/assets/old.png'], created_at=1, updated_at=1)
         with patch('apps.assets.catalog.Asset.objects.update_or_create', side_effect=OperationalError('synthetic write failure')), \
+             patch('apps.media.images.save_asset_image', return_value='/api/media/assets/new.png'), \
              patch('apps.media.images.delete_asset_image') as delete:
             response = self.client.post('/api/assets', {'id': str(asset.id), 'name': 'New',
-                'kind': 'character', 'imageUrl': '/api/media/assets/new.png'}, content_type='application/json')
+                'kind': 'character', 'imageUrl': 'data:image/png;base64,YWJj'}, content_type='application/json')
         self.assertEqual(response.status_code, 500)
         asset.refresh_from_db()
         self.assertEqual(asset.images, ['/api/media/assets/old.png'])
