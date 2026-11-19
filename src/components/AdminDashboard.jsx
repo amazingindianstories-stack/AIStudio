@@ -69,10 +69,21 @@ export function AdminDashboard() {
   const [tab, setTab] = useState("overview");
   const [currentUser, setCurrentUser] = useState(null);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [loadError, setLoadError] = useState("");
 
   const load = async () => {
-    const res = await apiFetch("/api/admin/data", { cache: "no-store" });
-    if (res.ok) setData(await res.json());
+    setLoadError("");
+    try {
+      const res = await apiFetch("/api/admin/data", { cache: "no-store" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setLoadError(apiErrorMessage(body, res.status, "Could not load the admin data."));
+        return;
+      }
+      setData(await res.json());
+    } catch {
+      setLoadError("Could not load the admin data.");
+    }
   };
   const loadCurrentUser = async () => {
     try {
@@ -165,6 +176,17 @@ export function AdminDashboard() {
           <StatusTab operations={data?.operations} />
         ) : tab === "boardlogs" ? (
           <AdminBoardLogsTab />
+        ) : loadError ? (
+          <p role="alert" className="py-20 text-center text-sm text-red-300">
+            {loadError}{" "}
+            <button
+              type="button"
+              onClick={load}
+              className="ml-2 rounded border border-white/15 px-2.5 py-1 text-xs text-white/80 hover:border-white/30 hover:text-white"
+            >
+              Retry
+            </button>
+          </p>
         ) : !data ? (
           <p className="py-20 text-center text-white/40">Loading…</p>
         ) : tab === "overview" ? (
@@ -1380,6 +1402,7 @@ function LogsTab({
   const [estimatedCostCents, setEstimatedCostCents] = useState(0);
   const [nextCursor, setNextCursor] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [loadingMore, setLoadingMore] = useState(false);
 
   // Every model that has ever run, from a SQL DISTINCT — not from the loaded
@@ -1409,11 +1432,19 @@ function LogsTab({
     // filter's result set, and keeping it lets Load more append rows from a
     // different query while this refetch is in flight.
     setNextCursor(null);
+    setError("");
     const delay = q.trim() ? 300 : 0;
     const timer = setTimeout(async () => {
       try {
         const res = await apiFetch(`/api/admin/logs?${params}`, { cache: "no-store" });
-        if (!res.ok) return;
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          if (mine !== seq.current) return;
+          setRows([]);
+          setTotal(0);
+          setError(apiErrorMessage(body, res.status, "Could not load logs."));
+          return;
+        }
         const page = await res.json();
         if (mine !== seq.current) return;
         setRows(page.rows);
@@ -1422,6 +1453,11 @@ function LogsTab({
         setReconciledCostCents(page.reconciledCostCents);
         setEstimatedCostCents(page.estimatedCostCents);
         setNextCursor(page.nextCursor);
+      } catch {
+        if (mine !== seq.current) return;
+        setRows([]);
+        setTotal(0);
+        setError("Could not load logs.");
       } finally {
         if (mine === seq.current) setLoading(false);
       }
@@ -1534,6 +1570,12 @@ function LogsTab({
           </>
         )}
       </p>
+
+      {error && (
+        <p role="alert" className="mb-3 text-sm text-red-300">
+          {error}
+        </p>
+      )}
 
       <div className="scroll-thin overflow-x-auto rounded-xl border border-line">
         <table className="w-full min-w-[900px] text-sm">
@@ -1690,6 +1732,7 @@ function ActivityLog({
   const [actions, setActions] = useState([]);
   const [nextCursor, setNextCursor] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [loadingMore, setLoadingMore] = useState(false);
 
   const params = useMemo(() => {
@@ -1712,10 +1755,18 @@ function ActivityLog({
     // the seq guard below can't catch that, because the filter changed before
     // loadMore started, not during it. Observed as "Showing 100 of 84 events".
     setNextCursor(null);
+    setError("");
     (async () => {
       try {
         const res = await apiFetch(`/api/admin/activity?${params}`, { cache: "no-store" });
-        if (!res.ok) return;
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          if (mine !== seq.current) return;
+          setRows([]);
+          setTotal(0);
+          setError(apiErrorMessage(body, res.status, "Could not load activity."));
+          return;
+        }
         const page = await res.json();
         if (mine !== seq.current) return;
         setRows(page.rows);
@@ -1725,6 +1776,11 @@ function ActivityLog({
         // dropdown's options stable rather than letting the current filter
         // narrow the set of filters you can still pick.
         if (page.actions) setActions(page.actions);
+      } catch {
+        if (mine !== seq.current) return;
+        setRows([]);
+        setTotal(0);
+        setError("Could not load activity.");
       } finally {
         if (mine === seq.current) setLoading(false);
       }
@@ -1781,6 +1837,11 @@ function ActivityLog({
             : `Showing ${rows.length.toLocaleString()} of ${total.toLocaleString()} events`}
         </p>
       </div>
+      {error && (
+        <p role="alert" className="mb-3 text-sm text-red-300">
+          {error}
+        </p>
+      )}
       <div className="scroll-thin overflow-x-auto rounded-xl border border-line">
         <table className="w-full min-w-[680px] text-sm">
           <thead className="bg-ink-800 text-left text-xs uppercase tracking-wide text-white/40">
