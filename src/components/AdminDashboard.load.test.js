@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import React, { act } from "react";
 import { JSDOM } from "jsdom";
-import { createRoot } from "react-dom/client";
 import { AdminDashboard } from "./AdminDashboard.jsx";
 
 function installDom() {
@@ -76,6 +75,7 @@ test("AdminDashboard shows alert and Retry on 503, then renders Overview on Retr
     return { ok: true, status: 200, json: async () => ({}) };
   };
 
+  const { createRoot } = await import("react-dom/client");
   const container = document.getElementById("root");
   const root = createRoot(container);
   try {
@@ -151,6 +151,7 @@ test("LogsTab clears rows and shows alert when /api/admin/logs returns 500 after
     return { ok: true, status: 200, json: async () => ({}) };
   };
 
+  const { createRoot } = await import("react-dom/client");
   const container = document.getElementById("root");
   const root = createRoot(container);
   try {
@@ -181,6 +182,79 @@ test("LogsTab clears rows and shows alert when /api/admin/logs returns 500 after
     const alertEl = container.querySelector('[role="alert"]');
     assert.ok(alertEl, "expected role=alert on 500");
     assert.match(alertEl.textContent, /logs query failed/);
+  } finally {
+    await act(async () => root.unmount());
+    globalThis.fetch = prevFetch;
+    restore();
+  }
+});
+
+function setInputValue(input, value) {
+  const win = input.ownerDocument.defaultView;
+  const setter = Object.getOwnPropertyDescriptor(win.HTMLInputElement.prototype, "value").set;
+  setter.call(input, value);
+  input.dispatchEvent(new win.Event("input", { bubbles: true }));
+}
+
+test("AdminDashboard keeps the loaded Users tab mounted and shows a banner when a background reload fails", async () => {
+  const restore = installDom();
+  const prevFetch = globalThis.fetch;
+  let adminDataCalls = 0;
+  globalThis.fetch = async (url, init = {}) => {
+    const u = String(url);
+    if (u.includes("/api/admin/data")) {
+      adminDataCalls += 1;
+      if (adminDataCalls === 1) return { ok: true, status: 200, json: async () => ADMIN_DATA_200 };
+      return { ok: false, status: 503, json: async () => ({ error: "backend unavailable" }) };
+    }
+    if (u.includes("/api/admin/users") && init.method === "POST") {
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    }
+    if (u.includes("/api/auth/me")) {
+      return { ok: true, status: 200, json: async () => ({ user: { id: "u1", email: "admin@example.com", name: "Admin", role: "admin" } }) };
+    }
+    return { ok: true, status: 200, json: async () => ({}) };
+  };
+
+  const { createRoot } = await import("react-dom/client");
+  const container = document.getElementById("root");
+  const root = createRoot(container);
+  try {
+    await act(async () => {
+      root.render(React.createElement(AdminDashboard));
+    });
+    await act(async () => {});
+
+    const usersTabBtn = Array.from(container.querySelectorAll("button")).find((b) => b.textContent.trim() === "Users");
+    await act(async () => {
+      usersTabBtn.click();
+    });
+    assert.match(container.textContent, /admin@example\.com/);
+
+    const newUserBtn = Array.from(container.querySelectorAll("button")).find((b) => b.textContent.includes("New user"));
+    await act(async () => {
+      newUserBtn.click();
+    });
+    await act(async () => {
+      setInputValue(container.querySelector('input[aria-label="Email"]'), "new@example.com");
+    });
+    await act(async () => {
+      setInputValue(container.querySelector('input[aria-label="Password"]'), "longenoughpassword");
+    });
+    const createBtn = Array.from(container.querySelectorAll("button")).find((b) => b.textContent.trim() === "Create");
+    assert.ok(createBtn && !createBtn.disabled, "expected enabled Create button");
+    await act(async () => {
+      createBtn.click();
+    });
+    await act(async () => {});
+
+    assert.equal(adminDataCalls, 2, "expected a background reload after the create");
+    assert.match(container.textContent, /admin@example\.com/, "Users tab must stay mounted");
+    assert.ok(Array.from(container.querySelectorAll("button")).some((b) => b.textContent.includes("New user")));
+    const alertEl = container.querySelector('[role="alert"]');
+    assert.ok(alertEl, "expected non-blocking role=alert banner");
+    assert.match(alertEl.textContent, /backend unavailable/);
+    assert.doesNotMatch(container.textContent, /Loading…/);
   } finally {
     await act(async () => root.unmount());
     globalThis.fetch = prevFetch;

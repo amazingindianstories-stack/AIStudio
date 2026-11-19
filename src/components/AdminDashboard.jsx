@@ -172,11 +172,23 @@ export function AdminDashboard() {
           ))}
         </div>
 
+        {loadError && data && tab !== "status" && tab !== "boardlogs" && (
+          <p role="alert" className="mb-4 rounded-lg border border-red-400/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
+            {loadError}{" "}
+            <button
+              type="button"
+              onClick={load}
+              className="ml-2 rounded border border-white/15 px-2.5 py-1 text-xs text-white/80 hover:border-white/30 hover:text-white"
+            >
+              Retry
+            </button>
+          </p>
+        )}
         {tab === "status" ? (
           <StatusTab operations={data?.operations} />
         ) : tab === "boardlogs" ? (
           <AdminBoardLogsTab />
-        ) : loadError ? (
+        ) : loadError && !data ? (
           <p role="alert" className="py-20 text-center text-sm text-red-300">
             {loadError}{" "}
             <button
