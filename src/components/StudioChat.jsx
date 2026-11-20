@@ -111,6 +111,8 @@ export function StudioChat({ conversationId, onConversationUpdate }) {
 
   const [messages, setMessages] = useState([]);
   const [loadingThread, setLoadingThread] = useState(true);
+  const [threadError, setThreadError] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const requestIdRef = useRef(0);
   // A run that ended re-reads the thread, so the saved messages (its replies and the messages it read) are authoritative.
   const refreshThread = useCallback(async () => {
@@ -156,27 +158,38 @@ export function StudioChat({ conversationId, onConversationUpdate }) {
     setMessages([]);
     setGeneratedItemIds({});
     setDocuments([]);
+    setThreadError(null);
     if (!conversationId) return;
     const requestId = ++requestIdRef.current;
     setLoadingThread(true);
     (async () => {
-      const res = await fetch(`/api/agent-conversations/${conversationId}`, { cache: "no-store" });
-      const json = await res.json().catch(() => ({}));
-      if (requestIdRef.current !== requestId) return;
-      const loaded = json.messages ?? [];
-      setMessages(loaded);
-      // A reload has no in-memory record of which generation a past
-      // design_prompt message produced (or an older generate_* one) - read it back
-      // from what the server persisted (see attachGeneratedItem), so a
-      // finished generation shows its result instead of "Starting…" forever.
-      const seeded = {};
-      for (const m of loaded) {
-        if (m.toolTrace?.generatedItemId) seeded[m.id] = m.toolTrace.generatedItemId;
+      try {
+        const res = await fetch(`/api/agent-conversations/${conversationId}`, { cache: "no-store" });
+        const json = await res.json().catch(() => ({}));
+        if (requestIdRef.current !== requestId) return;
+        if (!res.ok) {
+          setThreadError(apiErrorMessage(json, res.status, "Could not load this chat."));
+          return;
+        }
+        const loaded = json.messages ?? [];
+        setMessages(loaded);
+        // A reload has no in-memory record of which generation a past
+        // design_prompt message produced (or an older generate_* one) - read it back
+        // from what the server persisted (see attachGeneratedItem), so a
+        // finished generation shows its result instead of "Starting…" forever.
+        const seeded = {};
+        for (const m of loaded) {
+          if (m.toolTrace?.generatedItemId) seeded[m.id] = m.toolTrace.generatedItemId;
+        }
+        setGeneratedItemIds(seeded);
+      } catch {
+        if (requestIdRef.current !== requestId) return;
+        setThreadError(apiErrorMessage(null, 0, "Could not load this chat."));
+      } finally {
+        if (requestIdRef.current === requestId) setLoadingThread(false);
       }
-      setGeneratedItemIds(seeded);
-      setLoadingThread(false);
     })();
-  }, [conversationId]);
+  }, [conversationId, reloadKey]);
 
   useEffect(() => {
     stickRef.current = true;
@@ -483,6 +496,17 @@ export function StudioChat({ conversationId, onConversationUpdate }) {
           {!conversationId || loadingThread ? (
             <div className="mx-auto flex max-w-3xl items-center gap-2 text-sm text-white/40">
               <Loader2 className="h-4 w-4 animate-spin" /> Loading chat…
+            </div>
+          ) : threadError ? (
+            <div role="alert" className="mx-auto flex max-w-3xl items-center gap-3 text-sm text-red-300">
+              <span>{threadError}</span>
+              <button
+                type="button"
+                onClick={() => setReloadKey((k) => k + 1)}
+                className="rounded border border-white/15 px-2.5 py-1 text-xs text-white/80 hover:border-white/30 hover:text-white"
+              >
+                Retry
+              </button>
             </div>
           ) : messages.length === 0 && !run ? (
             <div data-testid="studio-chat-empty" className="mx-auto max-w-3xl">

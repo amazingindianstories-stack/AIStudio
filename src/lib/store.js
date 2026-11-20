@@ -415,6 +415,13 @@ async function apiFetch(input, init) {
   return response;
 }
 
+/** JSON of a successful response; a non-2xx answer throws so callers keep their last known state. */
+async function okJson(res) {
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(apiErrorMessage(json, res.status));
+  return json;
+}
+
 // Slow calls (submits, upscales, inline media) can be turned away while the API
 // is busy; wait for a slot rather than dropping the user's action.
 function apiFetchRetryBusy(input, init = {}) {
@@ -1082,7 +1089,7 @@ export const useStore = create((set, get) => ({
       const res = await apiFetch(`/api/history/counts?${params}`, {
         cache: "no-store",
       });
-      const json = await res.json();
+      const json = await okJson(res);
       if (seq !== currentStoreRequestSequence("counts")) return;
       set({
         counts: {
@@ -1106,7 +1113,7 @@ export const useStore = create((set, get) => ({
       const params = historyFilterToParams(scopeToQuery(scope));
       params.set("limit", String(THREAD_PAGE_SIZE));
       const res = await apiFetch(`/api/history?${params}`, { cache: "no-store" });
-      const json = await res.json();
+      const json = await okJson(res);
       if (seq !== currentStoreRequestSequence("thread") || key !== scopeKey(threadScope(get()))) return;
       // Depth rows are excluded from the thread (see insertNewItem's comment) —
       // filtered client-side rather than via the shared history-query `kind`
@@ -1531,7 +1538,7 @@ export const useStore = create((set, get) => ({
   loadDepthWorkerStatus: async () => {
     try {
       const res = await apiFetch("/api/worker/depth/status", { cache: "no-store" });
-      const json = await res.json();
+      const json = await okJson(res);
       set({ depthWorkerStatus: json });
     } catch {
       /* keep the last known status */
@@ -2050,6 +2057,12 @@ export const useStore = create((set, get) => ({
       // Same reasoning — continueShot below sets this itself, after loading
       // its own extracted frame, not by going through cloneToComposer at all.
       continuationFrame: null,
+      firstFrame: null,
+      lastFrame: null,
+      firstFrameMode: false,
+      videoNotes: (item.referenceVideos ?? []).map((ref, i) => ({ ref, name: `Video ${i + 1}` })),
+      unavailableReferences: [],
+      referenceReorderUndo: null,
       prompt: item.prompt,
       referenceImages: [],
       referenceKinds: [],
@@ -2417,7 +2430,7 @@ export const useStore = create((set, get) => ({
     try {
       // GET ensures a default project server-side (atomic — no duplicate races).
       const res = await apiFetch("/api/projects", { cache: "no-store" });
-      const json = await res.json();
+      const json = await okJson(res);
       const projects = json.projects ?? [];
       const currentActiveId = get().activeProjectId;
       const nextProjectId =
@@ -2835,14 +2848,14 @@ export const useStore = create((set, get) => ({
   loadMe: async () => {
     try {
       const res = await apiFetch("/api/auth/me", { cache: "no-store" });
-      const json = await res.json();
+      const json = await okJson(res);
       if (json.user) {
         set({ currentUser: json.user });
         get().applyModelAvailability(json.availability?.models);
         // The list response owns managed-portrait availability. Resolve it before
         // anyone opens the attachment menu, including when the gallery is off.
         await get().loadPortraits();
-      } else window.location.href = "/login";
+      } else if (json.user === null) window.location.href = "/login";
     } catch {
       /* ignore */
     }
@@ -2868,7 +2881,7 @@ export const useStore = create((set, get) => ({
   loadLimits: async () => {
     try {
       const res = await apiFetch("/api/settings", { cache: "no-store" });
-      const json = await res.json();
+      const json = await okJson(res);
       if (json && typeof json === "object") set({ limits: json });
     } catch {
       /* ignore */
@@ -2878,7 +2891,7 @@ export const useStore = create((set, get) => ({
   loadUsers: async () => {
     try {
       const res = await apiFetch("/api/users", { cache: "no-store" });
-      const json = await res.json();
+      const json = await okJson(res);
       const map = {};
       for (const u of json.users ?? []) map[u.id] = u;
       set({ usersById: map });
