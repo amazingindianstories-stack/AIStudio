@@ -28,9 +28,10 @@ Verification run for the batch: `npm test` (1658 pass, 0 fail) and `npm run lint
 ## FE-008: confirmation dialog focus while busy
 - Changed in the shared `useModalFocus` work (commit 646890ed): the effect no longer re-runs when `busy` or `onCancel` change, focus falls back to the dialog when Cancel is disabled, and focus is pulled back on `focusin`.
 - Covering test: `src/components/ConfirmActionDialog.test.js` (focus stays inside while the action is pending, returns to the opener after close). Passes.
+- Follow-up: `AccountSettings` had its own focus effect keyed on `[onClose, open]`; the parents pass an inline `onClose`, so any parent re-render ran cleanup (focus back to the opener) and queued another close-button focus, pulling focus from a field being filled (`agent-access.spec.mjs` "opening the token form never pulls focus"). It now uses `useModalFocus`. Covering test: `AccountSettings.test.js`.
 
 ## FE-009: DetailModal dialog semantics and focus
-- Changed: `role="dialog" aria-modal="true" aria-label` and `tabIndex={-1}` on the viewer panel, focus managed by `src/components/useModalFocus.js` (also used by AssetLightbox, AssetLibrary and the confirm dialog), restore to the opener card.
+- Changed: `role="dialog" aria-modal="true" aria-label` and `tabIndex={-1}` on the viewer panel, focus managed by `src/components/useModalFocus.js` (also used by AssetLightbox, AssetLibrary and the confirm dialog), restore to the opener card. `AccountSettings` also uses the hook now (see FE-008 follow-up).
 - Covering tests: `src/components/useModalFocus.test.js`; `tests/browser/viewer-navigation.spec.mjs` "viewer is a modal dialog" (Enter opens, 20 Tabs stay inside, Escape returns to the card). Browser spec
 
 ## FE-010: Dropdown role
