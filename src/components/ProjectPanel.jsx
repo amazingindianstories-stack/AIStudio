@@ -200,7 +200,7 @@ export function ProjectPanel({ cardWidth = 160 }) {
           {/* ── GLOBAL LIBRARY SECTION ── */}
           <div className="mb-4 space-y-1">
             <div className="flex items-center justify-between px-1.5 py-1">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">
                 Global Library
               </span>
               <button
@@ -266,7 +266,7 @@ export function ProjectPanel({ cardWidth = 160 }) {
             <div className="border-t border-line/60 pt-3 space-y-1">
               <div className="flex items-center justify-between px-1.5 py-1">
                 <span
-                  className="text-[10px] font-semibold uppercase tracking-wider text-white/40 truncate max-w-[8.5rem]"
+                  className="text-[10px] font-semibold uppercase tracking-wider text-muted truncate max-w-[8.5rem]"
                   title={`Active Project: ${project.name}`}
                 >
                   {project.name}
@@ -325,7 +325,7 @@ export function ProjectPanel({ cardWidth = 160 }) {
 
               {/* Folders Section Subheader */}
               <div className="flex items-center justify-between px-1.5 pt-1.5 pb-0.5">
-                <span className="text-[10px] font-medium uppercase tracking-wide text-white/35">
+                <span className="text-[10px] font-medium uppercase tracking-wide text-muted">
                   Folders
                 </span>
                 <button
@@ -368,7 +368,7 @@ export function ProjectPanel({ cardWidth = 160 }) {
             </div>
           ) : (
             <div className="border-t border-line/60 pt-3 px-1.5 space-y-2">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">
                 Workspace
               </span>
               <p className="text-xs text-white/40 leading-relaxed">

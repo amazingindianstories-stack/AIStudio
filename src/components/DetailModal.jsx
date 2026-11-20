@@ -185,7 +185,7 @@ function ReferenceCollage({ images = [], videos: allVideos = [], audios: allAudi
     <div className="mb-5">
       {images.length > 0 && (
         <>
-          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-white/40">Reference images</p>
+          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Reference images</p>
           <div className={cn("grid gap-2", layoutClass)}>
             {images.map((src, i) => {
               const displaySrc = referenceDisplayUrl(src);
@@ -211,7 +211,7 @@ function ReferenceCollage({ images = [], videos: allVideos = [], audios: allAudi
       )}
       {videos.length > 0 && (
         <>
-          <p className={cn("mb-2 text-xs font-medium uppercase tracking-wide text-white/40", images.length > 0 && "mt-4")}>Reference videos</p>
+          <p className={cn("mb-2 text-xs font-medium uppercase tracking-wide text-muted", images.length > 0 && "mt-4")}>Reference videos</p>
           <div className="grid grid-cols-1 gap-2">
             {videos.map((src, i) => (
               <div key={i} data-reference-kind="video" className={tile}>
@@ -231,7 +231,7 @@ function ReferenceCollage({ images = [], videos: allVideos = [], audios: allAudi
       )}
       {audios.length > 0 && (
         <>
-          <p className={cn("mb-2 text-xs font-medium uppercase tracking-wide text-white/40", (images.length > 0 || videos.length > 0) && "mt-4")}>Reference audio</p>
+          <p className={cn("mb-2 text-xs font-medium uppercase tracking-wide text-muted", (images.length > 0 || videos.length > 0) && "mt-4")}>Reference audio</p>
           <div className="grid grid-cols-1 gap-2">
             {audios.map((src, i) => {
               const { name } = referenceDownload(src, `Reference audio ${i + 1}`);
@@ -585,7 +585,7 @@ export function DetailModal() {
                 </div>
               )}
 
-              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-white/40">
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">
                 Parameters
               </p>
               <div className="mb-6 grid grid-cols-2 gap-2">
@@ -635,7 +635,7 @@ export function DetailModal() {
               )}
 
               <div className="mb-1 flex items-center justify-between">
-                <p className="text-xs font-medium uppercase tracking-wide text-white/40">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted">
                   Prompt
                 </p>
                 <CopyPromptButton text={item.prompt} />
@@ -875,7 +875,7 @@ function Param({
 ) {
   return (
     <div className="rounded-lg border border-line bg-ink-800 px-3 py-2">
-      <p className="text-[10px] uppercase tracking-wide text-white/35">{label}</p>
+      <p className="text-[10px] uppercase tracking-wide text-muted">{label}</p>
       <p className="mt-0.5 flex items-start gap-1.5 text-sm text-white/85">
         {icon && <span className="flex h-5 shrink-0 items-center">{icon}</span>}
         <span className="min-w-0 break-words">{value}</span>

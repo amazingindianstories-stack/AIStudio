@@ -283,7 +283,7 @@ export function FolderTree({
           {count > 0 && !isEditing && (
             <span
               className={cn(
-                "sticky right-6 ml-auto bg-ink-850 px-1 text-[10px] tabular-nums text-white/40 group-hover:text-white/60",
+                "sticky right-6 ml-auto bg-ink-850 px-1 text-[11px] tabular-nums text-muted group-hover:text-white/60",
                 isSelected && "text-brand/90"
               )}
             >
@@ -312,7 +312,7 @@ export function FolderTree({
                 <div className="py-1 min-w-[160px]">
                   {/* Finder-style Color Picker Palette */}
                   <div className="px-2.5 py-1.5 border-b border-line">
-                    <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40 block mb-1.5">
+                    <span className="text-[10px] font-semibold uppercase tracking-wider text-muted block mb-1.5">
                       Color
                     </span>
                     <div className="flex items-center gap-1.5 flex-wrap">
@@ -488,7 +488,7 @@ export function FolderOperationRail() {
       {op.status === "queued" && <button type="button" className="underline" onClick={() => cancelOperation(logical)}>Cancel</button>}
       {["failed", "conflicted"].includes(op.status) && <span className="flex basis-full flex-wrap gap-x-2"><button type="button" className="underline" onClick={() => void retry(logical)}>Retry</button><button type="button" className="underline" onClick={() => loadLibraryTree().catch(() => {})}>Refresh folders</button><button type="button" className="underline" aria-label={`Dismiss: ${folderOperationLabel(op)}`} onClick={() => setDismissed((keys) => new Set(keys).add(`${op.key}:${op.attempt}`))}>Dismiss</button></span>}
     </div>)}
-    {hidden > 0 && <p className="py-0.5 text-white/40">+{hidden} more</p>}
+    {hidden > 0 && <p className="py-0.5 text-muted">+{hidden} more</p>}
     {retryError && <p role="alert" className="text-red-400">{retryError}</p>}
   </div>;
 }

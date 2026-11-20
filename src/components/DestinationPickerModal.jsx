@@ -175,7 +175,7 @@ export function DestinationPickerModal({
             <span className="min-w-0 flex-1 break-words">{folder.name}</span>
 
             {!isValid && movingFolderId && (
-              <span className="text-[10px] text-white/30 italic">
+              <span className="text-[10px] text-muted italic">
                 {forbiddenFolderIds.has(folder.id) ? "(descendant)" : "(current parent)"}
               </span>
             )}
@@ -251,7 +251,7 @@ export function DestinationPickerModal({
           {/* Global Library Section */}
           <div className="space-y-1">
             <div className="flex items-center justify-between px-2 py-1">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">
                 Global Library
               </span>
             </div>
@@ -304,7 +304,7 @@ export function DestinationPickerModal({
           {(libraryTree?.projects ?? []).length > 0 && (
             <div className="border-t border-line/60 pt-3 space-y-2">
               <div className="px-2 py-1">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">
                   Projects
                 </span>
               </div>

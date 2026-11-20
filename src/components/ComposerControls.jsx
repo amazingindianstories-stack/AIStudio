@@ -170,7 +170,7 @@ export function SettingsToolbar({ destination = true }) {
                     value={s.firstFrameMode || s.firstFrame || s.continuationFrame ? "On" : "Off"}
                     onChange={(v) => s.setFirstFrameMode(v === "On")}
                   />
-                  <p className="mt-1 text-[11px] leading-snug text-white/35">
+                  <p className="mt-1 text-[11px] leading-snug text-muted">
                     Start video from a keyframe with optional last frame interpolation.
                   </p>
                 </div>
@@ -184,7 +184,7 @@ export function SettingsToolbar({ destination = true }) {
                 />
               ) : (
                 <div>
-                  <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-white/40">
+                  <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted">
                     Aspect ratio
                   </p>
                   <p className="text-xs text-white/50">
@@ -204,7 +204,7 @@ export function SettingsToolbar({ destination = true }) {
               <ImageOptionsSettings s={s} />
               {s.mode === "video" && (videoTaskMode === "edit" || inputDrivenVideo) && (
                 <div>
-                  <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-white/40">
+                  <p className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted">
                     Duration
                   </p>
                   <p className="text-xs text-white/50">{inputDrivenVideo ? "Auto - matches the audio" : "Auto - matches the reference clip"}</p>
@@ -212,7 +212,7 @@ export function SettingsToolbar({ destination = true }) {
               )}
               {s.mode === "video" && videoTaskMode !== "edit" && !inputDrivenVideo && durationRange && (
                 <div>
-                  <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-white/40">
+                  <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted">
                     Duration
                   </p>
                   <div className="flex items-center gap-2">
@@ -254,7 +254,7 @@ export function SettingsToolbar({ destination = true }) {
                     value={s.generateAudio ? "On" : "Off"}
                     onChange={(v) => s.setGenerateAudio(v === "On")}
                   />
-                  <p className="mt-1 text-[11px] leading-snug text-white/35">
+                  <p className="mt-1 text-[11px] leading-snug text-muted">
                     Seedance scores the video with synchronised sound. Billed on top of the video.
                   </p>
                 </div>
@@ -358,7 +358,7 @@ export function DestinationPicker({ className = "composer-destination shrink-0",
 
         return (
           <div className="max-h-[340px] overflow-y-auto scroll-thin py-1">
-            <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-white/35">Scope</p>
+            <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-muted">Scope</p>
             <MenuItem
               active={s.activeProjectId === null}
               onClick={() => {
@@ -395,7 +395,7 @@ export function DestinationPicker({ className = "composer-destination shrink-0",
             </MenuItem>
 
             <div className="my-1 h-px bg-line" />
-            <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-white/35">
+            <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-muted">
               Folder in {proj ? proj.name : "Global Library"}
             </p>
             <MenuItem
@@ -467,7 +467,7 @@ export function ModelPicker({ models, value, onChange, className, side = "top" }
             <Box className="h-4 w-4 text-white/50" />
             <span className="flex min-w-0 flex-1 flex-col">
               <span>{m.name}</span>
-              {m.hint && <span className="text-[10px] leading-snug text-white/40">{m.hint}</span>}
+              {m.hint && <span className="text-[10px] leading-snug text-muted">{m.hint}</span>}
             </span>
             {m.badge && (
               <span className="rounded bg-brand/20 px-1.5 py-0.5 text-[10px] font-semibold text-brand">
@@ -493,7 +493,7 @@ export function Segment({
 ) {
   return (
     <div>
-      <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-white/40">{label}</p>
+      <p className="mb-1.5 text-[11px] font-medium uppercase tracking-wide text-muted">{label}</p>
       <div className="flex flex-wrap gap-1.5">
         {options.map((opt) => (
           <button
@@ -577,7 +577,7 @@ function ImageLayerSettings({ s }) {
             />
             <span>Read text layers (OCR)</span>
           </label>
-          <p className="text-[11px] leading-snug text-white/35">
+          <p className="text-[11px] leading-snug text-muted">
             Attach exactly one source image. Every returned image (base and layers) is billed.
           </p>
         </div>
@@ -599,7 +599,7 @@ export function ImageOptionsSettings({ s }) {
             value={IMAGE_QUALITY_LABELS[s.imageQuality]}
             onChange={(v) => s.setImageQuality(qualities.find((q) => IMAGE_QUALITY_LABELS[q] === v))}
           />
-          <p className="mt-1 text-[11px] leading-snug text-white/35">Higher quality costs more and takes longer.</p>
+          <p className="mt-1 text-[11px] leading-snug text-muted">Higher quality costs more and takes longer.</p>
         </div>
       )}
       {backgrounds.length > 0 && !(s.imageLayers?.enabled && imageLayerLimitsForModel(s.model)) && (
@@ -629,7 +629,7 @@ export function ResolutionSegment({ model, aspectRatio, options, value, onChange
         format={(resolution) => resolutionLabel(model, aspectRatio, resolution)}
       />
       {experimental.length > 0 && (
-        <p className="mt-1 text-[11px] leading-snug text-white/35">
+        <p className="mt-1 text-[11px] leading-snug text-muted">
           {`${experimental.join(" and ")} ${experimental.length > 1 ? "are" : "is"} experimental at OpenAI (above 2560×1440 pixels).`}
         </p>
       )}

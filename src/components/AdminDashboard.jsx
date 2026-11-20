@@ -200,7 +200,7 @@ export function AdminDashboard() {
             </button>
           </p>
         ) : !data ? (
-          <p className="py-20 text-center text-white/40">Loading…</p>
+          <p className="py-20 text-center text-muted">Loading…</p>
         ) : tab === "overview" ? (
           <Overview data={data} />
         ) : tab === "users" ? (
@@ -247,9 +247,9 @@ function OperationOff({ children }) {
 function Stat({ label, value, detail }) {
   return (
     <div className="rounded-xl border border-line bg-ink-800 p-4">
-      <p className="text-xs uppercase tracking-wide text-white/40">{label}</p>
+      <p className="text-xs uppercase tracking-wide text-muted">{label}</p>
       <p className="mt-1 text-2xl font-semibold">{value}</p>
-      {detail && <p className="mt-1 text-[11px] leading-4 text-white/40">{detail}</p>}
+      {detail && <p className="mt-1 text-[11px] leading-4 text-muted">{detail}</p>}
     </div>
   );
 }
@@ -668,9 +668,9 @@ function UsersTab({
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">
                   {user.name || user.email}
-                  {isSelf && <span className="ml-1.5 text-xs font-normal text-white/35">You</span>}
+                  {isSelf && <span className="ml-1.5 text-xs font-normal text-muted">You</span>}
                 </p>
-                <p className="truncate text-xs text-white/40">{user.email}</p>
+                <p className="truncate text-xs text-muted">{user.email}</p>
               </div>
               <button
                 type="button"
@@ -719,7 +719,7 @@ function UsersTab({
 
       <div className="scroll-thin hidden overflow-x-auto rounded-xl border border-line sm:block">
         <table className="w-full min-w-[760px] text-sm">
-          <thead className="bg-ink-800 text-left text-xs uppercase tracking-wide text-white/40">
+          <thead className="bg-ink-800 text-left text-xs uppercase tracking-wide text-muted">
             <tr>
               <th className="px-3 py-2">User</th>
               <th className="px-3 py-2">Role</th>
@@ -738,9 +738,9 @@ function UsersTab({
                     <div className="min-w-0">
                       <p className="max-w-[220px] truncate font-medium">
                         {user.name || user.email}
-                        {isSelf && <span className="ml-1.5 text-xs font-normal text-white/35">You</span>}
+                        {isSelf && <span className="ml-1.5 text-xs font-normal text-muted">You</span>}
                       </p>
-                      <p className="max-w-[220px] truncate text-xs text-white/40">{user.email}</p>
+                      <p className="max-w-[220px] truncate text-xs text-muted">{user.email}</p>
                     </div>
                   </div>
                 </td>
@@ -762,7 +762,7 @@ function UsersTab({
                 <td className="px-3 py-2 tabular-nums">{user.genCount}</td>
                 <td className="px-3 py-2 tabular-nums">
                   <span>{user.estimatedCostCents > 0 ? "≈" : ""}{formatCost(user.costCents)}</span>
-                  <span className="mt-0.5 block text-[10px] text-white/35">
+                  <span className="mt-0.5 block text-[10px] text-muted">
                     {formatCost(user.reconciledCostCents)} reconciled · {formatCost(user.estimatedCostCents)} estimated
                   </span>
                 </td>
@@ -1091,7 +1091,7 @@ function UserLimitsModal({
                 disabled={busyKey === def.key}
                 className="w-40 rounded-lg border border-line bg-ink-700 px-2 py-1.5 text-sm outline-none placeholder:text-white/30 focus:border-brand/40 disabled:opacity-50"
               />
-              <span className="text-xs text-white/40">{def.unit}</span>
+              <span className="text-xs text-muted">{def.unit}</span>
               {busyKey === def.key && <Loader2 className="h-3.5 w-3.5 animate-spin text-white/40" />}
               {savedKey === def.key && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />}
             </div>
@@ -1567,7 +1567,7 @@ function LogsTab({
         </a>
       </div>
 
-      <p className="text-xs text-white/40">
+      <p className="text-xs text-muted">
         {loading ? (
           "Loading…"
         ) : (
@@ -1591,7 +1591,7 @@ function LogsTab({
 
       <div className="scroll-thin overflow-x-auto rounded-xl border border-line">
         <table className="w-full min-w-[900px] text-sm">
-          <thead className="bg-ink-800 text-left text-xs uppercase tracking-wide text-white/40">
+          <thead className="bg-ink-800 text-left text-xs uppercase tracking-wide text-muted">
             <tr>
               <th className="px-3 py-2">Time</th>
               <th className="px-3 py-2">User</th>
@@ -1627,7 +1627,7 @@ function LogsTab({
                         </p>
                       )}
                       {g.judgeScore && (
-                        <p className="text-[10px] text-white/40" title={JSON.stringify(g.judgeScore)}>
+                        <p className="text-[10px] text-muted" title={JSON.stringify(g.judgeScore)}>
                           Judge evidence saved
                         </p>
                       )}
@@ -1661,13 +1661,13 @@ function LogsTab({
                   {g.prompt}
                   {/* Prompts are cut server-side, so say so rather than letting
                       the cell imply the prompt simply ended there. */}
-                  {g.promptTruncated && <span className="text-white/30"> …</span>}
+                  {g.promptTruncated && <span className="text-muted"> …</span>}
                 </td>
               </tr>
             ))}
             {!loading && rows.length === 0 && (
               <tr className="border-t border-line">
-                <td colSpan={8} className="px-3 py-8 text-center text-xs text-white/40">
+                <td colSpan={8} className="px-3 py-8 text-center text-xs text-muted">
                   No generations match these filters.
                 </td>
               </tr>
@@ -1843,7 +1843,7 @@ function ActivityLog({
         </select>
         {/* A real total now, from count(*) over the whole table under the same
             filter — not the length of a window. */}
-        <p className="text-xs text-white/40">
+        <p className="text-xs text-muted">
           {loading
             ? "Loading…"
             : `Showing ${rows.length.toLocaleString()} of ${total.toLocaleString()} events`}
@@ -1856,7 +1856,7 @@ function ActivityLog({
       )}
       <div className="scroll-thin overflow-x-auto rounded-xl border border-line">
         <table className="w-full min-w-[680px] text-sm">
-          <thead className="bg-ink-800 text-left text-xs uppercase tracking-wide text-white/40">
+          <thead className="bg-ink-800 text-left text-xs uppercase tracking-wide text-muted">
             <tr>
               <th className="px-3 py-2">Time</th>
               <th className="px-3 py-2">User</th>
@@ -1888,7 +1888,7 @@ function ActivityLog({
             ))}
             {!loading && rows.length === 0 && (
               <tr className="border-t border-line">
-                <td colSpan={4} className="px-3 py-8 text-center text-xs text-white/40">
+                <td colSpan={4} className="px-3 py-8 text-center text-xs text-muted">
                   No events match these filters.
                 </td>
               </tr>
@@ -1967,7 +1967,7 @@ function PricingTab({ data, reload }) {
       </div>
       <div className="scroll-thin overflow-x-auto rounded-xl border border-line">
         <table className="w-full min-w-[680px] text-sm">
-          <thead className="bg-ink-800 text-left text-xs uppercase tracking-wide text-white/40">
+          <thead className="bg-ink-800 text-left text-xs uppercase tracking-wide text-muted">
             <tr>
               <th className="px-3 py-2">Model</th>
               <th className="px-3 py-2">Unit</th>
@@ -1998,7 +1998,7 @@ function PricingTab({ data, reload }) {
                     <p role="alert" className="mt-1 max-w-[12rem] text-xs text-red-300">{saveState[p.model]}</p>
                   )}
                 </td>
-                <td className="max-w-[26rem] px-3 py-2 text-xs leading-snug text-white/40">
+                <td className="max-w-[26rem] px-3 py-2 text-xs leading-snug text-muted">
                   {p.notes}
                 </td>
               </tr>
@@ -2075,7 +2075,7 @@ export function PortraitStorageCard() {
             <input type="number" min={state.ranges[key].min} max={state.ranges[key].max} defaultValue={state.settings[key]}
               onBlur={(e) => { if (Number(e.target.value) !== state.settings[key]) void save(key, e.target.value); }}
               className="w-28 rounded-lg border border-line bg-ink-700 px-2 py-1.5 text-sm outline-none focus:border-brand/40" />
-            <span className="text-white/40">{meta.unit}</span>
+            <span className="text-muted">{meta.unit}</span>
             {saved === key && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />}
           </label>
         ))}
@@ -2166,7 +2166,7 @@ export function GlobalLimitCard({
           onBlur={save}
           className="w-40 rounded-lg border border-line bg-ink-700 px-2 py-1.5 text-sm outline-none placeholder:text-white/30 focus:border-brand/40"
         />
-        <span className="text-xs text-white/40">{def.unit}</span>
+        <span className="text-xs text-muted">{def.unit}</span>
         {def.unsetLabel && !unset && (
           <button
             type="button"
@@ -2328,7 +2328,7 @@ function StatusTab({ operations }) {
   return (
     <div className="space-y-3">
       <div className="flex min-h-9 flex-wrap items-center justify-between gap-2">
-        <p role="status" aria-live="polite" className="text-xs text-white/40">
+        <p role="status" aria-live="polite" className="text-xs text-muted">
           {summary}
         </p>
         <button
@@ -2359,7 +2359,7 @@ function StatusTab({ operations }) {
         )}
       >
         <table className="w-full min-w-[640px] text-sm">
-          <thead className="bg-ink-800 text-left text-xs uppercase tracking-wide text-white/40">
+          <thead className="bg-ink-800 text-left text-xs uppercase tracking-wide text-muted">
             <tr>
               <th className="px-3 py-2">Dependency</th>
               <th className="px-3 py-2">Status</th>
@@ -2373,7 +2373,7 @@ function StatusTab({ operations }) {
                 <td className="px-3 py-2 font-medium">{r.name}</td>
                 <td className="px-3 py-2">
                   {r.pending ? (
-                    <span className="inline-flex items-center gap-1.5 text-xs text-white/40">
+                    <span className="inline-flex items-center gap-1.5 text-xs text-muted">
                       <Loader2 className="h-4 w-4 animate-spin text-white/40" /> Checking…
                     </span>
                   ) : (
@@ -2411,7 +2411,7 @@ function StatusTab({ operations }) {
               <p className="truncate text-sm font-medium">{r.name}</p>
               <div className="ml-auto shrink-0">
                 {r.pending ? (
-                  <span className="inline-flex items-center gap-1.5 text-xs text-white/40">
+                  <span className="inline-flex items-center gap-1.5 text-xs text-muted">
                     <Loader2 className="h-4 w-4 animate-spin text-white/40" /> Checking…
                   </span>
                 ) : (
@@ -2471,7 +2471,7 @@ function StatusTab({ operations }) {
         {audit && (
           <div className="mt-4 overflow-x-auto rounded-lg border border-line">
             <table className="w-full min-w-[520px] text-sm">
-              <thead className="bg-ink-700 text-left text-xs uppercase tracking-wide text-white/40">
+              <thead className="bg-ink-700 text-left text-xs uppercase tracking-wide text-muted">
                 <tr><th className="px-3 py-2">Audit ID</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Sanitized detail</th></tr>
               </thead>
               <tbody>

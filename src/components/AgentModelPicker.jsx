@@ -35,7 +35,7 @@ export function AgentModelPicker({ running = false }) {
         >
           <Brain aria-hidden="true" className="h-3 w-3 text-white/45" />
           <span className="font-medium">{current.short}</span>
-          <span className="text-white/40">· {THINKING_LABELS[thinking] ?? thinking}</span>
+          <span className="text-muted">· {THINKING_LABELS[thinking] ?? thinking}</span>
           <ChevronDown aria-hidden="true" className={cn("h-3 w-3 text-white/40 transition-transform", open && "rotate-180")} />
         </span>
       )}
@@ -43,14 +43,14 @@ export function AgentModelPicker({ running = false }) {
       {(close) => (
         <>
           <div role="group" aria-label="Agent model" className="py-0.5">
-            <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-white/35">Agent model</p>
+            <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">Agent model</p>
             {AGENT_MODELS.map((entry) => {
               const on = entry.id === current.id;
               return (
                 <MenuItem key={entry.id} role="menuitemradio" checked={on} active={on} onClick={() => setAgentModel(entry.id)}>
                   <span className="flex min-w-0 flex-1 flex-col">
                     <span>{entry.label}</span>
-                    <span className="text-[10px] leading-snug text-white/40">{entry.hint}</span>
+                    <span className="text-[10px] leading-snug text-muted">{entry.hint}</span>
                   </span>
                   {on && <Check aria-hidden="true" className="h-4 w-4 shrink-0 text-brand" />}
                 </MenuItem>
@@ -58,7 +58,7 @@ export function AgentModelPicker({ running = false }) {
             })}
           </div>
           <div role="group" aria-label="Thinking level" className="border-t border-line px-2.5 pb-2 pt-1.5">
-            <p className="pb-1.5 text-[10px] font-semibold uppercase tracking-wide text-white/35">Thinking</p>
+            <p className="pb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">Thinking</p>
             <div className="grid grid-cols-3 gap-1">
               {levels.map((level) => {
                 const on = level === thinking;
@@ -80,7 +80,7 @@ export function AgentModelPicker({ running = false }) {
                 );
               })}
             </div>
-            <p className="mt-1.5 text-[10px] leading-snug text-white/35">
+            <p className="mt-1.5 text-[10px] leading-snug text-muted">
               {running ? "Applies from the next run; the running agent keeps its model." : "More thinking is slower and costs more."}
             </p>
           </div>

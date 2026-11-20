@@ -595,7 +595,7 @@ export function MediaCard({
                 gate exists to avoid. Captions sit between the avatar and the
                 "..." button on the bottom row. */}
             {item.queueNote && (
-              <span style={statusInset} className="absolute bottom-2 z-10 text-center text-[10px] leading-snug text-white/40">
+              <span style={statusInset} className="absolute bottom-2 z-10 text-center text-[11px] leading-snug text-muted">
                 {item.queueNote}
               </span>
             )}
@@ -619,12 +619,12 @@ export function MediaCard({
                   />
                 </div>
                 {item.progressMessage && (
-                  <span className="mt-1 block truncate text-center text-[10px] leading-snug text-white/40">
+                  <span className="mt-1 block truncate text-center text-[11px] leading-snug text-muted">
                     {item.progressMessage}
                   </span>
                 )}
                 {item.progressMessage === "Running depth estimation" && (
-                  <span className="mt-1 block text-center text-[9px] leading-snug text-white/35">
+                  <span className="mt-1 block text-center text-[10px] leading-snug text-muted">
                     Depth estimation is normally the longest stage.
                   </span>
                 )}
@@ -632,7 +632,7 @@ export function MediaCard({
                     sequence (depthStepList above); elapsed time ticks off
                     createdAt — "how long this has been running", not a
                     predictive ETA. */}
-                <div className="mt-0.5 flex items-center justify-center gap-1.5 text-[9px] text-white/30">
+                <div className="mt-0.5 flex items-center justify-center gap-1.5 text-[10px] text-muted">
                   {depthStepIndex != null && (
                     <span>
                       Step {depthStepIndex}/{DEPTH_STEP_COUNT}
@@ -874,7 +874,7 @@ export function GenerationTimestamp({ timestamp }) {
   const [now, setNow] = useState(null);
   useEffect(() => { setNow(Date.now()); const interval = setInterval(() => setNow(Date.now()), 60000); return () => clearInterval(interval); }, []);
   const label = relativeGenerationTime(timestamp, now || 0);
-  if (!label) return <span className="text-[11px] text-white/40">Time unavailable</span>;
+  if (!label) return <span className="text-[11px] text-muted">Time unavailable</span>;
   const date = new Date(timestamp);
   return <time dateTime={date.toISOString()} title={now ? date.toLocaleString() : date.toISOString()} className="text-[11px] text-white/60">{now ? label : date.toISOString()}</time>;
 }
