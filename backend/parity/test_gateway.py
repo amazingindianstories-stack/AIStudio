@@ -102,6 +102,11 @@ class GatewayParityTests(TransactionTestCase):
                         headers, body = sock.response.getvalue().split(b'\r\n\r\n', 1)
                         status = int(headers.split(b' ', 2)[1])
                         allowed = case['allow'][switches]
+                        if case['method'] != 'OPTIONS' and ('/../' in case['path'] or '/./' in case['path']):
+                            # The handler refuses dot segments before any route decision (BE-002); the route table row
+                            # stays as evidence of what Django answered when it was forwarded.
+                            self.assertEqual(status, 400)
+                            continue
                         self.assertEqual(status, 501 if case['method'] == 'OPTIONS' else case['status'][role] if allowed else 403)
                         if not allowed and case['method'] != 'OPTIONS':
                             self.assertIsNone(response_body)

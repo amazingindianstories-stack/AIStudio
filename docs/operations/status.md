@@ -625,8 +625,13 @@ more than one layer blocking it:
   `AgentTransport` (exempt like the BytePlus asset transports) that allows only POST
   `generateContent` on `AGENT_LLM_MODEL` (default `gemini-flash-latest`) with the agent's own system
   prompts and tool sets, no generation config, bounded body.
-- Admin users/pricing/limits/user-limits and the read-only dependency status: gateway only. Django
-  answers 401 without a session and 403 for a non-admin.
+- Admin users/pricing/limits/user-limits, workspace and the read-only dependency status, plus the
+  workspace, template-usage, content-log and ai-log reads: gateway only (`ADMIN_READ_PATHS`,
+  `ADMIN_MUTATIONS`). Django answers 401 without a session and 403 for a non-admin.
+- Closed since the catalog/gateway hardening (`769c135d`): the legacy `/api/uploads/presign` (route
+  removed) and `/api/uploads/local` upload paths (`LEGACY_UPLOAD_PATHS`); the resumable
+  `/api/uploads/init` handshake replaces them. The gateway also decodes the path once and refuses
+  double-encoded, NUL, empty and dot segments before any allowlist decision.
 - Still closed: runtime audit (writes rolled-back fixtures into the live database and runs the
   executor; MIG-04 assumes Cloud SQL), Higgsfield token seeding (no Higgsfield model is offered; it
   stores a provider credential), the retired schema endpoint, webhooks, queue execute, worker export

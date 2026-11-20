@@ -19,10 +19,10 @@ from .grants import sign_media_grant, verify_media_grant
 from .keys import media_key_from_ref, validate_key, InvalidMediaKey
 from .storage import StorageService, MemoryAdapter, FileSystemAdapter, GCSAdapter, S3Adapter, MediaNotFoundError, InvalidMediaRangeError, parse_range, get_storage
 from .images import save_canvas_asset, split_data_url
-from .uploads import create_upload_presign, sign_upload, verify_upload
+from .uploads import sign_upload, verify_upload
 
 urlpatterns = [path('api/media/<path:path>',views.media),path('api/media-grant',views.media_grant),
-    path('api/uploads/presign',views.upload_presign),path('api/uploads/local',views.local_upload),
+    path('api/uploads/local',views.local_upload),
     path('api/generations/<str:id>/download',views.generation_download),path('api/audio/transcribe',audio.transcribe)]
 
 
@@ -162,16 +162,6 @@ class PrimitiveTests(SimpleTestCase):
         with self.assertRaises(ValueError):
             store.read_as_base64('/api/media/settings/token')
         self.assertEqual(store.read_as_base64('data:audio/wav;base64,YWJj'),{'mimeType':'audio/wav','data':'YWJj'})
-
-    def test_presign_golden_validation(self):
-        signer=Mock(return_value='signed')
-        status,result=create_upload_presign('user','image-reference',' IMAGE/PJPEG ',signer,lambda:'id')
-        self.assertEqual((status,result),(200,{'key':'uploads/image-reference/user-id','uploadUrl':'signed'}))
-        signer.assert_called_once_with('uploads/image-reference/user-id','image/jpeg')
-        self.assertEqual(create_upload_presign(None,'image-reference','image/png',signer)[0],401)
-        self.assertEqual(create_upload_presign('u','image-reference','image/svg+xml',signer)[0],400)
-        self.assertEqual(create_upload_presign('u','invalid','image/png',signer)[0],400)
-        self.assertEqual(create_upload_presign('u','video-reference','video/quicktime',signer)[0],200)
 
     def test_upload_token_is_domain_separated(self):
         token=sign_upload('uploads/image-reference/user-id','image/png')
@@ -376,20 +366,33 @@ class EndpointTests(TransactionTestCase):
         Generation.objects.filter(id=generation.id).update(status='succeeded',url='/api/media/thumbs/512/settings/token.webp')
         self.assertEqual(self.client.get(url).status_code,404)
 
-    def test_presign_and_local_upload(self):
-        response=self.client.post('/api/uploads/presign',{'purpose':'video-reference','contentType':'video/quicktime'},content_type='application/json')
-        self.assertEqual(response.status_code,200)
-        self.assertTrue(response.json()['key'].startswith(f'uploads/video-reference/{self.user.id}-'))
+    def test_local_upload(self):
         with tempfile.TemporaryDirectory() as root,override_settings(VEEVEE_MEDIA_STORAGE=StorageService(FileSystemAdapter(root))):
-            response=self.client.post('/api/uploads/presign',{'purpose':'video-reference','contentType':'video/quicktime'},content_type='application/json')
-            url=response.json()['uploadUrl']
+            key=f'uploads/video-reference/{self.user.id}-fixture'
+            url=get_storage().signed_upload_url(key,'video/quicktime')
             self.assertEqual(self.client.put(url,b'native',content_type='video/quicktime').status_code,200)
-            self.assertEqual(get_storage().read(response.json()['key']),b'native')
+            self.assertEqual(get_storage().read(key),b'native')
             self.assertEqual(self.client.put(url,b'native',content_type='text/html').status_code,400)
             with override_settings(DATA_UPLOAD_MAX_MEMORY_SIZE=1):
                 self.assertEqual(self.client.put(url,b'native',content_type='video/quicktime').status_code,200)
             with override_settings(VEEVEE_LOCAL_UPLOAD_MAX_BYTES=2):
                 self.assertEqual(self.client.put(url,b'native',content_type='video/quicktime').status_code,413)
+
+    def test_legacy_presign_route_is_retired(self):
+        response=self.client.post('/api/uploads/presign',{'purpose':'canvas','contentType':'image/svg+xml'},content_type='application/json')
+        self.assertEqual(response.status_code,404)
+
+    def test_upload_key_without_session_is_hidden(self):
+        self.store.primary.put('uploads/canvas/x.svg',b'<svg xmlns="http://www.w3.org/2000/svg"><script>1</script></svg>','image/svg+xml','private')
+        self.assertEqual(self.client.get('/api/media/uploads/canvas/x.svg?inline=1').status_code,404)
+
+    def test_inline_svg_is_attachment(self):
+        self.store.primary.put('generated/x.svg',b'<svg xmlns="http://www.w3.org/2000/svg"/>','image/svg+xml','private')
+        response=self.client.get('/api/media/generated/x.svg?inline=1')
+        self.assertEqual(response.status_code,200)
+        self.assertEqual(response['Content-Type'],'image/svg+xml')
+        self.assertEqual(response['Content-Disposition'],'attachment')
+        self.assertEqual(self.client.get('/api/media/generated/movie.mov?inline=1').get('Content-Disposition'),None)
 
     def test_audio_api_waits_for_independent_worker_connection(self):
         from concurrent.futures import ThreadPoolExecutor

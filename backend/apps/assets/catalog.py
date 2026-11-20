@@ -39,6 +39,8 @@ def save_catalog_asset(request, actor):
     from apps.media.uploads import resolve_ready_upload, UploadError
     from apps.media.models import UploadSession
     from apps.media.keys import media_key_from_ref
+    from apps.projects import visibility
+    from apps.projects.models import Project
     from django.conf import settings
     data = body_or_empty(request)
     try:
@@ -53,7 +55,23 @@ def save_catalog_asset(request, actor):
                   [data['image']] if data.get('image') else [data['imageUrl']] if data.get('imageUrl') else [])
         if not inputs and not data.get('id'):
             return Response({'error': 'A reference image is required for this material.'}, status=400)
-        existing = Asset.objects.filter(pk=data['id']).first() if data.get('id') else None
+        existing = None
+        if data.get('id'):
+            # A hidden project answers like a missing one; never fall through to creating a row with the client's id.
+            try:
+                existing = visibility.visible(actor, Asset.objects.filter(pk=data['id'])).first()
+            except visibility.MALFORMED:
+                existing = None
+            if existing is None:
+                return Response({'error': 'Material not found.'}, status=404)
+        project_id = data.get('projectId') or (existing.project_id if existing else None)
+        if data.get('projectId'):
+            try:
+                project_visible = visibility.visible(actor, Project.objects.filter(pk=project_id), field='id').exists()
+            except visibility.MALFORMED:
+                project_visible = False
+            if not project_visible:
+                return Response({'error': 'Project not found.'}, status=404)
         images = []
         for value in inputs:
             if isinstance(value, dict):
@@ -76,12 +94,14 @@ def save_catalog_asset(request, actor):
                 row = resolve_ready_upload(actor.id, str(row.id), purposes={'material'})
                 images.append('/api/media/' + row.key)
                 continue
-            images.append(save_asset_image(value) if value.startswith('data:') else value.strip(WHITESPACE))
+            if value.startswith('data:'):
+                images.append(save_asset_image(value))
+                continue
+            return Response({'error': 'Unsupported material image reference.'}, status=400)
         if not images and existing and existing.images:
             images.extend(existing.images)
         if not images:
             return Response({'error': 'A reference image is required for this material.'}, status=400)
-        project_id = data.get('projectId') or (existing.project_id if existing else None)
         slug = (unique_slug(data['slug'], existing.id if existing else None, project_id) if data.get('slug') else
                 existing.slug if existing else unique_slug(name, project_id=project_id))
         now = now_ms()
@@ -114,8 +134,12 @@ def delete_catalog_asset(request, actor):
     identifier = values[0] if values else None
     if not identifier:
         return Response({'error': 'Missing id.'}, status=400)
+    from apps.projects import visibility
     with transaction.atomic():
-        asset = Asset.objects.filter(pk=identifier).first()
+        try:
+            asset = visibility.visible(actor, Asset.objects.filter(pk=identifier)).first()
+        except visibility.MALFORMED:
+            asset = None
         if asset:
             asset.delete()
     if asset:
