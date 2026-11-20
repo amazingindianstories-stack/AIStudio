@@ -287,7 +287,7 @@ for (const width of [1024, 1440]) {
     const folded = width === 1024 ? 14 : 13;
     const hidden = nav.getByRole("button", { name: `Show ${folded} hidden folders`, exact: true });
     await expect(hidden).toBeVisible();
-    expect(await nav.locator("button").count()).toBe(width === 1024 ? 1 : 3);
+    await expect(nav.locator("button")).toHaveCount(width === 1024 ? 1 : 3);
     const geometry = await nav.evaluate((el) => {
       const bounds = el.getBoundingClientRect(); const first = el.firstElementChild.getBoundingClientRect(); const last = el.lastElementChild.getBoundingClientRect();
       return { overflow: el.scrollWidth - el.clientWidth, firstInside: first.left >= bounds.left - 0.5, lastInside: last.right <= bounds.right + 0.5 };
