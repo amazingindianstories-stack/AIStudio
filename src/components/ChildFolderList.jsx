@@ -254,10 +254,8 @@ export function ChildFolderList({
             return (
               <div
                 key={folder.id}
-                role="button"
-                tabIndex={0}
+                data-folder-card
                 title={folder.name}
-                onKeyDown={(e) => { if (e.target === e.currentTarget && ["Enter", " "].includes(e.key)) { e.preventDefault(); setActiveFolder(folder.id); } }}
                 aria-busy={busy}
                 draggable={renamingFolderId !== folder.id && !busy}
                 onDragStart={(e) => {
@@ -279,6 +277,16 @@ export function ChildFolderList({
                       : "border-red-500/80 bg-red-500/10 text-red-300 ring-1 ring-red-500/40 cursor-not-allowed")
                 )}
               >
+                {/* The open control is a sibling of the actions menu, so no button is nested in another. */}
+                {renamingFolderId !== folder.id && (
+                  <button
+                    type="button"
+                    aria-label={`Open folder ${folder.name}`}
+                    disabled={busy}
+                    onClick={(e) => { e.stopPropagation(); setActiveFolder(folder.id); }}
+                    className="absolute inset-0 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+                  />
+                )}
                 {/* Folder icon with custom color token */}
                 <FolderClosed className={cn("h-4 w-4 shrink-0 transition", glyphColorClass)} />
 
@@ -302,7 +310,7 @@ export function ChildFolderList({
                 </div>
 
                 {/* Hover Context Menu */}
-                <div inert={busy ? true : undefined} onClick={(e) => e.stopPropagation()} className="relative shrink-0">
+                <div inert={busy ? true : undefined} onClick={(e) => e.stopPropagation()} className="relative z-10 shrink-0">
                   <Dropdown
                     label={`Card folder actions: ${folder.name}`}
                     align="right"

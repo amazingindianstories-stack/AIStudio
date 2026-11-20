@@ -63,7 +63,7 @@ async function setupPage(page, context, baseURL) {
   await page.waitForSelector('[data-asset-card-id]', { timeout: 30000 });
   // The prior scope can remain visible while the new feed loads. Keyboard
   // interaction starts only after this feed has its one roving tab stop.
-  await expect(panel.locator('[data-asset-card-id][tabindex="0"]')).toHaveCount(1);
+  await expect(panel.locator('[data-asset-card-id] [data-card-open][tabindex="0"]')).toHaveCount(1);
   return { panel, grid };
 }
 
@@ -82,7 +82,7 @@ test.describe("Asset Library Desktop Interactions", () => {
       await page.keyboard.press("Tab");
       const isCardFocused = await page.evaluate(() => {
         const active = document.activeElement;
-        return Boolean(active && active.hasAttribute("data-asset-card-id"));
+        return Boolean(active && active.hasAttribute("data-card-open") && active.closest("[data-asset-card-id]"));
       });
       if (isCardFocused) {
         entersGrid = true;
@@ -108,7 +108,7 @@ test.describe("Asset Library Desktop Interactions", () => {
     await page.keyboard.press("ArrowRight");
 
     const focusedId = await page.evaluate(() => {
-      return document.activeElement?.getAttribute("data-asset-card-id") || null;
+      return document.activeElement?.closest("[data-asset-card-id]")?.getAttribute("data-asset-card-id") || null;
     });
 
     expect(focusedId).not.toBeNull();

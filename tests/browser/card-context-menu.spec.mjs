@@ -103,9 +103,9 @@ test2('card context: the card face has the name overlay, avatar, Draft, and hove
   await expect(imageCard.getByRole('button', { name: 'More actions' })).toHaveCSS('opacity', '1');
   // No hover pane, toolbar, prompt or folder link appears any more.
   await expect(page.getByRole('toolbar')).toHaveCount(0);
-  await expect(imageCard.getByRole('button')).toHaveCount(2);
+  await expect(imageCard.getByRole('button')).toHaveCount(3);
   expect(await imageCard.getByRole('button').evaluateAll(buttons => buttons.map(b => b.getAttribute('aria-label'))))
-    .toEqual(['More actions', 'Add to favourites']);
+    .toEqual([expect.stringMatching(/^Open /), 'More actions', 'Add to favourites']);
   await expect(imageCard.getByText(library.tag)).toHaveCount(0);
 
   // The checkbox selects and stays visible while selected.

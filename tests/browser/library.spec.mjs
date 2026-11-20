@@ -174,7 +174,7 @@ for (const scope of ["global", "project"]) {
       }
       if (scope === "global" && entry === "card" ) {
         const grid = library.panel.getByTestId("child-folder-list");
-        await expect(grid.locator(':scope > [role="button"]').filter({ hasText: library.prefix })).toHaveCount(13);
+        await expect(grid.locator(':scope > [data-folder-card]').filter({ hasText: library.prefix })).toHaveCount(13);
         const geometry = await grid.evaluate((element) => {
           const bounds = element.getBoundingClientRect();
           const cards = Array.from(element.children);
@@ -759,11 +759,17 @@ test("library cards, View settings and the viewer pass axe for card semantics, m
     const rules = ["aria-allowed-attr", "nested-interactive", "aria-required-children", "color-contrast"];
     expect(await axeViolations(page, rules, ".media-card")).toEqual([]);
     await panel.getByRole("button", { name: "View settings" }).click();
-    await expect(page.getByRole("dialog", { name: "View settings" })).toBeVisible();
+    const settings = page.getByRole("dialog", { name: "View settings" });
+    await expect(settings).toBeVisible();
+    // The panel springs in; axe would otherwise measure contrast against its half-faded colours.
+    await expect(settings).toHaveCSS("opacity", "1");
+    await page.waitForFunction(() => document.getAnimations().every((animation) => animation.playState !== "running"));
     expect(await axeViolations(page, rules)).toEqual([]);
     await page.keyboard.press("Escape");
+    await expect(settings).toHaveCount(0);
     await panel.locator('[data-card-open][aria-label^="Open"]').first().click();
     await expect(page.getByRole("dialog", { name: /^Generation/ })).toBeVisible();
+    await page.waitForFunction(() => document.getAnimations().every((animation) => animation.playState !== "running"));
     expect(await axeViolations(page, rules)).toEqual([]);
   } finally {
     await db`DELETE FROM generations WHERE project_id = ${project.id}`;

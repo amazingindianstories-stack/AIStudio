@@ -210,7 +210,7 @@ export function FeedBlock({ item, index }) {
       </div>
       <PromptText text={item.prompt} />
 
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-white/45">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
         <Meta icon={<Layers className="h-3.5 w-3.5" />}>{item.model}</Meta>
         <Meta>Proportion {item.aspectRatio}</Meta>
         {item.resolution && <Meta>Resolution {item.resolution}</Meta>}

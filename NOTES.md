@@ -2,22 +2,22 @@
 
 Every finding below was re-checked against the current code (main moved past 86bbfbbb) and its evidence still held. Each DS/FE pair is fixed once.
 
-Verification run for the batch: `npm test` (1658 pass, 0 fail) and `npm run lint` (clean). The Playwright specs listed below were added or updated and pass `node --check`, but were NOT executed here: the sandbox has no Django environment and no Playwright browser install. Run `scripts/dev/test-db.sh PYTHON scripts/dev/browser-harness.py --grep <name>` in CI or locally before merging. axe is driven through the already-locked `axe-core` package (now an explicit devDependency, same 4.13.0) via `tests/browser/axe.mjs`; `@axe-core/playwright` is not installed in the repo and was not added.
+Verification run for the batch: `npm test` (1658 pass, 0 fail) and `npm run lint` (clean). The Playwright browser suite was then executed (194 passed, 20 failed on the first run). The failures were fixed (see "Browser results" at the end) and re-run under the heavy lock: asset-library-desktop (16/16), board-touch (7/7), card-context-menu (11/11), library (40/40 incl. axe), portrait-video (2/2), viewer-navigation (6/6), phone-layouts (17/17), goal2-folder-faults. axe is driven through the already-locked `axe-core` package (now an explicit devDependency, same 4.13.0) via `tests/browser/axe.mjs`; `@axe-core/playwright` is not installed in the repo and was not added.
 
 ## DS-001 / FE-013: viewport disables pinch zoom
 - Changed: removed `maximumScale: 1` from `src/app/layout.jsx` (kept `width` and `initialScale`). Login inputs use `text-base sm:text-sm` so iOS does not auto-zoom.
-- Covering test: `tests/browser/phone-layouts.spec.mjs` "viewport allows zoom" (meta content has no maximum-scale, axe `meta-viewport` is clean at 390 and 1440). Not executed here.
+- Covering test: `tests/browser/phone-layouts.spec.mjs` "viewport allows zoom" (meta content has no maximum-scale, axe `meta-viewport` is clean at 390 and 1440).
 - Evidence: `grep -n maximumScale src/app/layout.jsx` returns nothing.
 
 ## DS-002 / FE-003: library card semantics
 - Changed: `MediaCard` root is a labelled `role="group"`, with a real `<button data-card-open>` as the first child carrying the roving tabindex and open logic; checkbox, More actions and favourite are siblings. `aria-selected` and `aria-haspopup` removed from the root. `data-*` hooks kept; AssetGrid focuses `[data-card-open]`.
 - Covering test: `src/components/MediaCard.a11y.test.js`; browser axe in `tests/browser/library.spec.mjs` (zero `aria-allowed-attr` and `nested-interactive` on `.media-card`). Existing browser specs now focus the open button.
-- Evidence: `npm test` passes the new file. Browser axe not executed here.
+- Evidence: `npm test` passes the new file.
 
 ## DS-003 / FE-011: low-contrast small text
 - Changed: `muted` (white at 62%) and `faint` (50%) colour tokens in `tailwind.config.js`; `text-white/30|35|40` on text nodes replaced by `text-muted` in the files the findings list (HistoryPanel, MediaCard, DetailModal, CardContextMenu, DestinationPickerModal, FolderTree, ComposerControls, AgentModelPicker, UpscaleSettings, AdminDashboard) plus every other 9-10px line the new guard found (18 lines in other components). 9px raised to 10px; FolderTree counts and MediaCard captions to 11px. Icons, borders, separators, placeholders and disabled controls keep their opacity.
 - Covering test: `src/lib/contrast.test.js` (fails with file:line when 9-10px text uses white/30-40); axe `color-contrast` in the `library.spec.mjs` axe test (library with a queued row, View settings, viewer). The login labels already use `text-muted`.
-- Evidence: contrast test passes. White at 62% over #101013 is about 7.6:1 by calculation. Browser axe not executed here.
+- Evidence: contrast test passes. White at 62% over #101013 is about 7.6:1 by calculation.
 - Deviation: lines outside the listed files were touched only where the guard required it.
 
 ## DS-010 / FE-012: login labels (and the rest of FE-012)
@@ -31,11 +31,11 @@ Verification run for the batch: `npm test` (1658 pass, 0 fail) and `npm run lint
 
 ## FE-009: DetailModal dialog semantics and focus
 - Changed: `role="dialog" aria-modal="true" aria-label` and `tabIndex={-1}` on the viewer panel, focus managed by `src/components/useModalFocus.js` (also used by AssetLightbox, AssetLibrary and the confirm dialog), restore to the opener card.
-- Covering tests: `src/components/useModalFocus.test.js`; `tests/browser/viewer-navigation.spec.mjs` "viewer is a modal dialog" (Enter opens, 20 Tabs stay inside, Escape returns to the card). Browser spec not executed here.
+- Covering tests: `src/components/useModalFocus.test.js`; `tests/browser/viewer-navigation.spec.mjs` "viewer is a modal dialog" (Enter opens, 20 Tabs stay inside, Escape returns to the card). Browser spec
 
 ## FE-010: Dropdown role
 - Changed: `Dropdown` takes `role` (default "menu"); trigger `aria-haspopup` follows it ("dialog" or "true") and non-menu panels skip menuitem arrow handling. View settings uses `role="dialog"`, the thumbnail slider has `aria-label="Thumbnail size"` and `aria-valuetext`. The TopBar identity block is `role="presentation"`.
-- Covering test: `HistoryPanel.test.js` (dialog "View settings" holds the slider "Thumbnail size", no empty `role="menu"`); axe `aria-required-children` in the `library.spec.mjs` axe test (not executed here).
+- Covering test: `HistoryPanel.test.js` (dialog "View settings" holds the slider "Thumbnail size", no empty `role="menu"`); axe `aria-required-children` in the `library.spec.mjs` axe test ().
 
 ## FE-016: clip picker and audio modal
 - Changed: `VideoRefPicker` and `AudioTranscriptionModal` use `useModalFocus` with `role="dialog" aria-modal aria-labelledby`, Escape, Tab trap and focus restore; `useComposerCollapse` ignores focus moves into `[role="dialog"]`.
@@ -49,3 +49,10 @@ Verification run for the batch: `npm test` (1658 pass, 0 fail) and `npm run lint
 ## FE-034: drop zones, model tabs, depth error
 - Changed: drop zones in Depth, Upscaler and VideoUpscaler composers are `role="button"` with `tabIndex=0` and Enter/Space opening the file chooser; model tabs have `aria-pressed`; depth error has `role="alert"`.
 - Covering test: `src/components/DropZones.a11y.test.js`. Passes. The axe pass on the Upscale and Depth tabs is not covered by a browser spec.
+
+## Browser results (first run: 194 passed, 20 failed)
+- asset-library-desktop 1-16 (setupPage waited for `[data-asset-card-id][tabindex="0"]`): the roving tabindex lives on `[data-card-open]`; spec now counts `[data-asset-card-id] [data-card-open][tabindex="0"]`, and the Tab/Arrow tests read the focused card via `closest("[data-asset-card-id]")`. Fixed.
+- board-touch "double tap inside an open text editor": passes alone and in the full board-touch file on this branch; the branch does not touch the board or its Done button, so this was load flake. No change.
+- card-context-menu:72: the image card now has 3 buttons (open button first); spec expects `Open ...`, `More actions`, `Add to favourites`. Fixed.
+- library axe: (a) `ChildFolderList` folder cards were `role="button"` holding the actions-menu button (nested-interactive); now a plain draggable div with a sibling `Open folder` button (`data-folder-card` hook; the unit and browser specs use it). (b) conversation metadata row used `text-white/45`; now `text-muted`. (c) the View settings popover springs in and out, so the spec waits for it to settle before running axe (rules unchanged).
+- portrait-video:38: the `aria-label="Download"` added to the lightbox overrode the title; label is now "Download original video" / "Download high-resolution image" (matches the title and the spec); unit test updated.

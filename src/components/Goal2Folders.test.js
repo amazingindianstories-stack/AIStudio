@@ -161,7 +161,7 @@ test("non-admin folder drags remain enabled when dragover hides payload data, wh
       libraryTree: { globalFolders: folders, projects: [] }, counts: {}, operations: {} });
     for (const component of [React.createElement(FolderTree, { folders, onSelectFolder() {} }), React.createElement(ChildFolderList)]) {
       await render(component);
-      const target = document.querySelector('[role="treeitem"]') || document.querySelector('[data-testid="child-folder-list"] [role="button"]');
+      const target = document.querySelector('[role="treeitem"]') || document.querySelector('[data-testid="child-folder-list"] [data-folder-card]');
       assert.ok(target);
       for (const [type, expected] of [['application/x-veevee-folder', 'move'], ['application/x-veevee-assets', 'none']]) {
         // Browsers expose types during dragover but keep getData protected until drop.

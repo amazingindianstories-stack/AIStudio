@@ -224,7 +224,7 @@ export function PortraitLightbox({
           <button
             type="button"
             onClick={() => void downloadPortrait(asset)}
-            aria-label="Download"
+            aria-label={video ? "Download original video" : "Download high-resolution image"}
             title={video ? "Download original video" : "Download high-resolution image"}
             className="grid h-8 w-8 place-items-center rounded-lg border border-white/15 bg-ink-800 text-white/80 transition hover:bg-white/10 hover:text-white"
           >

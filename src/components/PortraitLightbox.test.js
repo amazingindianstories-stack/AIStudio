@@ -57,7 +57,8 @@ test("every lightbox button is type=button and has an accessible name", async ()
       assert.ok((button.getAttribute("aria-label") || button.textContent).trim(), `unnamed: ${button.outerHTML}`);
     }
     const names = buttons.map((button) => button.getAttribute("aria-label") || button.textContent.trim());
-    for (const name of ["Download", "Delete", "Close Lightbox"]) assert.ok(names.includes(name), name);
+    for (const name of ["Delete", "Close Lightbox"]) assert.ok(names.includes(name), name);
+    assert.ok(names.some((name) => /^Download /.test(name)), "download button");
   }
 });
 
