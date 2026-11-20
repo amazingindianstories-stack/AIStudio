@@ -371,7 +371,7 @@ test('Portrait upload and full preview feed a character plus motion clip into Se
   await page.getByRole('button', { name: /^Model:/ }).click();
   await page.getByRole('menuitem', { name: /^Seedance 2\.5(?:\s|$)/ }).click();
   const name = `Portrait ${randomUUID().slice(0, 8)}`;
-  await page.getByRole('button', { name: 'material', exact: true }).click();
+  await page.getByRole('button', { name: 'Attach references', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Portrait Gallery', exact: true }).click();
   const gallery = page.getByRole('dialog', { name: 'Portrait Gallery', exact: true });
   const registered = page.waitForResponse(response => new URL(response.url()).pathname === '/api/portraits' && response.request().method() === 'POST');

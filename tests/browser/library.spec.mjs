@@ -7,6 +7,7 @@ import { createHmac, randomUUID } from "node:crypto";
 import { fixtureDatabase } from './fixture-db.mjs';
 import { openTreeFolder } from './tree.mjs';
 import { portraitPng } from './portrait-image.mjs';
+import { axeViolations } from './axe.mjs';
 
 
 // This suite creates disposable records. Never infer a remote/production target.
@@ -62,7 +63,7 @@ const test = base.extend({
     await expect(page.locator('button[aria-controls="desktop-history-panel"]')).toBeVisible();
     if (await page.locator('button[aria-controls="desktop-history-panel"]').getAttribute("aria-expanded") !== "true") await page.locator('button[aria-controls="desktop-history-panel"]').click();
     await panel.getByRole("button", { name: "Global library", exact: true }).click();
-    await expect(panel.getByRole("button", { name: "+ New folder" })).toBeVisible();
+    await expect(panel.getByRole("button", { name: "New folder" })).toBeVisible();
     try { await provideFixture({ db, userId, prefix, project, otherProject, globalRoot, projectRoot, globalChild, projectChild, createFolder, navigate, panel }); }
     finally {
       // Delete only this fixture's records, including folders created through real UI buttons.
@@ -215,7 +216,7 @@ for (const scope of ["global", "project"]) {
     test(`${scope} ${entry} creation focuses, commits once and uses the correct parent`, async ({ page, library }) => {
       await library.navigate(scope);
       const root = scope === "global" ? library.globalRoot : library.projectRoot;
-      if (entry === "root") await library.panel.getByRole("button", { name: "+ New folder", exact: true }).click();
+      if (entry === "root") await library.panel.getByRole("button", { name: "New folder", exact: true }).click();
       else if (entry === "tree") {
         await library.panel.getByRole("button", { name: `Tree folder actions: ${root.name}`, exact: true }).click();
         await page.getByRole("menuitem", { name: "New subfolder", exact: true }).click();
@@ -223,7 +224,7 @@ for (const scope of ["global", "project"]) {
         await openTreeFolder(library.panel, root.name);
         // "+ New folder" creates inside the current folder; wait until the click has made it current.
         await expect(library.panel.getByRole("navigation", { name: "Breadcrumb" })).toContainText(root.name);
-        if (entry === "breadcrumb") await library.panel.getByRole("button", { name: "+ New folder", exact: true }).click();
+        if (entry === "breadcrumb") await library.panel.getByRole("button", { name: "New folder", exact: true }).click();
       }
       const input = library.panel.getByRole("textbox", { name: entry === "root" ? "Folder name" : "Subfolder name", exact: true });
       await settleFocus(page, input);
@@ -483,11 +484,11 @@ for (const width of [1024, 1440]) {
 
 test("creation Escape cancels and a rejected request retains the draft until explicit retry", async ({ page, library }) => {
   await library.navigate("global");
-  await library.panel.getByRole("button", { name: "+ New folder" }).click();
+  await library.panel.getByRole("button", { name: "New folder" }).click();
   const input = library.panel.getByRole("textbox", { name: "Folder name", exact: true });
   await input.fill(`${library.prefix} Cancelled`); await input.press("Escape");
   expect((await library.db`SELECT id FROM folders WHERE name = ${`${library.prefix} Cancelled`}`).length).toBe(0);
-  await library.panel.getByRole("button", { name: "+ New folder" }).click();
+  await library.panel.getByRole("button", { name: "New folder" }).click();
   const name = `${library.prefix} Retained`;
   await input.fill(name);
   await page.route("**/api/folders", async (route) => {
@@ -543,7 +544,7 @@ async function seedPortraits(library, page, count) {
 }
 
 async function openPortraitGallery(page) {
-  await page.getByRole("button", { name: "material", exact: true }).click();
+  await page.getByRole("button", { name: "Attach references", exact: true }).click();
   await page.getByRole("menuitem", { name: "Portrait Gallery", exact: true }).click();
   const gallery = page.getByRole("dialog", { name: "Portrait Gallery", exact: true });
   await expect(gallery).toBeVisible();
@@ -682,7 +683,7 @@ test("Portrait Gallery fits a phone: 16px gutters and no horizontal scroll", asy
   await seedPortraits(library, page, 6);
   await page.setViewportSize({ width: 375, height: 740 });
   await page.reload();
-  await expect(page.getByRole("button", { name: "material", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Attach references", exact: true })).toBeVisible();
   const gallery = await openPortraitGallery(page);
   await gallery.getByRole("textbox", { name: "Search portraits", exact: true }).fill(library.prefix);
   const cards = gallery.locator("article[data-portrait-id]");
@@ -706,7 +707,7 @@ test("Portrait Gallery fits a phone: 16px gutters and no horizontal scroll", asy
 test("switching a project context to Global library creates and selects a global folder", async ({ page, library }) => {
   await library.navigate("project");
   await library.navigate("global");
-  await library.panel.getByRole("button", { name: "+ New folder" }).click();
+  await library.panel.getByRole("button", { name: "New folder" }).click();
   const input = library.panel.getByRole("textbox", { name: "Folder name", exact: true });
   await input.fill(`${library.prefix} Global from project`); await input.press("Enter");
   await expect(input).toHaveCount(0);
@@ -742,3 +743,29 @@ for (const role of ['user', 'admin']) {
     }
   });
 }
+
+test("library cards, View settings and the viewer pass axe for card semantics, menu structure and contrast", async ({ page, library }) => {
+  const { db, userId, prefix, project, panel } = library;
+  const base = Date.now() - 1_000_000;
+  await db`INSERT INTO generations (id, kind, status, model, prompt, aspect_ratio, url, user_id, project_id, created_at, updated_at)
+    SELECT gen_random_uuid(), 'image', 'succeeded', 'Nano Banana Pro', ${`${prefix} axe `} || n, '3:2',
+      '/api/media/generations/' || gen_random_uuid() || '.png', ${userId}, ${project.id}, ${base} + n * 1000, ${base} + n * 1000
+    FROM generate_series(1, 4) AS n`;
+  await db`INSERT INTO generations (id, kind, status, model, prompt, aspect_ratio, user_id, project_id, created_at, updated_at)
+    VALUES (gen_random_uuid(), 'image', 'queued', 'Nano Banana Pro', ${`${prefix} axe queued`}, '3:2', ${userId}, ${project.id}, ${base + 9000}, ${base + 9000})`;
+  try {
+    await library.navigate("project");
+    await expect(panel.locator(".media-card").first()).toBeVisible();
+    const rules = ["aria-allowed-attr", "nested-interactive", "aria-required-children", "color-contrast"];
+    expect(await axeViolations(page, rules, ".media-card")).toEqual([]);
+    await panel.getByRole("button", { name: "View settings" }).click();
+    await expect(page.getByRole("dialog", { name: "View settings" })).toBeVisible();
+    expect(await axeViolations(page, rules)).toEqual([]);
+    await page.keyboard.press("Escape");
+    await panel.locator('[data-card-open][aria-label^="Open"]').first().click();
+    await expect(page.getByRole("dialog", { name: /^Generation/ })).toBeVisible();
+    expect(await axeViolations(page, rules)).toEqual([]);
+  } finally {
+    await db`DELETE FROM generations WHERE project_id = ${project.id}`;
+  }
+});

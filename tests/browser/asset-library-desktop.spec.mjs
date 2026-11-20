@@ -264,8 +264,8 @@ test.describe("Asset Library Desktop Interactions", () => {
     await selectCard(cards.first());
     await expect(panel.locator('[data-selected="true"]')).toHaveCount(1);
 
-    // Switch scope by clicking All assets tab
-    const allAssetsTab = panel.locator('button[title*="All assets"], button:has-text("All assets")').first();
+    // Switch scope by clicking All generations tab
+    const allAssetsTab = panel.locator('button:has-text("All generations")').first();
     await allAssetsTab.click();
     await page.waitForTimeout(400);
 

@@ -30,7 +30,7 @@ async function openGallery(page) {
   await expect(page.getByRole('button', { name: /Desktop fixture/ })).toBeVisible();
   await page.getByRole('button', { name: /^Model:/ }).click();
   await page.getByRole('menuitem', { name: /^Seedance 2\.5(?:\s|$)/ }).click();
-  await page.getByRole('button', { name: 'material', exact: true }).click();
+  await page.getByRole('button', { name: 'Attach references', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Portrait Gallery', exact: true }).click();
   return page.getByRole('dialog', { name: 'Portrait Gallery', exact: true });
 }

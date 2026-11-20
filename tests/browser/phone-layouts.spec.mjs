@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { createHmac } from 'node:crypto';
+import { axeViolations } from './axe.mjs';
 
 async function login(page, context, baseURL, width, height = width === 390 ? 844 : 1000) {
   const payload = Buffer.from(JSON.stringify({ uid: 'e33e1832-9e29-427f-af61-796b842a4b37', ver: 0, exp: Date.now() + 3600000 })).toString('base64url');
@@ -132,7 +133,7 @@ for (const [width, height] of [[390, 844], [844, 390], [768, 1024], [1440, 1000]
     }
     const panel = page.locator('.history-panel:visible');
     const navToggle = panel.getByRole('button', { name: 'Folders', exact: true });
-    const allAssets = panel.getByRole('button', { name: 'All assets', exact: true });
+    const allAssets = panel.getByRole('button', { name: 'All generations', exact: true });
     if (drawer) {
       await expect(allAssets).toBeHidden();
       await navToggle.click();
@@ -260,5 +261,13 @@ for (const role of ['admin', 'user']) {
       });
       expect(layout, `${width}px`).toEqual({ fits: true, labels: width === 1200 ? true : expect.any(Boolean) });
     }
+  });
+}
+
+for (const width of [390, 1440]) {
+  test(`Phone layouts viewport allows zoom ${width}`, async ({ page, context, baseURL }) => {
+    await login(page, context, baseURL, width);
+    expect(await page.locator('meta[name="viewport"]').getAttribute('content')).not.toMatch(/maximum-scale|user-scalable/);
+    expect(await axeViolations(page, ['meta-viewport'])).toEqual([]);
   });
 }

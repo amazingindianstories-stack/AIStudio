@@ -1086,6 +1086,8 @@ function SidebarItem({ label, count, icon, active, onClick }) {
   return (
     <button
       type="button"
+      title={label}
+      aria-label={label}
       onClick={onClick}
       className={cn(
         "flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium transition text-left select-none outline-none focus-visible:ring-1 focus-visible:ring-brand",
