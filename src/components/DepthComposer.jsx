@@ -145,10 +145,17 @@ export function DepthComposer() {
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
           onDrop={onDrop}
+          role="button"
+          tabIndex={maintenance ? -1 : 0}
           aria-disabled={maintenance}
           onClick={() => !maintenance && fileRef.current?.click()}
+          onKeyDown={(e) => {
+            if (e.key !== "Enter" && e.key !== " ") return;
+            e.preventDefault();
+            if (!maintenance) fileRef.current?.click();
+          }}
           className={cn(
-            "flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-line bg-ink-900/50 px-4 py-10 text-center transition-all duration-200 hover:border-lineStrong",
+            "flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-line bg-ink-900/50 px-4 py-10 text-center transition-all duration-200 hover:border-lineStrong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand",
             dragging &&
               (dragValid
                 ? "border-brand/80 bg-brand/10 text-brand ring-1 ring-brand/40"
@@ -244,7 +251,7 @@ export function DepthComposer() {
         </p>
       )}
 
-      {error && <p className="mt-3 text-xs text-red-400">{error}</p>}
+      {error && <p role="alert" className="mt-3 text-xs text-red-400">{error}</p>}
 
       <button
         type="button"
