@@ -655,14 +655,14 @@ class BoardAiAllowanceTests(BoardFixture):
             client = Client()
             client.cookies, client.defaults = self.client.cookies, self.client.defaults
             try:
-                with override_settings(VEEVEE_MEDIA_STORAGE=self.storage):
-                    response = client.post(self.base, {'format': 'stickies', 'prompt': 'ideas'}, content_type='application/json',
-                                           HTTP_IDEMPOTENCY_KEY=key)
+                response = client.post(self.base, {'format': 'stickies', 'prompt': 'ideas'}, content_type='application/json',
+                                       HTTP_IDEMPOTENCY_KEY=key)
                 results.append((response.status_code, response.json().get('code')))
             finally:
                 connection.close()
 
-        with patch.object(ai_allowance, 'exceeded', exceeded_after_both_read):
+        # override_settings is process-global: entering it once here, not per thread, keeps the unwind order deterministic.
+        with override_settings(VEEVEE_MEDIA_STORAGE=self.storage), patch.object(ai_allowance, 'exceeded', exceeded_after_both_read):
             threads = [threading.Thread(target=submit_on_thread, args=(key,)) for key in ('board-key-0001', 'board-key-0002')]
             for thread in threads:
                 thread.start()
