@@ -2,7 +2,6 @@
 import re
 from uuid import uuid4
 
-from django.core.exceptions import ValidationError
 from django.db import transaction
 from rest_framework.response import Response
 
@@ -61,7 +60,7 @@ def save_catalog_asset(request, actor):
             # A hidden project answers like a missing one; never fall through to creating a row with the client's id.
             try:
                 existing = visibility.visible(actor, Asset.objects.filter(pk=data['id'])).first()
-            except (ValueError, ValidationError):
+            except visibility.MALFORMED:
                 existing = None
             if existing is None:
                 return Response({'error': 'Material not found.'}, status=404)
@@ -69,7 +68,7 @@ def save_catalog_asset(request, actor):
         if data.get('projectId'):
             try:
                 project_visible = visibility.visible(actor, Project.objects.filter(pk=project_id), field='id').exists()
-            except (ValueError, ValidationError):
+            except visibility.MALFORMED:
                 project_visible = False
             if not project_visible:
                 return Response({'error': 'Project not found.'}, status=404)
@@ -139,7 +138,7 @@ def delete_catalog_asset(request, actor):
     with transaction.atomic():
         try:
             asset = visibility.visible(actor, Asset.objects.filter(pk=identifier)).first()
-        except (ValueError, ValidationError):
+        except visibility.MALFORMED:
             asset = None
         if asset:
             asset.delete()
