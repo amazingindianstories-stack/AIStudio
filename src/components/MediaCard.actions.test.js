@@ -137,7 +137,7 @@ test('the card face holds only the avatar, the draft label, the checkbox, the ".
   await harness({ ...base, id: 'draft-1', draftMode: true }, async ({ card }) => {
     assert.equal(card.querySelector('[data-draft-label]').textContent, 'Draft');
     assert.doesNotMatch(card.className, /outline-dashed/);
-    const controls = [...card.querySelectorAll('button')].map(b => b.getAttribute('aria-label'));
+    const controls = [...card.querySelectorAll('.media-card-face button')].map(b => b.getAttribute('aria-label'));
     // The star owns the bottom-right corner; "..." sits just inside it.
     assert.deepEqual(controls, ['Select', 'More actions', 'Add to favourites']);
     assert.equal(card.querySelector('[data-favorite-star]').getAttribute('aria-pressed'), 'false');

@@ -141,6 +141,7 @@ export function MediaCard({
   const pending = item.status === "running" || item.status === "queued";
   const failed = item.status === "failed" || item.status === "cancelled";
   const done = item.status === "succeeded";
+  const cardLabel = item.filename || (item.prompt ? String(item.prompt).slice(0, 80) : "generation");
   const isDraft = item.kind === "video" && item.draftMode === true;
   // Media loads straight from storage once resolved; /api/media is the fallback.
   const imageMedia = useDirectMediaUrl(done && item.kind === "image" ? item.url : null, CARD_THUMB_WIDTH);
@@ -158,6 +159,7 @@ export function MediaCard({
   // its buffered metadata for the rest of the session — see use-near-viewport.
   const cardRef = useRef(null);
   const moreRef = useRef(null);
+  const openRef = useRef(null);
   const nearViewport = useNearViewport(cardRef);
 
   // ── context menu ──────────────────────────────────────────────────────
@@ -182,7 +184,7 @@ export function MediaCard({
   }, [openMenu]);
   const closeMenu = useCallback(({ restoreFocus = false } = {}) => {
     setMenu(null);
-    if (restoreFocus) cardRef.current?.focus({ preventScroll: true });
+    if (restoreFocus) (openRef.current || cardRef.current)?.focus({ preventScroll: true });
   }, []);
 
   const cancelLongPress = () => {
@@ -264,6 +266,7 @@ export function MediaCard({
     }
   };
 
+  // Runs on the open button only; the other controls handle their own keys.
   const handleKeyDown = (e) => {
     if (e.target !== e.currentTarget) return;
     if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
@@ -271,16 +274,21 @@ export function MediaCard({
       e.stopPropagation();
       openFromButton(true);
     } else if (e.key === "Enter") {
-      if (done) {
-        e.preventDefault();
-        e.stopPropagation();
-        setActiveId(item.id, viewerSource);
-      }
+      // A native button click would open the actions menu at (0, 0) on cards
+      // that have no viewer, so Enter is always handled here.
+      e.preventDefault();
+      e.stopPropagation();
+      if (done) setActiveId(item.id, viewerSource);
     } else if (e.key === " " && selectable) {
       e.preventDefault();
       e.stopPropagation();
       toggleSelect(item.id);
     }
+  };
+
+  // Space toggles selection on keydown; stop the button's own keyup click.
+  const handleKeyUp = (e) => {
+    if (e.key === " " && selectable) e.preventDefault();
   };
 
   const handleContextMenu = (e) => {
@@ -439,10 +447,8 @@ export function MediaCard({
       ref={cardRef}
       data-asset-card-id={item.id}
       data-testid={`media-card-${item.id}`}
-      tabIndex={selectable ? (isRovingTabTarget ? 0 : -1) : undefined}
-      role={selectable ? "button" : undefined}
-      aria-selected={selectable ? selected : undefined}
-      aria-haspopup="menu"
+      role="group"
+      aria-label={cardLabel}
       data-selected={selected ? "true" : undefined}
       data-selectable={selectable ? "true" : undefined}
       data-draft={isDraft ? "true" : undefined}
@@ -452,17 +458,11 @@ export function MediaCard({
       onDragEnd={handleDragEnd}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
-      onKeyDown={handleKeyDown}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={cancelLongPress}
       onPointerCancel={cancelLongPress}
       onPointerLeave={cancelLongPress}
-      onFocus={(e) => {
-        if (selectable && e.target === e.currentTarget && focusedAssetId !== item.id) {
-          setFocusedAssetId(item.id);
-        }
-      }}
       onContextMenu={handleContextMenu}
       initial={reducedMotion ? false : { opacity: 0, scale: 0.96 }}
       animate={{ opacity: 1, scale: 1 }}
@@ -662,6 +662,22 @@ export function MediaCard({
           </div>
         )}
 
+        {/* One real control opens the card; the face controls are its siblings
+            (not descendants), so none is nested inside a button. */}
+        <button
+          ref={openRef}
+          type="button"
+          data-card-open
+          aria-label={done ? `Open ${cardLabel}` : `Actions for ${cardLabel}`}
+          tabIndex={selectable ? (isRovingTabTarget ? 0 : -1) : 0}
+          onKeyDown={handleKeyDown}
+          onKeyUp={handleKeyUp}
+          onFocus={() => {
+            if (selectable && focusedAssetId !== item.id) setFocusedAssetId(item.id);
+          }}
+          className="absolute inset-0 z-20 h-full w-full cursor-pointer rounded-xl outline-none"
+        />
+
         {/* card face */}
         <div className="media-card-face pointer-events-none absolute inset-0 z-30">
           <GenerationName item={item} kind={item.kind} className="generation-name-overlay media-card-name" />
@@ -681,7 +697,7 @@ export function MediaCard({
               role="checkbox"
               aria-checked={selected}
               aria-label="Select"
-              tabIndex={-1}
+              tabIndex={isRovingTabTarget ? 0 : -1}
               onClick={(e) => {
                 e.stopPropagation();
                 toggleSelect(item.id);
@@ -746,7 +762,7 @@ export function MediaCard({
               aria-label={item.isFavorite ? "Remove from favourites" : "Add to favourites"}
               aria-pressed={item.isFavorite === true}
               title={item.isFavorite ? "Remove from favourites" : "Add to favourites"}
-              tabIndex={-1}
+              tabIndex={selectable && isRovingTabTarget ? 0 : -1}
               data-favorite-star
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
