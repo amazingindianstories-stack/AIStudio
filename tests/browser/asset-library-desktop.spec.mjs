@@ -63,7 +63,7 @@ async function setupPage(page, context, baseURL) {
   await page.waitForSelector('[data-asset-card-id]', { timeout: 30000 });
   // The prior scope can remain visible while the new feed loads. Keyboard
   // interaction starts only after this feed has its one roving tab stop.
-  await expect(panel.locator('[data-asset-card-id][tabindex="0"]')).toHaveCount(1);
+  await expect(panel.locator('[data-asset-card-id] [data-card-open][tabindex="0"]')).toHaveCount(1);
   return { panel, grid };
 }
 
@@ -82,7 +82,7 @@ test.describe("Asset Library Desktop Interactions", () => {
       await page.keyboard.press("Tab");
       const isCardFocused = await page.evaluate(() => {
         const active = document.activeElement;
-        return Boolean(active && active.hasAttribute("data-asset-card-id"));
+        return Boolean(active && active.hasAttribute("data-card-open") && active.closest("[data-asset-card-id]"));
       });
       if (isCardFocused) {
         entersGrid = true;
@@ -101,14 +101,14 @@ test.describe("Asset Library Desktop Interactions", () => {
     expect(count).toBeGreaterThan(1);
 
     // Focus the first card
-    await cards.first().focus();
+    await cards.first().locator('[data-card-open]').focus();
     const firstId = await cards.first().getAttribute("data-asset-card-id");
 
     // Press ArrowRight
     await page.keyboard.press("ArrowRight");
 
     const focusedId = await page.evaluate(() => {
-      return document.activeElement?.getAttribute("data-asset-card-id") || null;
+      return document.activeElement?.closest("[data-asset-card-id]")?.getAttribute("data-asset-card-id") || null;
     });
 
     expect(focusedId).not.toBeNull();
@@ -119,7 +119,7 @@ test.describe("Asset Library Desktop Interactions", () => {
     const { panel } = await setupPage(page, context, baseURL);
 
     const firstCard = panel.locator('[data-asset-card-id]').first();
-    await firstCard.focus();
+    await firstCard.locator('[data-card-open]').focus();
 
     // Clear any prior selection
     await page.keyboard.press("Escape");
@@ -194,7 +194,7 @@ test.describe("Asset Library Desktop Interactions", () => {
     expect(totalVisible).toBeGreaterThan(0);
 
     // Focus into library
-    await cards.first().focus();
+    await cards.first().locator('[data-card-open]').focus();
 
     // Press Cmd/Ctrl+A
     const modifier = process.platform === "darwin" ? "Meta" : "Control";
@@ -264,8 +264,8 @@ test.describe("Asset Library Desktop Interactions", () => {
     await selectCard(cards.first());
     await expect(panel.locator('[data-selected="true"]')).toHaveCount(1);
 
-    // Switch scope by clicking All assets tab
-    const allAssetsTab = panel.locator('button[title*="All assets"], button:has-text("All assets")').first();
+    // Switch scope by clicking All generations tab
+    const allAssetsTab = panel.locator('button:has-text("All generations")').first();
     await allAssetsTab.click();
     await page.waitForTimeout(400);
 
@@ -495,7 +495,7 @@ test.describe("Asset Library Desktop Interactions", () => {
     const { panel } = await setupPage(page, context, baseURL);
 
     const cards = panel.locator('[data-asset-card-id]');
-    await cards.first().focus();
+    await cards.first().locator('[data-card-open]').focus();
 
     const searchInput = panel.locator('input[aria-label="Search prompts"]').first();
 
@@ -504,7 +504,7 @@ test.describe("Asset Library Desktop Interactions", () => {
     await expect(searchInput).toBeFocused();
 
     // Blur search
-    await cards.first().focus();
+    await cards.first().locator('[data-card-open]').focus();
 
     // Press Cmd/Ctrl+F
     const modifier = process.platform === "darwin" ? "Meta" : "Control";

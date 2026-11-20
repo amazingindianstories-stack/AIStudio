@@ -70,7 +70,7 @@ export function Slider({ label, value, min = 0, max = 100, step = 1, onChange, h
         onChange={(e) => onChange(Number(e.target.value))}
         className="h-1.5 w-full cursor-pointer appearance-none rounded-lg bg-ink-700 accent-brand"
       />
-      <div className="flex justify-between text-[9px] text-white/30">
+      <div className="flex justify-between text-[10px] text-muted">
         <span>{minLabel ?? min}</span>
         {hint ? <span>{hint}</span> : null}
         <span>{maxLabel ?? max}</span>
@@ -159,7 +159,7 @@ export function ImageUpscaleSettings({ model, params, setParam }) {
               <Wand2 className="h-3.5 w-3.5 text-brand" />
               Prompt guidance (optional)
             </span>
-            <span className="text-[10px] text-white/40">Optional - describe details to sharpen</span>
+            <span className="text-[10px] text-muted">Optional - describe details to sharpen</span>
           </label>
           <textarea
             value={params.prompt || ""}
@@ -267,7 +267,7 @@ export function VideoUpscaleSettings({ model, params, setParam }) {
                 <Choice label="Frame Interpolation" options={MAGNIFIC_TOPAZ_INTERPOLATIONS} value={params.frameInterpolation} onChange={(value) => setParam("frameInterpolation", value)} />
               </>
             ) : (
-              <p className="self-center text-[11px] text-white/40 sm:col-span-2">Keeps the source frame rate. Choose a target to interpolate (15–60 fps).</p>
+              <p className="self-center text-[11px] text-muted sm:col-span-2">Keeps the source frame rate. Choose a target to interpolate (15–60 fps).</p>
             )}
             <Slider label="Noise" value={params.noise ?? 0} min={0} max={1} step={0.05} onChange={(value) => setParam("noise", value)} />
           </div>
@@ -311,7 +311,7 @@ export function UpscaleToggle({ media, model, params, setParam }) {
     );
   }
   if (model === "Magnific Video Topaz") {
-    return <span className="flex items-center gap-2 text-xs text-white/40"><Clapperboard className="h-3.5 w-3.5" />Billed per output frame</span>;
+    return <span className="flex items-center gap-2 text-xs text-muted"><Clapperboard className="h-3.5 w-3.5" />Billed per output frame</span>;
   }
   return (
     <label className="flex cursor-pointer items-center gap-2 text-xs text-white/60 transition hover:text-white">

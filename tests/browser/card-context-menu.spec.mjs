@@ -103,9 +103,9 @@ test2('card context: the card face has the name overlay, avatar, Draft, and hove
   await expect(imageCard.getByRole('button', { name: 'More actions' })).toHaveCSS('opacity', '1');
   // No hover pane, toolbar, prompt or folder link appears any more.
   await expect(page.getByRole('toolbar')).toHaveCount(0);
-  await expect(imageCard.getByRole('button')).toHaveCount(2);
+  await expect(imageCard.getByRole('button')).toHaveCount(3);
   expect(await imageCard.getByRole('button').evaluateAll(buttons => buttons.map(b => b.getAttribute('aria-label'))))
-    .toEqual(['More actions', 'Add to favourites']);
+    .toEqual([expect.stringMatching(/^Open /), 'More actions', 'Add to favourites']);
   await expect(imageCard.getByText(library.tag)).toHaveCount(0);
 
   // The checkbox selects and stays visible while selected.
@@ -177,7 +177,7 @@ test2('card context: right click opens the menu at the pointer with the generati
   expect(names).toEqual(['retry', 'edit', 'finalize', 'open', 'download', 'favorite', 'folder', 'select', 'delete']);
 
   // Opening another card's menu replaces this one; only one is ever open.
-  await library.imageCard.focus();
+  await library.imageCard.locator('[data-card-open]').focus();
   await page.keyboard.press('Shift+F10');
   await expect(popup(page)).toHaveCount(1);
   await expect(popup(page).locator('[data-detail="model"]')).toHaveText('Nano Banana Pro');
@@ -231,7 +231,7 @@ test2('card context: Edit & retry fills the composer without generating', async 
 
 test2('card context: Shift+F10 opens it from the keyboard, arrows move, Escape returns focus to the card', async ({ page, library }) => {
   const card = library.imageCard;
-  await card.focus();
+  await card.locator('[data-card-open]').focus();
   await page.keyboard.press('Shift+F10');
   await expect(menu(page)).toBeVisible();
   const focusedItem = () => page.evaluate(() => document.activeElement?.dataset?.menuItem ?? null);
@@ -248,7 +248,7 @@ test2('card context: Shift+F10 opens it from the keyboard, arrows move, Escape r
   await expect(page.locator('[data-selected="true"]')).toHaveCount(0);
   await page.keyboard.press('Escape');
   await expect(popup(page)).toHaveCount(0);
-  await expect(card).toBeFocused();
+  await expect(card.locator('[data-card-open]')).toBeFocused();
   // Escape closed only the menu; the library and its selection are untouched.
   await expect(library.panel).toBeVisible();
 

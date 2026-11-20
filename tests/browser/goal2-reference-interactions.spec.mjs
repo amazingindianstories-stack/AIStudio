@@ -177,7 +177,7 @@ test('Goal2 portrait six-selection bulk attach and repeated same portrait retain
   await ready(page, context, baseURL);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   const prefix = `QA-${Date.now()}`;
-  await page.getByRole('button', { name: 'material', exact: true }).click();
+  await page.getByRole('button', { name: 'Attach references', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Portrait Gallery', exact: true }).click();
   const gallery = page.getByRole('dialog', { name: 'Portrait Gallery', exact: true });
   // Identical bytes would collapse into one gallery portrait, so each file is a different valid image.
@@ -196,7 +196,7 @@ test('Goal2 portrait six-selection bulk attach and repeated same portrait retain
   if (await gallery.isVisible()) await gallery.getByRole('button', { name: 'Close Portrait Gallery', exact: true }).click();
   await expect(page.locator('[data-reference-id]')).toHaveCount(6);
   const initialIds = await order(page);
-  await page.getByRole('button', { name: 'material', exact: true }).click();
+  await page.getByRole('button', { name: 'Attach references', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Portrait Gallery', exact: true }).click();
   await gallery.locator('article').filter({ hasText: `${prefix}-0` }).click();
   await gallery.getByRole('button', { name: 'Add 1 to prompt', exact: true }).click();
@@ -299,7 +299,7 @@ test('Goal2 material inspector and Magnific variants render fixture source at de
     SELECT ${id},'character',${name},${`qa-${id}`},jsonb_build_array(url),${projectId},${userId},1,1 FROM generations WHERE id='10000000-0000-4000-8000-000000000001'`;
   try {
     await page.reload(); // Discard the pre-fixture material feed cache.
-    await page.getByRole('button', { name: 'material', exact: true }).click();
+    await page.getByRole('button', { name: 'Attach references', exact: true }).click();
     await page.getByRole('menuitem', { name: 'Material library', exact: true }).click();
     const material = page.getByRole('dialog', { name: 'Material Library', exact: true });
     await material.getByPlaceholder('Search materials or @slug...').fill(name);
@@ -607,7 +607,7 @@ test('Goal2 mixed image video audio namespaces survive an image finalization com
 test('Goal2 portrait inspector confirmed bulk deletion keeps partial failure selected for retry', async ({ page, context, baseURL }, testInfo) => {
   await ready(page, context, baseURL);
   const prefix = `QA-delete-${randomUUID().slice(0, 8)}`;
-  await page.getByRole('button', { name: 'material', exact: true }).click();
+  await page.getByRole('button', { name: 'Attach references', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Portrait Gallery', exact: true }).click();
   const gallery = page.getByRole('dialog', { name: 'Portrait Gallery', exact: true });
   await gallery.locator('input[type=file]').setInputFiles([0, 1].map(i => ({ name: `${prefix}-${i}.png`, mimeType: 'image/png', buffer: portraitPng(`${prefix}-${i}`) })));

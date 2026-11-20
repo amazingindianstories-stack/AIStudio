@@ -271,7 +271,7 @@ export function BreadcrumbBar({ onOpenMoveModal, onOpenNewFolderModal }) {
               <div className="py-1 min-w-[160px]">
                 {/* Finder-style Color Picker Palette */}
                 <div className="px-2.5 py-1.5 border-b border-line">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40 block mb-1.5">
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted block mb-1.5">
                     Color
                   </span>
                   <div className="flex items-center gap-1.5 flex-wrap">

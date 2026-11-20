@@ -141,6 +141,7 @@ export function MediaCard({
   const pending = item.status === "running" || item.status === "queued";
   const failed = item.status === "failed" || item.status === "cancelled";
   const done = item.status === "succeeded";
+  const cardLabel = item.filename || (item.prompt ? String(item.prompt).slice(0, 80) : "generation");
   const isDraft = item.kind === "video" && item.draftMode === true;
   // Media loads straight from storage once resolved; /api/media is the fallback.
   const imageMedia = useDirectMediaUrl(done && item.kind === "image" ? item.url : null, CARD_THUMB_WIDTH);
@@ -158,6 +159,7 @@ export function MediaCard({
   // its buffered metadata for the rest of the session — see use-near-viewport.
   const cardRef = useRef(null);
   const moreRef = useRef(null);
+  const openRef = useRef(null);
   const nearViewport = useNearViewport(cardRef);
 
   // ── context menu ──────────────────────────────────────────────────────
@@ -182,7 +184,7 @@ export function MediaCard({
   }, [openMenu]);
   const closeMenu = useCallback(({ restoreFocus = false } = {}) => {
     setMenu(null);
-    if (restoreFocus) cardRef.current?.focus({ preventScroll: true });
+    if (restoreFocus) (openRef.current || cardRef.current)?.focus({ preventScroll: true });
   }, []);
 
   const cancelLongPress = () => {
@@ -264,23 +266,30 @@ export function MediaCard({
     }
   };
 
+  // Runs on the open button only; the other controls handle their own keys.
   const handleKeyDown = (e) => {
     if (e.target !== e.currentTarget) return;
     if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
       e.preventDefault();
       e.stopPropagation();
       openFromButton(true);
-    } else if (e.key === "Enter") {
-      if (done) {
-        e.preventDefault();
-        e.stopPropagation();
-        setActiveId(item.id, viewerSource);
-      }
-    } else if (e.key === " " && selectable) {
+    } else if (e.key === "Enter" || (e.key === " " && !selectable)) {
+      // A native button click would open the actions menu at (0, 0) on cards
+      // that have no viewer, so activation is always handled here.
+      e.preventDefault();
+      e.stopPropagation();
+      if (done) setActiveId(item.id, viewerSource);
+      else openFromButton(true);
+    } else if (e.key === " ") {
       e.preventDefault();
       e.stopPropagation();
       toggleSelect(item.id);
     }
+  };
+
+  // Space is handled on keydown; stop the button's own keyup click.
+  const handleKeyUp = (e) => {
+    if (e.key === " ") e.preventDefault();
   };
 
   const handleContextMenu = (e) => {
@@ -439,10 +448,8 @@ export function MediaCard({
       ref={cardRef}
       data-asset-card-id={item.id}
       data-testid={`media-card-${item.id}`}
-      tabIndex={selectable ? (isRovingTabTarget ? 0 : -1) : undefined}
-      role={selectable ? "button" : undefined}
-      aria-selected={selectable ? selected : undefined}
-      aria-haspopup="menu"
+      role="group"
+      aria-label={cardLabel}
       data-selected={selected ? "true" : undefined}
       data-selectable={selectable ? "true" : undefined}
       data-draft={isDraft ? "true" : undefined}
@@ -452,17 +459,11 @@ export function MediaCard({
       onDragEnd={handleDragEnd}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
-      onKeyDown={handleKeyDown}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={cancelLongPress}
       onPointerCancel={cancelLongPress}
       onPointerLeave={cancelLongPress}
-      onFocus={(e) => {
-        if (selectable && e.target === e.currentTarget && focusedAssetId !== item.id) {
-          setFocusedAssetId(item.id);
-        }
-      }}
       onContextMenu={handleContextMenu}
       initial={reducedMotion ? false : { opacity: 0, scale: 0.96 }}
       animate={{ opacity: 1, scale: 1 }}
@@ -595,7 +596,7 @@ export function MediaCard({
                 gate exists to avoid. Captions sit between the avatar and the
                 "..." button on the bottom row. */}
             {item.queueNote && (
-              <span style={statusInset} className="absolute bottom-2 z-10 text-center text-[10px] leading-snug text-white/40">
+              <span style={statusInset} className="absolute bottom-2 z-10 text-center text-[11px] leading-snug text-muted">
                 {item.queueNote}
               </span>
             )}
@@ -619,12 +620,12 @@ export function MediaCard({
                   />
                 </div>
                 {item.progressMessage && (
-                  <span className="mt-1 block truncate text-center text-[10px] leading-snug text-white/40">
+                  <span className="mt-1 block truncate text-center text-[11px] leading-snug text-muted">
                     {item.progressMessage}
                   </span>
                 )}
                 {item.progressMessage === "Running depth estimation" && (
-                  <span className="mt-1 block text-center text-[9px] leading-snug text-white/35">
+                  <span className="mt-1 block text-center text-[10px] leading-snug text-muted">
                     Depth estimation is normally the longest stage.
                   </span>
                 )}
@@ -632,7 +633,7 @@ export function MediaCard({
                     sequence (depthStepList above); elapsed time ticks off
                     createdAt — "how long this has been running", not a
                     predictive ETA. */}
-                <div className="mt-0.5 flex items-center justify-center gap-1.5 text-[9px] text-white/30">
+                <div className="mt-0.5 flex items-center justify-center gap-1.5 text-[10px] text-muted">
                   {depthStepIndex != null && (
                     <span>
                       Step {depthStepIndex}/{DEPTH_STEP_COUNT}
@@ -662,6 +663,22 @@ export function MediaCard({
           </div>
         )}
 
+        {/* One real control opens the card; the face controls are its siblings
+            (not descendants), so none is nested inside a button. */}
+        <button
+          ref={openRef}
+          type="button"
+          data-card-open
+          aria-label={done ? `Open ${cardLabel}` : `Actions for ${cardLabel}`}
+          tabIndex={selectable ? (isRovingTabTarget ? 0 : -1) : 0}
+          onKeyDown={handleKeyDown}
+          onKeyUp={handleKeyUp}
+          onFocus={() => {
+            if (selectable && focusedAssetId !== item.id) setFocusedAssetId(item.id);
+          }}
+          className="absolute inset-0 z-20 h-full w-full cursor-pointer rounded-xl outline-none"
+        />
+
         {/* card face */}
         <div className="media-card-face pointer-events-none absolute inset-0 z-30">
           <GenerationName item={item} kind={item.kind} className="generation-name-overlay media-card-name" />
@@ -681,7 +698,7 @@ export function MediaCard({
               role="checkbox"
               aria-checked={selected}
               aria-label="Select"
-              tabIndex={-1}
+              tabIndex={isRovingTabTarget ? 0 : -1}
               onClick={(e) => {
                 e.stopPropagation();
                 toggleSelect(item.id);
@@ -746,7 +763,7 @@ export function MediaCard({
               aria-label={item.isFavorite ? "Remove from favourites" : "Add to favourites"}
               aria-pressed={item.isFavorite === true}
               title={item.isFavorite ? "Remove from favourites" : "Add to favourites"}
-              tabIndex={-1}
+              tabIndex={selectable && isRovingTabTarget ? 0 : -1}
               data-favorite-star
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => {
@@ -858,7 +875,7 @@ export function GenerationTimestamp({ timestamp }) {
   const [now, setNow] = useState(null);
   useEffect(() => { setNow(Date.now()); const interval = setInterval(() => setNow(Date.now()), 60000); return () => clearInterval(interval); }, []);
   const label = relativeGenerationTime(timestamp, now || 0);
-  if (!label) return <span className="text-[11px] text-white/40">Time unavailable</span>;
+  if (!label) return <span className="text-[11px] text-muted">Time unavailable</span>;
   const date = new Date(timestamp);
   return <time dateTime={date.toISOString()} title={now ? date.toLocaleString() : date.toISOString()} className="text-[11px] text-white/60">{now ? label : date.toISOString()}</time>;
 }

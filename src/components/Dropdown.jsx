@@ -48,6 +48,8 @@ export function Dropdown({
   triggerClassName,
   panelClassName,
   label,
+  role = "menu",
+  panelLabel,
   onOpen,
   maintenanceWrite = false,
   open: controlledOpen,
@@ -74,6 +76,8 @@ export function Dropdown({
   // portaled panel of a dropdown nested inside it, so that press keeps it open.
   const pressedInsideRef = useRef(false);
   const panelId = useId();
+  const isMenu = role === "menu";
+  const haspopup = role === "menu" ? "menu" : role === "dialog" ? "dialog" : "true";
 
   useEffect(() => { if (disabled) setOpen(false); }, [disabled, setOpen]);
 
@@ -88,10 +92,15 @@ export function Dropdown({
   // on both Mac and Windows — otherwise a keyboard-only user can open the
   // panel but has no way to reach an item inside it.
   const openAndFocus = useCallback((fromEnd) => {
+    if (!isMenu) {
+      onOpen?.();
+      setOpen(true);
+      return;
+    }
     keyboardFocusRef.current = { fromEnd };
     onOpen?.();
     setOpen(true);
-  }, [onOpen, setOpen]);
+  }, [isMenu, onOpen, setOpen]);
 
   // The positioned portal must be visible before focusing; focusing a hidden
   // menu on the opening animation frame silently fails in real browsers.
@@ -124,6 +133,7 @@ export function Dropdown({
   // ArrowLeft/Right to adjust its own value.
   const onPanelKeyDown = useCallback((e) => {
     if (closeOnEscape(e)) return;
+    if (!isMenu) return;
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp" && e.key !== "Home" && e.key !== "End") {
       return;
     }
@@ -145,7 +155,7 @@ export function Dropdown({
     const next =
       current === -1 ? (dir === 1 ? 0 : items.length - 1) : (current + dir + items.length) % items.length;
     items[next].focus();
-  }, [closeOnEscape]);
+  }, [closeOnEscape, isMenu]);
 
   useEffect(() => {
     if (!open) return;
@@ -233,7 +243,7 @@ export function Dropdown({
         }}
         className={cn("block max-w-full", triggerClassName)}
         aria-label={label}
-        aria-haspopup="menu"
+        aria-haspopup={haspopup}
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
       >
@@ -246,7 +256,8 @@ export function Dropdown({
               <motion.div
                 ref={panelRef}
                 id={panelId}
-                role="menu"
+                role={role}
+                aria-label={isMenu ? undefined : panelLabel ?? label}
                 onKeyDown={onPanelKeyDown}
                 onMouseDownCapture={() => { pressedInsideRef.current = true; }}
                 initial={{ opacity: 0, y: side === "bottom" ? -6 : 6, scale: 0.97 }}

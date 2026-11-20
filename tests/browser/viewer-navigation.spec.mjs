@@ -218,3 +218,25 @@ scoped('while maintenance is ON the viewer covers the banner and its close butto
   await close.click();
   await expect(close).toHaveCount(0);
 });
+
+scoped('the viewer is a modal dialog that holds keyboard focus and returns it to the card on Escape', async ({ page, scope }) => {
+  const expected = await scope.rows(`folderId=${scope.target.id}`);
+  const panel = await openPanel(page);
+  await openTreeFolder(panel, `${scope.tag} Target`);
+  const card = panel.locator(`[data-asset-card-id="${expected[0]}"]`);
+  await expect(card.getByRole('group', { name: 'Media failed to load' })).toBeVisible();
+  const open = card.locator('[data-card-open]');
+  await open.focus();
+  await page.keyboard.press('Enter');
+  const dialog = page.locator('[role="dialog"][aria-modal="true"]');
+  await expect(dialog).toBeVisible();
+  const inside = () => page.evaluate(() => Boolean(document.activeElement?.closest('[role="dialog"][aria-modal="true"]')));
+  await expect.poll(inside).toBe(true);
+  for (let index = 0; index < 20; index += 1) {
+    await page.keyboard.press('Tab');
+    expect(await inside()).toBe(true);
+  }
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(open).toBeFocused();
+});

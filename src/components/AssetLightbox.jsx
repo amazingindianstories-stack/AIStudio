@@ -25,6 +25,7 @@ import { fetchRetryBusy } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { notify } from "@/lib/notify";
 import { KIND_ICON, KIND_LABEL } from "./AssetLibrary";
+import { useModalFocus } from "./useModalFocus";
 
 export const MIN_LIGHTBOX_ZOOM = 0.5;
 export const MAX_LIGHTBOX_ZOOM = 5;
@@ -119,16 +120,10 @@ export function AssetLightbox({
   handlersRef.current = { onClose, goToPrev, goToNext, applyZoom, resetZoom, returnFocusEl, zoomable };
 
   // The inspector owns its focus while open; portal confirmations own theirs.
+  useModalFocus(dialogRef, { open: Boolean(asset), returnFocusEl: () => handlersRef.current.returnFocusEl });
   useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return undefined;
-    const previousFocus = handlersRef.current.returnFocusEl || document.activeElement;
     const childModalOpen = () => Array.from(document.querySelectorAll('[role="alertdialog"][aria-modal="true"]'))
       .some((element) => !element.hidden && element.getClientRects().length > 0);
-    const controls = () => Array.from(dialog.querySelectorAll('button:not(:disabled), [href], [tabindex]:not([tabindex="-1"])'))
-      .filter((element) => !element.closest('[hidden], [inert]') && element.getClientRects().length > 0);
-    const focusFirst = () => (controls()[0] || dialog).focus();
-    const frame = requestAnimationFrame(focusFirst);
     const onKeyDown = (event) => {
       if (event.defaultPrevented || childModalOpen()) return;
       const h = handlersRef.current;
@@ -139,25 +134,9 @@ export function AssetLightbox({
       else if (h.zoomable && event.key === "0") { event.preventDefault(); h.resetZoom(); }
       else if (event.key === "ArrowLeft" && !inMediaControls) { event.preventDefault(); h.goToPrev(); }
       else if (event.key === "ArrowRight" && !inMediaControls) { event.preventDefault(); h.goToNext(); }
-      else if (event.key === "Tab") {
-        const focusable = controls(), first = focusable[0], last = focusable[focusable.length - 1];
-        if (!first) { event.preventDefault(); dialog.focus(); }
-        else if (!dialog.contains(document.activeElement) || (event.shiftKey && document.activeElement === first)) {
-          event.preventDefault(); (event.shiftKey ? last : first).focus();
-        } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-      }
     };
-    const onFocusIn = (event) => { if (!childModalOpen() && !dialog.contains(event.target)) focusFirst(); };
     document.addEventListener("keydown", onKeyDown);
-    document.addEventListener("focusin", onFocusIn);
-    return () => {
-      cancelAnimationFrame(frame);
-      document.removeEventListener("keydown", onKeyDown);
-      document.removeEventListener("focusin", onFocusIn);
-      const returnEl = handlersRef.current.returnFocusEl;
-      const target = returnEl?.isConnected ? returnEl : previousFocus;
-      if (target?.isConnected) target.focus?.();
-    };
+    return () => document.removeEventListener("keydown", onKeyDown);
   }, []);
 
   // Reset zoom and feedback when active asset changes

@@ -747,6 +747,7 @@ export function PromptComposer() {
         {/* upload */}
         <Dropdown
           side="top"
+          label="Attach references"
           onOpen={() => {
             if (s.portraits.enabled === null && !s.portraits.loading) void s.loadPortraits();
           }}
@@ -760,7 +761,7 @@ export function PromptComposer() {
             >
               <span className="flex flex-col items-center gap-0.5">
                 <Plus className="h-4 w-4" />
-                <span className={cn("text-[10px]", collapsed && "sr-only")}>material</span>
+                <span aria-hidden="true" className={cn("text-[10px]", collapsed && "sr-only")}>material</span>
               </span>
             </span>
           )}
@@ -941,7 +942,7 @@ export function PromptComposer() {
                   {I && <I className="h-4 w-4" />}
                   <span className="flex-1">{m.label}</span>
                   {m.id === s.mode && <Check className="h-4 w-4 text-brand" />}
-                  {!m.enabled && <span className="text-[10px] text-white/30">soon</span>}
+                  {!m.enabled && <span className="text-[10px] text-muted">soon</span>}
                 </MenuItem>
               );
             })
@@ -977,7 +978,7 @@ export function PromptComposer() {
                 <span className="flex min-w-0 flex-1 flex-col">
                   <span>{m.name}</span>
                   {m.hint && (
-                    <span className="text-[10px] leading-snug text-white/40">
+                    <span className="text-[10px] leading-snug text-muted">
                       {m.hint}
                     </span>
                   )}
@@ -1278,7 +1279,7 @@ export function PromptComposer() {
 
             return (
               <div className="max-h-[340px] overflow-y-auto scroll-thin py-1">
-                <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-white/35">
+                <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-muted">
                   Scope
                 </p>
                 <MenuItem
@@ -1317,7 +1318,7 @@ export function PromptComposer() {
                 </MenuItem>
 
                 <div className="my-1 h-px bg-line" />
-                <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-white/35">
+                <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-muted">
                   Folder in {proj ? proj.name : "Global Library"}
                 </p>
                 <MenuItem

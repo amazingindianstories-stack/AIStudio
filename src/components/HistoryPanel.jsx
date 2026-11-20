@@ -459,12 +459,11 @@ export function HistoryPanel({ drawer = false }) {
           <div className="scroll-thin flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden p-2 space-y-4">
             {/* ── SECTION 1: LIBRARY ── */}
             <div className="space-y-0.5">
-              <span className="block px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-white/40">
+              <span className="block px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted">
                 Library
               </span>
               <SidebarItem
                 label="All generations"
-                title="All assets"
                 count={counts.allAssets}
                 icon={<LayoutGrid className="h-3.5 w-3.5" />}
                 active={rightTab === "history" && !briefView}
@@ -508,7 +507,7 @@ export function HistoryPanel({ drawer = false }) {
             {/* ── SECTION 2: CURRENT PROJECT ── */}
             {project && (
               <div className="space-y-0.5 border-t border-line/60 pt-3">
-                <span className="block px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-white/40">
+                <span className="block px-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted">
                   Current Project
                 </span>
                 <SidebarItem
@@ -545,7 +544,7 @@ export function HistoryPanel({ drawer = false }) {
             {/* ── SECTION 3: FOLDERS ── */}
             <div className="space-y-0.5 border-t border-line/60 pt-3">
               <div className="flex items-center justify-between px-2 pb-1">
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-muted">
                   Folders
                 </span>
               </div>
@@ -664,7 +663,7 @@ export function HistoryPanel({ drawer = false }) {
                 className="flex items-center gap-1.5 rounded-md bg-white/10 px-2.5 py-1 text-xs font-medium text-white transition hover:bg-white/15"
                 disabled={maintenance}
                 title="Create new folder"
-                aria-label="+ New folder"
+                aria-label="New folder"
               >
                 <FolderPlus className="h-3.5 w-3.5" />
                 <span className="history-new-folder-label">+ New folder</span>
@@ -850,6 +849,7 @@ export function HistoryPanel({ drawer = false }) {
                 <Dropdown
                   align="right"
                   label="View settings"
+                  role="dialog"
                   trigger={(open) => (
                     <span
                       className={cn(
@@ -867,7 +867,7 @@ export function HistoryPanel({ drawer = false }) {
                 >
                   {() => (
                     <div className="p-2.5 space-y-2 w-48">
-                      <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40 block">
+                      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted block">
                         Thumbnail Size
                       </span>
                       <div className="flex items-center justify-between gap-2">
@@ -885,6 +885,8 @@ export function HistoryPanel({ drawer = false }) {
                           min={ZOOM_MIN}
                           max={ZOOM_MAX}
                           step={10}
+                          aria-label="Thumbnail size"
+                          aria-valuetext={`${assetCardWidth}px`}
                           value={assetCardWidth}
                           onChange={(e) => setZoom(Number(e.target.value))}
                           className="h-1.5 flex-1 cursor-pointer accent-brand"
@@ -900,13 +902,13 @@ export function HistoryPanel({ drawer = false }) {
                         </button>
                       </div>
                       <div className="border-t border-line pt-2">
-                        <label className="block text-[10px] font-semibold uppercase tracking-wider text-white/40" htmlFor={`${navigationId}-sort`}>Sort by</label>
+                        <label className="block text-[10px] font-semibold uppercase tracking-wider text-muted" htmlFor={`${navigationId}-sort`}>Sort by</label>
                         <select id={`${navigationId}-sort`} aria-label="Sort library" value={sort} onChange={(event) => setLibrarySort(event.target.value)} className="mt-2 w-full rounded-lg border border-line bg-ink-800 px-2 py-2 text-xs text-white/80">
                           <option value="newest">Newest first</option><option value="oldest">Oldest first</option>
                           {rightTab === "favorites" && <option value="starred">Recently starred</option>}
                         </select>
                         <label className="mt-3 flex items-center gap-2 text-xs text-white/70"><input type="checkbox" className="accent-white" checked={groupByDate && sort !== "starred"} disabled={sort === "starred"} onChange={event => setGroupByDate(event.target.checked)} />Group by date</label>
-                        {sort === "starred" && <p className="mt-2 text-[10px] leading-4 text-white/40">Date grouping is off while sorted by when starred.</p>}
+                        {sort === "starred" && <p className="mt-2 text-[10px] leading-4 text-muted">Date grouping is off while sorted by when starred.</p>}
                       </div>
                     </div>
                   )}
@@ -1038,7 +1040,7 @@ export function HistoryPanel({ drawer = false }) {
               } catch {}
               setActiveExport(null);
             }}
-            className="ml-1 text-white/40 hover:text-white"
+            className="ml-1 text-muted hover:text-white"
             aria-label="Dismiss export notice"
           >
             <X className="h-3.5 w-3.5" />
@@ -1080,13 +1082,12 @@ export function HistoryPanel({ drawer = false }) {
   );
 }
 
-function SidebarItem({ label, title, count, icon, active, onClick }) {
-  const displayTitle = title || label;
+function SidebarItem({ label, count, icon, active, onClick }) {
   return (
     <button
       type="button"
-      title={displayTitle}
-      aria-label={displayTitle}
+      title={label}
+      aria-label={label}
       onClick={onClick}
       className={cn(
         "flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium transition text-left select-none outline-none focus-visible:ring-1 focus-visible:ring-brand",
@@ -1101,7 +1102,7 @@ function SidebarItem({ label, title, count, icon, active, onClick }) {
         <span
           className={cn(
             "text-[10px] tabular-nums shrink-0",
-            active ? "text-brand/90" : "text-white/40"
+            active ? "text-brand/90" : "text-muted"
           )}
         >
           {count > 999 ? `${Math.floor(count / 1000)}k` : count}

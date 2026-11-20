@@ -50,41 +50,45 @@ export default function LoginPage() {
           <img src="/logo.png" alt="Veevee.ai" className="h-9 w-9 rounded-lg shadow-sm" />
           <div>
             <p className="text-lg font-semibold text-white">Veevee.ai</p>
-            <p className="text-xs text-white/45">Sign in to continue</p>
+            <p className="text-xs text-muted">Sign in to continue</p>
           </div>
         </div>
 
         <form onSubmit={onSubmit} className="space-y-3">
           <div>
-            <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-white/40">
+            <label htmlFor="login-email" className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-muted">
               Email
             </label>
             <input
+              id="login-email"
               type="email"
+              aria-describedby={error ? "login-error" : undefined}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               autoFocus
               autoComplete="username"
-              className="w-full rounded-lg border border-line bg-ink-800 px-3 py-2.5 text-sm text-white outline-none placeholder:text-white/30 focus:border-white/30"
+              className="w-full rounded-lg border border-line bg-ink-800 px-3 py-2.5 text-base text-white outline-none sm:text-sm placeholder:text-white/30 focus:border-white/30"
               placeholder="you@example.com"
             />
           </div>
           <div>
-            <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-white/40">
+            <label htmlFor="login-password" className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-muted">
               Password
             </label>
             <input
+              id="login-password"
               type="password"
+              aria-describedby={error ? "login-error" : undefined}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete="current-password"
-              className="w-full rounded-lg border border-line bg-ink-800 px-3 py-2.5 text-sm text-white outline-none placeholder:text-white/30 focus:border-white/30"
+              className="w-full rounded-lg border border-line bg-ink-800 px-3 py-2.5 text-base text-white outline-none sm:text-sm placeholder:text-white/30 focus:border-white/30"
               placeholder="••••••••"
             />
           </div>
 
           {error && (
-            <p className="rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-300">
+            <p id="login-error" role="alert" className="rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-300">
               {error}
             </p>
           )}
@@ -103,7 +107,7 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <p className="mt-5 text-center text-xs text-white/35">
+        <p className="mt-5 text-center text-xs text-muted">
           Accounts are created by the administrator.
         </p>
       </motion.div>

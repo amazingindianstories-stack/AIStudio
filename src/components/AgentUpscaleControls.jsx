@@ -284,7 +284,7 @@ function UpscalerPicker({ media, model }) {
     >
       {(close) => groups.map((group) => (
         <div key={group.kind} role="group" aria-label={group.label} className="py-0.5">
-          <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-white/35">{group.label}</p>
+          <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">{group.label}</p>
           {group.models.map((entry) => {
             const active = group.kind === media && entry.id === model;
             return (
@@ -292,7 +292,7 @@ function UpscalerPicker({ media, model }) {
                 <group.icon className="h-4 w-4 text-white/50" />
                 <span className="flex min-w-0 flex-1 flex-col">
                   <span>{entry.id}</span>
-                  {entry.desc && <span className="text-[10px] leading-snug text-white/40">{entry.desc}</span>}
+                  {entry.desc && <span className="text-[10px] leading-snug text-muted">{entry.desc}</span>}
                 </span>
                 {entry.badge && (
                   <span className="shrink-0 whitespace-nowrap rounded bg-brand/20 px-1.5 py-0.5 text-[10px] font-semibold text-brand">{entry.badge}</span>

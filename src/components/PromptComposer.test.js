@@ -25,6 +25,7 @@ test("composer renders attached references with the production store shape", () 
     const html = renderToString(React.createElement(PromptComposer));
     assert.match(html, /data:image\/png;base64,aGVsbG8=/);
     assert.match(html, /@img1/);
+    assert.match(html, /<button[^>]*aria-label="Attach references"/);
     assert.match(html, /bg-mention\/20 text-mention">@audio1<\/span>/);
   } finally {
     Object.assign(initial, before);

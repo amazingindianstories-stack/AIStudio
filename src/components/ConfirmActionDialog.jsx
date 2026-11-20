@@ -2,6 +2,7 @@
 import { useMaintenance } from "@/lib/maintenance-client";
 
 import { useEffect, useId, useRef } from "react";
+import { useModalFocus } from "@/components/useModalFocus";
 import { createPortal } from "react-dom";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -30,40 +31,17 @@ export function ConfirmActionDialog({
   const cancelRef = useRef(null);
   const dialogRef = useRef(null);
 
+  // Keyed on `open` alone: `busy` and `onCancel` change while the action runs
+  // and must not restart the trap or restore focus to the page behind it.
+  useModalFocus(dialogRef, { open, onClose: busy ? undefined : onCancel, initialFocus: () => cancelRef.current });
+
+  // Cancel and Confirm disable while the action runs; keep focus on the dialog.
   useEffect(() => {
-    if (!open) return undefined;
-    const previousFocus = document.activeElement;
-    let secondFrame = 0;
-    const firstFrame = requestAnimationFrame(() => {
-      secondFrame = requestAnimationFrame(() => cancelRef.current?.focus());
-    });
-    const onKeyDown = (event) => {
-      if (event.key === "Escape" && !busy) onCancel();
-      if (event.key !== "Tab") return;
-      const focusable = Array.from(
-        dialogRef.current?.querySelectorAll(
-          'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
-        ) ?? []
-      );
-      if (!focusable.length) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      cancelAnimationFrame(firstFrame);
-      cancelAnimationFrame(secondFrame);
-      document.removeEventListener("keydown", onKeyDown);
-      previousFocus?.focus?.();
-    };
-  }, [busy, onCancel, open]);
+    const dialog = dialogRef.current;
+    if (!busy || !dialog) return;
+    const active = document.activeElement;
+    if (!dialog.contains(active) || active.disabled) dialog.focus();
+  }, [busy]);
 
   if (!open || typeof document === "undefined") return null;
 
@@ -80,7 +58,9 @@ export function ConfirmActionDialog({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={descriptionId}
-        className="w-full max-w-sm rounded-2xl border border-line bg-ink-750 p-5 shadow-pop"
+        aria-busy={busy || undefined}
+        tabIndex={-1}
+        className="w-full max-w-sm outline-none rounded-2xl border border-line bg-ink-750 p-5 shadow-pop"
       >
         <div className="flex items-start gap-3">
           <span

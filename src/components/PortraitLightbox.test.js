@@ -44,3 +44,26 @@ test("a portrait that is still being prepared is labelled and one that can't be 
 test("PortraitLightbox returns null when no asset is provided", () => {
   assert.equal(render({ asset: null, assets: [] }), "");
 });
+
+test("every lightbox button is type=button and has an accessible name", async () => {
+  const { JSDOM } = await import("jsdom");
+  for (const props of [{ embedded: false }, { embedded: true }]) {
+    const html = render({ asset: portrait, assets: [portrait, { ...portrait, id: "b" }, { ...portrait, id: "c" }], currentIndex: 1, ...props });
+    const doc = new JSDOM(html).window.document;
+    const buttons = [...doc.querySelectorAll("button")];
+    assert.ok(buttons.length >= 4);
+    for (const button of buttons) {
+      assert.equal(button.getAttribute("type"), "button", button.outerHTML);
+      assert.ok((button.getAttribute("aria-label") || button.textContent).trim(), `unnamed: ${button.outerHTML}`);
+    }
+    const names = buttons.map((button) => button.getAttribute("aria-label") || button.textContent.trim());
+    for (const name of ["Delete", "Close Lightbox"]) assert.ok(names.includes(name), name);
+    assert.ok(names.some((name) => /^Download /.test(name)), "download button");
+  }
+});
+
+test("previous and next portrait buttons are named when there is a neighbour", () => {
+  const html = render({ asset: { ...portrait, id: "b" }, assets: [portrait, { ...portrait, id: "b" }, { ...portrait, id: "c" }] });
+  assert.match(html, /aria-label="Previous portrait"/);
+  assert.match(html, /aria-label="Next portrait"/);
+});

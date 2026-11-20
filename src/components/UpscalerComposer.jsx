@@ -203,6 +203,7 @@ export function UpscalerComposer() {
                 <button
                   key={m.id}
                   type="button"
+                  aria-pressed={active}
                   onClick={() => setParam("model", m.id)}
                   className={cn(
                     "flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium transition-all",
@@ -285,10 +286,17 @@ export function UpscalerComposer() {
           </div>
         ) : (
           <div
+            role="button"
+            tabIndex={maintenance ? -1 : 0}
             aria-disabled={maintenance}
             onClick={() => !maintenance && fileInputRef.current?.click()}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter" && e.key !== " ") return;
+              e.preventDefault();
+              if (!maintenance) fileInputRef.current?.click();
+            }}
             className={cn(
-              "group flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-6 text-center transition-all duration-200",
+              "group flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-6 text-center transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand",
               dragging
                 ? dragValid
                   ? "border-brand bg-brand/10 text-brand ring-1 ring-brand/40"

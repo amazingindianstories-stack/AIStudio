@@ -44,6 +44,7 @@ import {
 import { canFinalizeDraft } from "@/lib/seedance-finalization";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
 import { useConfirmedAction } from "./useConfirmedAction";
+import { useModalFocus } from "./useModalFocus";
 import {
   hasFullscreenMedia,
   settleFullscreenBeforeMediaMutation,
@@ -184,7 +185,7 @@ function ReferenceCollage({ images = [], videos: allVideos = [], audios: allAudi
     <div className="mb-5">
       {images.length > 0 && (
         <>
-          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-white/40">Reference images</p>
+          <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">Reference images</p>
           <div className={cn("grid gap-2", layoutClass)}>
             {images.map((src, i) => {
               const displaySrc = referenceDisplayUrl(src);
@@ -210,7 +211,7 @@ function ReferenceCollage({ images = [], videos: allVideos = [], audios: allAudi
       )}
       {videos.length > 0 && (
         <>
-          <p className={cn("mb-2 text-xs font-medium uppercase tracking-wide text-white/40", images.length > 0 && "mt-4")}>Reference videos</p>
+          <p className={cn("mb-2 text-xs font-medium uppercase tracking-wide text-muted", images.length > 0 && "mt-4")}>Reference videos</p>
           <div className="grid grid-cols-1 gap-2">
             {videos.map((src, i) => (
               <div key={i} data-reference-kind="video" className={tile}>
@@ -230,7 +231,7 @@ function ReferenceCollage({ images = [], videos: allVideos = [], audios: allAudi
       )}
       {audios.length > 0 && (
         <>
-          <p className={cn("mb-2 text-xs font-medium uppercase tracking-wide text-white/40", (images.length > 0 || videos.length > 0) && "mt-4")}>Reference audio</p>
+          <p className={cn("mb-2 text-xs font-medium uppercase tracking-wide text-muted", (images.length > 0 || videos.length > 0) && "mt-4")}>Reference audio</p>
           <div className="grid grid-cols-1 gap-2">
             {audios.map((src, i) => {
               const { name } = referenceDownload(src, `Reference audio ${i + 1}`);
@@ -290,6 +291,8 @@ export function DetailModal() {
   const [pieceSelection, setPieceSelection] = useState(null);
   const portraitAssets = useStore((s) => s.portraits.items);
   const closingRef = useRef(false);
+  const dialogRef = useRef(null);
+  const openedIdRef = useRef(null);
   const suppressNextNativeFullscreenEscapeRef = useRef(false);
   const escapeCloseTimerRef = useRef(null);
 
@@ -396,6 +399,14 @@ export function DetailModal() {
     }
   }, [setActiveId]);
 
+  // Opening and closing are keyed on the viewer being open, not on which item
+  // it shows; closing returns focus to the card of the item last viewed.
+  if (item) openedIdRef.current = item.id;
+  useModalFocus(dialogRef, {
+    open: Boolean(item),
+    returnFocusEl: () => document.querySelector(`[data-asset-card-id="${openedIdRef.current}"] [data-card-open]`),
+  });
+
   useEffect(() => {
     if (!item) return;
     const onKeyDown = (event) => {
@@ -474,7 +485,12 @@ export function DetailModal() {
             animate={{ opacity: 1, scale: 1, y: 0 }}
             transition={{ duration: reducedMotion ? 0 : 0.18 }}
             onClick={(e) => e.stopPropagation()}
-            className="relative flex h-full w-full flex-col lg:flex-row"
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Generation ${item.filename || String(item.prompt || "").slice(0, 80) || "viewer"}`}
+            tabIndex={-1}
+            className="relative flex h-full w-full flex-col outline-none lg:flex-row"
           >
             {/* media stage */}
             <div className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center p-4 sm:p-8">
@@ -569,7 +585,7 @@ export function DetailModal() {
                 </div>
               )}
 
-              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-white/40">
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted">
                 Parameters
               </p>
               <div className="mb-6 grid grid-cols-2 gap-2">
@@ -619,7 +635,7 @@ export function DetailModal() {
               )}
 
               <div className="mb-1 flex items-center justify-between">
-                <p className="text-xs font-medium uppercase tracking-wide text-white/40">
+                <p className="text-xs font-medium uppercase tracking-wide text-muted">
                   Prompt
                 </p>
                 <CopyPromptButton text={item.prompt} />
@@ -859,7 +875,7 @@ function Param({
 ) {
   return (
     <div className="rounded-lg border border-line bg-ink-800 px-3 py-2">
-      <p className="text-[10px] uppercase tracking-wide text-white/35">{label}</p>
+      <p className="text-[10px] uppercase tracking-wide text-muted">{label}</p>
       <p className="mt-0.5 flex items-start gap-1.5 text-sm text-white/85">
         {icon && <span className="flex h-5 shrink-0 items-center">{icon}</span>}
         <span className="min-w-0 break-words">{value}</span>

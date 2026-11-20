@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 import { AgentAccessPanel } from "./AgentAccessPanel";
+import { useModalFocus } from "./useModalFocus";
 
 const TABS = [
   ["profile", "Profile", UserRound],
@@ -84,43 +85,8 @@ export function AccountSettings({
     setPasswordNotice(null);
   }, [open, user.avatarUrl, user.name]);
 
-  useEffect(() => {
-    if (!open) return;
-    const previousFocus = document.activeElement ;
-    const frame = requestAnimationFrame(() => closeRef.current?.focus());
-
-    const onKeyDown = (event) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onClose();
-        return;
-      }
-      if (event.key !== "Tab") return;
-
-      const focusable = Array.from(
-        dialogRef.current?.querySelectorAll(
-          'button:not([disabled]), input:not([disabled]), [href], select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-        ) ?? []
-      );
-      if (!focusable.length) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      cancelAnimationFrame(frame);
-      document.removeEventListener("keydown", onKeyDown);
-      previousFocus?.focus();
-    };
-  }, [onClose, open]);
+  // Options are read through a ref inside the hook, so an inline `onClose` never re-runs focus handling.
+  useModalFocus(dialogRef, { open, onClose, initialFocus: () => closeRef.current });
 
   const selectTab = (nextTab) => {
     setTab(nextTab);

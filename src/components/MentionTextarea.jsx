@@ -506,7 +506,7 @@ export const MentionTextarea = forwardRef(
               style={{ right: menuAnchor?.right ?? 8, bottom: menuAnchor?.bottom ?? 8, visibility: menuAnchor ? "visible" : "hidden" }}
               className="scroll-thin fixed z-[100] max-h-64 w-[min(16rem,calc(100vw-1rem))] overflow-y-auto rounded-xl border border-line bg-ink-750/95 p-1.5 shadow-pop backdrop-blur-xl"
             >
-              <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-white/35">
+              <p className="px-2 py-1 text-[10px] uppercase tracking-wide text-muted">
                 Reference asset
               </p>
               {available.map((sug, i) => (

@@ -254,10 +254,8 @@ export function ChildFolderList({
             return (
               <div
                 key={folder.id}
-                role="button"
-                tabIndex={0}
+                data-folder-card
                 title={folder.name}
-                onKeyDown={(e) => { if (e.target === e.currentTarget && ["Enter", " "].includes(e.key)) { e.preventDefault(); setActiveFolder(folder.id); } }}
                 aria-busy={busy}
                 draggable={renamingFolderId !== folder.id && !busy}
                 onDragStart={(e) => {
@@ -279,6 +277,16 @@ export function ChildFolderList({
                       : "border-red-500/80 bg-red-500/10 text-red-300 ring-1 ring-red-500/40 cursor-not-allowed")
                 )}
               >
+                {/* The open control is a sibling of the actions menu, so no button is nested in another. */}
+                {renamingFolderId !== folder.id && (
+                  <button
+                    type="button"
+                    aria-label={`Open folder ${folder.name}`}
+                    disabled={busy}
+                    onClick={(e) => { e.stopPropagation(); setActiveFolder(folder.id); }}
+                    className="absolute inset-0 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+                  />
+                )}
                 {/* Folder icon with custom color token */}
                 <FolderClosed className={cn("h-4 w-4 shrink-0 transition", glyphColorClass)} />
 
@@ -296,13 +304,13 @@ export function ChildFolderList({
                       {folder.name}
                     </p>
                   )}
-                  <p className="text-[10px] text-white/40 tabular-nums leading-tight">
+                  <p className="text-[10px] text-muted tabular-nums leading-tight">
                     {count} {count === 1 ? "asset" : "assets"}
                   </p>
                 </div>
 
                 {/* Hover Context Menu */}
-                <div inert={busy ? true : undefined} onClick={(e) => e.stopPropagation()} className="relative shrink-0">
+                <div inert={busy ? true : undefined} onClick={(e) => e.stopPropagation()} className="relative z-10 shrink-0">
                   <Dropdown
                     label={`Card folder actions: ${folder.name}`}
                     align="right"
@@ -321,7 +329,7 @@ export function ChildFolderList({
                       <div className="py-1 min-w-[160px]">
                         {/* Finder-style Color Picker Palette */}
                         <div className="px-2.5 py-1.5 border-b border-line">
-                          <span className="text-[10px] font-semibold uppercase tracking-wider text-white/40 block mb-1.5">
+                          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted block mb-1.5">
                             Color
                           </span>
                           <div className="flex items-center gap-1.5 flex-wrap">

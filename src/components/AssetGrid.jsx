@@ -224,7 +224,7 @@ export function AssetGrid({
         const cardNode = scrollRef.current?.querySelector(`[data-asset-card-id="${nextId}"]`);
         if (cardNode) {
           cardNode.scrollIntoView({ block: "nearest", inline: "nearest" });
-          cardNode.focus?.();
+          (cardNode.querySelector("[data-card-open]") || cardNode).focus?.();
         }
       }
     }

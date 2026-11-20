@@ -253,7 +253,7 @@ export function TopBar() {
           >
             {(close) => (
               <>
-                <div className="px-2.5 py-2">
+                <div role="presentation" className="px-2.5 py-2">
                   <p className="truncate text-sm font-medium text-white">
                     {user.name}
                   </p>

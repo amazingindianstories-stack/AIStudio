@@ -120,7 +120,7 @@ test('Goal3 ZIP rapid clicks,409 failure and retry remain visible; actor switch 
     return route.fulfill({ json: { id: 'fixture-export', status: 'ready', totalItems: 1, processedItems: 1 } });
   });
   const history = page.locator('#desktop-history-panel');
-  await history.getByRole('button', { name: 'All assets', exact: true }).click();
+  await history.getByRole('button', { name: 'All generations', exact: true }).click();
   // A fixed, finished fixture: newer cards from other specs may still be generating.
   const firstCard = history.getByTestId('media-card-10000000-0000-4000-8000-000000000001');
   await firstCard.hover();

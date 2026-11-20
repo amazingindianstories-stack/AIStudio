@@ -108,3 +108,28 @@ test('a folder holding only subfolders shows them open with neutral copy that po
     assert.match(document.body.textContent, /Nothing generated yet/, 'a leaf folder keeps the plain empty state');
   });
 });
+
+// The stubs stay installed: the harness unmounts after this body returns and Dropdown cancels frames then.
+test('sidebar buttons are named by their visible text and View settings is a labelled dialog with a named slider', async () => {
+  await harness(async ({ render }) => {
+    globalThis.fetch = async () => reply(200, { breadcrumbs: [], items: [], assets: [] });
+    globalThis.requestAnimationFrame = callback => setTimeout(callback, 0);
+    globalThis.cancelAnimationFrame = id => clearTimeout(id);
+    try {
+    await render();
+    const buttons = [...document.querySelectorAll('button')];
+    const nameOf = button => button.getAttribute('aria-label') || button.textContent.trim();
+    assert.ok(buttons.some(button => nameOf(button) === 'All generations'));
+    assert.equal(buttons.some(button => nameOf(button) === 'All assets'), false);
+    const trigger = document.querySelector('button[aria-label="View settings"]');
+    assert.equal(trigger.getAttribute('aria-haspopup'), 'dialog');
+    await act(async () => trigger.click());
+    const dialog = document.querySelector('[role="dialog"][aria-label="View settings"]');
+    assert.ok(dialog);
+    const slider = dialog.querySelector('input[type="range"]');
+    assert.equal(slider.getAttribute('aria-label'), 'Thumbnail size');
+    assert.match(slider.getAttribute('aria-valuetext'), /px$/);
+    for (const menu of document.querySelectorAll('[role="menu"]')) assert.ok(menu.querySelector('[role="menuitem"],[role="menuitemcheckbox"],[role="menuitemradio"]'), 'no empty menus');
+    } finally { await act(async () => {}); }
+  });
+});

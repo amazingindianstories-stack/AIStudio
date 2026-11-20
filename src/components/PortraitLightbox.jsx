@@ -141,12 +141,16 @@ export function PortraitLightbox({
                   className="h-7 w-48 rounded border border-brand bg-ink-950 px-2 text-xs text-white focus:outline-none"
                 />
                 <button
+                  type="button"
+                  aria-label="Save name"
                   onClick={handleSaveName}
                   className="grid h-7 w-7 place-items-center rounded bg-white text-zinc-950 hover:bg-zinc-200"
                 >
                   <Check className="h-3.5 w-3.5" />
                 </button>
                 <button
+                  type="button"
+                  aria-label="Cancel rename"
                   onClick={() => setEditingName(false)}
                   className="grid h-7 w-7 place-items-center rounded text-white/50 hover:bg-white/10 hover:text-white"
                 >
@@ -159,6 +163,8 @@ export function PortraitLightbox({
                   {asset.name || "Portrait"}
                 </h3>
                 <button
+                  type="button"
+                  aria-label="Rename portrait"
                   onClick={() => setEditingName(true)}
                   title="Rename portrait"
                   className="grid h-5 w-5 place-items-center rounded text-white/40 hover:text-white"
@@ -206,6 +212,7 @@ export function PortraitLightbox({
             <button
               type="button"
               onClick={() => setIsZoomed((v) => !v)}
+              aria-label={isZoomed ? "Fit to screen" : "Zoom in"}
               title={isZoomed ? "Fit to screen" : "Zoom in 2x"}
               className="grid h-8 w-8 place-items-center rounded-lg border border-white/15 bg-ink-800 text-white/80 transition hover:bg-white/10 hover:text-white"
             >
@@ -217,6 +224,7 @@ export function PortraitLightbox({
           <button
             type="button"
             onClick={() => void downloadPortrait(asset)}
+            aria-label={video ? "Download original video" : "Download high-resolution image"}
             title={video ? "Download original video" : "Download high-resolution image"}
             className="grid h-8 w-8 place-items-center rounded-lg border border-white/15 bg-ink-800 text-white/80 transition hover:bg-white/10 hover:text-white"
           >
@@ -229,6 +237,7 @@ export function PortraitLightbox({
               href={portraitMediaUrl(asset)}
               target="_blank"
               rel="noreferrer"
+              aria-label="Open full raw URL in new tab"
               title="Open full raw URL in new tab"
               className="hidden sm:grid h-8 w-8 place-items-center rounded-lg border border-white/15 bg-ink-800 text-white/80 transition hover:bg-white/10 hover:text-white"
             >
@@ -240,6 +249,7 @@ export function PortraitLightbox({
           <button
             type="button"
             onClick={() => onDelete(asset)}
+            aria-label="Delete"
             title="Delete this portrait"
             className="grid h-8 w-8 place-items-center rounded-lg border border-white/15 bg-ink-800 text-white/60 transition hover:border-red-500/50 hover:bg-red-500/20 hover:text-red-300"
           >

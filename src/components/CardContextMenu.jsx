@@ -234,9 +234,9 @@ function CardMenuItem({ item, onClose }) {
       />
       <span className="min-w-0 flex-1">
         <span className="block truncate">{label}</span>
-        {disabled && reason && <span className="block text-[11px] leading-4 text-white/30">{reason}</span>}
+        {disabled && reason && <span className="block text-[11px] leading-4 text-muted">{reason}</span>}
       </span>
-      {detail && <span className="max-w-[45%] shrink-0 truncate text-[11px] text-white/35">{detail}</span>}
+      {detail && <span className="max-w-[45%] shrink-0 truncate text-[11px] text-muted">{detail}</span>}
     </button>
   );
 }

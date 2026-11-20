@@ -55,7 +55,7 @@ function Fact({ label, children, mono = false }) {
   if (children === null || children === undefined || children === "") return null;
   return (
     <div className="min-w-0">
-      <dt className="text-[10px] uppercase tracking-wide text-white/35">{label}</dt>
+      <dt className="text-[10px] uppercase tracking-wide text-muted">{label}</dt>
       <dd className={cn("mt-0.5 break-words text-xs text-white/75", mono && "font-mono")}>{children}</dd>
     </div>
   );
@@ -68,7 +68,7 @@ function ErrorDetail({ row }) {
     <div className="space-y-3 px-3 pb-4 pt-1">
       {row.userMessage && (
         <div className="rounded-lg border border-line bg-ink-900/60 px-3 py-2">
-          <p className="text-[10px] uppercase tracking-wide text-white/35">What the user saw</p>
+          <p className="text-[10px] uppercase tracking-wide text-muted">What the user saw</p>
           <p className="mt-0.5 text-xs leading-5 text-white/75">{row.userMessage}</p>
         </div>
       )}
@@ -93,7 +93,7 @@ function ErrorDetail({ row }) {
       )}
       {row.rawBody ? (
         <div>
-          <p className="mb-1 text-[10px] uppercase tracking-wide text-white/35">Raw provider response</p>
+          <p className="mb-1 text-[10px] uppercase tracking-wide text-muted">Raw provider response</p>
           <pre className="scroll-thin max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-lg border border-line bg-ink-900/60 p-3 font-mono text-[11px] leading-4 text-white/65">
             {row.rawBody}
           </pre>

@@ -178,7 +178,7 @@ test('ZIPs from All generations, folder views and a cross-folder selection name 
       const toggle = page.locator('button[aria-controls="desktop-history-panel"]');
       await expect(toggle).toBeVisible();
       if (await toggle.getAttribute('aria-expanded') !== 'true') await toggle.click();
-      if (view === 'all') await panel.getByRole('button', { name: 'All assets', exact: true }).click();
+      if (view === 'all') await panel.getByRole('button', { name: 'All generations', exact: true }).click();
       else if (view === 'project') await panel.getByRole('button', { name: /^Project assets/ }).click();
       else if (view === 'outer') await panel.getByRole('treeitem', { name: new RegExp(`Tree folder actions: ${outer.name}$`) }).click();
       else {
