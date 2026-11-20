@@ -4,7 +4,7 @@ import { useMaintenance } from "@/lib/maintenance-client";
 import { MaintenanceWriteBoundary } from "./MaintenanceStatus";
 
 
-import { useEffect, useRef, useState, useMemo } from "react";
+import { useEffect, useId, useRef, useState, useMemo } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   X,
@@ -214,11 +214,14 @@ function AssetList({ assets, loading, refreshing, error, activeProject: propActi
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              aria-label="Search materials"
               placeholder="Search materials or @slug..."
               className="w-full rounded-xl border border-line bg-ink-800 py-2 pl-9 pr-3 text-sm text-white placeholder:text-white/30 focus:border-brand/40 focus:outline-none"
             />
             {searchQuery && (
               <button
+                type="button"
+                aria-label="Clear search"
                 onClick={() => setSearchQuery("")}
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white"
               >
@@ -455,6 +458,7 @@ function AssetList({ assets, loading, refreshing, error, activeProject: propActi
 }
 
 function AssetEditor({ asset }) {
+  const fieldId = useId();
   const saveAsset = useStore((s) => s.saveAsset);
   const setEditing = useStore((s) => s.setEditingAsset);
   const activeProjectId = useStore((s) => s.activeProjectId);
@@ -533,10 +537,10 @@ function AssetEditor({ asset }) {
     <MaintenanceWriteBoundary className="space-y-4">
       {/* Kind Selector */}
       <div>
-        <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-white/40">
+        <span id={`${fieldId}-kind`} className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-white/40">
           Material Type
-        </label>
-        <div className="flex flex-wrap gap-1.5">
+        </span>
+        <div role="group" aria-labelledby={`${fieldId}-kind`} className="flex flex-wrap gap-1.5">
           {ASSET_KINDS.map((k) => {
             const Icon = KIND_ICON[k] || Box;
             return (
@@ -562,7 +566,7 @@ function AssetEditor({ asset }) {
       {/* Name Input with live @tag preview */}
       <div>
         <div className="mb-1.5 flex items-center justify-between">
-          <label className="text-[11px] font-medium uppercase tracking-wide text-white/40">
+          <label htmlFor={`${fieldId}-name`} className="text-[11px] font-medium uppercase tracking-wide text-white/40">
             Material Name & @Mention Tag
           </label>
           <span className="font-mono text-xs font-semibold text-brand">
@@ -570,6 +574,7 @@ function AssetEditor({ asset }) {
           </span>
         </div>
         <input
+          id={`${fieldId}-name`}
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder='e.g. "Sati", "Scene 1", "Cyber Sword"'
@@ -579,10 +584,10 @@ function AssetEditor({ asset }) {
 
       {/* Single Turnaround / Material Sheet Upload */}
       <div>
-        <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-white/40">
+        <span className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-white/40">
           Material Sheet / Turnaround Image{" "}
           <span className="text-white/30">— 1 single sheet / image per asset</span>
-        </label>
+        </span>
 
         {image ? (
           <div className="relative group w-full max-w-sm overflow-hidden rounded-xl border border-line bg-ink-800">
@@ -649,11 +654,12 @@ function AssetEditor({ asset }) {
 
       {/* Description */}
       <div>
-        <label className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-white/40">
+        <label htmlFor={`${fieldId}-description`} className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-white/40">
           Visual Guidance / Description{" "}
           <span className="text-white/30">— details reinforced in prompts (optional)</span>
         </label>
         <textarea
+          id={`${fieldId}-description`}
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           rows={3}

@@ -747,6 +747,7 @@ export function PromptComposer() {
         {/* upload */}
         <Dropdown
           side="top"
+          label="Attach references"
           onOpen={() => {
             if (s.portraits.enabled === null && !s.portraits.loading) void s.loadPortraits();
           }}
@@ -760,7 +761,7 @@ export function PromptComposer() {
             >
               <span className="flex flex-col items-center gap-0.5">
                 <Plus className="h-4 w-4" />
-                <span className={cn("text-[10px]", collapsed && "sr-only")}>material</span>
+                <span aria-hidden="true" className={cn("text-[10px]", collapsed && "sr-only")}>material</span>
               </span>
             </span>
           )}

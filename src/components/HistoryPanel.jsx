@@ -464,7 +464,6 @@ export function HistoryPanel({ drawer = false }) {
               </span>
               <SidebarItem
                 label="All generations"
-                title="All assets"
                 count={counts.allAssets}
                 icon={<LayoutGrid className="h-3.5 w-3.5" />}
                 active={rightTab === "history" && !briefView}
@@ -664,7 +663,7 @@ export function HistoryPanel({ drawer = false }) {
                 className="flex items-center gap-1.5 rounded-md bg-white/10 px-2.5 py-1 text-xs font-medium text-white transition hover:bg-white/15"
                 disabled={maintenance}
                 title="Create new folder"
-                aria-label="+ New folder"
+                aria-label="New folder"
               >
                 <FolderPlus className="h-3.5 w-3.5" />
                 <span className="history-new-folder-label">+ New folder</span>
@@ -850,6 +849,7 @@ export function HistoryPanel({ drawer = false }) {
                 <Dropdown
                   align="right"
                   label="View settings"
+                  role="dialog"
                   trigger={(open) => (
                     <span
                       className={cn(
@@ -885,6 +885,8 @@ export function HistoryPanel({ drawer = false }) {
                           min={ZOOM_MIN}
                           max={ZOOM_MAX}
                           step={10}
+                          aria-label="Thumbnail size"
+                          aria-valuetext={`${assetCardWidth}px`}
                           value={assetCardWidth}
                           onChange={(e) => setZoom(Number(e.target.value))}
                           className="h-1.5 flex-1 cursor-pointer accent-brand"
@@ -1080,13 +1082,10 @@ export function HistoryPanel({ drawer = false }) {
   );
 }
 
-function SidebarItem({ label, title, count, icon, active, onClick }) {
-  const displayTitle = title || label;
+function SidebarItem({ label, count, icon, active, onClick }) {
   return (
     <button
       type="button"
-      title={displayTitle}
-      aria-label={displayTitle}
       onClick={onClick}
       className={cn(
         "flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-xs font-medium transition text-left select-none outline-none focus-visible:ring-1 focus-visible:ring-brand",
