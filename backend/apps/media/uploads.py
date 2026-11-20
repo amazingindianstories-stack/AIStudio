@@ -26,23 +26,6 @@ PURPOSES = {
 }
 
 
-def create_upload_presign(user_id, purpose, content_type, sign_upload_url, create_id=uuid4):
-    if not user_id:
-        return 401, {'error':'Unauthorized.'}
-    if not isinstance(purpose, str) or purpose not in PURPOSES:
-        return 400, {'error':f'Unknown upload purpose (expected one of: {", ".join(PURPOSES)}).'}
-    mime = content_type.strip().lower() if isinstance(content_type, str) else ''
-    mime = {'image/jpg':'image/jpeg','image/pjpeg':'image/jpeg','image/x-png':'image/png'}.get(mime,mime)
-    prefix, pattern = PURPOSES[purpose]
-    if not re.match(pattern, mime):
-        return 400, {'error':f'{purpose} does not accept content type "{content_type if isinstance(content_type,str) else ""}".'}
-    key = f'{prefix}/{user_id}-{create_id()}'
-    try:
-        return 200, {'key':key, 'uploadUrl':sign_upload_url(key,mime)}
-    except Exception:
-        return 500, {'error':'Failed to create an upload URL.'}
-
-
 def sign_upload(key, content_type):
     validate_key(key)
     payload = base64.urlsafe_b64encode(json.dumps({'key':key,'type':content_type,'exp':int(time.time())+1800},
@@ -68,7 +51,7 @@ def verify_upload(token):
     except (ValueError, TypeError, KeyError, AttributeError, UnicodeError):
         return None
 
-# Versioned metadata handshake. The old presign route remains compatibility-only.
+# Versioned metadata handshake.
 import logging
 from datetime import timedelta
 from django.db import transaction

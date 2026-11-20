@@ -15,7 +15,7 @@ from apps.projects import visibility
 from .grants import verify_media_grant
 from .keys import validate_key, InvalidMediaKey, media_key_from_ref, is_export_key
 from .storage import get_storage, MediaNotFoundError, InvalidMediaRangeError, FileSystemAdapter, PrefixedGCSAdapter
-from .uploads import (create_upload_presign, verify_upload, initialize_upload,
+from .uploads import (verify_upload, initialize_upload,
     upload_status, finalize_upload, stream_local_chunk, cancel_upload, UploadError)
 from .images import is_thumbnailable, thumb_key
 from .derivatives import bounded_derivative, ready_upload_is_image
@@ -66,6 +66,9 @@ def _width(raw):
         return None
 
 
+ACTIVE_CONTENT_TYPES = frozenset(('image/svg+xml', 'text/html', 'application/xhtml+xml', 'application/pdf'))
+
+
 class MediaHidden(Exception):
     """The key is valid but this route must not expose it."""
 
@@ -88,7 +91,10 @@ def authorize_media_key(path, user=None):
         # Active originals never leave private storage; boards receive rasterized PNGs.
         active_canvas = staged and staged.purpose == 'canvas' and staged.content_type in (
             'image/svg+xml', 'image/vnd.adobe.photoshop', 'image/x-photoshop')
-        if active_canvas or staged and (not staged.finalized_at or staged.state != 'ready'):
+        # A canvas key without a session row never went through sniffing or finalize (retired presign route): it may be
+        # active content, so it stays hidden. Other purposes without a row (pre-session uploads) stay readable.
+        unsessioned_canvas = staged is None and original_key.startswith('uploads/canvas/')
+        if unsessioned_canvas or active_canvas or staged and (not staged.finalized_at or staged.state != 'ready'):
             raise MediaHidden(key)
     if is_export_key(key):
         raise MediaHidden(key)
@@ -123,7 +129,10 @@ def media(request, path):
             response['Cache-Control'] = 'private, max-age=31536000, immutable'
             response['X-Content-Type-Options'] = 'nosniff'
             return response
-        return _stream_response(storage.open(target,request.headers.get('Range')))
+        media = storage.open(target,request.headers.get('Range'))
+        # Active document types never render on the app origin; rasters, video and audio stream inline unchanged.
+        active = (media.content_type or '').split(';')[0].strip().lower() in ACTIVE_CONTENT_TYPES
+        return _stream_response(media, disposition='attachment' if active else None)
     except MediaNotFoundError:
         return HttpResponse('Not Found',status=404)
     except InvalidMediaRangeError:
@@ -145,16 +154,6 @@ def media_grant(request):
         return JsonResponse({'error':'INVALID_RANGE'},status=416)
     except Exception:
         return JsonResponse({'error':'READ_FAILED'},status=500)
-
-
-@require_http_methods(['POST'])
-def upload_presign(request):
-    user = lookup(request)
-    body = _body(request)
-    # Resolve storage only once valid authentication, purpose and MIME reach signing.
-    status, result = create_upload_presign(str(user.id) if user else None,body.get('purpose'),
-        body.get('contentType'),lambda key,mime:get_storage().signed_upload_url(key,mime))
-    return JsonResponse(result,status=status)
 
 
 def _upload_reply(request, callback):

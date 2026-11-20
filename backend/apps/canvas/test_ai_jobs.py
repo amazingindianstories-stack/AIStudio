@@ -161,9 +161,9 @@ class BoardPayloadAllowlistTests(SimpleTestCase):
     def test_the_gateway_opens_board_submissions_only_with_the_paid_initial_routes(self):
         board = uuid.uuid4()
         path = f'/api/canvas-boards/{board}/ai-jobs'
-        # Django resolves an uppercase board id and the decoded path, so every spelling of the route is the paid route.
-        for spelling in (path, path + '/', f'/api/canvas-boards/{str(board).upper()}/ai-jobs', f'/api/canvas-boards/{board}/ai-job%73',
-                         f'/api/canvas-boards/{board}/%61i-jobs', f'/api/canvas-boards/{board}/AI-JOBS'):
+        # The gateway decodes the path once before any allowlist decision (percent-encoded spellings are covered by
+        # deploy/test_gateway_routes), and Django resolves an uppercase board id, so every spelling is the paid route.
+        for spelling in (path, path + '/', f'/api/canvas-boards/{str(board).upper()}/ai-jobs', f'/api/canvas-boards/{board}/AI-JOBS'):
             with self.subTest(spelling=spelling):
                 self.assertFalse(gateway.allowed('POST', spelling))
                 self.assertTrue(gateway.allowed('POST', spelling, paid_initial_routes=True))

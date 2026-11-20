@@ -19,10 +19,12 @@ MAX_TOTAL_BYTES=16*1024*1024
 SAFE_READ=re.compile(r'^/api/[^?]+$')
 SAFE_POST=re.compile(r'^/api/(?:auth/(?:login|logout)|uploads/init|uploads/[0-9a-f-]{36}/(?:finalize|cancel))$')
 SAFE_PUT=re.compile(r'^/api/uploads/[0-9a-f-]{36}/local$')
-ADMIN_READ_PATHS=frozenset(('/api/admin/data','/api/admin/logs','/api/admin/errors','/api/admin/activity','/api/admin/status'))
+ADMIN_READ_PATHS=frozenset(('/api/admin/data','/api/admin/logs','/api/admin/errors','/api/admin/activity','/api/admin/status',
+                            '/api/admin/workspace','/api/admin/template-usage','/api/admin/content-log','/api/admin/ai-log'))
 # Admin data mutations (Django answers 401 without a session and 403 for a non-admin).
 ADMIN_MUTATIONS={'/api/admin/users':('POST','PATCH','DELETE'),'/api/admin/pricing':('POST',),'/api/admin/limits':('POST',),'/api/admin/user-limits':('POST',),
-                 '/api/admin/agent-access':('POST',),'/api/admin/agent-access/revoke':('POST',)}
+                 '/api/admin/agent-access':('POST',),'/api/admin/agent-access/revoke':('POST',),'/api/admin/workspace':('POST',)}
+LEGACY_UPLOAD_PATHS=frozenset(('/api/uploads/presign','/api/uploads/local'))
 # CORS preflights for the OAuth endpoints browser-based agent clients call (Django answers them).
 OAUTH_PREFLIGHT=frozenset(('/api/oauth/authorization-server','/api/oauth/protected-resource','/api/oauth/register','/api/oauth/token','/api/oauth/revoke'))
 # Agent routes are matched on the decoded path, in any case, as Django resolves them.
@@ -31,22 +33,22 @@ OAUTH_PREFLIGHT=frozenset(('/api/oauth/authorization-server','/api/oauth/protect
 AGENT_RUN_PAID=re.compile(r'/api/agent-conversations/[0-9a-f-]{36}/runs(?:/[0-9a-f-]{36}/approve)?',re.IGNORECASE)
 AGENT_PAID_ANY=re.compile(r'/api/agent-conversations/[^/]+/runs(?:/[^/]+/approve)?/?',re.IGNORECASE)
 def agent_paid(method,path):
-    return method not in ('GET','HEAD') and AGENT_PAID_ANY.fullmatch(unquote(path)) is not None
+    return method not in ('GET','HEAD') and AGENT_PAID_ANY.fullmatch(path) is not None
 # Board "Create with AI" submissions queue paid generations, so they open only with the other paid initial routes.
 # Matched on the decoded path, in any case, as Django resolves it (it accepts an uppercase board id).
 BOARD_AI_JOBS=re.compile(r'/api/canvas-boards/[^/]+/ai-jobs/?',re.IGNORECASE)
 def board_ai_submission(method,path):
-    return method=='POST' and BOARD_AI_JOBS.fullmatch(unquote(path)) is not None
+    return method=='POST' and BOARD_AI_JOBS.fullmatch(path) is not None
 # Board video captions and Talktrack transcripts submit a paid transcription and wait for it like /api/audio/transcribe.
 BOARD_TRANSCRIPTIONS=re.compile(r'/api/canvas-boards/[^/]+/(?:captions|talktracks/[^/]+/transcript)/?',re.IGNORECASE)
 def board_transcription(method,path):
-    return method=='POST' and BOARD_TRANSCRIPTIONS.fullmatch(unquote(path)) is not None
+    return method=='POST' and BOARD_TRANSCRIPTIONS.fullmatch(path) is not None
 def board_paid_submission(method,path):
     return board_ai_submission(method,path) or board_transcription(method,path)
 # Agents tab voice notes: one Gemini transcription per POST, so it opens with the paid initial routes (its GET reads the caps).
 AGENT_TRANSCRIBE=re.compile(r'/api/agent-conversations/[^/]+/transcribe')
 def agent_transcription(method,path):
-    return method=='POST' and AGENT_TRANSCRIBE.fullmatch(unquote(path)) is not None
+    return method=='POST' and AGENT_TRANSCRIBE.fullmatch(path) is not None
 DEPTH_POST_ROUTES=frozenset(('/api/generate/depth','/api/worker/depth/claim','/api/worker/depth/heartbeat','/api/worker/depth/progress','/api/worker/depth/upload-url','/api/worker/depth/complete'))
 # Response-header waits beyond the default 25 s: enqueue may normalize large references, transcription
 # waits for its worker result (Django answers 504 itself after 120 s).
@@ -65,6 +67,8 @@ def allowed(method,path,paid_initial_routes=False,new_exports=False,magnific_ups
     # Exact DB-backed Django admin reads plus the read-only dependency status; Django still checks the session role.
     # Runtime audit stays closed: it writes (rolled-back) fixtures into the live database and runs the executor.
     # Higgsfield token seeding stays closed: no offered model uses it, and it stores a provider credential.
+    # Legacy presign/local upload routes bypass UploadSession, sniffing and the SVG hiding rule; the resumable /api/uploads/init path replaces them.
+    if path in LEGACY_UPLOAD_PATHS:return False
     if method in ('GET','HEAD') and path in ADMIN_READ_PATHS:return True
     if method in ADMIN_MUTATIONS.get(path,()):return True
     if method=='OPTIONS' and path in OAUTH_PREFLIGHT:return True
@@ -77,7 +81,7 @@ def allowed(method,path,paid_initial_routes=False,new_exports=False,magnific_ups
     if paid_initial_routes and magnific_upscale and method=='POST' and path=='/api/generate/upscale':return True
     # Audio transcription: the paid guard registers the job and claims its one Gemini call in the worker.
     if paid_initial_routes and method=='POST' and path=='/api/audio/transcribe':return True
-    if method=='POST' and AGENT_RUN_PAID.fullmatch(unquote(path)):return paid_initial_routes
+    if method=='POST' and AGENT_RUN_PAID.fullmatch(path):return paid_initial_routes
     # Board AI, captions and transcripts: the submission is a paid initial route; quotes, reads and placement are not.
     if board_paid_submission(method,path):return paid_initial_routes
     if agent_transcription(method,path):return paid_initial_routes
@@ -101,7 +105,12 @@ def handler(secret,paid_initial_routes=False,new_exports=False,magnific_upscale=
             target=urlsplit(self.path)
             if target.scheme or target.netloc or not self.path.startswith("/") or self.path.startswith("//") or target.fragment:
                 self.send_error(400);return
-            path=target.path
+            # One decoding point: every allowlist decision uses the path Django will resolve (gunicorn decodes PATH_INFO).
+            # The raw path is still forwarded unchanged. Ambiguous paths (double encoding, NUL, dot segments, empty segments) are refused.
+            raw_path=target.path
+            path=unquote(raw_path)
+            if '%' in path or '\x00' in path or '//' in path or '/./' in path or '/../' in path or path.endswith(('/.','/..')):
+                self.send_error(400);return
             # Public readiness only: no credentials, customer data or paid operation.
             if (self.command=='GET' and path=='/__g4_readiness' and not target.query
                 and self.headers.get('Content-Length') in (None,'0')
@@ -149,7 +158,7 @@ def handler(secret,paid_initial_routes=False,new_exports=False,magnific_upscale=
             conn=http.client.HTTPConnection('127.0.0.1',upstream_port,timeout=25)
             headers_sent=False
             try:
-                conn.request(self.command,path + ('?' + target.query if target.query else ''),body=body,headers=headers)
+                conn.request(self.command,raw_path + ('?' + target.query if target.query else ''),body=body,headers=headers)
                 upstream_socket=conn.sock
                 # Only response headers get the longer wait; streaming the body stays on 25 s.
                 upstream_socket.settimeout(upstream_wait(self.command,path,mode))

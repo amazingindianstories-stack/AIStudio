@@ -47,7 +47,6 @@ urlpatterns = [
     path('api/uploads/<uuid:id>/finalize', media_views.upload_finalize),
     path('api/uploads/<uuid:id>/cancel', media_views.upload_cancel),
     path('api/uploads/<uuid:id>/local', media_views.local_resumable_upload),
-    path('api/uploads/presign', media_views.upload_presign),
     path('api/uploads/local', media_views.local_upload),
     path('api/generations/<str:id>/download', media_views.generation_download),
     path('api/audio/transcribe', transcribe),

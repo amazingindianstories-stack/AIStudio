@@ -4,7 +4,7 @@ import importlib.util
 import json
 import threading
 import uuid
-from http.server import ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
@@ -36,6 +36,12 @@ class ProductionRouteTableTests(SimpleTestCase):
             # Unchanged admin reads and portrait settings.
             ('GET', '/api/admin/data', True), ('GET', '/api/admin/logs', True), ('GET', '/api/admin/activity', True),
             ('GET', '/api/admin/portrait-settings', True), ('POST', '/api/admin/portrait-settings', True),
+            # Admin workspace, template usage and board logs (BE-003); workspace is POST-only for writes.
+            ('GET', '/api/admin/workspace', True), ('POST', '/api/admin/workspace', True), ('DELETE', '/api/admin/workspace', False),
+            ('GET', '/api/admin/template-usage', True), ('GET', '/api/admin/content-log', True), ('GET', '/api/admin/ai-log', True),
+            ('POST', '/api/admin/content-log', False), ('POST', '/api/admin/ai-log', False), ('POST', '/api/admin/template-usage', False),
+            # Legacy upload routes stay refused at the gateway (BE-006); the resumable /api/uploads/init path is the contract.
+            ('POST', '/api/uploads/presign', False), ('PUT', '/api/uploads/local', False),
             # Unchanged agent conversation routes (listing, detail, attach).
             ('GET', '/api/agent-conversations', True), ('POST', '/api/agent-conversations', True),
             ('GET', f'/api/agent-conversations/{ID}', True), ('PATCH', f'/api/agent-conversations/{ID}/messages/{ID}', True),
@@ -64,9 +70,83 @@ class ProductionRouteTableTests(SimpleTestCase):
         for method, path, expected in table:
             self.assertIs(gateway.allowed(method, path, **PRODUCTION), expected, (method, path))
 
+    def test_every_admin_route_has_a_gateway_decision(self):
+        from apps.admin_dashboard import urls as admin_urls
+        from apps.assets import urls as asset_urls
+        from apps.mcp_auth import urls as mcp_urls
+        closed = {'/api/admin/audit/runtime', '/api/admin/set-token', '/api/admin/migrate-schema'}
+        opened = set(gateway.ADMIN_READ_PATHS) | set(gateway.ADMIN_MUTATIONS) | {'/api/admin/portrait-settings'}
+        routes = {'/' + str(entry.pattern) for module in (admin_urls, asset_urls, mcp_urls)
+                  for entry in module.urlpatterns if str(entry.pattern).startswith('api/admin/')}
+        self.assertTrue(routes)
+        self.assertEqual(routes - opened - closed, set(), 'new admin route without a gateway decision')
+        for route in closed:
+            self.assertFalse(any(gateway.allowed(method, route, **PRODUCTION) for method in ('GET', 'POST', 'PUT', 'PATCH', 'DELETE')), route)
+
+    def test_encoded_paths_cannot_bypass_closed_routes(self):
+        closed = [('POST', '/api/admin/audit/runtime'), ('GET', '/api/admin/audit/runtime'), ('POST', '/api/admin/set-token'),
+                  ('POST', '/api/admin/migrate-schema'), ('POST', '/api/webhooks/seedance'), ('POST', '/api/queue/execute'),
+                  ('POST', '/api/worker/exports/access'), ('GET', '/api/generate/upscale/status'),
+                  ('POST', '/api/generate/image'), ('POST', '/api/generate/upscale'), ('POST', '/api/audio/transcribe'),
+                  ('POST', '/api/history/exports'), ('POST', '/api/uploads/presign'), ('PUT', '/api/uploads/local'),
+                  ('POST', f'/api/agent-conversations/{ID}/runs'), ('POST', f'/api/agent-conversations/{ID}/runs/{ID}/approve'),
+                  ('POST', f'/api/agent-conversations/{ID}/transcribe'), ('POST', f'/api/canvas-boards/{ID}/captions'),
+                  ('POST', f'/api/canvas-boards/{ID}/ai-jobs'), ('POST', f'/api/canvas-boards/{ID}/talktracks/{ID}/transcript')]
+        server = ThreadingHTTPServer(('127.0.0.1', 0), gateway.handler(SECRET))  # every flag off
+        server.daemon_threads = True
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        port = serve(server)
+        for method, path in closed:
+            head, rest = path[len('/api/'):][0], path[len('/api/') + 1:]
+            variants = [f'/api/%{ord(head):02x}{rest}', f'/api/%{ord(head):02X}{rest}', f'/api/%25{ord(head):02x}{rest}',
+                        '/api/' + head + rest.replace('/', '%2f', 1), path.replace('/api/', '/api//', 1), path + '%00',
+                        path.replace('/api/', '/api/./', 1), path.replace('/api/', '/api/x/../', 1), path + '/.']
+            for variant in variants:
+                connection = http.client.HTTPConnection('127.0.0.1', port, timeout=10)
+                try:
+                    connection.request(method, variant, headers={gateway.HEADER: SECRET})
+                    status = connection.getresponse().status
+                finally:
+                    connection.close()
+                self.assertIn(status, (400, 403), (method, variant, status))
+
+    def test_encoded_open_routes_still_reach_upstream_with_the_original_path(self):
+        seen = []
+
+        class Upstream(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                seen.append(self.path)
+                self.send_response(200)
+                self.send_header('Content-Length', '2')
+                self.end_headers()
+                self.wfile.write(b'ok')
+        upstream = ThreadingHTTPServer(('127.0.0.1', 0), Upstream)
+        server = ThreadingHTTPServer(('127.0.0.1', 0), gateway.handler(SECRET))
+        for running in (upstream, server):
+            running.daemon_threads = True
+            self.addCleanup(running.server_close)
+            self.addCleanup(running.shutdown)
+        up_port, port = serve(upstream), serve(server)
+        real = http.client.HTTPConnection
+
+        def connection(host, target, *args, **kwargs):
+            return real(host, up_port if target == 18080 else target, *args, **kwargs)
+        with patch.object(http.client, 'HTTPConnection', connection):
+            for path in ('/api/media/uploads/a%20b.png', '/api/%6dedia/x.png', '/api/admin/work%73pace'):
+                conn = real('127.0.0.1', port, timeout=10)
+                try:
+                    conn.request('GET', path, headers={gateway.HEADER: SECRET})
+                    self.assertEqual(conn.getresponse().status, 200, path)
+                finally:
+                    conn.close()
+        self.assertEqual(seen, ['/api/media/uploads/a%20b.png', '/api/%6dedia/x.png', '/api/admin/work%73pace'])
+
     def test_provider_routes_need_paid_routes_but_admin_routes_do_not(self):
-        for path in ('/api/audio/transcribe', f'/api/agent-conversations/{ID}/transcribe',
-                     f'/api/agent-conversations/{ID}/transcrib%65', f'/api/agent-conversations/{ID}/runs',
+        for path in ('/api/audio/transcribe', f'/api/agent-conversations/{ID}/transcribe', f'/api/agent-conversations/{ID}/runs',
                      f'/api/agent-conversations/{ID}/runs/{ID}/approve'):
             self.assertFalse(gateway.allowed('POST', path, False, True, True), path)
         # The voice caps are a read: open without paid routes.
@@ -79,16 +159,16 @@ class ProductionRouteTableTests(SimpleTestCase):
             self.assertTrue(gateway.allowed(method, path), (method, path))
         self.assertFalse(gateway.allowed('POST', '/api/admin/audit/runtime', **PRODUCTION))
 
-    def test_encoded_or_uppercase_agent_paid_routes_are_still_paid_routes(self):
+    def test_uppercase_agent_paid_routes_are_still_paid_routes(self):
         conversation, run = f'/api/agent-conversations/{ID}', f'/api/agent-conversations/{ID}/runs/{ID}'
-        for path in (f'{conversation}/%72uns', f'{conversation}/RUNS', f'{run}/%61pprove', f'{run}/APPROVE',
+        for path in (f'{conversation}/RUNS', f'{run}/APPROVE',
                      f'{conversation.upper()}/runs',
                      f'/api/agent-conversations/{ID.upper()}/runs/{ID.upper()}/approve'):
             with self.subTest(path=path):
                 self.assertFalse(gateway.allowed('POST', path, False, True, True))
                 self.assertTrue(gateway.agent_paid('POST', path), 'refused as a paid route')
                 self.assertTrue(gateway.allowed('POST', path, **PRODUCTION))
-        for action in ('%64ecline', 'CANCEL'):
+        for action in ('decline', 'CANCEL'):
             self.assertTrue(gateway.allowed('POST', f'{run}/{action}'), action)
             self.assertFalse(gateway.agent_paid('POST', f'{run}/{action}'), action)
 
@@ -104,7 +184,7 @@ class ProductionRouteTableTests(SimpleTestCase):
 
     def test_board_captions_and_talktrack_transcripts_are_paid_transcriptions(self):
         board = f'/api/canvas-boards/{ID}'
-        for path in (f'{board}/captions', f'{board}/captions/', f'{board.upper()}/CAPTIONS', f'{board}/caption%73',
+        for path in (f'{board}/captions', f'{board}/captions/', f'{board.upper()}/CAPTIONS',
                      f'{board}/talktracks/{ID}/transcript', f'{board}/talktracks/{ID}/transcript/'):
             with self.subTest(path=path):
                 self.assertFalse(gateway.allowed('POST', path, False, True, True))
