@@ -273,22 +273,23 @@ export function MediaCard({
       e.preventDefault();
       e.stopPropagation();
       openFromButton(true);
-    } else if (e.key === "Enter") {
+    } else if (e.key === "Enter" || (e.key === " " && !selectable)) {
       // A native button click would open the actions menu at (0, 0) on cards
-      // that have no viewer, so Enter is always handled here.
+      // that have no viewer, so activation is always handled here.
       e.preventDefault();
       e.stopPropagation();
       if (done) setActiveId(item.id, viewerSource);
-    } else if (e.key === " " && selectable) {
+      else openFromButton(true);
+    } else if (e.key === " ") {
       e.preventDefault();
       e.stopPropagation();
       toggleSelect(item.id);
     }
   };
 
-  // Space toggles selection on keydown; stop the button's own keyup click.
+  // Space is handled on keydown; stop the button's own keyup click.
   const handleKeyUp = (e) => {
-    if (e.key === " " && selectable) e.preventDefault();
+    if (e.key === " ") e.preventDefault();
   };
 
   const handleContextMenu = (e) => {

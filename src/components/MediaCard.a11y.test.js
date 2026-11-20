@@ -9,7 +9,7 @@ import { __setMediaResolverFetch } from '../lib/media-resolver.js';
 
 const item = { id: 'g1', kind: 'image', status: 'succeeded', url: '/api/media/generations/g1.png', prompt: 'Sati walks', filename: 'Scene_0001.png', createdAt: 1, aspectRatio: '1:1', model: 'Nano Banana Pro' };
 
-async function withCard(it, run, state = {}) {
+async function withCard(it, run, state = {}, props = {}) {
   const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost', pretendToBeVisual: true });
   const names = ['window', 'document', 'HTMLElement', 'React', 'IS_REACT_ACT_ENVIRONMENT', 'fetch', 'ResizeObserver', 'IntersectionObserver', 'requestAnimationFrame', 'cancelAnimationFrame', 'KeyboardEvent'];
   const prior = Object.fromEntries(names.map(n => [n, globalThis[n]]));
@@ -23,7 +23,7 @@ async function withCard(it, run, state = {}) {
   useStore.setState({ currentUser: { id: 'admin', role: 'admin' }, items: [it], selectedIds: [], usersById: {}, libraryTree: { globalFolders: [], projects: [] }, ...state });
   const root = createRoot(document.querySelector('#root'));
   try {
-    await act(async () => root.render(React.createElement(MediaCard, { item: it, selectable: true, index: 1 })));
+    await act(async () => root.render(React.createElement(MediaCard, { item: it, selectable: true, index: 1, ...props })));
     await run(document.querySelector(`[data-asset-card-id="${it.id}"]`));
   } finally { await act(async () => root.unmount()); useStore.setState(original, true); Object.assign(globalThis, prior); dom.window.close(); }
 }
@@ -74,11 +74,40 @@ test('Enter on the open button opens the viewer and focusing it records the rovi
   });
 });
 
-test('a card that is not finished labels its control as actions and Enter does not open a menu', async () => {
-  await withCard({ ...item, status: 'running', url: null }, async (card) => {
+for (const key of ['Enter', ' ']) {
+  test(`a card that is not finished labels its control as actions and ${key === ' ' ? 'Space' : key} opens the menu with focus inside`, async () => {
+    await withCard({ ...item, status: 'running', url: null }, async (card) => {
+      const open = card.querySelector('[data-card-open]');
+      assert.equal(open.getAttribute('aria-label'), 'Actions for Scene_0001.png');
+      await act(async () => open.focus());
+      const keydown = new window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+      await act(async () => open.dispatchEvent(keydown));
+      assert.equal(keydown.defaultPrevented, true);
+      const keyup = new window.KeyboardEvent('keyup', { key, bubbles: true, cancelable: true });
+      await act(async () => open.dispatchEvent(keyup));
+      if (key === ' ') assert.equal(keyup.defaultPrevented, true);
+      await act(async () => { await new Promise(r => setTimeout(r, 20)); });
+      const menu = document.querySelector('[role="menu"]');
+      assert.ok(menu, 'actions menu opens');
+      assert.equal(useStore.getState().activeId, null);
+      assert.ok(menu.contains(document.activeElement), 'focus moves into the menu');
+      assert.equal(document.activeElement.getAttribute('role'), 'menuitem');
+    }, {}, { selectable: false });
+  });
+}
+
+test('Space on a selectable card toggles selection without a native click opening anything', async () => {
+  await withCard(item, async (card) => {
     const open = card.querySelector('[data-card-open]');
-    assert.equal(open.getAttribute('aria-label'), 'Actions for Scene_0001.png');
-    await act(async () => open.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })));
+    await act(async () => open.focus());
+    const keydown = new window.KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true });
+    await act(async () => open.dispatchEvent(keydown));
+    const keyup = new window.KeyboardEvent('keyup', { key: ' ', bubbles: true, cancelable: true });
+    await act(async () => open.dispatchEvent(keyup));
+    assert.equal(keydown.defaultPrevented, true);
+    assert.equal(keyup.defaultPrevented, true);
+    assert.deepEqual(useStore.getState().selectedIds, ['g1']);
     assert.equal(document.querySelector('[role="menu"]'), null);
+    assert.equal(useStore.getState().activeId, null);
   });
 });
