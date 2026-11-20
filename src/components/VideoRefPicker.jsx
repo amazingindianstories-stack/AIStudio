@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { notify } from "@/lib/notify";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, Clapperboard, Loader2, Upload, X } from "lucide-react";
@@ -9,6 +9,7 @@ import { useHistoryQuery } from "@/lib/use-history-query";
 import { MAX_REFERENCE_VIDEOS, maxReferenceVideosForVideoModel } from "@/lib/config";
 import { uploadFileDirect } from "@/lib/client-reference-upload";
 import { cn, thumbUrl } from "@/lib/utils";
+import { useModalFocus } from "./useModalFocus";
 
 /**
  * Pick clips from the library or upload a local video to use as video references.
@@ -28,6 +29,8 @@ export function VideoRefPicker({ onClose }) {
   const removeReferenceVideo = useStore((s) => s.removeReferenceVideo);
 
   const fileInputRef = useRef(null);
+  const titleId = useId();
+  const { ref: dialogRef } = useModalFocus(null, { onClose });
   const [uploading, setUploading] = useState(false);
 
   const maxVideos = maxReferenceVideosForVideoModel(model) ?? MAX_REFERENCE_VIDEOS;
@@ -75,11 +78,16 @@ export function VideoRefPicker({ onClose }) {
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.97 }}
           onClick={(e) => e.stopPropagation()}
-          className="flex max-h-[80vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-line bg-ink-850 shadow-pop"
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+          tabIndex={-1}
+          className="flex max-h-[80vh] w-full max-w-3xl flex-col overflow-hidden outline-none rounded-2xl border border-line bg-ink-850 shadow-pop"
         >
           <div className="flex items-center gap-2 border-b border-line px-4 py-3">
             <Clapperboard className="h-4 w-4 text-brand" />
-            <p className="flex-1 text-sm font-semibold text-white/90">
+            <p id={titleId} className="flex-1 text-sm font-semibold text-white/90">
               Attach reference clips
             </p>
             <button
@@ -111,6 +119,7 @@ export function VideoRefPicker({ onClose }) {
               {referenceVideos.length}/{maxVideos} selected
             </span>
             <button
+              type="button"
               onClick={onClose}
               className="grid h-7 w-7 place-items-center rounded-lg text-white/55 hover:bg-white/10 hover:text-white"
               aria-label="Close"
