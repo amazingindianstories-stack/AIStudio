@@ -101,7 +101,7 @@ test.describe("Asset Library Desktop Interactions", () => {
     expect(count).toBeGreaterThan(1);
 
     // Focus the first card
-    await cards.first().focus();
+    await cards.first().locator('[data-card-open]').focus();
     const firstId = await cards.first().getAttribute("data-asset-card-id");
 
     // Press ArrowRight
@@ -119,7 +119,7 @@ test.describe("Asset Library Desktop Interactions", () => {
     const { panel } = await setupPage(page, context, baseURL);
 
     const firstCard = panel.locator('[data-asset-card-id]').first();
-    await firstCard.focus();
+    await firstCard.locator('[data-card-open]').focus();
 
     // Clear any prior selection
     await page.keyboard.press("Escape");
@@ -194,7 +194,7 @@ test.describe("Asset Library Desktop Interactions", () => {
     expect(totalVisible).toBeGreaterThan(0);
 
     // Focus into library
-    await cards.first().focus();
+    await cards.first().locator('[data-card-open]').focus();
 
     // Press Cmd/Ctrl+A
     const modifier = process.platform === "darwin" ? "Meta" : "Control";
@@ -495,7 +495,7 @@ test.describe("Asset Library Desktop Interactions", () => {
     const { panel } = await setupPage(page, context, baseURL);
 
     const cards = panel.locator('[data-asset-card-id]');
-    await cards.first().focus();
+    await cards.first().locator('[data-card-open]').focus();
 
     const searchInput = panel.locator('input[aria-label="Search prompts"]').first();
 
@@ -504,7 +504,7 @@ test.describe("Asset Library Desktop Interactions", () => {
     await expect(searchInput).toBeFocused();
 
     // Blur search
-    await cards.first().focus();
+    await cards.first().locator('[data-card-open]').focus();
 
     // Press Cmd/Ctrl+F
     const modifier = process.platform === "darwin" ? "Meta" : "Control";
