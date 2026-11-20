@@ -17,6 +17,9 @@ const config = {
         },
         line: "rgba(255,255,255,0.07)",
         lineStrong: "rgba(255,255,255,0.12)",
+        // Text tokens: muted clears 4.5:1 on ink-800; faint is for decorative text only.
+        muted: "rgb(255 255 255 / 0.62)",
+        faint: "rgb(255 255 255 / 0.5)",
         brand: {
           DEFAULT: "#ffffff",
           light: "#f3f4f6",
