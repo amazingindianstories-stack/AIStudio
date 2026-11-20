@@ -15,6 +15,7 @@ from .models import Generation
 from .services import admission, coordinator, executor, video_execution
 from .services.deadline import Cancellation
 from apps.integrations.transport import ProviderError
+from apps.generation import provider_errors
 from .callbacks import extract_task_id, token_matches
 
 
@@ -415,6 +416,33 @@ class ExecutionPersistenceTests(TransactionTestCase):
                          ('failed', 'kling-task', 7, 'TASK_ABANDONED'))
         self.assertEqual(item.error, image_execution.TASK_ABANDONED)
         self.assertNotIn(item.id, [row.id for row in coordinator.select_due_generations(now=now_ms() + 10 ** 7)])
+
+    def test_transient_poll_errors_defer_an_accepted_image_task_without_counting_toward_abandonment(self):
+        from apps.generation.services import image_execution
+        from apps.integrations.transport import ProviderError
+        item = self.job(status='running', model='Kling Image 3.0', task_id='kling-task', submitted_at=now_ms(), cost_cents=7)
+
+        def outage(job, **options):
+            raise ProviderError('Kling status request failed with 503.', code='provider_http_503')
+        for _ in range(image_execution.TASK_MAX_DEFERRALS + 5):
+            outcome = executor.process_generation(item.id, owner='worker', image_execute=outage, heartbeat=False, env={})
+            item.refresh_from_db()
+            self.assertEqual(outcome['kind'], 'pending')
+            self.assertEqual((item.status, item.task_id, item.cost_cents, item.poll_error_count), ('running', 'kling-task', 7, 0))
+            self.assertIn(item.id, [row.id for row in coordinator.select_due_generations(now=now_ms() + 10000)])
+
+    def test_higgsfield_wait_running_out_counts_as_a_deferral(self):
+        from apps.generation.services import image_execution
+        item = self.job(status='running', model='Higgsfield Soul', task_id='hf-task', submitted_at=now_ms())
+
+        def timed_out(job, **options):
+            raise image_execution.task_ended({'status': 'failed', 'error': 'Higgsfield generation timed out.',
+                'providerError': provider_errors.local('higgsfield', 'timeout', 'Higgsfield generation timed out.',
+                                                       phase='timeout', task_id='hf-task')},
+                'Higgsfield image generation failed.', 'higgsfield', 'hf-task')
+        outcome = executor.process_generation(item.id, owner='worker', image_execute=timed_out, heartbeat=False, env={})
+        item.refresh_from_db()
+        self.assertEqual((outcome['kind'], item.status, item.poll_error_count), ('pending', 'running', 1))
 
     def test_accepted_image_task_older_than_the_give_up_age_is_abandoned_on_first_deferral(self):
         from apps.generation.services import image_execution

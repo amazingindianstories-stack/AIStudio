@@ -54,7 +54,6 @@ from .models import (TERMINAL_RUN_STATUSES, AgentChatAsset, AgentConversation, A
 
 logger = logging.getLogger('veevee.agents')
 
-MAX_ACTIVE_MS = limits.MAX_ACTIVE_MS
 COST_LIMIT = {'code': 'COST_LIMIT', 'message': 'Nothing was charged: this call would take the run past its spending bound. '
                                                'Suggest a cheaper option or ask the artist.'}
 OVER_DAILY_CAP = {'code': errors.BUDGET_EXCEEDED, 'message': 'Nothing was charged: this call alone costs more than a daily '
@@ -673,9 +672,6 @@ def pending_cents(run, principal, action):
         return paid.price_of(PREPARE[call['name']], principal, arguments).cost_cents
     except errors.ToolError:
         return 0
-
-
-active_ms = limits.active_ms
 
 
 def limit_stop(run, hit, *, now):

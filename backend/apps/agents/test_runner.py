@@ -878,24 +878,24 @@ class BoundaryTests(RunnerCase):
         run = self.start_run()
         self.assertEqual(self.advance(run, now=lambda: clock[0]), 'waiting')
         self.assertEqual(self.refresh(run).status, 'waiting_approval')
-        clock[0] += runner.MAX_ACTIVE_MS + 1
+        clock[0] += limits.MAX_ACTIVE_MS + 1
         runner.approve_quote(run.id, self.user.id, now=clock[0])
         self.assertEqual(self.advance(run, now=lambda: clock[0]), 'waiting')
         self.assertEqual(self.refresh(run).status, 'waiting_jobs')
-        clock[0] += runner.MAX_ACTIVE_MS + 1
+        clock[0] += limits.MAX_ACTIVE_MS + 1
         self.finish_jobs(run)
         self.assertEqual(self.advance(run, now=lambda: clock[0]), 'waiting')
         self.assertEqual(self.refresh(run).status, 'waiting_approval')
-        clock[0] += runner.MAX_ACTIVE_MS + 1
+        clock[0] += limits.MAX_ACTIVE_MS + 1
         runner.decline_quote(run.id, 'declined', now=clock[0])
         self.assertEqual(self.advance(run, now=lambda: clock[0]), 'completed')
-        self.assertLess(runner.active_ms(self.refresh(run)), runner.MAX_ACTIVE_MS)
+        self.assertLess(limits.active_ms(self.refresh(run)), limits.MAX_ACTIVE_MS)
 
     def test_time_spent_in_steps_reaches_the_time_bound_and_pauses_the_run(self):
         clock = [1_000_000]
 
         def slow():
-            clock[0] += runner.MAX_ACTIVE_MS
+            clock[0] += limits.MAX_ACTIVE_MS
             return [call('list_models', {})]
         self.gemini(slow)
         run = self.start_run()
@@ -907,7 +907,7 @@ class BoundaryTests(RunnerCase):
         clock = [1_000_000]
 
         def slow():
-            clock[0] += runner.MAX_ACTIVE_MS
+            clock[0] += limits.MAX_ACTIVE_MS
             return [call('list_models', {})]
         self.gemini(slow)
         run = self.start_run()

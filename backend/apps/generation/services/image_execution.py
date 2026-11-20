@@ -90,8 +90,10 @@ def task_ended(result, fallback, provider, task_id):
     from apps.integrations.transport import ProviderError
     message = result.get('error') or fallback
     record = result.get('providerError') or provider_errors.capture(provider, phase='task', message=message, task_id=task_id)
+    if record.get('source') == 'veevee':
+        return task_pending()
     error = ProviderError(message, code='task_failed', provider_response=record)
-    error.terminal = record.get('source') != 'veevee'
+    error.terminal = True
     return error
 
 

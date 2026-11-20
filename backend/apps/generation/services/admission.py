@@ -112,9 +112,9 @@ def reap_stale_running_images(*, now=None):
         Q(kind__in=('image', 'video', 'text')))
     # A row that died between the provider's acceptance and its receipt may be billed: keep the marker the delete and retry flows read.
     uncertain = stale.filter(provider_status=SUBMISSION_PENDING).update(
-        status='failed', provider_status=SUBMISSION_UNCERTAIN, updated_at=now,
+        status='failed', provider_status=SUBMISSION_UNCERTAIN, completed_at=now, updated_at=now,
         error='Generation timed out - the server process was interrupted. It may still have been accepted by the provider; check before retrying.')
-    return uncertain + stale.update(status='failed', error='Generation timed out - the server process was interrupted.', updated_at=now)
+    return uncertain + stale.update(status='failed', error='Generation timed out - the server process was interrupted.', completed_at=now, updated_at=now)
 
 
 def queue_position(identifier, *, now=None):

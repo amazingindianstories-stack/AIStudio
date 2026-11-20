@@ -215,9 +215,9 @@ def _execute_admitted(item, *, owner, signal=None, image_execute=None, video_sub
         # provider ending that task (error.terminal) settles it as failed.
         terminal = getattr(error, 'terminal', False) is True
         if expected.task_id and not terminal and item.kind == 'image':
-            # Each deferral is counted (poll_error_count) and aged from the receipt, so a task the provider never
-            # settles ends as failed instead of pinning worker slots; the task id stays for inspection.
-            deferrals = (expected.poll_error_count or 0) + 1
+            # Each exhausted wait is counted (poll_error_count) and every deferral is aged from the receipt, so a task
+            # the provider never settles ends as failed instead of pinning worker slots; the task id stays for inspection.
+            deferrals = (expected.poll_error_count or 0) + (1 if getattr(error, 'code', None) == 'task_pending' else 0)
             age = now_ms() - (expected.submitted_at or expected.created_at or now_ms())
             if age > image_execution.TASK_GIVE_UP_MS or deferrals >= image_execution.TASK_MAX_DEFERRALS:
                 timestamp = now_ms()
