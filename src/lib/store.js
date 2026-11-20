@@ -1357,7 +1357,7 @@ export const useStore = create((set, get) => ({
    * depth job runs on one local worker, so submitting four at once would
    * just queue three of them behind the first with nothing to show for it
    * yet). `inputVideoKey` must already be uploaded — see DepthComposer.jsx's
-   * use of /api/uploads/presign.
+   * use of uploadFileDirect (the resumable /api/uploads/init handshake).
    */
   generateDepthMap: async ({ inputVideoKey, encoder, trackCharacters, originalName }) => {
     if (get().generating) return null;
