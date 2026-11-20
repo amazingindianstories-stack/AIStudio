@@ -32,6 +32,7 @@ import { uploadFileDirect } from "@/lib/client-reference-upload";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
 import { useConfirmedAction } from "./useConfirmedAction";
 import { AssetLightbox } from "./AssetLightbox";
+import { useModalFocus } from "./useModalFocus";
 import { ProgressiveImage } from "./ProgressiveImage";
 
 export const KIND_ICON = {
@@ -93,46 +94,22 @@ export function AssetLibrary() {
     if (open) loadAssets(activeProjectId);
   }, [open, loadAssets, activeProjectId]);
 
+  useModalFocus(dialogRef, { open });
   useEffect(() => {
     if (!open) return undefined;
-    const previousFocus = document.activeElement;
     const dialog = dialogRef.current;
     const hasChildModal = () => Array.from(document.querySelectorAll('[role="dialog"][aria-modal="true"], [role="alertdialog"][aria-modal="true"]'))
       .some((element) => element !== dialog && !element.hidden && element.getClientRects().length > 0);
-    const controls = () => Array.from(dialog?.querySelectorAll('button:not(:disabled), [href], input:not(:disabled):not([type="hidden"]), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])') || [])
-      .filter((element) => !element.closest('[hidden], [inert]') && element.getClientRects().length > 0);
-    const focusFirst = () => (controls()[0] || dialog)?.focus();
-    const frame = requestAnimationFrame(focusFirst);
     const onKeyDown = (event) => {
       if (event.defaultPrevented || hasChildModal()) return;
       if (event.key === "Escape") {
         event.preventDefault();
         if (useStore.getState().editingAsset) setEditing(null);
         else { setOpen(false); setEditing(null); }
-        return;
       }
-      if (event.key !== "Tab") return;
-      const focusable = controls();
-      const first = focusable[0], last = focusable[focusable.length - 1];
-      if (!first) { event.preventDefault(); dialog?.focus(); return; }
-      if (!dialog?.contains(document.activeElement) || (event.shiftKey && document.activeElement === first)) {
-        event.preventDefault();
-        (event.shiftKey ? last : first).focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault(); first.focus();
-      }
-    };
-    const onFocusIn = (event) => {
-      if (!hasChildModal() && !dialog?.contains(event.target)) focusFirst();
     };
     document.addEventListener("keydown", onKeyDown);
-    document.addEventListener("focusin", onFocusIn);
-    return () => {
-      cancelAnimationFrame(frame);
-      document.removeEventListener("keydown", onKeyDown);
-      document.removeEventListener("focusin", onFocusIn);
-      if (previousFocus?.isConnected) previousFocus.focus?.();
-    };
+    return () => document.removeEventListener("keydown", onKeyDown);
   }, [open, setOpen, setEditing]);
 
   return (

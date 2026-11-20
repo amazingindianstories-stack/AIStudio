@@ -44,6 +44,7 @@ import {
 import { canFinalizeDraft } from "@/lib/seedance-finalization";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
 import { useConfirmedAction } from "./useConfirmedAction";
+import { useModalFocus } from "./useModalFocus";
 import {
   hasFullscreenMedia,
   settleFullscreenBeforeMediaMutation,
@@ -290,6 +291,8 @@ export function DetailModal() {
   const [pieceSelection, setPieceSelection] = useState(null);
   const portraitAssets = useStore((s) => s.portraits.items);
   const closingRef = useRef(false);
+  const dialogRef = useRef(null);
+  const openedIdRef = useRef(null);
   const suppressNextNativeFullscreenEscapeRef = useRef(false);
   const escapeCloseTimerRef = useRef(null);
 
@@ -396,6 +399,14 @@ export function DetailModal() {
     }
   }, [setActiveId]);
 
+  // Opening and closing are keyed on the viewer being open, not on which item
+  // it shows; closing returns focus to the card of the item last viewed.
+  if (item) openedIdRef.current = item.id;
+  useModalFocus(dialogRef, {
+    open: Boolean(item),
+    returnFocusEl: () => document.querySelector(`[data-asset-card-id="${openedIdRef.current}"] [data-card-open]`),
+  });
+
   useEffect(() => {
     if (!item) return;
     const onKeyDown = (event) => {
@@ -474,7 +485,12 @@ export function DetailModal() {
             animate={{ opacity: 1, scale: 1, y: 0 }}
             transition={{ duration: reducedMotion ? 0 : 0.18 }}
             onClick={(e) => e.stopPropagation()}
-            className="relative flex h-full w-full flex-col lg:flex-row"
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Generation ${item.filename || String(item.prompt || "").slice(0, 80) || "viewer"}`}
+            tabIndex={-1}
+            className="relative flex h-full w-full flex-col outline-none lg:flex-row"
           >
             {/* media stage */}
             <div className="relative flex min-h-0 min-w-0 flex-1 items-center justify-center p-4 sm:p-8">

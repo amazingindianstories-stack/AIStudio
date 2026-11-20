@@ -1,12 +1,15 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { mediaActionCopy } from "@/lib/media-action-confirmation";
 
 export function useConfirmedAction() {
   const [request, setRequest] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // `cancel` reads busy through a ref so its identity stays stable while the action runs.
+  const busyRef = useRef(false);
+  busyRef.current = busy;
 
   const ask = useCallback((kind, run) => {
     setError("");
@@ -15,10 +18,10 @@ export function useConfirmedAction() {
   }, []);
 
   const cancel = useCallback(() => {
-    if (busy) return;
+    if (busyRef.current) return;
     setRequest(null);
     setError("");
-  }, [busy]);
+  }, []);
 
   const confirm = useCallback(async () => {
     if (!request || busy) return;
