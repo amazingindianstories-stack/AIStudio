@@ -195,12 +195,35 @@ class ResumableUploadTests(TransactionTestCase):
         self.storage.primary.put(expired['key'], PNG, 'image/png', '')
         self.storage.primary.put('assets/legacy-original.png', PNG, 'image/png', '')
         UploadSession.objects.filter(id=expired['uploadId']).update(expires_at=timezone.now()-timedelta(seconds=1))
-        self.assertEqual(cleanup_expired_uploads(self.storage), 1)
+        self.assertEqual(cleanup_expired_uploads(self.storage), {'cleaned': 1, 'failed': 0})
         self.assertTrue(self.storage.exists(ready['key']))
         self.assertTrue(self.storage.exists('assets/legacy-original.png'))
         self.assertFalse(self.storage.exists(expired['key']))
         self.assertEqual(cancel_upload(self.user.id, expired['uploadId'], self.storage)['state'], 'cancelled')
         self.assertCode('UPLOAD_ALREADY_READY', cancel_upload, self.user.id, ready['uploadId'], self.storage)
+
+    def test_cleanup_continues_past_a_failing_row(self):
+        first, _ = self.begin()
+        second, _ = self.begin()
+        for session in (first, second):
+            self.storage.primary.put(session['key'], PNG, 'image/png', '')
+        past = timezone.now() - timedelta(minutes=5)
+        UploadSession.objects.filter(id=first['uploadId']).update(expires_at=past - timedelta(minutes=1))
+        UploadSession.objects.filter(id=second['uploadId']).update(expires_at=past)
+        real = self.storage.primary.delete
+
+        def delete_once_failing(key):
+            if key == first['key']:
+                raise OSError('storage unavailable')
+            return real(key)
+
+        with patch.object(self.storage.primary, 'delete', side_effect=delete_once_failing), self.assertLogs('apps.media.uploads', 'ERROR'):
+            result = cleanup_expired_uploads(self.storage)
+        self.assertEqual(result, {'cleaned': 1, 'failed': 1})
+        self.assertEqual(UploadSession.objects.get(id=second['uploadId']).state, 'cancelled')
+        stuck = UploadSession.objects.get(id=first['uploadId'])
+        self.assertEqual(stuck.state, 'uploading')
+        self.assertGreater(stuck.expires_at, timezone.now())
 
     def test_endpoints_metadata_authenticated_no_store_and_finalize(self):
         token = sign_session(self.user)

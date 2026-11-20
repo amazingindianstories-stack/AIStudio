@@ -10,10 +10,12 @@ from django.test import SimpleTestCase, TransactionTestCase, override_settings
 from PIL import Image
 
 from apps.library.models import GenerationNaming
+from apps.common.leases import now_ms
 from .models import Generation
 from .services import admission, coordinator, executor, video_execution
 from .services.deadline import Cancellation
 from apps.integrations.transport import ProviderError
+from apps.generation import provider_errors
 from .callbacks import extract_task_id, token_matches
 
 
@@ -393,6 +395,62 @@ class ExecutionPersistenceTests(TransactionTestCase):
         item.refresh_from_db()
         self.assertIsNone(item.worker_lease_id)
 
+    def deferred(self, item):
+        from apps.generation.services import image_execution
+
+        def pending(job, **options):
+            raise image_execution.task_pending()
+        outcome = executor.process_generation(item.id, owner='worker', image_execute=pending, heartbeat=False, env={})
+        item.refresh_from_db()
+        return outcome
+
+    def test_kling_task_that_never_settles_is_abandoned_after_the_budget(self):
+        from apps.generation.services import image_execution
+        item = self.job(status='running', model='Kling Image 3.0', task_id='kling-task', submitted_at=now_ms(), cost_cents=7)
+        for count in range(1, image_execution.TASK_MAX_DEFERRALS):
+            self.assertEqual(self.deferred(item)['kind'], 'pending')
+            self.assertEqual((item.status, item.poll_error_count), ('running', count))
+            self.assertIn(item.id, [row.id for row in coordinator.select_due_generations(now=now_ms() + 10000)])
+        self.assertEqual(self.deferred(item)['kind'], 'failed')
+        self.assertEqual((item.status, item.task_id, item.cost_cents, item.provider_status),
+                         ('failed', 'kling-task', 7, 'TASK_ABANDONED'))
+        self.assertEqual(item.error, image_execution.TASK_ABANDONED)
+        self.assertNotIn(item.id, [row.id for row in coordinator.select_due_generations(now=now_ms() + 10 ** 7)])
+
+    def test_transient_poll_errors_defer_an_accepted_image_task_without_counting_toward_abandonment(self):
+        from apps.generation.services import image_execution
+        from apps.integrations.transport import ProviderError
+        item = self.job(status='running', model='Kling Image 3.0', task_id='kling-task', submitted_at=now_ms(), cost_cents=7)
+
+        def outage(job, **options):
+            raise ProviderError('Kling status request failed with 503.', code='provider_http_503')
+        for _ in range(image_execution.TASK_MAX_DEFERRALS + 5):
+            outcome = executor.process_generation(item.id, owner='worker', image_execute=outage, heartbeat=False, env={})
+            item.refresh_from_db()
+            self.assertEqual(outcome['kind'], 'pending')
+            self.assertEqual((item.status, item.task_id, item.cost_cents, item.poll_error_count), ('running', 'kling-task', 7, 0))
+            self.assertIn(item.id, [row.id for row in coordinator.select_due_generations(now=now_ms() + 10000)])
+
+    def test_higgsfield_wait_running_out_counts_as_a_deferral(self):
+        from apps.generation.services import image_execution
+        item = self.job(status='running', model='Higgsfield Soul', task_id='hf-task', submitted_at=now_ms())
+
+        def timed_out(job, **options):
+            raise image_execution.task_ended({'status': 'failed', 'error': 'Higgsfield generation timed out.',
+                'providerError': provider_errors.local('higgsfield', 'timeout', 'Higgsfield generation timed out.',
+                                                       phase='timeout', task_id='hf-task')},
+                'Higgsfield image generation failed.', 'higgsfield', 'hf-task')
+        outcome = executor.process_generation(item.id, owner='worker', image_execute=timed_out, heartbeat=False, env={})
+        item.refresh_from_db()
+        self.assertEqual((outcome['kind'], item.status, item.poll_error_count), ('pending', 'running', 1))
+
+    def test_accepted_image_task_older_than_the_give_up_age_is_abandoned_on_first_deferral(self):
+        from apps.generation.services import image_execution
+        item = self.job(status='running', model='Higgsfield Soul', task_id='hf-task',
+                        submitted_at=now_ms() - image_execution.TASK_GIVE_UP_MS - 1000)
+        self.assertEqual(self.deferred(item)['kind'], 'failed')
+        self.assertEqual((item.status, item.task_id, item.provider_status), ('failed', 'hf-task', 'TASK_ABANDONED'))
+
     def test_partial_video_receipt_survives_process_failure_and_never_resubmits(self):
         item = self.job(kind='video', model='Seedance 2.5', reference_images=['ref'], cost_cents=40)
         submitted=[]
@@ -446,6 +504,33 @@ class ExecutionPersistenceTests(TransactionTestCase):
         self.assertEqual(Generation.objects.get(pk=old.id).status, 'failed')
         self.assertEqual(Generation.objects.filter(pk__in=[active.id, receipt.id, magnific.id], status='running').count(), 3)
         self.assertIn(receipt.id, [item.id for item in coordinator.select_due_generations(now=now)])
+
+    def test_reaper_marks_a_submission_in_flight_as_uncertain(self):
+        now = 2000000
+        flight = self.job(kind='video', model='Seedance 2.5', status='running', updated_at=1, provider_status='SUBMISSION_PENDING')
+        plain = self.job(kind='video', model='Seedance 2.5', status='running', updated_at=1)
+        accepted = self.job(kind='video', model='Seedance 2.5', status='running', updated_at=1, task_id='accepted', provider_status='SUBMISSION_PENDING')
+        self.assertEqual(admission.reap_stale_running_images(now=now), 2)
+        flight.refresh_from_db()
+        self.assertEqual((flight.status, flight.provider_status, flight.task_id), ('failed', 'SUBMISSION_UNCERTAIN', None))
+        self.assertIn('may still have been accepted', flight.error)
+        plain.refresh_from_db()
+        self.assertEqual((plain.status, plain.provider_status), ('failed', None))
+        self.assertNotIn('may still have been accepted', plain.error)
+        self.assertEqual(Generation.objects.get(pk=accepted.id).status, 'running')
+        # History deletion keys on the marker, so an admin cannot delete the evidence.
+        self.assertIn(flight.provider_status, ('SUBMISSION_PENDING', 'SUBMISSION_UNCERTAIN'))
+
+    def test_video_submission_is_marked_pending_until_the_receipt_lands(self):
+        item = self.job(kind='video', model='Seedance 2.5', reference_images=['ref'], cost_cents=40)
+        seen = []
+        def submit(job, *, on_task, **options):
+            seen.append(Generation.objects.get(pk=job.id).provider_status)
+            on_task('accepted-remote', 0, 1)
+            return {'status': 'running', 'task_id': 'accepted-remote'}
+        executor.process_generation(item.id, owner='worker', video_submit=submit, heartbeat=False, env={})
+        item.refresh_from_db()
+        self.assertEqual((seen, item.task_id, item.provider_status), (['SUBMISSION_PENDING'], 'accepted-remote', None))
 
     @override_settings(SEEDANCE_CALLBACK_SECRET='callback-fixture')
     def test_callback_auth_replay_unknown_and_fenced_terminal(self):

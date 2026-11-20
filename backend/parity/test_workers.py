@@ -53,7 +53,7 @@ class WorkerLoopParityTests(ParityCase):
         self.assertFalse(apps.get_model('admin_dashboard', 'AppSetting').objects.filter(key='lease:scheduler:depth').exists())
 
     def test_operational_command_names_keep_safe_report_modes(self):
-        self.assertEqual(self.command('cleanup_uploads'), '0\n')
+        self.assertEqual(self.command('cleanup_uploads'), "{'cleaned': 0, 'failed': 0}\n")
         result = self.scenario('command', {**self.flags, 'BYTEPLUS_ACCESS_KEY_ID': 'fake',
             'BYTEPLUS_SECRET_ACCESS_KEY': 'fake'}, name='portraits_cutover')
         self.assertIn('dry', result['output'].lower())

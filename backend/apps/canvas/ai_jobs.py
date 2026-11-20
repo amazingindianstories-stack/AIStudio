@@ -186,6 +186,7 @@ def submit(actor, board, body, idempotency_key):
         created = {}
 
         def admit(item):
+            ai_allowance.lock(actor.id)
             if not switches.enabled(actor.id, switches.AI):
                 raise JobError(403, 'Create with AI is turned off. Ask an admin to turn it on.', 'AI_DISABLED')
             state = ai_allowance.exceeded(actor.id, item.get('costCents'))

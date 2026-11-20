@@ -250,7 +250,7 @@ export function AgentRunPanel({ view, items, last, synced, findItem, onDecide, o
           <PauseCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-200" />
           <div>
             <p className="text-sm font-medium text-white">{pauseReasonText(paused.reason)}</p>
-            <p>{resumeText(paused.resumeAfter)}</p>
+            <p>{resumeText(paused.resumeAfter, Date.now(), paused.reason)}</p>
           </div>
         </section>
       )}

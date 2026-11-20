@@ -154,6 +154,18 @@ class CoordinatorTests(TransactionTestCase):
             Generation.objects.filter(pk=billed.id).update(status='failed', error='provider 429')
             self.assertIsNotNone(admission.admit_job(next_item.id, now=1000010))
 
+    def test_library_metadata_writes_do_not_reenter_the_spend_window(self):
+        from apps.generation import history_writes
+        now = 100 * 60 * 60 * 1000
+        old = self.job(status='succeeded', model='Nano Banana Pro', cost_cents=140, created_at=now - 2 * 60 * 60 * 1000,
+                       completed_at=now - 2 * 60 * 60 * 1000, updated_at=now - 2 * 60 * 60 * 1000)
+        new = self.job(model='Nano Banana Pro', cost_cents=20, created_at=now)
+        with patch.dict('os.environ', {'GEMINI_SPEND_LIMIT_CENTS': '150', 'FACE_BEST_OF': '2'}), patch.object(history_writes, 'now_ms', return_value=now):
+            history_writes.patch_metadata({'id': str(old.id), 'isFavorite': True})
+            self.assertEqual(Generation.objects.get(pk=old.id).updated_at, now)
+            self.assertEqual(admission.snapshot(new, now=now, best_of=2)['window_cents'], 0)
+            self.assertIsNotNone(admission.admit_job(new.id, now=now))
+
     def test_nano_banana_2_1_shares_the_gemini_spend_window_with_pro(self):
         # One Gemini key, one rolling window in estimator cents: Pro spend holds 2.1 and back.
         pro = self.job(status='succeeded', model='Nano Banana Pro', cost_cents=140)

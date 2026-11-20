@@ -52,11 +52,14 @@ def verify_upload(token):
         return None
 
 # Versioned metadata handshake.
+import logging
 from datetime import timedelta
 from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
 from .storage import FileSystemAdapter, GCSAdapter, MediaNotFoundError
+
+logger = logging.getLogger(__name__)
 
 CHUNK_BYTES = 8 * 1024 * 1024
 LIMITS = {'image-reference': 256*1024*1024, 'portrait': 256*1024*1024,
@@ -416,11 +419,20 @@ def cancel_upload(actor_id, session_id, storage):
 
 
 def cleanup_expired_uploads(storage, *, limit=100):
-    """Bounded orphan collector; READY rows and legacy/catalog objects are excluded."""
-    cleaned = 0
+    """Bounded orphan collector; READY rows and legacy/catalog objects are excluded.
+
+    A row that cannot be cancelled is logged and pushed an hour out so the next sweep moves past it;
+    returns ``{'cleaned': n, 'failed': m}``.
+    """
+    cleaned = failed = 0
     candidates = list(_session_model().objects.filter(state='uploading',
-        finalized_at__isnull=True, expires_at__lte=timezone.now()).values_list('id', 'actor_id')[:limit])
+        finalized_at__isnull=True, expires_at__lte=timezone.now()).order_by('expires_at', 'id').values_list('id', 'actor_id')[:limit])
     for identifier, actor_id in candidates:
-        cancel_upload(actor_id, identifier, storage)
-        cleaned += 1
-    return cleaned
+        try:
+            cancel_upload(actor_id, identifier, storage)
+            cleaned += 1
+        except Exception:
+            failed += 1
+            logger.exception('Expired upload cleanup failed for %s', identifier)
+            _session_model().objects.filter(id=identifier, state='uploading').update(expires_at=timezone.now() + timedelta(hours=1))
+    return {'cleaned': cleaned, 'failed': failed}

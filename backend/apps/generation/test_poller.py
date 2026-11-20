@@ -135,6 +135,21 @@ class PollerTests(TransactionTestCase):
         self.assertIsNone(outcome['item'].candidate_task_ids)
         self.assertEqual(saved[0][0], 'https://fixture.invalid/two.mov')
 
+    def test_best_of_winner_task_id_and_token_cost_are_recorded(self):
+        item = self.job(candidate_task_ids=['second'], reference_images=['/api/media/references/face.png'], cost_cents=80)
+        outputs = {'task-original': {'status': 'succeeded', 'videoUrl': 'https://fixture.invalid/one.mov', 'outputFormat': 'mov', 'totalTokens': 100000},
+                   'second': {'status': 'succeeded', 'videoUrl': 'https://fixture.invalid/two.mov', 'outputFormat': 'mov', 'totalTokens': 50000}}
+        deps = self.deps(get_video=lambda task, **kwargs: outputs[task], read_reference=lambda ref: {'data': 'face'},
+            extract_frame=lambda url: {'data': url}, judge_identity=lambda reference, frame, signal: 95 if 'two' in frame['data'] else 70,
+            pricing=lambda: [{'model': 'Seedance 2.5 · per-token', 'unitCostCents': 640}],
+            save_url=lambda *args: {'url': '/api/media/generations/winner.mov'})
+        outcome = poller.advance(item, dependencies=deps)
+        self.assertEqual(outcome['kind'], 'succeeded')
+        current = outcome['item']
+        self.assertEqual((current.task_id, current.candidate_task_ids), ('second', None))
+        # Both rendered candidates were billed: 100000 + 50000 tokens at 640 per 100000.
+        self.assertEqual((current.cost_cents, current.cost_basis), (96, 'reconciled'))
+
     def test_fenced_concurrent_completion_has_single_winner(self):
         item = self.job()
         barrier = threading.Barrier(2)

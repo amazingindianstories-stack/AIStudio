@@ -3,6 +3,7 @@
 Provider/transport errors stay retryable. Every terminal mutation compares the
 observed task/status/version and, when supplied, worker ownership.
 """
+import math
 import os
 from urllib.parse import urlsplit
 from uuid import uuid4
@@ -322,8 +323,31 @@ def _best_of(item, deps, signal, owner, provider):
         saved = deps.save_url(winner['videoUrl'], video_extension(winner), f'{item.id}/{uuid4().hex}', _metadata(item))
     except Exception as error:
         return _download_error(item, deps, owner, DOWNLOAD_ABANDONED, window_ms=GIVE_UP_MS, error=error)
-    return _terminal(item, {'status': 'succeeded', 'url': saved['url'], 'aspect_ratio': saved.get('aspectRatio') or item.aspect_ratio,
-        'candidate_task_ids': None, 'judge_score': judge_score}, deps, signal, owner, provider)
+    updates = {'status': 'succeeded', 'url': saved['url'], 'aspect_ratio': saved.get('aspectRatio') or item.aspect_ratio,
+        'candidate_task_ids': None, 'judge_score': judge_score}
+    if winner['taskId'] != item.task_id:
+        updates['task_id'] = winner['taskId']       # Finalize and callbacks must name the clip the artist is looking at
+    if (model_definition(item.model) or {}).get('usageCost') == 'seedance-token':
+        updates.update(_best_of_cost(item, winner, succeeded, results, deps))
+    return _terminal(item, updates, deps, signal, owner, provider)
+
+
+def _best_of_cost(item, winner, succeeded, results, deps):
+    """Token cost of every candidate that rendered, once the winner reports its tokens; else the estimate stays.
+
+    Each rendered candidate is billed, so the row's cost is their sum (a candidate without tokens keeps its share of
+    the estimate); candidates that failed or were cancelled add nothing.
+    """
+    pricing = deps.pricing()
+    cost = seedance_token_cost(item.model, winner.get('totalTokens'), bool(item.reference_videos), pricing)
+    if cost is None:
+        return {}
+    share = (item.cost_cents or 0) / len(results)
+    for result in succeeded:
+        if result is not winner:
+            other = seedance_token_cost(item.model, result.get('totalTokens'), bool(item.reference_videos), pricing)
+            cost += math.floor(share + .5) if other is None else other
+    return {'cost_cents': cost, 'cost_basis': 'reconciled'}
 
 
 def advance_magnific(item, *, signal=None, owner=None, dependencies=None):

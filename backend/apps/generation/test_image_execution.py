@@ -8,7 +8,8 @@ from unittest.mock import Mock
 from django.test import SimpleTestCase
 from PIL import Image
 
-from apps.generation.services.image_execution import Dependencies, execute_image, bounded_best_of
+from apps.generation.services.image_execution import Dependencies, execute_image, bounded_best_of, TASK_WAIT_MS
+from apps.integrations.transport import ProviderError
 from apps.generation.services.deadline import Cancellation, QueueExecutionDeadlineError
 from apps.media.storage import MemoryAdapter, StorageService
 
@@ -230,6 +231,21 @@ class ImageExecutionTests(SimpleTestCase):
         self.assertEqual(self.signal.waits, [3000])
         self.assertEqual(self.deps.kling_resolve.call_args.args[0], 'existing')
 
+    def test_kling_task_that_never_settles_is_abandoned_after_the_budget(self):
+        self.kling()
+        self.item.task_id = 'existing'
+        self.deps.kling_resolve = Mock(return_value={'status': 'running'})
+        clock = iter(range(0, 10 ** 6, 200))
+        self.deps.monotonic = lambda: next(clock)
+        callback = Mock()
+        with self.assertRaises(ProviderError) as raised:
+            self.execute(on_task=callback)
+        self.assertEqual(raised.exception.code, 'task_pending')
+        self.assertIsNot(getattr(raised.exception, 'terminal', False), True)
+        self.deps.kling_submit.assert_not_called()
+        callback.assert_not_called()
+        self.assertLess(len(self.signal.waits), TASK_WAIT_MS / 3000 + 1)
+
     def test_receipt_is_recorded_even_if_cancellation_races_submit(self):
         self.kling()
         def accepted(*args, **kwargs):
@@ -250,7 +266,7 @@ class ImageExecutionTests(SimpleTestCase):
         self.execute()
         self.deps.higgsfield_submit.assert_not_called()
         self.deps.assemble.assert_not_called()
-        self.deps.higgsfield_await.assert_called_once_with('existing', signal=self.signal)
+        self.deps.higgsfield_await.assert_called_once_with('existing', TASK_WAIT_MS, signal=self.signal)
         self.assertEqual(self.stored(), png())
 
     def test_explicit_mock_skips_provider(self):

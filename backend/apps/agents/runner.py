@@ -12,8 +12,8 @@ again.
 
 At every step boundary the runner stops if its lease was lost or the worker is stopping (the run goes back to
 ``queued``), honours a cancel request, re-checks the grant, drains the inbox, and checks the limits: ``limits.check_step``
-(the global ``agentsEnabled`` switch, ``agentMaxStepsPerRun``, ``agentMaxRunCostCents`` with model token spend, and the
-user, grant and global daily caps, all read at call time) and the active-time bound. A hit goes through
+(the global ``agentsEnabled`` switch, ``agentMaxStepsPerRun``, the active-time bound, ``agentMaxRunCostCents`` with model
+token spend, and the user, grant and global daily caps, all read at call time). A hit goes through
 ``limits.apply_limit_hit``: the switch or a daily cap always pauses the run, while a per-run bound pauses it the first
 time and ends it the second. A paid call whose price would take the run past its cost bound is not
 sent: it is journaled with a ``COST_LIMIT`` response, and a second such call after the model was told ends the run. A
@@ -34,7 +34,7 @@ import os
 from dataclasses import dataclass
 
 from django.db import transaction
-from django.db.models import F, Q, Sum
+from django.db.models import Q
 
 from apps.authentication.models import User
 from apps.common.leases import now_ms
@@ -54,7 +54,6 @@ from .models import (TERMINAL_RUN_STATUSES, AgentChatAsset, AgentConversation, A
 
 logger = logging.getLogger('veevee.agents')
 
-MAX_ACTIVE_MS = 2 * 60 * 60 * 1000   # time spent in steps; waits for approval, jobs or a limit are not counted
 COST_LIMIT = {'code': 'COST_LIMIT', 'message': 'Nothing was charged: this call would take the run past its spending bound. '
                                                'Suggest a cheaper option or ask the artist.'}
 OVER_DAILY_CAP = {'code': errors.BUDGET_EXCEEDED, 'message': 'Nothing was charged: this call alone costs more than a daily '
@@ -675,13 +674,6 @@ def pending_cents(run, principal, action):
         return 0
 
 
-def active_ms(run):
-    """Time the run spent in its finished steps; a step's ``started_at`` is when its latest attempt began."""
-    spent = AgentRunStep.objects.filter(run_id=run.id, outcome__isnull=False) \
-        .aggregate(total=Sum(F('finished_at') - F('started_at')))['total']
-    return spent or 0
-
-
 def limit_stop(run, hit, *, now):
     """Record a refused step through ``limits.apply_limit_hit``: the switch or a daily cap pauses the run, a per-run
     bound pauses it the first time and ends it ``failed`` with ``error.code`` ``limit`` the second. The status and its
@@ -799,8 +791,6 @@ def advance(run_id, *, lease, stop, now=now_ms):
         hit, refused = step_verdict(run, principal, action, now=now())
         if hit is not None:
             return limit_stop(run, hit, now=now())
-        if active_ms(run) >= MAX_ACTIVE_MS:
-            return pause(run.id, 'time_limit', None, now=now())
         started = start(run, now())
         if started is None:
             return 'finished'

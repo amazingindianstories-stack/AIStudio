@@ -4,12 +4,13 @@ Provider calls reach only ``testsupport.fake_providers`` (``HttpTransport._send`
 """
 import contextlib
 import json
+import threading
 import time
 import uuid
 from unittest.mock import patch
 
 from django.db import connection
-from django.test import SimpleTestCase, TransactionTestCase, override_settings
+from django.test import Client, SimpleTestCase, TransactionTestCase, override_settings
 
 from apps.admin_dashboard import tests as session_fixtures
 from apps.agents import board as board_formats
@@ -635,6 +636,40 @@ class BoardAiAllowanceTests(BoardFixture):
         self.board_row(10)
         self.assertEqual(self.submit({'format': 'stickies', 'prompt': 'ideas'}).status_code, 201)
         self.assertEqual(ai_allowance.status(self.actor_id)['capCents'], 1000)
+
+    def test_concurrent_submissions_cannot_overshoot_the_monthly_allowance(self):
+        from . import ai_allowance
+        self.quote({'format': 'stickies', 'prompt': 'ideas'})  # seeds pricing rows so the threads only contend on the allowance
+        self.set_cap(self.expected_cost('ideas') + self.expected_cost('ideas') // 2)
+        real, barrier, results = ai_allowance.exceeded, threading.Barrier(2, timeout=5), []
+
+        def exceeded_after_both_read(*args, **kwargs):
+            state = real(*args, **kwargs)
+            try:
+                barrier.wait()
+            except threading.BrokenBarrierError:
+                pass
+            return state
+
+        def submit_on_thread(key):
+            client = Client()
+            client.cookies, client.defaults = self.client.cookies, self.client.defaults
+            try:
+                response = client.post(self.base, {'format': 'stickies', 'prompt': 'ideas'}, content_type='application/json',
+                                       HTTP_IDEMPOTENCY_KEY=key)
+                results.append((response.status_code, response.json().get('code')))
+            finally:
+                connection.close()
+
+        # override_settings is process-global: entering it once here, not per thread, keeps the unwind order deterministic.
+        with override_settings(VEEVEE_MEDIA_STORAGE=self.storage), patch.object(ai_allowance, 'exceeded', exceeded_after_both_read):
+            threads = [threading.Thread(target=submit_on_thread, args=(key,)) for key in ('board-key-0001', 'board-key-0002')]
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
+        self.assertEqual(sorted(results, key=lambda item: item[0]), [(201, None), (429, 'AI_ALLOWANCE_REACHED')])
+        self.assertEqual(BoardAiJob.objects.count(), 1)
 
     def test_a_replayed_request_returns_its_job_even_when_the_cap_is_now_reached(self):
         first = self.submit({'format': 'stickies', 'prompt': 'ideas'}).json()['job']

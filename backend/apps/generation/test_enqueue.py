@@ -205,6 +205,11 @@ class EnqueueContractTests(TransactionTestCase):
         base.update(fields)
         return Generation.objects.create(**base)
 
+    def test_final_render_is_built_from_the_best_of_winner_task(self):
+        # A settled best-of draft stores the judged winner's task id (poller._best_of), and Finalize renders that task.
+        winner=self.row(task_id='winner-candidate',candidate_task_ids=None)
+        self.assertEqual(enqueue.build_final(winner,uuid.uuid4())['draftTaskId'],'winner-candidate')
+
     def test_paid_admission_requires_login_before_preparation_or_insertion(self):
         with patch('apps.generation.services.enqueue.prepare_video') as prepare, patch('apps.generation.enqueue_views.magnific.submit_upscale') as submit:
             for path in ['image','video','video/finalize','upscale']:

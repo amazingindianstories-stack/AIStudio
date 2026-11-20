@@ -16,6 +16,7 @@ from apps.generation.realtime import publish_best_effort
 from apps.library.services.naming import assign_generation_naming, same_execution_identity
 from . import admission, coordinator, paid_guard, poller
 from .deadline import Cancellation
+from . import image_execution
 from .video_execution import submit_video
 from . import portrait_prepare
 
@@ -158,6 +159,7 @@ def _execute_admitted(item, *, owner, signal=None, image_execute=None, video_sub
             'submitted_at': timestamp, 'next_poll_at': timestamp + 5000,
             'updated_at': max(timestamp, expected.updated_at + 1)}
         if item.kind == 'video':
+            update['provider_status'] = None      # the receipt ends SUBMISSION_PENDING; the poller owns the status from here
             update['cost_cents'] = math.floor(unit_cost * len(accepted) + .5)
         # Retry only the local receipt write. Provider submission has already
         # succeeded and must never be retried as part of persistence recovery.
@@ -183,6 +185,14 @@ def _execute_admitted(item, *, owner, signal=None, image_execute=None, video_sub
                 if attempt == 2:
                     raise ReceiptPersistenceError('Provider task was accepted but its receipt could not be persisted.') from error
 
+    if item.kind == 'video' and not item.task_id:
+        # Marks the gap between the provider accepting a task and its receipt being written, so the reaper
+        # can tell a row lost inside it from one that never submitted.
+        try:
+            item = expected = _fenced_update(expected, owner, {'provider_status': admission.SUBMISSION_PENDING})
+        except LeaseLost:
+            return {'kind': 'raced'}
+
     # Work errors are caught here. The following success persistence remains
     # outside the catch so a DB failure never becomes a provider-failed row.
     try:
@@ -204,9 +214,28 @@ def _execute_admitted(item, *, owner, signal=None, image_execute=None, video_sub
         # candidates, request cancellation, or local storage failed. Only the
         # provider ending that task (error.terminal) settles it as failed.
         terminal = getattr(error, 'terminal', False) is True
+        if expected.task_id and not terminal and item.kind == 'image':
+            # Each exhausted wait is counted (poll_error_count) and every deferral is aged from the receipt, so a task
+            # the provider never settles ends as failed instead of pinning worker slots; the task id stays for inspection.
+            deferrals = (expected.poll_error_count or 0) + (1 if getattr(error, 'code', None) == 'task_pending' else 0)
+            age = now_ms() - (expected.submitted_at or expected.created_at or now_ms())
+            if age > image_execution.TASK_GIVE_UP_MS or deferrals >= image_execution.TASK_MAX_DEFERRALS:
+                timestamp = now_ms()
+                try:
+                    failed = _fenced_update(expected, owner, {'status': 'failed', 'error': image_execution.TASK_ABANDONED,
+                        'provider_status': 'TASK_ABANDONED', 'poll_error_count': deferrals,
+                        'completed_at': timestamp, 'updated_at': timestamp})
+                except LeaseLost:
+                    return {'kind': 'raced'}
+                bounded_event(failed, phase='accepted_task_recovery', error_code='task_abandoned', persisted=True)
+                publish_best_effort(failed)
+                return {'kind': 'failed', 'item': failed}
+            deferred = {'next_poll_at': now_ms() + 5000, 'poll_error_count': deferrals}
+        else:
+            deferred = {'next_poll_at': now_ms() + 5000}
         if expected.task_id and not terminal:
             try:
-                current = _fenced_update(expected, owner, {'next_poll_at': now_ms() + 5000})
+                current = _fenced_update(expected, owner, deferred)
             except LeaseLost:
                 return {'kind': 'raced'}
             bounded_event(current, phase='accepted_task_recovery', error_code=getattr(error, 'code', 'provider_poll_error'), persisted=True,
@@ -217,9 +246,13 @@ def _execute_admitted(item, *, owner, signal=None, image_execute=None, video_sub
         responses = provider_responses(error, item)
         if getattr(error, 'code', None) == 'moderation' and portrait_prepare.privacy_rejection(str(error), {'error': {'code': getattr(error, 'upstream_code', '')}}) and portrait_prepare.learn_from_rejection(item):
             failure['error'] = portrait_prepare.REJECTED_MESSAGE     # a face the detector missed is now a portrait; Retry sends it as one
+        if item.kind == 'video' and not expected.task_id:
+            failure['provider_status'] = None
         if not terminal and submission_uncertain(error):
             # The provider may have accepted (and billed) this request. Keep the
             # evidence and say so; nothing here ever re-submits automatically.
+            if item.kind == 'video' and not expected.task_id:
+                failure['provider_status'] = admission.SUBMISSION_UNCERTAIN
             failure['error'] = (failure['error'].rstrip('. ') + '. It may still have been accepted by the provider; check before retrying.')
             responses = [*responses, {'uncertainSubmission': True, 'errorType': type(error).__name__, 'recordedAt': now_ms()}]
         if responses:

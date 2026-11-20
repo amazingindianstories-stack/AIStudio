@@ -455,7 +455,7 @@ class HiggsfieldClient:
     def await_job(self,job_id,options=None,signal=None):
         options = {'timeoutMs':options} if isinstance(options,(int,float)) else options or {}
         signal = signal or options.get('signal')
-        deadline = self.now()+(signal.remaining()*1000 if signal else options.get('timeoutMs',1800000))
+        deadline = self.now()+min(signal.remaining()*1000 if signal else 1800000, options.get('timeoutMs',1800000))
         while self.now() < deadline:
             result = self.job_status(job_id,signal)
             if result['status'] in ('succeeded','failed'):
