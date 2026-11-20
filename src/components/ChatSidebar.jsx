@@ -12,6 +12,7 @@ import {
   Pencil,
   Trash2,
 } from "lucide-react";
+import { apiErrorMessage } from "@/lib/api-error";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Dropdown, MenuItem } from "./Dropdown";
@@ -59,6 +60,8 @@ export function ChatSidebar({
   const [overlayOpen, setOverlayOpen] = useState(false);
   const [conversations, setConversations] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const [renamingRowId, setRenamingRowId] = useState(null);
   const [deleteTarget, setDeleteTarget] = useState(null);
   const initializedFor = useRef(null);
@@ -104,36 +107,54 @@ export function ChatSidebar({
     initializedFor.current = scopeKey;
     const requestId = ++requestIdRef.current;
     setLoading(true);
+    setLoadError(null);
     (async () => {
-      const res = await fetch(
-        `/api/agent-conversations?projectId=${encodeURIComponent(activeProjectId)}`,
-        { cache: "no-store" }
-      );
-      const json = await res.json().catch(() => ({}));
-      if (requestIdRef.current !== requestId) return;
-      let list = json.conversations ?? [];
-      if (list.length === 0) {
-        // Lazily create the project's first chat - same
-        // pattern BoardSwitcher.tsx uses for a project's first board.
-        // Without this, a project with no threads yet has nothing to
-        // select, and the feed below shows "Loading chat…" forever with no
-        // way out except manually clicking "+ New chat".
-        const created = await fetch("/api/agent-conversations", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ op: "createConversation", projectId: activeProjectId, name: DEFAULT_NAME }),
-        });
-        const createdJson = await created.json().catch(() => ({}));
+      try {
+        const res = await fetch(
+          `/api/agent-conversations?projectId=${encodeURIComponent(activeProjectId)}`,
+          { cache: "no-store" }
+        );
+        const json = await res.json().catch(() => ({}));
         if (requestIdRef.current !== requestId) return;
-        list = createdJson.conversations ?? [];
-      }
-      setConversations(list);
-      setLoading(false);
-      if (!conversationId || !list.some((c) => c.id === conversationId)) {
-        if (list[0]) onConversationIdChange(list[0].id);
+        if (!res.ok) {
+          initializedFor.current = null;
+          setLoadError(apiErrorMessage(json, res.status, "Could not load chats."));
+          return;
+        }
+        let list = json.conversations ?? [];
+        if (list.length === 0) {
+          // Lazily create the project's first chat - same
+          // pattern BoardSwitcher.tsx uses for a project's first board.
+          // Without this, a project with no threads yet has nothing to
+          // select, and the feed below shows "Loading chat…" forever with no
+          // way out except manually clicking "+ New chat".
+          const created = await fetch("/api/agent-conversations", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ op: "createConversation", projectId: activeProjectId, name: DEFAULT_NAME }),
+          });
+          const createdJson = await created.json().catch(() => ({}));
+          if (requestIdRef.current !== requestId) return;
+          if (!created.ok) {
+            initializedFor.current = null;
+            setLoadError(apiErrorMessage(createdJson, created.status, "Could not create chat."));
+            return;
+          }
+          list = createdJson.conversations ?? [];
+        }
+        setConversations(list);
+        if (!conversationId || !list.some((c) => c.id === conversationId)) {
+          if (list[0]) onConversationIdChange(list[0].id);
+        }
+      } catch {
+        if (requestIdRef.current !== requestId) return;
+        initializedFor.current = null;
+        setLoadError(apiErrorMessage(null, 0, "Could not load chats."));
+      } finally {
+        if (requestIdRef.current === requestId) setLoading(false);
       }
     })();
-  }, [activeProjectId, conversationId, onConversationIdChange]);
+  }, [activeProjectId, conversationId, onConversationIdChange, reloadKey]);
 
   // The Agents header names the open chat, so it follows this list's renames and deletions.
   useEffect(() => { onConversationsChange?.(conversations); }, [conversations, onConversationsChange]);
@@ -275,6 +296,20 @@ export function ChatSidebar({
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto px-2 pb-2">
         {loading ? (
           <p className="px-2 py-2 text-xs text-white/40">Loading…</p>
+        ) : loadError ? (
+          <div role="alert" className="px-2 py-2 text-xs text-red-300">
+            <p>{loadError}</p>
+            <button
+              type="button"
+              onClick={() => {
+                initializedFor.current = null;
+                setReloadKey((k) => k + 1);
+              }}
+              className="mt-1.5 rounded border border-white/15 px-2 py-0.5 text-white/80 hover:border-white/30 hover:text-white"
+            >
+              Retry
+            </button>
+          </div>
         ) : conversations.length === 0 ? (
           <p className="px-2 py-2 text-xs text-white/40">
             {activeProjectId ? "No chats yet." : "Pick a project to start chatting."}
