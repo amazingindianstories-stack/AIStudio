@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import tempfile
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import patch
 from uuid import uuid4
@@ -54,7 +55,7 @@ class TieredDerivativeTests(SimpleTestCase):
         # Large studio PNGs (20-50+ MB, >20 MP) must be eligible
         self.assertGreaterEqual(MAX_INPUT_BYTES, 64 * 1024 * 1024)
         self.assertGreaterEqual(MAX_PIXELS, 40_000_000)
-        self.assertEqual(DERIVATIVE_CACHE_CONTROL, 'public, max-age=31536000, immutable')
+        self.assertEqual(DERIVATIVE_CACHE_CONTROL, 'private, max-age=31536000, immutable')
 
     def test_single_read_generates_all_tiers_and_leaves_master_untouched(self):
         adapter = MemoryAdapter()
@@ -105,19 +106,19 @@ class TieredDerivativeTests(SimpleTestCase):
             t1 = threading.Thread(target=worker, args=(256,))
             t1.start()
             self.assertTrue(entered.wait(timeout=5))
-            t2 = threading.Thread(target=worker, args=(512,))
-            t2.start()
-            threading.Event().wait(0.05)
+            started = time.monotonic()
+            worker(512)
+            self.assertLess(time.monotonic() - started, 1)
             release.set()
             t1.join(timeout=10)
-            t2.join(timeout=10)
 
         self.assertEqual(opens, 1)
-        targets = sorted(r[0] for r in results)
-        self.assertEqual(targets, [
-            'thumbs/256/canvas/b1/race.png.webp',
-            'thumbs/512/canvas/b1/race.png.webp',
-        ])
+        self.assertEqual(results[0], ('canvas/b1/race.png', None))
+        self.assertEqual(results[1][0], 'thumbs/256/canvas/b1/race.png.webp')
+        self.assertEqual(
+            bounded_derivative(storage, 'canvas/b1/race.png', 512),
+            ('thumbs/512/canvas/b1/race.png.webp', None),
+        )
 
 
 class BoardThumbnailEndToEndTests(TransactionTestCase):

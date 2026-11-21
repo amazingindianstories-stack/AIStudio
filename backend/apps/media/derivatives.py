@@ -7,8 +7,8 @@ masters intact.
 
 Uses libvips (pyvips) sequential streaming to decode large 20-100 MB masters in
 bounded memory and build all missing tiers from a single read of the original.
-Per-key in-flight deduplication and a bounded multi-slot semaphore prevent
-thundering herds from falling back to multi-megabyte master PNGs.
+Per-key in-flight deduplication and a small non-blocking semaphore keep request
+threads free: a busy or duplicate request falls back to the original at once.
 """
 import io
 import os
@@ -21,7 +21,6 @@ THUMB_WIDTHS = (256, 512, 1280)
 MAX_INPUT_BYTES = 128 * 1024 * 1024
 MAX_PIXELS = 80_000_000
 READ_DEADLINE_SECONDS = 20
-GATE_WAIT_SECONDS = 8.0
 IMAGE_TYPES = {
     'image/png',
     'image/jpeg',
@@ -33,16 +32,16 @@ IMAGE_TYPES = {
     'image/heic',
     'image/heif',
 }
-DERIVATIVE_CACHE_CONTROL = 'public, max-age=31536000, immutable'
+DERIVATIVE_CACHE_CONTROL = 'private, max-age=31536000, immutable'
 READY_UPLOAD_PREFIXES = (
     'uploads/image-reference/',
     'uploads/canvas/',
     'uploads/material/',
     'uploads/portrait/',
 )
-_GATE = threading.BoundedSemaphore(4)
+_GATE = threading.BoundedSemaphore(2)
 _INFLIGHT_LOCK = threading.Lock()
-_INFLIGHT = {}
+_INFLIGHT = set()
 
 _TIER_QUALITY = {256: 72, 512: 75, 1280: 78}
 
@@ -219,29 +218,17 @@ def bounded_derivative(storage, key, width, *, encode=encode_display, gate=_GATE
     if seconds <= 0:
         return key, None
 
-    default_gate = gate is _GATE
-    inflight_event = None
     is_owner = False
-
-    if default_gate:
+    if gate is _GATE:
         with _INFLIGHT_LOCK:
-            existing = _INFLIGHT.get(key)
-            if existing is None:
-                inflight_event = threading.Event()
-                _INFLIGHT[key] = inflight_event
-                is_owner = True
-            else:
-                inflight_event = existing
-        if not is_owner:
-            inflight_event.wait(timeout=min(seconds, GATE_WAIT_SECONDS))
-            return (derivative, None) if storage.exists(derivative) else (key, None)
+            if key in _INFLIGHT:
+                return key, None
+            _INFLIGHT.add(key)
+            is_owner = True
 
     acquired = False
     try:
-        if default_gate:
-            acquired = gate.acquire(timeout=min(seconds, GATE_WAIT_SECONDS))
-        else:
-            acquired = gate.acquire(blocking=False)
+        acquired = gate.acquire(blocking=False)
         if not acquired:
             return key, None
 
@@ -279,6 +266,4 @@ def bounded_derivative(storage, key, width, *, encode=encode_display, gate=_GATE
             gate.release()
         if is_owner:
             with _INFLIGHT_LOCK:
-                if _INFLIGHT.get(key) is inflight_event:
-                    _INFLIGHT.pop(key, None)
-            inflight_event.set()
+                _INFLIGHT.discard(key)
