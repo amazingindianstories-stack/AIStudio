@@ -23,7 +23,7 @@ import { useDirectMediaUrl } from "@/lib/media-resolver";
 
 // Asset panel thumbnails render at a small fixed panel width; request the
 // smallest matching tier (256px WebP) and resolve direct storage URLs in batch.
-const PANEL_THUMB_WIDTH = 256;
+const PANEL_THUMB_WIDTH = 320;
 import { useStore } from "@/lib/store";
 import { useHistoryQuery } from "@/lib/use-history-query";
 import { Dropdown, MenuItem } from "@/components/Dropdown";

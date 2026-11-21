@@ -78,7 +78,7 @@ export const ImageNode = memo(function ImageNode({
 
   const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
   const currentTier = displayed && displayed.nodeSrc === node.src ? displayed.tier : undefined;
-  const rawDesiredTier = selectImageTier({
+  const selectedTier = selectImageTier({
     renderedW,
     zoom: viewport?.zoom ?? 1,
     dpr,
@@ -86,6 +86,7 @@ export const ImageNode = memo(function ImageNode({
     cropMode,
     currentTier,
   });
+  const rawDesiredTier = viewport || selectedTier !== null ? selectedTier : 1280;
 
   // Debounce tier changes while zooming rapidly, but apply initial tier immediately.
   const [debouncedTier, setDebouncedTier] = useState(rawDesiredTier);

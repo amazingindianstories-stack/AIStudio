@@ -14,6 +14,7 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from django.core.management import call_command
+from apps.canvas.media_files import DERIVATIVES
 from django.test import SimpleTestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 from PIL import Image
@@ -180,6 +181,7 @@ class BoardThumbnailEndToEndTests(TransactionTestCase):
                 content_type='application/json',
             )
         self.assertEqual(resp.status_code, 200, resp.content)
+        DERIVATIVES.submit(lambda: None).result(timeout=30)
         stored_key = resp.json()['url'][len('/api/media/'):]
         self.assertEqual(self.storage.read(stored_key), master)
         for width in THUMB_WIDTHS:

@@ -5,9 +5,11 @@ Only pixel derivatives are published for SVG/PSD. Video bytes are copied unchang
 """
 import re
 import tempfile
+import threading
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
 from django.conf import settings
 from django.db import transaction
@@ -24,6 +26,8 @@ RASTER_TYPES = {'image/svg+xml', 'image/vnd.adobe.photoshop', 'image/x-photoshop
 MAX_PIXELS = 40_000_000
 MAX_PAGES = 200
 MAX_ATTEMPTS = 3
+DERIVATIVES = ThreadPoolExecutor(max_workers=1, thread_name_prefix='board-derivatives')
+_DERIVATIVE_GATE = threading.BoundedSemaphore(1)
 EXTENSIONS = {**{mime: ext for ext, mime in MIME.items()}, 'application/pdf': 'pdf',
               'audio/ogg': 'ogg', 'audio/mp4': 'm4a', 'audio/webm': 'webm'}
 
@@ -67,11 +71,18 @@ def register(actor, board_id, source_key, content_type, name, reference_id=None)
             copy_to(storage, source_key, key, content_type)
             row.key, row.state = key, 'ready'
             row.save(update_fields=['key', 'state'])
+            if content_type.startswith('image/'):
+                transaction.on_commit(lambda: DERIVATIVES.submit(derive_tiers, storage, key))
         except Exception:
             row.state, row.error = 'failed', 'Could not store this file. Upload it again.'
             row.save(update_fields=['state', 'error'])
             raise
     return row
+
+
+def derive_tiers(storage, key):
+    from apps.media.derivatives import THUMB_WIDTHS, bounded_derivative
+    bounded_derivative(storage, key, THUMB_WIDTHS[0], gate=_DERIVATIVE_GATE)
 
 
 def copy_to(storage, source, target, mime, *, generate_thumbs=False):
