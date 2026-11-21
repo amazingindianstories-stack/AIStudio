@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { IMAGE_LOAD_OVERSCAN_PX, imageLoadVisibility, selectImageTier, tierRank } from "./image-lod.js";
+import { IMAGE_LOAD_OVERSCAN_PX, imageLoadVisibility, imageViewportKey, selectImageTier, tierRank } from "./image-lod.js";
 
 test("selectImageTier chooses smallest WebP tier covering physical pixels and swaps to full above 1280px", () => {
   // Zoomed-out overview: 320px node at 0.15x zoom => 48px physical => 256 tier
@@ -75,4 +75,28 @@ test("imageLoadVisibility separates viewport, load overscan, and far-cull nodes 
 
 test("tierRank orders tiers from smallest thumbnail to full original", () => {
   assert.deepEqual([256, 512, 1280, null].map(tierRank), [0, 1, 2, 3]);
+});
+
+test("imageViewportKey stays equal across pans and zooms that keep a node's visibility and tier band", () => {
+  const node = { x: 0, y: 0, w: 320, h: 200 };
+  const size = { w: 1600, h: 900 };
+  const key = (viewport) => imageViewportKey(node, viewport, size);
+  const base = key({ x: 0, y: 0, zoom: 0.5 });
+  assert.equal(key({ x: -40, y: 25, zoom: 0.5 }), base);
+  assert.equal(key({ x: 0, y: 0, zoom: 0.55 }), base);
+  assert.notEqual(key({ x: 0, y: 0, zoom: 1 }), base);
+  assert.notEqual(key({ x: -100000, y: 0, zoom: 0.5 }), base);
+  assert.notEqual(key(null), base);
+  for (const zoom of [0.1, 0.3, 0.6, 0.85, 1.5, 3, 5]) {
+    for (const nearZoom of [zoom * 0.98, zoom * 1.02]) {
+      if (key({ x: 0, y: 0, zoom }) === key({ x: 0, y: 0, zoom: nearZoom })) {
+        for (const currentTier of [undefined, 256, 512, 1280, null]) {
+          assert.equal(
+            selectImageTier({ renderedW: 320, zoom, currentTier }),
+            selectImageTier({ renderedW: 320, zoom: nearZoom, currentTier })
+          );
+        }
+      }
+    }
+  }
 });

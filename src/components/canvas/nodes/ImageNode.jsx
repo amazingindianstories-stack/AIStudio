@@ -5,7 +5,7 @@ import { ImageOff, Loader2, Check, RotateCcw, X } from "lucide-react";
 
 import { thumbUrl } from "@/lib/utils";
 import { nodeRotation, rotatePoint } from "@/lib/canvas/geometry";
-import { imageLoadVisibility, selectImageTier } from "@/lib/canvas/image-lod";
+import { imageLoadVisibility, imageViewportKey, selectImageTier } from "@/lib/canvas/image-lod";
 import { requestCanvasImageSlot } from "@/lib/canvas/image-loader";
 import { cachedDirectUrl, forgetDirectUrl, isResolvable, requestDirectUrl } from "@/lib/media-resolver";
 
@@ -349,4 +349,17 @@ export const ImageNode = memo(function ImageNode({
       )}
     </div>
   );
-});
+}, imageNodePropsEqual);
+
+function viewportKey(props) {
+  const crop = props.cropMode ? (props.cropDraft ?? { zoom: 1 }) : (props.node.crop ?? { zoom: 1 });
+  const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
+  return imageViewportKey(props.node, props.viewport, props.viewportSize, { cropZoom: crop.zoom, dpr });
+}
+
+export function imageNodePropsEqual(prev, next) {
+  for (const key of new Set([...Object.keys(prev), ...Object.keys(next)])) {
+    if (key !== "viewport" && key !== "viewportSize" && !Object.is(prev[key], next[key])) return false;
+  }
+  return viewportKey(prev) === viewportKey(next);
+}

@@ -107,3 +107,23 @@ export function imageLoadVisibility(node, viewport, size, overscanPx = IMAGE_LOA
 
   return { shouldLoad, inViewport, distanceSq: dx * dx + dy * dy };
 }
+
+
+/**
+ * Everything an image node derives from the viewport, reduced to the values that
+ * can change what it loads: visibility and which tier/hysteresis band it is in.
+ * Equal keys mean a pan or zoom cannot change the node's image.
+ */
+export function imageViewportKey(node, viewport, size, { cropZoom = 1, dpr = 1 } = {}) {
+  if (!viewport) return "none";
+  const { shouldLoad, inViewport } = imageLoadVisibility(node, viewport, size);
+  const naturalW = node.naturalW || node.w;
+  const naturalH = node.naturalH || node.h;
+  const renderedW = naturalW * Math.max(node.w / naturalW, node.h / naturalH) * cropZoom;
+  const zoom = Number.isFinite(viewport.zoom) && viewport.zoom > 0 ? viewport.zoom : 1;
+  const physicalPx = renderedW * zoom * Math.min(Math.max(Number(dpr) || 1, 1), 2);
+  const band =
+    [256, 512, 1280].filter((edge) => physicalPx > edge).length +
+    [DOWNGRADE_FROM_1280_PX, DOWNGRADE_FROM_FULL_PX].filter((edge) => physicalPx >= edge).length;
+  return `${shouldLoad ? 1 : 0}${inViewport ? 1 : 0}:${band}`;
+}

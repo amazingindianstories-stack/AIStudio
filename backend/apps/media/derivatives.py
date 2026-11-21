@@ -10,7 +10,7 @@ bounded memory and build all missing tiers from a single read of the original.
 Per-key in-flight deduplication and a small non-blocking semaphore keep request
 threads free: a busy or duplicate request falls back to the original at once.
 """
-import io
+import logging
 import os
 import tempfile
 import threading
@@ -43,11 +43,7 @@ _GATE = threading.BoundedSemaphore(2)
 _INFLIGHT_LOCK = threading.Lock()
 _INFLIGHT = set()
 
-try:
-    from pyvips.error import Error as _VipsError
-except Exception:
-    _VipsError = OSError
-_PYVIPS_FALLBACK = (ImportError, OSError, _VipsError)
+logger = logging.getLogger(__name__)
 
 _TIER_QUALITY = {256: 72, 512: 75, 1280: 78}
 
@@ -79,9 +75,17 @@ def ready_upload_is_image(key):
     )
 
 
-def _encode_tiers_pyvips(path, widths):
-    import pyvips
+def _pyvips():
+    try:
+        import pyvips
+    except (ImportError, OSError) as exc:
+        raise RuntimeError('Display derivatives require libvips (pyvips); none were written') from exc
+    return pyvips
 
+
+def encode_tiers_from_file(path, widths=THUMB_WIDTHS):
+    """Decode one staged image file and encode all requested WebP widths in descending order."""
+    pyvips = _pyvips()
     header = pyvips.Image.new_from_file(str(path), access='sequential')
     if not 0 < header.width * header.height <= MAX_PIXELS:
         raise ValueError('Display derivative pixel bound')
@@ -98,60 +102,22 @@ def _encode_tiers_pyvips(path, widths):
     return results
 
 
-def _encode_tiers_pillow(source, widths):
-    from PIL import Image, ImageOps
-
-    ordered = sorted(set(widths), reverse=True)
-    with Image.open(source) as raw:
-        if not 0 < raw.width * raw.height <= MAX_PIXELS:
-            raise ValueError('Display derivative pixel bound')
-        if raw.format not in ('PNG', 'JPEG', 'WEBP', 'GIF', 'TIFF', 'BMP', 'AVIF', 'HEIF'):
-            raise ValueError('Display derivative image format')
-        raw.load()
-        current = ImageOps.exif_transpose(raw)
-        if current.mode not in ('RGB', 'RGBA'):
-            current = current.convert('RGBA' if 'A' in current.getbands() else 'RGB')
-        results = {}
-        for target in ordered:
-            if current.width > target:
-                current = current.resize(
-                    (target, max(1, round(current.height * target / current.width))),
-                    Image.Resampling.LANCZOS,
-                )
-            out = io.BytesIO()
-            current.save(out, format='WEBP', quality=_quality_for(target), method=2)
-            results[target] = out.getvalue()
-        return results
-
-
-def encode_tiers_from_file(path, widths=THUMB_WIDTHS):
-    """Decode one staged image file and encode all requested WebP widths in descending order."""
-    try:
-        return _encode_tiers_pyvips(path, widths)
-    except _PYVIPS_FALLBACK:
-        return _encode_tiers_pillow(str(path), widths)
-
-
 def encode_tiers_from_bytes(data, widths=THUMB_WIDTHS):
     """Encode all requested WebP widths from in-memory image bytes."""
     if not data:
         raise ValueError('Empty image buffer')
-    try:
-        import pyvips
-
-        header = pyvips.Image.new_from_buffer(data, '', access='sequential')
-        if not 0 < header.width * header.height <= MAX_PIXELS:
-            raise ValueError('Display derivative pixel bound')
-        ordered = sorted(set(widths), reverse=True)
-        current = pyvips.Image.thumbnail_buffer(data, ordered[0], height=10_000_000, size='down').copy_memory()
-        results = {}
-        for target in ordered:
-            if current.width > target:
-                current = current.thumbnail_image(target, height=10_000_000, size='down')
-            results[target] = bytes(current.write_to_buffer('.webp', Q=_quality_for(target), effort=2))
-        return results
-    except _PYVIPS_FALLBACK:
-        return _encode_tiers_pillow(io.BytesIO(data), widths)
+    pyvips = _pyvips()
+    header = pyvips.Image.new_from_buffer(data, '', access='sequential')
+    if not 0 < header.width * header.height <= MAX_PIXELS:
+        raise ValueError('Display derivative pixel bound')
+    ordered = sorted(set(widths), reverse=True)
+    current = pyvips.Image.thumbnail_buffer(data, ordered[0], height=10_000_000, size='down').copy_memory()
+    results = {}
+    for target in ordered:
+        if current.width > target:
+            current = current.thumbnail_image(target, height=10_000_000, size='down')
+        results[target] = bytes(current.write_to_buffer('.webp', Q=_quality_for(target), effort=2))
+    return results
 
 
 def encode_display(data, width):
@@ -265,6 +231,9 @@ def bounded_derivative(storage, key, width, *, encode=encode_display, gate=_GATE
                 return (derivative, None) if storage.exists(derivative) else (key, None)
         finally:
             staged.unlink(missing_ok=True)
+    except RuntimeError:
+        logger.exception('Display derivative failed for %s', key)
+        return key, None
     except Exception:
         return key, None
     finally:
