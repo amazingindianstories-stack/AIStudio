@@ -100,3 +100,26 @@ test("imageViewportKey stays equal across pans and zooms that keep a node's visi
     }
   }
 });
+
+test("imageViewportKey and selectImageTier agree at every tier and downgrade edge, including crop mode", () => {
+  const node = { x: 0, y: 0, w: 100, h: 100 };
+  const size = { w: 1600, h: 900 };
+  const edges = [256, 280, 512, 960, 1280];
+  const pxs = edges.flatMap((edge) => [edge - 1, edge - 0.001, edge, edge + 0.001, edge + 1]);
+  for (const cropMode of [false, true]) {
+    for (const a of pxs) {
+      for (const b of pxs) {
+        const keyA = imageViewportKey(node, { x: 0, y: 0, zoom: a / 100 }, size, { cropMode });
+        const keyB = imageViewportKey(node, { x: 0, y: 0, zoom: b / 100 }, size, { cropMode });
+        if (keyA !== keyB) continue;
+        for (const currentTier of [undefined, 256, 512, 1280, null]) {
+          assert.equal(
+            selectImageTier({ renderedW: 100, zoom: a / 100, cropMode, currentTier }),
+            selectImageTier({ renderedW: 100, zoom: b / 100, cropMode, currentTier }),
+            `${a} vs ${b} crop=${cropMode} current=${currentTier}`
+          );
+        }
+      }
+    }
+  }
+});

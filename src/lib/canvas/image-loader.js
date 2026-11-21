@@ -34,7 +34,15 @@ function compareEntries(a, b) {
   return a.distanceSq - b.distanceSq;
 }
 
+function refresh(entry) {
+  if (!entry.priority) return;
+  const next = entry.priority();
+  entry.inViewport = Boolean(next.inViewport);
+  if (Number.isFinite(next.distanceSq)) entry.distanceSq = next.distanceSq;
+}
+
 function drain(pool) {
+  if (pool.active < pool.limit) pool.waiting.forEach(refresh);
   while (pool.active < pool.limit && pool.waiting.length > 0) {
     let bestIndex = 0;
     for (let i = 1; i < pool.waiting.length; i += 1) {
@@ -48,13 +56,16 @@ function drain(pool) {
 }
 
 /**
- * Request a load slot for one canvas image. Returns `{ acquired, updatePriority, cancel }`.
+ * Request a load slot for one canvas image. Returns `{ acquired, cancel }`.
+ * `priority`, when given, is re-read whenever the queue drains so waiting entries
+ * follow the current viewport without their components re-rendering.
  */
 export function requestCanvasImageSlot({
   tier = 512,
   inViewport = true,
   isUpgrade = false,
   distanceSq = 0,
+  priority = null,
 } = {}) {
   const pool = poolFor(tier);
   let activeRelease = null;
@@ -66,6 +77,7 @@ export function requestCanvasImageSlot({
       inViewport: Boolean(inViewport),
       isUpgrade: Boolean(isUpgrade),
       distanceSq: Number.isFinite(distanceSq) ? distanceSq : 0,
+      priority,
       start: () => {
         entry = null;
         pool.active += 1;
@@ -81,6 +93,7 @@ export function requestCanvasImageSlot({
       },
     };
 
+    refresh(entry);
     if (pool.active < pool.limit) {
       entry.start();
     } else {
@@ -90,14 +103,6 @@ export function requestCanvasImageSlot({
 
   return {
     acquired,
-    updatePriority: (patch) => {
-      if (!entry) return;
-      if (patch.inViewport !== undefined) entry.inViewport = Boolean(patch.inViewport);
-      if (patch.isUpgrade !== undefined) entry.isUpgrade = Boolean(patch.isUpgrade);
-      if (patch.distanceSq !== undefined && Number.isFinite(patch.distanceSq)) {
-        entry.distanceSq = patch.distanceSq;
-      }
-    },
     cancel: () => {
       if (entry) {
         const index = pool.waiting.indexOf(entry);

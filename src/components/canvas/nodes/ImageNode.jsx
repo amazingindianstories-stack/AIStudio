@@ -7,6 +7,7 @@ import { thumbUrl } from "@/lib/utils";
 import { nodeRotation, rotatePoint } from "@/lib/canvas/geometry";
 import { imageLoadVisibility, imageViewportKey, selectImageTier } from "@/lib/canvas/image-lod";
 import { requestCanvasImageSlot } from "@/lib/canvas/image-loader";
+import { useCanvasStore } from "@/lib/canvas-store";
 import { cachedDirectUrl, forgetDirectUrl, isResolvable, requestDirectUrl } from "@/lib/media-resolver";
 
 const RETRY_DELAYS_MS = [750, 2_000, 5_000];
@@ -53,7 +54,6 @@ export const ImageNode = memo(function ImageNode({
   const retryTimer = useRef(null);
   const attemptTimer = useRef(null);
   const releaseSlot = useRef(null);
-  const slotHandle = useRef(null);
   const cropDrag = useRef(null);
   const mountedRef = useRef(true);
 
@@ -74,7 +74,6 @@ export const ImageNode = memo(function ImageNode({
   const rawVisibility = imageLoadVisibility(node, viewport, viewportSize);
   const shouldLoad = cropMode || rawVisibility.shouldLoad;
   const inViewport = cropMode || rawVisibility.inViewport;
-  const distanceSq = cropMode ? 0 : rawVisibility.distanceSq;
 
   const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
   const currentTier = displayed && displayed.nodeSrc === node.src ? displayed.tier : undefined;
@@ -103,12 +102,14 @@ export const ImageNode = memo(function ImageNode({
 
   const targetTier = hasLoadedOnce ? debouncedTier : rawDesiredTier;
 
-  // Keep queued priority fresh during pans without restarting the load effect.
-  const priorityRef = useRef({ inViewport, distanceSq });
-  priorityRef.current = { inViewport, distanceSq };
-  useEffect(() => {
-    slotHandle.current?.updatePriority({ inViewport, distanceSq });
-  }, [inViewport, distanceSq]);
+  const liveRef = useRef(null);
+  liveRef.current = { node, viewportSize, cropMode, hasViewport: Boolean(viewport) };
+  const livePriority = useCallback(() => {
+    const live = liveRef.current;
+    if (live.cropMode) return { inViewport: true, distanceSq: 0 };
+    const current = live.hasViewport ? useCanvasStore.getState().history?.present?.viewport : null;
+    return imageLoadVisibility(live.node, current, live.viewportSize);
+  }, []);
 
   // Reset per-source state when node.src changes.
   useEffect(() => {
@@ -137,7 +138,6 @@ export const ImageNode = memo(function ImageNode({
     attemptTimer.current = null;
     releaseSlot.current?.();
     releaseSlot.current = null;
-    slotHandle.current = null;
   }, []);
 
   const alreadyAtTarget = displayed?.nodeSrc === node.src && displayed.tier === targetTier;
@@ -152,11 +152,9 @@ export const ImageNode = memo(function ImageNode({
     const isUpgrade = displayed?.nodeSrc === node.src;
     const request = requestCanvasImageSlot({
       tier: targetTier,
-      inViewport: priorityRef.current.inViewport,
       isUpgrade,
-      distanceSq: priorityRef.current.distanceSq,
+      priority: livePriority,
     });
-    slotHandle.current = request;
 
     const armTimeout = () => {
       if (attemptTimer.current != null) window.clearTimeout(attemptTimer.current);
@@ -164,7 +162,6 @@ export const ImageNode = memo(function ImageNode({
         if (cancelled) return;
         releaseSlot.current?.();
         releaseSlot.current = null;
-        slotHandle.current = null;
         setPending(null);
         if (retry >= RETRY_DELAYS_MS.length) {
           if (!isUpgrade) setFailed(true);
@@ -203,13 +200,12 @@ export const ImageNode = memo(function ImageNode({
     return () => {
       cancelled = true;
       request.cancel();
-      if (slotHandle.current === request) slotHandle.current = null;
       if (attemptTimer.current != null) window.clearTimeout(attemptTimer.current);
       attemptTimer.current = null;
       releaseSlot.current?.();
       releaseSlot.current = null;
     };
-  }, [shouldLoad, node.src, targetTier, retry, alreadyAtTarget, displayed?.nodeSrc]);
+  }, [shouldLoad, node.src, targetTier, retry, alreadyAtTarget, displayed?.nodeSrc, livePriority]);
 
   const promotePending = useCallback(
     (entry, imgElement) => {
@@ -354,7 +350,7 @@ export const ImageNode = memo(function ImageNode({
 function viewportKey(props) {
   const crop = props.cropMode ? (props.cropDraft ?? { zoom: 1 }) : (props.node.crop ?? { zoom: 1 });
   const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
-  return imageViewportKey(props.node, props.viewport, props.viewportSize, { cropZoom: crop.zoom, dpr });
+  return imageViewportKey(props.node, props.viewport, props.viewportSize, { cropZoom: crop.zoom, dpr, cropMode: props.cropMode });
 }
 
 export function imageNodePropsEqual(prev, next) {

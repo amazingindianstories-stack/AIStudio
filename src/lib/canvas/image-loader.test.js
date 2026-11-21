@@ -95,3 +95,23 @@ test("cancelling a queued request removes it without starving later waiters", as
   blockers.slice(1).forEach((r) => r());
   __resetCanvasImageLoader();
 });
+
+test("waiting entries re-read live priority so a pan reorders the queue without re-rendering", async () => {
+  __resetCanvasImageLoader();
+  const blockers = [];
+  for (let i = 0; i < MAX_CONCURRENT_THUMB_LOADS; i += 1) {
+    blockers.push(await requestCanvasImageSlot({ tier: 256 }).acquired);
+  }
+  let panned = false;
+  const order = [];
+  const near = requestCanvasImageSlot({ tier: 256, distanceSq: 10, priority: () => ({ inViewport: true, distanceSq: panned ? 9000 : 10 }) });
+  const far = requestCanvasImageSlot({ tier: 256, distanceSq: 9000, priority: () => ({ inViewport: true, distanceSq: panned ? 10 : 9000 }) });
+  const done = [["near", near], ["far", far]].map(([name, req]) => req.acquired.then((release) => { order.push(name); return release; }));
+  panned = true;
+  blockers.shift()();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepEqual(order, ["far"]);
+  blockers.forEach((release) => release());
+  (await Promise.all(done)).forEach((release) => release());
+});
