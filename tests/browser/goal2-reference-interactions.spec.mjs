@@ -170,7 +170,9 @@ test('Goal2 33MiB attachment uses bounded binary chunks and small init finalize 
   const displayed = await page.locator('[data-reference-id] img').getAttribute('src');
   const thumbnail = await context.request.get(displayed);
   expect(thumbnail.ok()).toBeTruthy();
-  const stored = await context.request.get(displayed.replace(/[?&]w=\d+/, ''));
+  const master = new URL(displayed, baseURL);
+  master.searchParams.delete('w');
+  const stored = await context.request.get(master.toString());
   expect(stored.ok()).toBeTruthy();
   expect(createHash('sha256').update(await stored.body()).digest('hex')).toBe(createHash('sha256').update(buffer).digest('hex'));
   await testInfo.attach('sanitized-upload-boundaries', { body: JSON.stringify(boundaries, null, 2), contentType: 'application/json' });
