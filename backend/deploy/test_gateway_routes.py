@@ -145,6 +145,51 @@ class ProductionRouteTableTests(SimpleTestCase):
                     conn.close()
         self.assertEqual(seen, ['/api/media/uploads/a%20b.png', '/api/%6dedia/x.png', '/api/admin/work%73pace'])
 
+    def test_only_media_derivatives_are_pinned(self):
+        upstream_cache = {
+            '/api/media/thumbs/512/canvas/b/a.png.webp': 'private, max-age=31536000, immutable',
+            '/api/media/canvas/b/a.png?inline=1': 'private, no-store',
+            '/api/media/canvas/b/odd.png': 'public, max-age=31536000, immutable',
+        }
+
+        class Upstream(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                self.send_response(200)
+                self.send_header('Cache-Control', upstream_cache[self.path])
+                self.send_header('Content-Length', '2')
+                self.end_headers()
+                self.wfile.write(b'ok')
+        upstream = ThreadingHTTPServer(('127.0.0.1', 0), Upstream)
+        server = ThreadingHTTPServer(('127.0.0.1', 0), gateway.handler(SECRET))
+        for running in (upstream, server):
+            running.daemon_threads = True
+            self.addCleanup(running.server_close)
+            self.addCleanup(running.shutdown)
+        up_port, port = serve(upstream), serve(server)
+        real = http.client.HTTPConnection
+
+        def connection(host, target, *args, **kwargs):
+            return real(host, up_port if target == 18080 else target, *args, **kwargs)
+        seen = {}
+        with patch.object(http.client, 'HTTPConnection', connection):
+            for path in upstream_cache:
+                conn = real('127.0.0.1', port, timeout=10)
+                try:
+                    conn.request('GET', path, headers={gateway.HEADER: SECRET})
+                    response = conn.getresponse()
+                    response.read()
+                    seen[path] = response.getheader('Cache-Control')
+                finally:
+                    conn.close()
+        self.assertEqual(seen, {
+            '/api/media/thumbs/512/canvas/b/a.png.webp': 'private, max-age=31536000, immutable',
+            '/api/media/canvas/b/a.png?inline=1': 'no-store',
+            '/api/media/canvas/b/odd.png': 'no-store',
+        })
+
     def test_provider_routes_need_paid_routes_but_admin_routes_do_not(self):
         for path in ('/api/audio/transcribe', f'/api/agent-conversations/{ID}/transcribe', f'/api/agent-conversations/{ID}/runs',
                      f'/api/agent-conversations/{ID}/runs/{ID}/approve'):

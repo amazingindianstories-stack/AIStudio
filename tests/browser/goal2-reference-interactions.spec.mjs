@@ -166,7 +166,13 @@ test('Goal2 33MiB attachment uses bounded binary chunks and small init finalize 
   expect(chunks.length).toBeGreaterThan(1);
   expect(chunks.reduce((sum, request) => sum + request.bytes, 0)).toBe(buffer.length);
   expect(chunks.every(request => request.bytes <= 8 * 1024 * 1024 && request.range?.startsWith('bytes '))).toBeTruthy();
-  const stored = await context.request.get(await page.locator('[data-reference-id] img').getAttribute('src'));
+  // The strip renders a width-bounded derivative; the stored master keeps the uploaded bytes.
+  const displayed = await page.locator('[data-reference-id] img').getAttribute('src');
+  const thumbnail = await context.request.get(displayed);
+  expect(thumbnail.ok()).toBeTruthy();
+  const master = new URL(displayed, baseURL);
+  master.searchParams.delete('w');
+  const stored = await context.request.get(master.toString());
   expect(stored.ok()).toBeTruthy();
   expect(createHash('sha256').update(await stored.body()).digest('hex')).toBe(createHash('sha256').update(buffer).digest('hex'));
   await testInfo.attach('sanitized-upload-boundaries', { body: JSON.stringify(boundaries, null, 2), contentType: 'application/json' });

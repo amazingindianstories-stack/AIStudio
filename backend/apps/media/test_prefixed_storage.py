@@ -1,7 +1,8 @@
 """PrefixedGCSAdapter: namespaced writes, legacy-compatible reads, signed URL cache."""
 import io
 from django.test import SimpleTestCase
-from .storage import MediaNotFoundError, PrefixedGCSAdapter
+from unittest.mock import patch
+from .storage import GCSAdapter, MediaNotFoundError, PrefixedGCSAdapter
 
 PREFIX = 'private-namespace-0001/'
 
@@ -96,3 +97,20 @@ class PrefixedStorageTests(SimpleTestCase):
         self.assertEqual(client.signed, 1)
         adapter._read_cache.clear()
         self.assertNotEqual(adapter.browser_url('generated/a.png'), first)
+
+    def test_browser_url_signs_and_probes_outside_the_cache_lock(self):
+        client, adapter = self.adapter()
+        client.objects[PREFIX + 'generated/b.png'] = (b'b', 'image/png')
+        held = []
+        read_key, sign = adapter.read_key, GCSAdapter.signed_read_url
+
+        def probe(key):
+            held.append(adapter._read_cache_lock.locked())
+            return read_key(key)
+
+        def signed(self_, key, seconds):
+            held.append(adapter._read_cache_lock.locked())
+            return sign(self_, key, seconds)
+        with patch.object(adapter, 'read_key', probe), patch.object(GCSAdapter, 'signed_read_url', signed):
+            self.assertIn(PREFIX + 'generated/b.png', adapter.browser_url('generated/b.png'))
+        self.assertEqual(held, [False, False])

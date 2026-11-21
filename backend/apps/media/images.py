@@ -45,7 +45,12 @@ def save_canvas_asset(data_url, board_id=None):
 
 
 def is_thumbnailable(key):
-    return not key.startswith('thumbs/') and key.rsplit('.', 1)[-1].lower() in ('png','jpg','jpeg','webp','gif')
+    return (
+        isinstance(key, str)
+        and not key.startswith('thumbs/')
+        and '.' in key.rsplit('/', 1)[-1]
+        and key.rsplit('.', 1)[-1].lower() in ('png', 'jpg', 'jpeg', 'webp', 'gif', 'avif', 'tiff', 'bmp', 'heic', 'heif')
+    )
 
 
 def thumb_key(key, width):
@@ -53,26 +58,23 @@ def thumb_key(key, width):
 
 
 def thumbnail_bytes(data, width):
-    from PIL import Image
-    with Image.open(io.BytesIO(data)) as image:
-        if image.width * image.height > 40_000_000:
-            raise ValueError('Image exceeds pixel limit')
-        image.load()
-        target = min(width, image.width)
-        image = image.resize((target, max(1, round(image.height*target/image.width))), Image.Resampling.LANCZOS)
-        output = io.BytesIO()
-        image.save(output, format='WEBP', quality=75)
-        return output.getvalue()
+    from .derivatives import encode_display
+    return encode_display(data, width)
 
 
 def write_thumbnails(data, key, *, storage=None):
     if not is_thumbnailable(key):
         return
+    from .derivatives import DERIVATIVE_CACHE_CONTROL, THUMB_WIDTHS, encode_tiers_from_bytes
     storage = storage or get_storage()
-    for width in (512, 1280):
+    encoded = encode_tiers_from_bytes(data, THUMB_WIDTHS)
+    for width, payload in encoded.items():
         derivative = validate_key(thumb_key(key, width))
-        storage.primary.put(derivative, thumbnail_bytes(data, width), 'image/webp',
-                            'public, max-age=31536000, immutable')
+        put = getattr(storage.primary, 'put_create_only', None)
+        if put is not None:
+            put(derivative, payload, 'image/webp', DERIVATIVE_CACHE_CONTROL)
+        else:
+            storage.primary.put(derivative, payload, 'image/webp', DERIVATIVE_CACHE_CONTROL)
 
 
 def save_reference_images(inputs, identifier):

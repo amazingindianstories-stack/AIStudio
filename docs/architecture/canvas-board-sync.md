@@ -110,6 +110,17 @@ copy, export, fit, minimap, search, jump-to-object and AI placement read the who
 What a diagram hides (`hiddenBoardIds`: a hidden diagram layer, or everything outside a diagram in Focus
 mode) is never mounted, even when selected (`../features/board-diagramming.md`).
 
+Mounting a node is not loading its image. `src/lib/canvas/image-lod.js` holds the zoom-aware
+level-of-detail rule: an image node fetches and keeps a decoded bitmap only while it is inside the
+viewport grown by 180 screen pixels, and it asks for the smallest derivative tier (256, 512 or 1280 px
+WebP) that covers its drawn size in physical pixels, falling back to the untouched master once that
+exceeds 1280 px or while cropping closely. Zoom-out downgrades are hysteretic, so panning and pinching
+never churn between tiers. `src/lib/canvas/image-loader.js` queues those fetches: visible before
+prefetched, first paint before upgrade, smaller tier first, then nearest the viewport centre, with
+masters in a separate small pool so a 20-50 MB original cannot starve the thumbnails around it. The
+tiers are the backend's (`backend/apps/media/derivatives.py`); a board whose images predate them loads
+masters until `manage.py backfill_thumbnails` has run for it (`../features/board-media.md`).
+
 ## Local drafts (`src/lib/canvas-pending-draft.js`)
 
 Every save attempt and every page hide or unmount stores the unacknowledged graph in localStorage with its

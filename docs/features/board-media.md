@@ -16,6 +16,13 @@ format v1 node type (`audio`, `video`, `pdf`, `embed`, `linkcard`, `code`, `emoj
   generation worker, one file at a time per process (`backend/apps/canvas/media_files.py`). SVG and PSD
   publish only a PNG; a PDF keeps its original and adds one PNG per page (at most 200 pages of 40
   megapixels). A job that fails three claims is marked failed.
+- Every stored raster image also gets create-only WebP display derivatives at 256, 512 and 1280 px
+  (`backend/apps/media/derivatives.py`), built with libvips from one read of the master and written
+  under `thumbs/<width>/<key>.webp`. Masters are never rewritten. Board uploads generate them in the
+  background once the row commits; `GET /api/media/<key>?w=<px>` serves the smallest tier that covers
+  the request and falls back to the master when none exists yet. Images stored before this existed
+  need `python backend/manage.py backfill_thumbnails --board <board-uuid>` (idempotent, `--dry-run`
+  reports what is missing) before that board loads at tiered speed.
 - Upload via URL (`POST /api/canvas-boards/<id>/import-url`) fetches a public HTTPS address with the SSRF
   guarded fetcher. An HTML page becomes a link card with its title, description, preview image and
   favicon (stored as PNG, cached for an hour); a file goes through the same path as an upload, with an
