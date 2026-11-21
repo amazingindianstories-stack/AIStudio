@@ -43,6 +43,12 @@ _GATE = threading.BoundedSemaphore(2)
 _INFLIGHT_LOCK = threading.Lock()
 _INFLIGHT = set()
 
+try:
+    from pyvips.error import Error as _VipsError
+except Exception:
+    _VipsError = OSError
+_PYVIPS_FALLBACK = (ImportError, OSError, _VipsError)
+
 _TIER_QUALITY = {256: 72, 512: 75, 1280: 78}
 
 
@@ -122,7 +128,7 @@ def encode_tiers_from_file(path, widths=THUMB_WIDTHS):
     """Decode one staged image file and encode all requested WebP widths in descending order."""
     try:
         return _encode_tiers_pyvips(path, widths)
-    except (ImportError, OSError):
+    except _PYVIPS_FALLBACK:
         return _encode_tiers_pillow(str(path), widths)
 
 
@@ -144,7 +150,7 @@ def encode_tiers_from_bytes(data, widths=THUMB_WIDTHS):
                 current = current.thumbnail_image(target, height=10_000_000, size='down')
             results[target] = bytes(current.write_to_buffer('.webp', Q=_quality_for(target), effort=2))
         return results
-    except (ImportError, OSError):
+    except _PYVIPS_FALLBACK:
         return _encode_tiers_pillow(io.BytesIO(data), widths)
 
 

@@ -59,6 +59,7 @@ import { markSystemClipboard } from "@/lib/canvas/use-board-clipboard";
 import { layeredView } from "@/lib/canvas/layers";
 import { lockedIdSet } from "@/lib/canvas/locks";
 import { NodeView, } from "./nodes/NodeView";
+import { BoardImageLightbox } from "./BoardImageLightbox";
 import { ConnectorLayer } from "./ConnectorLayer";
 import { CanvasContextMenu, } from "./CanvasContextMenu";
 import { ArrangeOverlay, AutoLayoutHandle } from "./ArrangeOverlay";
@@ -269,6 +270,7 @@ export const CanvasSurface = forwardRef
 (function CanvasSurface({ toolLocked, onAfterSingleShotPlace, boardId, onTransientChange, onImportFiles, touchViewOnly = false }, ref) {
   const containerRef = useRef(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
+  const [lightboxNode, setLightboxNode] = useState(null);
 
   const loaded = useCanvasStore((s) => s.loaded);
   const boardState = useCanvasStore((s) => s.history.present);
@@ -382,6 +384,11 @@ export const CanvasSurface = forwardRef
       y: viewport.y + size.h / 2 / viewport.zoom,
     }),
     focusBoard: () => containerRef.current?.focus(),
+    openImageLightbox: () => {
+      if (selectedNodes.length !== 1 || selectedNodes[0].type !== "image") return false;
+      setLightboxNode(selectedNodes[0]);
+      return true;
+    },
     // Cmd/Ctrl+Enter: the right-click menu, opened at the selection's center.
     openContextMenuAtSelection: () => {
       const rect = containerRef.current?.getBoundingClientRect();
@@ -955,7 +962,11 @@ export const CanvasSurface = forwardRef
     e.stopPropagation();
     // Touch double taps are recognised in onPointerDownCapture; the dblclick
     // the browser synthesises for them must not run this a second time.
-    if (readOnly || touchViewOnly || touchRef.current.lastPointerType === "touch") return;
+    if (touchRef.current.lastPointerType === "touch") return;
+    if (readOnly || touchViewOnly) {
+      if (node.type === "image") setLightboxNode(node);
+      return;
+    }
     const action = doubleTapAction(node, { viewOnly: false, readOnly });
     if (action !== "zoom") openNodeEditor(node, action);
   };
@@ -1597,6 +1608,8 @@ export const CanvasSurface = forwardRef
         preciseMarquee={arrange.preciseMarquee}
         disabled={touchViewOnly}
       />
+
+      {lightboxNode && <BoardImageLightbox node={lightboxNode} onClose={() => setLightboxNode(null)} />}
 
       {contextMenu && (
         <CanvasContextMenu

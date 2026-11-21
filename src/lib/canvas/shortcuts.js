@@ -272,11 +272,12 @@ const SHORTCUTS = [
   {
     id: "nav.enter", board: true,
     group: "Navigate",
-    label: "Go into a frame or group, or edit text",
+    label: "Go into a frame or group, edit text, or view an image full size",
     keys: ["Enter"],
     run: (ctx) => {
       const ids = enterContainer(present(ctx), ctx.store.selection);
       if (ids) return ctx.select(ids);
+      if (ctx.openSelectedImage?.()) return true;
       return ctx.editSelectedText();
     },
   },

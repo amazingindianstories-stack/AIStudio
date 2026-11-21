@@ -6,6 +6,7 @@
  */
 
 import { nodeBounds } from "./geometry";
+import { cullRect } from "./culling";
 
 /** Backend derivative widths (must stay aligned with apps.media.derivatives.THUMB_WIDTHS). */
 export const IMAGE_THUMB_TIERS = [256, 512, 1280];
@@ -91,25 +92,16 @@ export function imageLoadVisibility(node, viewport, size, overscanPx = IMAGE_LOA
   if (!viewport || !Number.isFinite(viewport.zoom) || viewport.zoom <= 0) {
     return { shouldLoad: true, inViewport: true, distanceSq: 0 };
   }
-  const sw = size && size.w > 0 ? size.w : 1600;
-  const sh = size && size.h > 0 ? size.h : 900;
   const b = node.rotation ? nodeBounds(node) : node;
-  const left = viewport.x;
-  const top = viewport.y;
-  const right = viewport.x + sw / viewport.zoom;
-  const bottom = viewport.y + sh / viewport.zoom;
-
-  const inViewport = b.x + b.w >= left && b.x <= right && b.y + b.h >= top && b.y <= bottom;
-  const margin = overscanPx / viewport.zoom;
+  const screen = { w: size && size.w > 0 ? size.w : 1600, h: size && size.h > 0 ? size.h : 900 };
+  const view = cullRect(viewport, screen, 0);
+  const near = cullRect(viewport, screen, overscanPx);
+  const inViewport = b.x + b.w >= view.left && b.x <= view.right && b.y + b.h >= view.top && b.y <= view.bottom;
   const shouldLoad =
-    inViewport ||
-    (b.x + b.w >= left - margin &&
-      b.x <= right + margin &&
-      b.y + b.h >= top - margin &&
-      b.y <= bottom + margin);
+    inViewport || (b.x + b.w >= near.left && b.x <= near.right && b.y + b.h >= near.top && b.y <= near.bottom);
 
-  const vcx = left + sw / (2 * viewport.zoom);
-  const vcy = top + sh / (2 * viewport.zoom);
+  const vcx = (view.left + view.right) / 2;
+  const vcy = (view.top + view.bottom) / 2;
   const dx = (b.x + b.w / 2 - vcx) * viewport.zoom;
   const dy = (b.y + b.h / 2 - vcy) * viewport.zoom;
 

@@ -1,14 +1,13 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Code2, ImageUp, Layers, Link2, Maximize2, Pencil, RotateCw, Trash2 } from "lucide-react";
+import { Code2, ImageUp, Layers, Link2, Pencil, RotateCw, Trash2 } from "lucide-react";
 import { useCanvasStore, selectReadOnly } from "@/lib/canvas-store";
 import { cn } from "@/lib/utils";
 import { extractPdfPages, renameMedia, replaceImage, setObjectLink } from "@/lib/canvas/media-actions";
 import { uploadBoardFile } from "@/lib/canvas/media-upload";
 import { ICON_COLORS } from "@/lib/canvas/icon-set";
 import { CodeDialog } from "./MediaMenu";
-import { BoardImageLightbox } from "./BoardImageLightbox";
 
 const BUTTON = "flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs text-white/75 outline-none hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-brand";
 const FIELD = "h-8 rounded-lg border border-line bg-ink-800 px-2 text-xs text-white outline-none placeholder:text-white/25 focus:border-brand/40";
@@ -29,11 +28,9 @@ export function MediaSelectionBar({ hidden, boardId, notify }) {
   const fileRef = useRef(null);
   const [linkOpen, setLinkOpen] = useState(false);
   const [codeOpen, setCodeOpen] = useState(false);
-  const [lightboxOpen, setLightboxOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  if (hidden || !node || node.type === "frame" || node.type === "stack") return null;
-  if (readOnly && node.type !== "image") return null;
-  const titled = !readOnly && ["video", "audio", "pdf", "embed"].includes(node.type);
+  if (hidden || readOnly || !node || node.type === "frame" || node.type === "stack") return null;
+  const titled = ["video", "audio", "pdf", "embed"].includes(node.type);
   const updateFields = useCanvasStore.getState().updateNodeFields;
 
   const replace = async (file) => {
@@ -71,18 +68,11 @@ export function MediaSelectionBar({ hidden, boardId, notify }) {
       )}
       {node.type === "image" && (
         <>
-          <button type="button" className={BUTTON} onClick={() => setLightboxOpen(true)}>
-            <Maximize2 className="h-3.5 w-3.5" /> View full size
+          <button type="button" className={BUTTON} disabled={busy} onClick={() => fileRef.current?.click()}>
+            <ImageUp className="h-3.5 w-3.5" /> {busy ? "Replacing…" : "Replace image"}
           </button>
-          {!readOnly && (
-            <>
-              <button type="button" className={BUTTON} disabled={busy} onClick={() => fileRef.current?.click()}>
-                <ImageUp className="h-3.5 w-3.5" /> {busy ? "Replacing…" : "Replace image"}
-              </button>
-              <input ref={fileRef} type="file" accept="image/*,.psd" className="hidden" aria-label="Replacement image" tabIndex={-1}
-                onChange={(e) => { replace(e.target.files?.[0]); e.target.value = ""; }} />
-            </>
-          )}
+          <input ref={fileRef} type="file" accept="image/*,.psd" className="hidden" aria-label="Replacement image" tabIndex={-1}
+            onChange={(e) => { replace(e.target.files?.[0]); e.target.value = ""; }} />
         </>
       )}
       {node.type === "pdf" && (
@@ -117,16 +107,11 @@ export function MediaSelectionBar({ hidden, boardId, notify }) {
           ))}
         </div>
       )}
-      {!readOnly && (
-        <button type="button" className={cn(BUTTON, node.link && "text-brand")} aria-expanded={linkOpen} onClick={() => setLinkOpen((v) => !v)}>
-          <Link2 className="h-3.5 w-3.5" /> {node.link ? "Edit link" : "Add link"}
-        </button>
-      )}
-      {!readOnly && linkOpen && <LinkEditor key={node.id} node={node} onDone={() => setLinkOpen(false)} notify={notify} />}
-      {!readOnly && codeOpen && <CodeDialog node={node} onClose={() => setCodeOpen(false)} />}
-      {lightboxOpen && node.type === "image" && (
-        <BoardImageLightbox node={node} onClose={() => setLightboxOpen(false)} />
-      )}
+      <button type="button" className={cn(BUTTON, node.link && "text-brand")} aria-expanded={linkOpen} onClick={() => setLinkOpen((v) => !v)}>
+        <Link2 className="h-3.5 w-3.5" /> {node.link ? "Edit link" : "Add link"}
+      </button>
+      {linkOpen && <LinkEditor key={node.id} node={node} onDone={() => setLinkOpen(false)} notify={notify} />}
+      {codeOpen && <CodeDialog node={node} onClose={() => setCodeOpen(false)} />}
     </div>
   );
 }

@@ -64,7 +64,7 @@ def register(actor, board_id, source_key, content_type, name, reference_id=None)
         storage = get_storage()
         key = f'canvas/{board_id}/{row.id}.{EXTENSIONS.get(content_type, "bin")}'
         try:
-            copy_to(storage, source_key, key, content_type, generate_thumbs=content_type.startswith('image/'))
+            copy_to(storage, source_key, key, content_type)
             row.key, row.state = key, 'ready'
             row.save(update_fields=['key', 'state'])
         except Exception:

@@ -18,7 +18,10 @@ from .storage import get_storage, MediaNotFoundError, InvalidMediaRangeError, Fi
 from .uploads import (verify_upload, initialize_upload,
     upload_status, finalize_upload, stream_local_chunk, cancel_upload, UploadError)
 from .images import is_thumbnailable, thumb_key
-from .derivatives import bounded_derivative, derivative_step, ready_upload_is_image
+from .derivatives import DERIVATIVE_CACHE_CONTROL, bounded_derivative, derivative_step, ready_upload_is_image
+
+
+MASTER_CACHE_CONTROL = 'private, max-age=300, must-revalidate'
 
 
 def _body(request):
@@ -33,7 +36,7 @@ def _cookie_valid(request):
     return lookup(request) is not None
 
 
-def _stream_response(media, *, head=False, cache='private, max-age=31536000, immutable', disposition=None):
+def _stream_response(media, *, cache, head=False, disposition=None):
     if head:
         media.stream.close()
         response = HttpResponse(status=media.status, content_type=media.content_type)
@@ -123,7 +126,7 @@ def media(request, path):
         if fresh:
             response = HttpResponse(fresh,content_type='image/webp')
             response['Content-Length'] = str(len(fresh))
-            response['Cache-Control'] = 'private, max-age=31536000, immutable'
+            response['Cache-Control'] = DERIVATIVE_CACHE_CONTROL
             response['X-Content-Type-Options'] = 'nosniff'
             return response
         direct = storage.browser_url(target) if request.GET.get('inline') != '1' else None
@@ -132,7 +135,8 @@ def media(request, path):
         media = storage.open(target,request.headers.get('Range'))
         # Active document types never render on the app origin; rasters, video and audio stream inline unchanged.
         active = (media.content_type or '').split(';')[0].strip().lower() in ACTIVE_CONTENT_TYPES
-        return _stream_response(media, disposition='attachment' if active else None)
+        return _stream_response(media, disposition='attachment' if active else None,
+                                cache=DERIVATIVE_CACHE_CONTROL if target != key else MASTER_CACHE_CONTROL)
     except MediaNotFoundError:
         return HttpResponse('Not Found',status=404)
     except InvalidMediaRangeError:

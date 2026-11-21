@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Download, Loader2, X, ZoomIn, ZoomOut } from "lucide-react";
 import { useDirectMediaUrl } from "@/lib/media-resolver";
 import { inlineMediaUrl } from "@/lib/utils";
+import { useModalFocus } from "@/components/useModalFocus";
 
 /**
  * Full-resolution lightbox for inspecting a board image at native quality.
@@ -22,23 +23,15 @@ export function BoardImageLightbox({ node, onClose }) {
     setActualSize(false);
   }, [node?.src]);
 
-  useEffect(() => {
-    if (!node) return undefined;
-    const onKeyDown = (event) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        onClose();
-      }
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [node, onClose]);
+  const dialogRef = useRef(null);
+  useModalFocus(dialogRef, { open: Boolean(node), onClose });
 
   if (!node || typeof document === "undefined") return null;
 
   return createPortal(
     <div
+      ref={dialogRef}
+      tabIndex={-1}
       role="dialog"
       aria-modal="true"
       aria-label={node.alt ? `Full resolution view: ${node.alt}` : "Full resolution image"}

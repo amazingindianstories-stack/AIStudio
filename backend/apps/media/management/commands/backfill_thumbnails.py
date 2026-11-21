@@ -10,6 +10,7 @@ Examples:
 """
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
+import threading
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 from django.db import close_old_connections
@@ -44,7 +45,7 @@ def extract_board_image_keys(data, cdn_url=''):
     return keys
 
 
-def backfill_key(storage, key, *, widths=THUMB_WIDTHS, dry_run=False):
+def backfill_key(storage, key, *, gate, widths=THUMB_WIDTHS, dry_run=False):
     """Ensure all derivative tiers exist for ``key``. Returns 'skipped', 'generated', 'missing_tier', or 'failed'."""
     try:
         missing = [w for w in widths if not storage.exists(derivative_key(key, w))]
@@ -52,7 +53,7 @@ def backfill_key(storage, key, *, widths=THUMB_WIDTHS, dry_run=False):
             return 'skipped'
         if dry_run:
             return 'missing_tier'
-        target, _ = bounded_derivative(storage, key, missing[0])
+        target, _ = bounded_derivative(storage, key, missing[0], gate=gate)
         if target == key:
             return 'failed'
         return 'generated'
@@ -109,15 +110,16 @@ class Command(BaseCommand):
                 break
 
         storage = get_storage()
+        gate = threading.BoundedSemaphore(workers)
         counts = {'boards': board_count, 'keys': len(keys), 'skipped': 0, 'generated': 0, 'missing_tier': 0, 'failed': 0}
 
         if workers == 1 or len(keys) <= 1:
             for key in keys:
-                status = backfill_key(storage, key, dry_run=dry_run)
+                status = backfill_key(storage, key, gate=gate, dry_run=dry_run)
                 counts[status] += 1
         else:
             with ThreadPoolExecutor(max_workers=workers) as pool:
-                futures = [pool.submit(backfill_key, storage, key, dry_run=dry_run) for key in keys]
+                futures = [pool.submit(backfill_key, storage, key, gate=gate, dry_run=dry_run) for key in keys]
                 for future in as_completed(futures):
                     status = future.result()
                     counts[status] += 1
