@@ -230,7 +230,7 @@ class BoardThumbnailEndToEndTests(TransactionTestCase):
 
             # Re-running is idempotent and skips everything
             second_out = io.StringIO()
-            call_command('backfill_thumbnails', projects=[str(project_id)], workers=2, stdout=second_out)
+            call_command('backfill_thumbnails', boards=[str(board_id)], workers=2, stdout=second_out)
             second = json.loads(second_out.getvalue())
             self.assertEqual((second['keys'], second['skipped'], second['generated']), (2, 2, 0))
 

@@ -21,7 +21,6 @@ from .images import is_thumbnailable, thumb_key
 from .derivatives import DERIVATIVE_CACHE_CONTROL, bounded_derivative, derivative_step, ready_upload_is_image
 
 
-MASTER_CACHE_CONTROL = 'private, max-age=300, must-revalidate'
 
 
 def _body(request):
@@ -136,7 +135,7 @@ def media(request, path):
         # Active document types never render on the app origin; rasters, video and audio stream inline unchanged.
         active = (media.content_type or '').split(';')[0].strip().lower() in ACTIVE_CONTENT_TYPES
         return _stream_response(media, disposition='attachment' if active else None,
-                                cache=DERIVATIVE_CACHE_CONTROL if target != key else MASTER_CACHE_CONTROL)
+                                cache=DERIVATIVE_CACHE_CONTROL if target != key else 'private, no-store')
     except MediaNotFoundError:
         return HttpResponse('Not Found',status=404)
     except InvalidMediaRangeError:

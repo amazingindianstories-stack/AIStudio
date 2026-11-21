@@ -145,10 +145,10 @@ class ProductionRouteTableTests(SimpleTestCase):
                     conn.close()
         self.assertEqual(seen, ['/api/media/uploads/a%20b.png', '/api/%6dedia/x.png', '/api/admin/work%73pace'])
 
-    def test_media_derivatives_are_pinned_but_masters_revalidate(self):
+    def test_only_media_derivatives_are_pinned(self):
         upstream_cache = {
             '/api/media/thumbs/512/canvas/b/a.png.webp': 'private, max-age=31536000, immutable',
-            '/api/media/canvas/b/a.png?inline=1': 'private, max-age=300, must-revalidate',
+            '/api/media/canvas/b/a.png?inline=1': 'private, no-store',
             '/api/media/canvas/b/odd.png': 'public, max-age=31536000, immutable',
         }
 
@@ -186,7 +186,7 @@ class ProductionRouteTableTests(SimpleTestCase):
                     conn.close()
         self.assertEqual(seen, {
             '/api/media/thumbs/512/canvas/b/a.png.webp': 'private, max-age=31536000, immutable',
-            '/api/media/canvas/b/a.png?inline=1': 'private, max-age=300, must-revalidate',
+            '/api/media/canvas/b/a.png?inline=1': 'no-store',
             '/api/media/canvas/b/odd.png': 'no-store',
         })
 

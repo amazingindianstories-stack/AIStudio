@@ -5,8 +5,7 @@ and never modifies or deletes original masters. Existing derivatives are skipped
 
 Examples:
     python backend/manage.py backfill_thumbnails --board <board-uuid>
-    python backend/manage.py backfill_thumbnails --project <project-uuid> --workers 4
-    python backend/manage.py backfill_thumbnails --all-boards --dry-run
+    python backend/manage.py backfill_thumbnails --board <board-uuid> --workers 4 --dry-run
 """
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
@@ -68,31 +67,19 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument('--board', action='append', dest='boards', default=[], help='CanvasBoard UUID to backfill (repeatable).')
-        parser.add_argument('--project', action='append', dest='projects', default=[], help='Project UUID whose boards to backfill (repeatable).')
-        parser.add_argument('--all-boards', action='store_true', help='Backfill image nodes across all canvas boards.')
         parser.add_argument('--workers', type=int, default=4, help='Concurrent worker threads (1-8, default 4).')
-        parser.add_argument('--limit', type=int, default=0, help='Maximum distinct image keys to process (0 = no limit).')
         parser.add_argument('--dry-run', action='store_true', help='Inspect and report missing thumbnails without writing.')
 
     def handle(self, *args, **options):
         boards = options['boards']
-        projects = options['projects']
         if isinstance(boards, str):
             boards = [boards]
-        if isinstance(projects, str):
-            projects = [projects]
-        all_boards = options['all_boards']
-        if not boards and not projects and not all_boards:
-            raise CommandError('Specify --board <uuid>, --project <uuid>, or --all-boards.')
+        if not boards:
+            raise CommandError('Specify --board <uuid>.')
         workers = max(1, min(8, int(options['workers'])))
-        limit = max(0, int(options['limit']))
         dry_run = bool(options['dry_run'])
 
-        qs = CanvasBoard.objects.all()
-        if boards:
-            qs = qs.filter(id__in=boards)
-        elif projects:
-            qs = qs.filter(project_id__in=projects)
+        qs = CanvasBoard.objects.filter(id__in=boards)
 
         cdn_url = getattr(settings, 'GCP_MEDIA_CDN_URL', '')
         keys = []
@@ -104,10 +91,6 @@ class Command(BaseCommand):
                 if key not in seen:
                     seen.add(key)
                     keys.append(key)
-                    if limit and len(keys) >= limit:
-                        break
-            if limit and len(keys) >= limit:
-                break
 
         storage = get_storage()
         gate = threading.BoundedSemaphore(workers)

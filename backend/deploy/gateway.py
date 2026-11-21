@@ -94,7 +94,7 @@ def allowed(method,path,paid_initial_routes=False,new_exports=False,magnific_ups
     if not path.startswith('/api/') or path.startswith(('/api/generate/','/api/admin/','/api/worker/','/api/workers/','/api/webhooks/','/api/depth/','/api/audio/transcribe','/api/queue/execute')):return False
     if agent_paid(method,path) or method not in ('GET','HEAD') and path.startswith('/api/history/exports'):return False
     return method in ('GET','HEAD','POST','PUT','PATCH','DELETE')
-MEDIA_CACHE_HEADERS=frozenset({'private, max-age=31536000, immutable','private, max-age=300, must-revalidate'})
+MEDIA_CACHE_HEADERS=frozenset({'private, max-age=31536000, immutable'})
 
 def handler(secret,paid_initial_routes=False,new_exports=False,magnific_upscale=False,mode='api'):
     upstream_port,readiness_path=UPSTREAMS[mode]
