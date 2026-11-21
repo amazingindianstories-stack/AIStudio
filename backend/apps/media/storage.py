@@ -468,13 +468,14 @@ class PrefixedGCSAdapter(GCSAdapter):
 
     def browser_url(self, key):
         import time
+        now = time.monotonic()
         with self._read_cache_lock:
-            now = time.monotonic()
             item = self._read_cache.get(key)
             if item and item[0] > now:
                 self._read_cache.move_to_end(key)
                 return item[1]
-            url = super().signed_read_url(self.read_key(key), self.READ_URL_SECONDS)
+        url = super().signed_read_url(self.read_key(key), self.READ_URL_SECONDS)
+        with self._read_cache_lock:
             self._read_cache[key] = (now + self.READ_URL_CACHE_SECONDS, url)
             self._read_cache.move_to_end(key)
             while len(self._read_cache) > self.READ_URL_CACHE_SIZE:

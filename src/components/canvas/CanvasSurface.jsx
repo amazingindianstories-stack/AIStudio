@@ -58,6 +58,7 @@ import { currentUserId, takeStickyFromStack } from "@/lib/canvas/sticky-actions"
 import { markSystemClipboard } from "@/lib/canvas/use-board-clipboard";
 import { layeredView } from "@/lib/canvas/layers";
 import { lockedIdSet } from "@/lib/canvas/locks";
+import * as cropHandlers from "@/lib/canvas/crop-handlers";
 import { NodeView, } from "./nodes/NodeView";
 import { ConnectorLayer } from "./ConnectorLayer";
 import { CanvasContextMenu, } from "./CanvasContextMenu";
@@ -1505,10 +1506,10 @@ export const CanvasSurface = forwardRef
             connectorHoverTarget={connectorHoverTargetId === n.id}
             cropMode={croppingImageId === n.id}
             cropDraft={croppingImageId === n.id ? cropDraft : null}
-            onCropChange={(patch) => useCanvasStore.getState().updateCropDraft(patch)}
-            onApplyCrop={() => useCanvasStore.getState().applyCrop()}
-            onCancelCrop={() => useCanvasStore.getState().cancelCrop()}
-            onResetCrop={() => useCanvasStore.getState().resetCropDraft()}
+            onCropChange={cropHandlers.onCropChange}
+            onApplyCrop={cropHandlers.onApplyCrop}
+            onCancelCrop={cropHandlers.onCancelCrop}
+            onResetCrop={cropHandlers.onResetCrop}
             viewport={viewport}
             viewportSize={size}
           />
