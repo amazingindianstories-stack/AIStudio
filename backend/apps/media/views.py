@@ -21,8 +21,6 @@ from .images import is_thumbnailable, thumb_key
 from .derivatives import DERIVATIVE_CACHE_CONTROL, bounded_derivative, derivative_step, ready_upload_is_image
 
 
-
-
 def _body(request):
     try:
         body = json.loads(request.body)

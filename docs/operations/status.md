@@ -501,7 +501,7 @@ Deployment needs owner approval (gate **A0-depth**).
 | P2.1 Non-skipping updates | PASS | `d768416`. `backend/apps/generation/updates.py`: oldest-first `(updated_at,id)` cursor, `next`/`more`, 30 s commit lag, active rows always included; `src/lib/live-cursor.js` drains pages, backs off on errors, ignores rows stuck >30 min for cadence. Tests: 250 changes in one interval, 150 identical timestamps, late commit, active rows (DB-backed); frontend unit tests. |
 | P2.2 Media/finalize permissions | PASS | `189826a`. READY uploads readable/referencable by any signed-in user (live parity); unready/cancelled/export hidden; upload mutations, portrait registration and ZIP exports owner-only (live parity - those call sites imported the original function). Finalize-for-all. Allow/deny suite `apps/media/test_shared_access_policy.py`. |
 | P2.3 Paid-job safety | PARTIAL | Audit (read-only): **fixed** Gemini re-submits after billed 200/ambiguous 5xx (`ab720df`, `providers/gemini.py`); **fixed** duplicate in-flight finals - finalize serializes on the draft row and reuses a queued/running final, re-finalizing after completion stays allowed per owner (`ab720df`, `enqueue_views.py`); **fixed** ambiguous failures now carry an `uncertainSubmission` marker + artist-facing warning (`82ff6be`). **Fixed (`a1da3c2`):** optional `Idempotency-Key` on enqueue - a re-sent POST returns the first generation (receipt under advisory lock in the insert transaction; concurrent test: 4 POSTs → 1 row). **Open:** orphaned task id after lease loss is not ledgered; Higgsfield preset re-call; duplicate callbacks may re-run best-of judge calls. **Overlay-only protections that must be ported before any overlay removal (P3):** one-shot RESERVED→ATTEMPTING and ATTEMPTING→SUBMITTING DB transitions per POST (stops retry loops and extra best-of POSTs), DB-enforced no-resubmit, endpoint allowlist per active execution, payload limits (candidateCount 1, Seedance MOV, duration ≤15), new-jobs-only reservation, worker RLS. |
-| P2.4 Bounded thumbnails | PASS | `189826a`, `apps/media/derivatives.py` (ported live overlay: 32 MB/20 MP caps, one decoder per process, create-only, fallback to original) + `private, no-store` redirects. |
+| P2.4 Bounded thumbnails | PASS | `189826a`, `apps/media/derivatives.py` (ported live overlay: 32 MB/20 MP caps, one decoder per process, create-only, fallback to original) + `private, no-store` redirects. The caps, tiers and decoder since moved on; `apps/media/derivatives.py` owns the current rule. |
 | P2.5 Canvas durability | PASS | `aaa33ad`. Pending draft per board until server ack; keepalive only < 60 KiB; recovery on reopen. Tests for failed save→unmount→reopen and keepalive sizing. |
 | Live risk noted | - | Production now allows finalize-for-all (owner request) **without** the in-flight dedupe; until the P3 release, a double finalize from two tabs could submit two paid finals. The confirmation dialog mitigates single-tab double clicks. |
 
@@ -518,7 +518,10 @@ and terminated-body wrappers (production called `get_wsgi_application()` directl
 to stdout; API gets `PUBLIC_APP_URL=https://veevee.ai` (F-01) and `DEPTH_WORKER_TOKEN` (F-04).
 **F-05 (to investigate):** depth rows are created without `reserve()`, so under the worker-role
 RLS the scheduler may not see them for depth reconciliation.
-**F-06:** the gateway forces `Cache-Control: no-store` on every response (kept for parity).
+**F-06:** the gateway forces `Cache-Control: no-store` on every response (kept for parity), with one
+exception: a `GET`/`HEAD` 200 under `/api/media/` whose upstream header is exactly
+`private, max-age=31536000, immutable` keeps that header, so immutable WebP derivative bytes are
+cached by the browser. Masters, redirects and every other route still get `no-store`.
 
 ## Incident 2026-10-13 10:27–10:33 UTC - failed Seedance jobs
 Investigated read-only. Jobs `f0d8c76f`, `423ac2b7` (and `e0f57d0b` with the same references) carried
