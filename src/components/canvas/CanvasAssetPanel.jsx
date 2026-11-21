@@ -21,8 +21,8 @@ import { aspectToPadding, cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
 import { useDirectMediaUrl } from "@/lib/media-resolver";
 
-// Asset panel thumbnails render at a small fixed panel width; request the
-// smallest matching tier (256px WebP) and resolve direct storage URLs in batch.
+// Asset panel cards are ~142 CSS px wide; 320 maps to the 512px WebP tier so
+// they stay sharp at device pixel ratio 2. Direct storage URLs resolve in batch.
 const PANEL_THUMB_WIDTH = 320;
 import { useStore } from "@/lib/store";
 import { useHistoryQuery } from "@/lib/use-history-query";

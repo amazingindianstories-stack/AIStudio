@@ -150,7 +150,6 @@ export function useBoardShortcuts({ surfaceRef, toolLocked, touchViewOnly, openS
         openImagePicker: view.openImagePicker,
         select: (ids, focusId) => selectFromKeyboard(ids, focusId),
         focusBoard: () => view.surfaceRef.current?.focusBoard(),
-        openSelectedImage: () => view.surfaceRef.current?.openImageLightbox() ?? false,
         openContextMenu: () => view.surfaceRef.current?.openContextMenuAtSelection() ?? false,
         copy: () => copyFromKeyboard(false),
         cut: () => copyFromKeyboard(true),
