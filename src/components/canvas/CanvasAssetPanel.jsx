@@ -17,12 +17,13 @@ import {
   ChevronDown,
   Check,
 } from "lucide-react";
-import { aspectToPadding, cn, thumbUrl } from "@/lib/utils";
+import { aspectToPadding, cn } from "@/lib/utils";
 import { apiFetch } from "@/lib/api";
+import { useDirectMediaUrl } from "@/lib/media-resolver";
 
-// Asset panel thumbnails render at a small fixed panel width; request a
-// modest size instead of the full-resolution original.
-const PANEL_THUMB_WIDTH = 320;
+// Asset panel thumbnails render at a small fixed panel width; request the
+// smallest matching tier (256px WebP) and resolve direct storage URLs in batch.
+const PANEL_THUMB_WIDTH = 256;
 import { useStore } from "@/lib/store";
 import { useHistoryQuery } from "@/lib/use-history-query";
 import { Dropdown, MenuItem } from "@/components/Dropdown";
@@ -304,6 +305,7 @@ function AssetThumb({
 
 ) {
   const src = item.kind === "video" ? item.poster ?? item.url : item.url;
+  const media = useDirectMediaUrl(src, PANEL_THUMB_WIDTH);
   // Without a place handler the board is read-only: browse, but do not place.
   const placeable = Boolean(onPlaceAtCenter);
 
@@ -327,7 +329,8 @@ function AssetThumb({
       <div style={{ paddingBottom: aspectToPadding(item.aspectRatio) }} className="relative w-full">
         {src && (
           <ProgressiveImage
-            src={thumbUrl(src, PANEL_THUMB_WIDTH)}
+            src={media.src}
+            onSourceError={media.onError}
             alt={item.prompt}
             loading="lazy"
             decoding="async"

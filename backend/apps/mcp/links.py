@@ -18,13 +18,13 @@ from apps.media.derivatives import READ_DEADLINE_SECONDS, bounded_derivative
 from apps.media.images import is_thumbnailable
 from apps.media.keys import media_key_from_ref
 from apps.media.posters import DEADLINE_SECONDS as POSTER_SECONDS, bounded_poster, is_video_key
-from apps.media.storage import MIME, attachment_disposition, get_storage
+from apps.media.storage import MIME, PrefixedGCSAdapter, attachment_disposition, get_storage
 from apps.media.views import authorize_media_key
 
 VARIANTS = ('original', 'preview', 'thumbnail', 'poster')
 ORIGINAL_SECONDS = 300
-READ_SECONDS = 900
-READ_REPORTED_MS = (READ_SECONDS - 60) * 1000      # signed reads may come from a 45 s per-process cache
+READ_SECONDS = PrefixedGCSAdapter.READ_URL_SECONDS
+READ_REPORTED_MS = (READ_SECONDS - PrefixedGCSAdapter.READ_URL_CACHE_SECONDS - 60) * 1000
 PREVIEW_MAX_BYTES = 2 * 1024 * 1024
 THREADS = 8
 MAKE_RESERVE_SECONDS = 5           # left after making derivatives, for measuring, the inline preview and the reply

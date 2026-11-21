@@ -18,7 +18,7 @@ from .storage import get_storage, MediaNotFoundError, InvalidMediaRangeError, Fi
 from .uploads import (verify_upload, initialize_upload,
     upload_status, finalize_upload, stream_local_chunk, cancel_upload, UploadError)
 from .images import is_thumbnailable, thumb_key
-from .derivatives import bounded_derivative, ready_upload_is_image
+from .derivatives import bounded_derivative, derivative_step, ready_upload_is_image
 
 
 def _body(request):
@@ -117,18 +117,18 @@ def media(request, path):
         target, fresh = key, None
         width = _width(request.GET.get('w'))
         eligible = is_thumbnailable(key) or ready_upload_is_image(key)
-        step = next((step for step in (512,1280) if width and step >= width), None) if eligible else None
+        step = derivative_step(width) if eligible else None
         if step and settings.LOCAL_DATA_MODE != 'read_only_viewer':
             target, fresh = bounded_derivative(storage, key, step)
-        direct = storage.browser_url(target) if request.GET.get('inline') != '1' else None
-        if direct:
-            return _redirect(direct)
         if fresh:
             response = HttpResponse(fresh,content_type='image/webp')
             response['Content-Length'] = str(len(fresh))
             response['Cache-Control'] = 'private, max-age=31536000, immutable'
             response['X-Content-Type-Options'] = 'nosniff'
             return response
+        direct = storage.browser_url(target) if request.GET.get('inline') != '1' else None
+        if direct:
+            return _redirect(direct)
         media = storage.open(target,request.headers.get('Range'))
         # Active document types never render on the app origin; rasters, video and audio stream inline unchanged.
         active = (media.content_type or '').split(';')[0].strip().lower() in ACTIVE_CONTENT_TYPES
@@ -294,7 +294,7 @@ def generation_download(request,id):
 
 
 RESOLVE_MAX_ITEMS = 100
-RESOLVE_URL_LIFETIME_MS = (PrefixedGCSAdapter.READ_URL_SECONDS - 60) * 1000
+RESOLVE_URL_LIFETIME_MS = (PrefixedGCSAdapter.READ_URL_SECONDS - PrefixedGCSAdapter.READ_URL_CACHE_SECONDS - 60) * 1000
 RESOLVE_WORKERS = 8
 
 
@@ -305,7 +305,7 @@ def _resolve_one(storage, user, ref, width):
             return None
         key = authorize_media_key(unquote(ref[len('/api/media/'):].split('?', 1)[0].split('#', 1)[0]), user)
         target = key
-        step = next((step for step in (512, 1280) if width and step >= width), None)
+        step = derivative_step(width)
         if step and (is_thumbnailable(key) or ready_upload_is_image(key)):
             derivative = thumb_key(key, step)
             if not storage.exists(derivative):

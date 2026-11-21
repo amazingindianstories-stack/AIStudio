@@ -146,6 +146,9 @@ class MemoryAdapter:
             media.sha256 = hashlib.sha256(data).hexdigest()
         return media
 
+    def exists(self, key):
+        return key in self.objects
+
     def delete(self, key):
         self.objects.pop(key, None)
 
@@ -238,6 +241,9 @@ class FileSystemAdapter:
         finally:
             temporary.unlink(missing_ok=True)
 
+    def exists(self, key):
+        return self._path(key).is_file()
+
     def delete(self, key):
         for namespace in ('objects', 'metadata'):
             self._path(key, namespace).unlink(missing_ok=True)
@@ -318,6 +324,19 @@ class GCSAdapter:
         blob.upload_from_file(stream,content_type=content_type,checksum='crc32c',timeout=self.timeout)
         return stream.tell()-start
 
+    def exists(self, key):
+        blob = self.client.bucket(self.bucket).blob(key)
+        check = getattr(blob, 'exists', None)
+        if callable(check):
+            return bool(check(timeout=self.timeout))
+        try:
+            blob.reload(timeout=self.timeout)
+            return True
+        except Exception as error:
+            if _missing(error):
+                return False
+            raise
+
     def delete(self, key):
         try:
             self.client.bucket(self.bucket).blob(key).delete(timeout=self.timeout)
@@ -385,11 +404,13 @@ class PrefixedGCSAdapter(GCSAdapter):
 
     Writes always go under ``prefix``. Reads try the canonical key first so
     objects written before the namespace existed keep working, then the
-    prefixed key. Browser URLs are short-lived signed reads, cached briefly.
+    prefixed key (for ``thumbs/`` derivatives, the prefixed key is checked first
+    because derivatives are always written under ``prefix``). Browser URLs are
+    short-lived signed reads, cached per process so large boards reuse URLs.
     """
     READ_URL_SECONDS = 900
-    READ_URL_CACHE_SECONDS = 45
-    READ_URL_CACHE_SIZE = 128
+    READ_URL_CACHE_SECONDS = 300
+    READ_URL_CACHE_SIZE = 4096
 
     def __init__(self, client, bucket, *, prefix, **kwargs):
         super().__init__(client, bucket, **kwargs)
@@ -404,20 +425,25 @@ class PrefixedGCSAdapter(GCSAdapter):
         return self.prefix + key
 
     def open(self, key, range_header=None):
-        self.private_key(key)
+        prefixed = self.private_key(key)
+        first, second = (prefixed, key) if key.startswith('thumbs/') else (key, prefixed)
         try:
-            return super().open(key, range_header)
+            return super().open(first, range_header)
         except MediaNotFoundError:
-            return super().open(self.private_key(key), range_header)
+            return super().open(second, range_header)
+
+    def exists(self, key):
+        prefixed = self.private_key(key)
+        first, second = (prefixed, key) if key.startswith('thumbs/') else (key, prefixed)
+        return super().exists(first) or super().exists(second)
 
     def read_key(self, key):
-        try:
-            self.private_key(key)
-            media = super().open(key)
-            media.stream.close()
-            return key
-        except MediaNotFoundError:
-            return self.private_key(key)
+        prefixed = self.private_key(key)
+        if key.startswith('thumbs/'):
+            if super().exists(prefixed):
+                return prefixed
+            return key if super().exists(key) else prefixed
+        return key if super().exists(key) else prefixed
 
     def put(self, key, *args, **kwargs):
         return super().put(self.private_key(key), *args, **kwargs)
@@ -508,6 +534,15 @@ class S3Adapter:
         stream.seek(start)
         self.client.upload_fileobj(stream,self.bucket,key,ExtraArgs={'ContentType':content_type,'CacheControl':cache_control})
         return count
+
+    def exists(self, key):
+        try:
+            self.client.head_object(Bucket=self.bucket, Key=key)
+            return True
+        except Exception as error:
+            if _missing(error):
+                return False
+            raise
 
     def delete(self, key):
         self.client.delete_object(Bucket=self.bucket, Key=key)
@@ -600,6 +635,22 @@ class StorageService:
             return self.fallback
 
     def exists(self, key):
+        validate_key(key)
+        primary_exists = getattr(self.primary, 'exists', None)
+        if callable(primary_exists):
+            if primary_exists(key):
+                return True
+            if self.fallback is None:
+                return False
+            fallback_exists = getattr(self.fallback, 'exists', None)
+            if callable(fallback_exists):
+                return bool(fallback_exists(key))
+            try:
+                media = self.fallback.open(key)
+                media.stream.close()
+                return True
+            except MediaNotFoundError:
+                return False
         try:
             media = self.open(key)
             media.stream.close()

@@ -76,6 +76,8 @@ export function NodeView({
   onApplyCrop,
   onCancelCrop,
   onResetCrop,
+  viewport,
+  viewportSize,
 }
 
 ) {
@@ -221,7 +223,19 @@ export function NodeView({
           case "synced":
             return <SyncedNode node={node} />;
           case "image":
-            return <ImageNode node={node} cropMode={cropMode} cropDraft={cropDraft} onCropChange={onCropChange} onApplyCrop={onApplyCrop} onCancelCrop={onCancelCrop} onResetCrop={onResetCrop} />;
+            return (
+              <ImageNode
+                node={node}
+                cropMode={cropMode}
+                cropDraft={cropDraft}
+                onCropChange={onCropChange}
+                onApplyCrop={onApplyCrop}
+                onCancelCrop={onCancelCrop}
+                onResetCrop={onResetCrop}
+                viewport={viewport}
+                viewportSize={viewportSize}
+              />
+            );
           default: {
             const Media = MEDIA_RENDERERS[node.type];
             return Media ? <Media node={node} selected={showRing} readOnly={readOnly} /> : null;

@@ -1509,6 +1509,8 @@ export const CanvasSurface = forwardRef
             onApplyCrop={() => useCanvasStore.getState().applyCrop()}
             onCancelCrop={() => useCanvasStore.getState().cancelCrop()}
             onResetCrop={() => useCanvasStore.getState().resetCropDraft()}
+            viewport={viewport}
+            viewportSize={size}
           />
         ))}
 

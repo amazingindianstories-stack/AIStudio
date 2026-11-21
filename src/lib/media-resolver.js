@@ -16,7 +16,7 @@ const BATCH_LIMIT = 100;
 const BATCH_DELAY_MS = 16;
 const REFRESH_MARGIN_MS = 30_000;
 const DISABLE_AFTER_FAILURE_MS = 5 * 60_000;
-const CACHE_LIMIT = 1000;
+const CACHE_LIMIT = 4000;
 
 const cache = new Map(); // key -> { url, expiresAt }
 const waiting = new Map(); // key -> [resolve]

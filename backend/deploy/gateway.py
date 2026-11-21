@@ -169,7 +169,11 @@ def handler(secret,paid_initial_routes=False,new_exports=False,magnific_upscale=
                 self.send_response(response.status)
                 for k,v in response.getheaders():
                     if k.lower() not in {'connection','transfer-encoding','server','date','cache-control','vary',HEADER}: self.send_header(k,v)
-                self.send_header('Cache-Control','no-store');self.send_header('Vary','Cookie');self.end_headers();headers_sent=True
+                upstream_cache = response.getheader('Cache-Control')
+                cache_header = ('private, max-age=31536000, immutable'
+                                if self.command in ('GET','HEAD') and response.status==200 and path.startswith('/api/media/')
+                                and upstream_cache=='private, max-age=31536000, immutable' else 'no-store')
+                self.send_header('Cache-Control',cache_header);self.send_header('Vary','Cookie');self.end_headers();headers_sent=True
                 if self.command!='HEAD':
                     while True:
                         chunk=response.read(64*1024)

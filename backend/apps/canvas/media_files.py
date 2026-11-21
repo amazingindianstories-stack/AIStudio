@@ -64,7 +64,7 @@ def register(actor, board_id, source_key, content_type, name, reference_id=None)
         storage = get_storage()
         key = f'canvas/{board_id}/{row.id}.{EXTENSIONS.get(content_type, "bin")}'
         try:
-            copy_to(storage, source_key, key, content_type)
+            copy_to(storage, source_key, key, content_type, generate_thumbs=content_type.startswith('image/'))
             row.key, row.state = key, 'ready'
             row.save(update_fields=['key', 'state'])
         except Exception:
@@ -74,18 +74,27 @@ def register(actor, board_id, source_key, content_type, name, reference_id=None)
     return row
 
 
-def copy_to(storage, source, target, mime):
+def copy_to(storage, source, target, mime, *, generate_thumbs=False):
     incoming = storage.open(source)
     try:
-        with tempfile.TemporaryFile() as staged:
+        with tempfile.TemporaryDirectory(prefix='board-copy-') as directory:
+            staged_path = Path(directory) / 'file'
             total = 0
-            for chunk in incoming.stream:
-                total += len(chunk)
-                if total > LIMITS['canvas']:
-                    raise ValueError('File exceeds the canvas upload limit.')
-                staged.write(chunk)
-            staged.seek(0)
-            storage.upload_stream(staged, target, mime, 'private, max-age=0')
+            with staged_path.open('wb') as staged:
+                for chunk in incoming.stream:
+                    total += len(chunk)
+                    if total > LIMITS['canvas']:
+                        raise ValueError('File exceeds the canvas upload limit.')
+                    staged.write(chunk)
+            with staged_path.open('rb') as staged:
+                storage.upload_stream(staged, target, mime, 'private, max-age=0')
+            if generate_thumbs:
+                try:
+                    from apps.media.derivatives import write_derivatives_from_file
+                    write_derivatives_from_file(staged_path, target, storage=storage)
+                except Exception:
+                    # Masters are already safely persisted; a thumbnail miss falls back to on-demand generation.
+                    pass
     finally:
         incoming.stream.close()
 
@@ -161,7 +170,7 @@ def process_media(identifier, stop=None):
         storage = get_storage()
         if row.content_type not in RASTER_TYPES:
             key = f'canvas/{row.board_id}/{row.id}.{EXTENSIONS.get(row.content_type, "bin")}'
-            copy_to(storage, row.source_key, key, row.content_type)
+            copy_to(storage, row.source_key, key, row.content_type, generate_thumbs=row.content_type.startswith('image/'))
             return publish(row, token, key=key)
         import pyvips
         with tempfile.TemporaryDirectory(prefix='board-media-') as directory:
@@ -213,9 +222,14 @@ def process_media(identifier, stop=None):
                     image = image.thumbnail_image(2048, height=2048, size='down')
                 output = Path(directory) / 'page.png'
                 image.pngsave(str(output), compression=6)
+                page_key = f'{key}.pages/{page+1}.png' if is_pdf else key
                 with output.open('rb') as data:
-                    storage.upload_stream(data, f'{key}.pages/{page+1}.png' if is_pdf else key,
-                                          'image/png', 'private, max-age=0')
+                    storage.upload_stream(data, page_key, 'image/png', 'private, max-age=0')
+                try:
+                    from apps.media.derivatives import write_derivatives_from_file
+                    write_derivatives_from_file(output, page_key, storage=storage)
+                except Exception:
+                    pass
             if is_pdf:
                 copy_to(storage, row.source_key, key, 'application/pdf')
             return publish(row, token, key=key, pages=pages, width=width, height=height, error='')
