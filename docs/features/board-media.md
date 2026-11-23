@@ -65,16 +65,17 @@ that run once the job ends: it stores the VTT on success. While the audio job is
 pending, however long admission takes, and Start stays hidden. A run is marked failed only when its job failed or was
 cancelled, or when its submission stayed uncertain for 32 minutes (the audio job's 120 s provider timeout plus a wide
 margin); the quote reports the reason as `failure`, the panel shows "Captions failed, try again." and offers Start
-again, and the next run takes over the row. Nothing sweeps or cancels audio jobs; the check happens when the row is
-read. The panel checks again every few seconds while the run is pending. Only media that `/api/media/` would serve
-(the shared read policy, so no unfinished uploads or exports) is captioned.
+again, and the next run takes over the row. An audio job whose provider call ended ambiguously (sent, outcome unknown)
+is failed at once with the uncertain-submission message, and the generation worker's stale sweep (`reap_stale_audio`)
+fails a running attempt the same way once 31 minutes have passed since submission and its lease expired; neither is
+ever resubmitted. The caption run picks the outcome up when the row is read. The panel checks again every few seconds
+while the run is pending. Only media that `/api/media/` would serve (the shared read policy, so no unfinished uploads or exports) is captioned.
 
 The gateway lets the `POST` through only with the paid initial routes on, and waits 125 s for it, the same as
 `/api/audio/transcribe` (`deploy/gateway.py` `BOARD_TRANSCRIPTIONS`, which also covers the Talktrack transcript).
 
-Known gap: nothing refunds, reconciles or clears an uncertain audio submission. If Gemini did run an uncertain job, a
-retry after the grace period bills a second transcription. Audio admission (`audio_capacity_available`) also counts
-every `SUBMISSION_UNCERTAIN` row against its limits for good: one per user, two in total. So if the editor whose
-submission was uncertain retries, the new job never leaves the queue. The run stays pending, and Start stays hidden
-for every editor on that board, until an operator resolves the uncertain audio row. Two uncertain rows anywhere stop
-all audio admission the same way.
+Known gap: nothing refunds or reconciles an uncertain audio submission. Its row keeps `SUBMISSION_UNCERTAIN` and the
+paid-ledger evidence, but if Gemini did run it, starting another run bills a second transcription. Audio admission
+(`audio_capacity_available` and the coordinator's selection, both through `active_audio`) counts only running pending
+or uncertain attempts against its limits (one per user, two in total), so a settled uncertain attempt no longer holds
+the slot.
