@@ -69,7 +69,8 @@ again, and the next run takes over the row. An audio job whose provider call end
 is failed at once with the uncertain-submission message, and the generation worker's stale sweep (`reap_stale_audio`)
 fails a running attempt the same way once 31 minutes have passed since submission and its lease expired; neither is
 ever resubmitted. The caption run picks the outcome up when the row is read. The panel checks again every few seconds
-while the run is pending. Only media that `/api/media/` would serve (the shared read policy, so no unfinished uploads or exports) is captioned.
+while the run is pending. Only media that `/api/media/` would serve (the shared read policy, so no unfinished uploads
+or exports) is captioned.
 
 The gateway lets the `POST` through only with the paid initial routes on, and waits 125 s for it, the same as
 `/api/audio/transcribe` (`deploy/gateway.py` `BOARD_TRANSCRIPTIONS`, which also covers the Talktrack transcript).
