@@ -93,10 +93,9 @@ def select_due_generations(*, now=None, limit=MAX_COORDINATOR_BATCH, exclude_ids
     due = due_generations(now=now, exclude_ids=exclude_ids).annotate(dispatch_rank=Case(When(SHORT_SLOT & (
         Q(status='running') | Q(provider_status=WORKER_SLOT_WAITING)), then=Value(0)),
         default=Value(1), output_field=IntegerField()))
-    from .audio_submission import audio_limits
+    from .audio_submission import audio_limits, active_audio
     global_limit, user_limit = audio_limits()
-    reserved = dict(Generation.objects.filter(kind='audio', provider_status__in=(
-        'SUBMISSION_PENDING', 'SUBMISSION_UNCERTAIN')).values('user_id').annotate(
+    reserved = dict(Generation.objects.filter(active_audio()).values('user_id').annotate(
             total=Count('id')).values_list('user_id', 'total'))
     free = max(0, global_limit - sum(reserved.values()))
     selected = list(due.exclude(kind='audio').order_by('dispatch_rank', 'created_at', 'id')[:limit])

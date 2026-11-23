@@ -109,7 +109,7 @@ def _curated():
         'Reference could not fit the 30 MB limit. Export a smaller PNG or JPEG.',
         'Use an uploaded or stored original image as the reference.',
         'Provider reported success but returned no video.', 'Omni reported success but returned no video.',
-        'All candidates failed to generate.', AUDIO_INPUT_INVALID, *audio_submission.INVALID_INPUT_MESSAGES,
+        'All candidates failed to generate.', AUDIO_INPUT_INVALID, audio_submission.AUDIO_UNCERTAIN_MESSAGE, *audio_submission.INVALID_INPUT_MESSAGES,
         FACE_GALLERY, COPYRIGHT, POLICY, MODERATION_BLOCKED, AUDIO, BUSY, UNAVAILABLE, DROPPED, INTERRUPTED, PORTRAIT_ASSET,
         PORTRAIT_UNREGISTERED, DRAFT, RATIO_DURATION, IMAGE_REJECTED, NO_IMAGE, NO_VIDEO, CLIP_PREPARE, UPSCALE_FAILED,
         UPSCALE_BUSY, AUDIO_REJECTED, TEXT_UNUSABLE,

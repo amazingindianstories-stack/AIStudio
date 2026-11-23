@@ -10,7 +10,7 @@ class AudioResultPending(TimeoutError):
 
 
 class AudioFailed(RuntimeError):
-    """The worker ended the transcription with a definite provider refusal (nothing pending to check)."""
+    """The local transcription attempt ended with a public failure explanation."""
     def __init__(self, row):
         from apps.generation.failure_copy import public_message
         self.identifier, self.busy = row.id, '429' in (row.error or '')
@@ -30,7 +30,7 @@ def wait_for_audio(expected, *, timeout=120, interval=.25, signal=None):
             if not isinstance(row.prompt,str) or not row.prompt.strip():
                 raise RuntimeError('Audio completion is invalid.')
             return row
-        if row.status=='failed' and row.provider_status!='SUBMISSION_UNCERTAIN':
+        if row.status=='failed':
             raise AudioFailed(row)
         if row.provider_status=='SUBMISSION_UNCERTAIN' or row.status in ('failed','cancelled'):
             raise AudioResultPending(row.id)

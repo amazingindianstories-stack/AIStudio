@@ -462,6 +462,21 @@ class EndpointTests(TransactionTestCase):
         self.assertIn('busy',response.json()['error'])
         self.assertNotIn('Resource has been exhausted',response.json()['error'])
 
+    def test_audio_api_reports_settled_uncertainty_without_promising_pending_work(self):
+        from apps.media.audio_wait import wait_for_audio
+        from apps.media.audio import _mark_audio_uncertain
+        def settled(intent):
+            from apps.generation.services.audio_submission import claim_audio
+            claimed = claim_audio(intent.id, 'api-uncertain')
+            _mark_audio_uncertain(claimed, code='request_deadline')
+            return wait_for_audio(intent, timeout=0)
+        with patch.object(audio, 'wait_for_audio', side_effect=settled):
+            response = self.client.post('/api/audio/transcribe', {'audioRef':'data:audio/wav;base64,YWJj'}, content_type='application/json')
+        self.assertEqual(response.status_code, 502)
+        self.assertIn('may have accepted', response.json()['error'])
+        self.assertIn('will not be retried automatically', response.json()['error'])
+        self.assertNotIn('pending', response.json()['error'])
+
     def test_audio_api_returns_worker_transcript_using_existing_response_contract(self):
         from apps.generation.services.audio_submission import process_audio
         from apps.generation.services.deadline import Cancellation
@@ -705,7 +720,7 @@ class EndpointTests(TransactionTestCase):
         self.assertEqual(len(calls),3)
         provider.transcribe.assert_called_once()
         row=Generation.objects.get(kind='audio')
-        self.assertEqual((row.status,row.provider_status,row.prompt),('running','SUBMISSION_UNCERTAIN',''))
+        self.assertEqual((row.status,row.provider_status,row.prompt),('failed','SUBMISSION_UNCERTAIN',''))
 
     def test_audio_local_result_retry_and_lost_ack_never_repeat_provider(self):
         from django.db import OperationalError

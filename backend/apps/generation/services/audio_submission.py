@@ -9,6 +9,34 @@ from apps.library.services.naming import same_execution_identity
 from . import paid_guard
 
 AUDIO_READY = 'AUDIO_READY'
+AUDIO_UNCERTAIN_MESSAGE = (
+    'This transcription attempt ended without a saved result. The provider may have accepted '
+    'and charged for it. It will not be retried automatically. Start a new transcription only '
+    'if you still need it.')
+
+
+def active_audio():
+    return Q(kind='audio', status='running', provider_status__in=(
+        'SUBMISSION_PENDING', 'SUBMISSION_UNCERTAIN'))
+
+
+def reap_stale_audio(*, now):
+    """End abandoned local attempts without replaying their one-shot paid call.
+
+    Lock and recheck the current execution before writing, serializing with result
+    persistence. Library updates cannot extend the fixed submission deadline.
+    """
+    from .deadline import QUEUE_EXECUTION_DEADLINE_MS
+    from apps.media.audio import _mark_audio_uncertain
+    with transaction.atomic():
+        stale = Generation.objects.select_for_update().filter(active_audio(),
+            submitted_at__lt=now-QUEUE_EXECUTION_DEADLINE_MS-60000).filter(
+                Q(worker_lease_until__isnull=True) | Q(worker_lease_until__lte=now))
+        count = 0
+        for row in stale:
+            _mark_audio_uncertain(row, code='audio_execution_abandoned', now=now)
+            count += 1
+        return count
 
 
 def persist_audio_intent(fields):
@@ -57,8 +85,7 @@ def audio_limits():
 
 def audio_capacity_available(user_id):
     global_limit, user_limit = audio_limits()
-    reserved=Generation.objects.filter(kind='audio',provider_status__in=(
-        'SUBMISSION_PENDING','SUBMISSION_UNCERTAIN'))
+    reserved=Generation.objects.filter(active_audio())
     return reserved.count()<global_limit and reserved.filter(user_id=user_id).count()<user_limit
 
 
@@ -157,6 +184,7 @@ def process_audio(identifier, owner, *, signal, provider=None, storage=None):
     claimed=claim_audio(identifier,owner,expected=expected)
     if claimed is None:
         return {'kind':'unclaimed'}
+    transcript = None
     try:
         transcript=transcribe_claimed(claimed,provider,encoded,mime,model,signal=signal)
         if not isinstance(transcript,str) or not transcript.strip():
@@ -171,7 +199,11 @@ def process_audio(identifier, owner, *, signal, provider=None, storage=None):
                 # (e.g. the paid guard refused the claim): end the row so the user's slot is freed.
                 _mark_audio_failed(claimed,str(error),rejection_records(claimed,error))
                 return {'kind':'failed','item':Generation.objects.get(pk=identifier)}
-            _mark_audio_uncertain(claimed)
+            _mark_audio_uncertain(claimed, code=(
+                'request_deadline' if getattr(error, 'code', None)=='request_deadline' else
+                'audio_empty_response' if isinstance(error, ValueError) and str(error)=='Gemini returned an empty transcription.' else
+                'audio_result_persistence_failed' if isinstance(transcript, str) and transcript.strip() else
+                'audio_submission_uncertain'))
         except Exception:
             pass  # Committed pending evidence remains held, never replayed.
         raise

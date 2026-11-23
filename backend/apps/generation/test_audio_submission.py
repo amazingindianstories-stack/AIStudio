@@ -5,6 +5,109 @@ from apps.generation.services.audio_submission import AUDIO_READY, claim_audio
 
 
 class AudioClaimTests(TransactionTestCase):
+    def test_deadline_ends_uncertain_attempt_and_releases_account(self):
+        from unittest.mock import Mock
+        from apps.integrations.transport import ProviderError
+        from apps.generation.services.audio_submission import process_audio, audio_capacity_available
+        from apps.generation.services.deadline import Cancellation
+        from apps.media.audio_wait import wait_for_audio, AudioFailed
+        row, store = self.prepared_job()
+        original = row.submission_input
+        provider = Mock()
+        provider.transcribe.side_effect = ProviderError('private deadline token', code='request_deadline', may_have_submitted=True)
+        with self.assertRaises(ProviderError):
+            process_audio(row.id, 'deadline', signal=Cancellation(), provider=provider, storage=store)
+        row.refresh_from_db()
+        self.assertEqual((row.status, row.provider_status), ('failed', 'SUBMISSION_UNCERTAIN'))
+        self.assertIsNotNone(row.completed_at)
+        self.assertEqual(row.submission_input, original)
+        self.assertTrue(audio_capacity_available(row.user_id))
+        with self.assertRaisesRegex(AudioFailed, 'may have accepted'):
+            wait_for_audio(row, timeout=0)
+        for owner in ('next-tick', 'restart'):
+            self.assertEqual(process_audio(row.id, owner, signal=Cancellation(), provider=provider, storage=store), {'kind':'unclaimed'})
+        provider.transcribe.assert_called_once()
+
+    def test_stale_audio_settlement_drains_seven_intents_one_at_a_time(self):
+        from apps.generation.services.admission import reap_stale_running_images
+        from apps.generation.services.coordinator import select_due_generations
+        from apps.media.audio import _persist_audio_result
+        now = 3000000
+        stale = self.job(status='running', provider_status='SUBMISSION_UNCERTAIN',
+                         submitted_at=100, updated_at=now+100, is_favorite=True)
+        backlog = [self.job(user_id=stale.user_id, created_at=i+2) for i in range(7)]
+        other = self.job(created_at=100)
+        image = self.job(kind='image', created_at=101)
+        self.assertEqual(reap_stale_running_images(now=now), 1)
+        stale.refresh_from_db()
+        self.assertEqual((stale.status, stale.provider_status), ('failed', 'SUBMISSION_UNCERTAIN'))
+        self.assertTrue(stale.is_favorite)
+        self.assertGreater(stale.updated_at, now+100)
+        for index, row in enumerate(backlog):
+            selected = [r.id for r in select_due_generations(now=now)]
+            self.assertEqual(selected, [row.id, other.id, image.id])
+            claimed = claim_audio(row.id, 'serial', now=now)
+            self.assertIsNotNone(claimed)
+            for waiting in backlog[index+1:]:
+                self.assertIsNone(claim_audio(waiting.id, 'blocked', now=now))
+            self.assertEqual([r.id for r in select_due_generations(now=now)], [other.id, image.id])
+            _persist_audio_result(claimed, 'saved', now+1)
+        self.assertEqual(reap_stale_running_images(now=now), 0)
+
+    def test_recovery_uses_submission_deadline_and_expired_lease(self):
+        from apps.generation.services.admission import reap_stale_running_images
+        from apps.media.audio import _persist_audio_result, _mark_audio_uncertain
+        now = 3000000
+        pending = self.job(status='running', provider_status='SUBMISSION_PENDING',
+                           submitted_at=100, worker_lease_until=now-1)
+        live = self.job(status='running', provider_status='SUBMISSION_PENDING',
+                        submitted_at=100, worker_lease_until=now+1)
+        recent = self.job(status='running', provider_status='SUBMISSION_UNCERTAIN', submitted_at=now-10)
+        success = self.job(status='running', provider_status='SUBMISSION_PENDING', submitted_at=100)
+        _persist_audio_result(success, 'winning result', now)
+        _mark_audio_uncertain(success)  # A late failure cannot overwrite completion.
+        self.assertEqual(reap_stale_running_images(now=now), 1)
+        pending.refresh_from_db()
+        self.assertEqual((pending.status, pending.provider_status), ('failed', 'SUBMISSION_UNCERTAIN'))
+        with self.assertRaisesRegex(RuntimeError, 'identity changed'):
+            _persist_audio_result(success, 'late result', now+1)
+        for row in (live, recent):
+            row.refresh_from_db()
+            self.assertEqual(row.status, 'running')
+        success.refresh_from_db()
+        self.assertEqual((success.status, success.prompt), ('succeeded', 'winning result'))
+
+    def test_recovery_and_completion_serialize_without_overwriting_winner(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from threading import Barrier
+        from django.db import connections
+        from apps.generation.services.audio_submission import reap_stale_audio
+        from apps.media.audio import _persist_audio_result
+        now = 3000000
+        row = self.job(status='running', provider_status='SUBMISSION_PENDING', submitted_at=100)
+        barrier = Barrier(2)
+        def work(recover):
+            try:
+                barrier.wait(timeout=10)
+                if recover:
+                    return reap_stale_audio(now=now)
+                try:
+                    _persist_audio_result(row, 'concurrent result', now)
+                    return 'completed'
+                except RuntimeError:
+                    return 'fenced'
+            finally:
+                connections.close_all()
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            recovery, completion = list(pool.map(work, (True, False)))
+        row.refresh_from_db()
+        if recovery:
+            self.assertEqual((row.status, row.provider_status, completion), ('failed', 'SUBMISSION_UNCERTAIN', 'fenced'))
+            self.assertEqual(row.prompt, '')
+        else:
+            self.assertEqual((row.status, row.provider_status, completion), ('succeeded', 'COMPLETED', 'completed'))
+            self.assertEqual(row.prompt, 'concurrent result')
+
     def test_full_account_audio_backlog_cannot_hide_unrelated_work(self):
         from apps.generation.services.coordinator import select_due_generations
         from django.test import override_settings

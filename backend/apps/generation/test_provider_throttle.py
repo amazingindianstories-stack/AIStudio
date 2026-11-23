@@ -338,6 +338,7 @@ class AudioThrottleTests(TransactionTestCase):
                         self.assertTrue(uncertain)
                 row.refresh_from_db()
                 self.assertEqual(row.provider_status == 'SUBMISSION_UNCERTAIN', uncertain)
-                self.assertEqual(row.status, 'running' if uncertain else 'failed')
+                self.assertEqual(row.status, 'failed')
+                self.assertIsNotNone(row.completed_at)
                 if not uncertain:
                     self.assertEqual(generation_item(row)['error'], failure_copy.AUDIO_REJECTED + ' Provider code: INVALID_ARGUMENT.')
