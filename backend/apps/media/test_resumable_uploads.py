@@ -291,12 +291,71 @@ class ResumableUploadTests(TransactionTestCase):
             close_old_connections()
             try:
                 return finalize_upload(self.user.id, session['uploadId'], self.storage)
+            except UploadError as error:
+                return error.code
             finally:
                 connections.close_all()
         with ThreadPoolExecutor(max_workers=2) as pool:
             results = list(pool.map(lambda _: finish(), range(2)))
-        self.assertEqual(results[0], results[1])
+        ready = [item for item in results if isinstance(item, dict)]
+        self.assertGreaterEqual(len(ready), 1)
+        self.assertTrue(all(item == 'UPLOAD_VERIFYING' for item in results if not isinstance(item, dict)))
         self.assertEqual(UploadSession.objects.filter(id=session['uploadId'], state='ready').count(), 1)
+
+    def test_finalize_does_not_hold_a_transaction_while_hashing(self):
+        from django.db import connection
+        session, _ = self.begin()
+        self.chunk(session, PNG)
+        seen = []
+        original = self.storage.primary.open
+        def open_outside_transaction(key, *args, **kwargs):
+            seen.append(connection.in_atomic_block)  # first call is the metadata probe, second is the hash
+            return original(key, *args, **kwargs)
+        with patch.object(self.storage.primary, 'open', open_outside_transaction):
+            result = finalize_upload(self.user.id, session['uploadId'], self.storage)
+        self.assertEqual(seen[-1], False)
+        self.assertEqual(len(seen), 2)
+        self.assertEqual(result['state'], 'ready')
+
+    def test_second_finalize_during_verifying_conflicts_and_the_first_still_succeeds(self):
+        session, _ = self.begin()
+        self.chunk(session, PNG)
+        original = self.storage.primary.open
+        second = []
+        def open_and_race(key, *args, **kwargs):
+            if UploadSession.objects.get(id=session['uploadId']).state != 'verifying':
+                return original(key, *args, **kwargs)  # metadata probe, before the claim
+            self.assertEqual(UploadSession.objects.get(id=session['uploadId']).state, 'verifying')
+            try:
+                finalize_upload(self.user.id, session['uploadId'], self.storage)
+            except UploadError as error:
+                second.append((error.code, error.status))
+            return original(key, *args, **kwargs)
+        with patch.object(self.storage.primary, 'open', open_and_race):
+            result = finalize_upload(self.user.id, session['uploadId'], self.storage)
+        self.assertEqual(second, [('UPLOAD_VERIFYING', 409)])
+        self.assertEqual(result['state'], 'ready')
+        self.assertEqual(UploadSession.objects.get(id=session['uploadId']).state, 'ready')
+
+    def test_failed_verification_returns_to_uploading_and_cancel_wins_over_verifying(self):
+        session, _ = self.begin(sha256='0'*64)
+        self.chunk(session, PNG)
+        self.assertCode('UPLOAD_CHECKSUM_MISMATCH', finalize_upload, self.user.id, session['uploadId'], self.storage)
+        self.assertEqual(UploadSession.objects.get(id=session['uploadId']).state, 'uploading')
+        other, _ = self.begin(PNG+b'x')
+        self.chunk(other, PNG+b'x')
+        original = self.storage.primary.open
+        def cancel_midway(key, *args, **kwargs):
+            if UploadSession.objects.get(id=other['uploadId']).state != 'verifying':
+                return original(key, *args, **kwargs)
+            cancel_upload(self.user.id, other['uploadId'], self.storage)
+            return original(key, *args, **kwargs)
+        with patch.object(self.storage.primary, 'open', cancel_midway):
+            with self.assertRaises(Exception):
+                finalize_upload(self.user.id, other['uploadId'], self.storage)
+        row = UploadSession.objects.get(id=other['uploadId'])
+        self.assertEqual(row.state, 'cancelled')
+        self.assertIsNone(row.finalized_at)
 
     def test_incomplete_chunk_rolls_back_offset_and_small_metadata_limit_is_explicit(self):
         session, _ = self.begin()

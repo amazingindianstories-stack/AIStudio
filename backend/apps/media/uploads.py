@@ -252,11 +252,44 @@ def _sniff(data, mime):
     return False
 
 
+def _hash_object(storage, row):
+    """Stream and verify the stored object; runs outside any transaction (large reads)."""
+    media = storage.primary.open(row.key)
+    digest, total, prefix = hashlib.sha256(), 0, b''
+    deadline = time.monotonic()+getattr(settings, 'VEEVEE_UPLOAD_VERIFY_SECONDS', 120)
+    try:
+        for chunk in media.stream:
+            if time.monotonic() > deadline:
+                raise UploadError('UPLOAD_VERIFICATION_TIMEOUT', 503)
+            total += len(chunk)
+            if total > row.byte_size:
+                raise UploadError('UPLOAD_SIZE_MISMATCH', 409)
+            prefix = (prefix+chunk)[:128] if len(prefix) < 128 else prefix
+            digest.update(chunk)
+    finally:
+        media.stream.close()
+    if total != row.byte_size:
+        raise UploadError('UPLOAD_SIZE_MISMATCH', 409)
+    if not _sniff(prefix, row.content_type):
+        raise UploadError('UPLOAD_SIGNATURE_MISMATCH', 422)
+    if row.sha256 and row.sha256 != digest.hexdigest():
+        raise UploadError('UPLOAD_CHECKSUM_MISMATCH', 422)
+    return digest.hexdigest()
+
+
+def _release_verifying(session_id):
+    """Return a failed verification to ``uploading`` so the artist can retry; never touches other states."""
+    _session_model().objects.filter(id=session_id, state='verifying', finalized_at__isnull=True).update(state='uploading')
+
+
 def finalize_upload(actor_id, session_id, storage):
+    # Short transaction 1: claim the row (uploading -> verifying) and run the cheap metadata checks.
     with transaction.atomic():
         row = _owned_session(actor_id, session_id, locked=True)
         if row.finalized_at:
             return session_result(row, storage)
+        if row.state == 'verifying':
+            raise UploadError('UPLOAD_VERIFYING', 409)
         try:
             metadata = _metadata(storage, row.key)
         except MediaNotFoundError:
@@ -265,30 +298,27 @@ def finalize_upload(actor_id, session_id, storage):
             raise UploadError('UPLOAD_SIZE_MISMATCH', 409)
         if metadata['contentType'] != row.content_type:
             raise UploadError('UPLOAD_CONTENT_TYPE_MISMATCH', 422)
-        media = storage.primary.open(row.key)
-        digest, total, prefix = hashlib.sha256(), 0, b''
-        deadline = time.monotonic()+getattr(settings, 'VEEVEE_UPLOAD_VERIFY_SECONDS', 120)
-        try:
-            for chunk in media.stream:
-                if time.monotonic() > deadline:
-                    raise UploadError('UPLOAD_VERIFICATION_TIMEOUT', 503)
-                total += len(chunk)
-                if total > row.byte_size:
-                    raise UploadError('UPLOAD_SIZE_MISMATCH', 409)
-                prefix = (prefix+chunk)[:128] if len(prefix) < 128 else prefix
-                digest.update(chunk)
-        finally:
-            media.stream.close()
-        if total != row.byte_size:
-            raise UploadError('UPLOAD_SIZE_MISMATCH', 409)
-        if not _sniff(prefix, row.content_type):
-            raise UploadError('UPLOAD_SIGNATURE_MISMATCH', 422)
-        if row.sha256 and row.sha256 != digest.hexdigest():
-            raise UploadError('UPLOAD_CHECKSUM_MISMATCH', 422)
-        row.sha256, row.state, row.finalized_at = digest.hexdigest(), 'ready', timezone.now()
-        row.session_uri = ''
-        row.save(update_fields=['sha256', 'state', 'finalized_at', 'session_uri'])
-        return session_result(row, storage)
+        row.state = 'verifying'
+        row.save(update_fields=['state'])
+    # Hashing holds no row lock and no database connection transaction.
+    try:
+        sha256 = _hash_object(storage, row)
+    except BaseException:
+        _release_verifying(row.id)
+        raise
+    # Short transaction 2: commit READY only if the claim is still ours (a cancel moves it away).
+    with transaction.atomic():
+        current = _session_model().objects.select_for_update().filter(id=row.id, actor_id=actor_id).first()
+        if current is None or current.state == 'cancelled':
+            raise UploadError('UPLOAD_CANCELLED', 410)
+        if current.finalized_at:
+            return session_result(current, storage)
+        if current.state != 'verifying':
+            raise UploadError('UPLOAD_NOT_FOUND', 404)
+        current.sha256, current.state, current.finalized_at = sha256, 'ready', timezone.now()
+        current.session_uri = ''
+        current.save(update_fields=['sha256', 'state', 'finalized_at', 'session_uri'])
+        return session_result(current, storage)
 
 
 def resolve_owned_ready_upload(actor_id, reference_id, *, purposes=None):
@@ -425,7 +455,7 @@ def cleanup_expired_uploads(storage, *, limit=100):
     returns ``{'cleaned': n, 'failed': m}``.
     """
     cleaned = failed = 0
-    candidates = list(_session_model().objects.filter(state='uploading',
+    candidates = list(_session_model().objects.filter(state__in=('uploading', 'verifying'),
         finalized_at__isnull=True, expires_at__lte=timezone.now()).order_by('expires_at', 'id').values_list('id', 'actor_id')[:limit])
     for identifier, actor_id in candidates:
         try:
@@ -434,5 +464,5 @@ def cleanup_expired_uploads(storage, *, limit=100):
         except Exception:
             failed += 1
             logger.exception('Expired upload cleanup failed for %s', identifier)
-            _session_model().objects.filter(id=identifier, state='uploading').update(expires_at=timezone.now() + timedelta(hours=1))
+            _session_model().objects.filter(id=identifier, state__in=('uploading', 'verifying')).update(expires_at=timezone.now() + timedelta(hours=1))
     return {'cleaned': cleaned, 'failed': failed}

@@ -1,8 +1,8 @@
 """PrefixedGCSAdapter: namespaced writes, legacy-compatible reads, signed URL cache."""
 import io
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from unittest.mock import patch
-from .storage import GCSAdapter, MediaNotFoundError, PrefixedGCSAdapter
+from .storage import GCSAdapter, MediaNotFoundError, PrefixedGCSAdapter, get_storage, reset_storage
 
 PREFIX = 'private-namespace-0001/'
 
@@ -114,3 +114,23 @@ class PrefixedStorageTests(SimpleTestCase):
         with patch.object(adapter, 'read_key', probe), patch.object(GCSAdapter, 'signed_read_url', signed):
             self.assertIn(PREFIX + 'generated/b.png', adapter.browser_url('generated/b.png'))
         self.assertEqual(held, [False, False])
+
+    def test_signed_read_url_is_computed_once_within_the_cache_window(self):
+        client, adapter = self.adapter()
+        client.objects[PREFIX + 'generated/c.png'] = (b'c', 'image/png')
+        with patch.object(GCSAdapter, 'signed_read_url', return_value='https://signed.invalid/c') as signed:
+            self.assertEqual(adapter.browser_url('generated/c.png'), 'https://signed.invalid/c')
+            self.assertEqual(adapter.browser_url('generated/c.png'), 'https://signed.invalid/c')
+        self.assertEqual(signed.call_count, 1)
+
+    def test_get_storage_returns_the_same_instance_per_process(self):
+        config = {'backend': 'filesystem', 'root': '/tmp/veevee-be015-storage'}
+        reset_storage()
+        self.addCleanup(reset_storage)
+        with override_settings(VEEVEE_MEDIA_STORAGE=None, VEEVEE_MEDIA_CONFIG=config):
+            first = get_storage()
+            self.assertIs(get_storage(), first)
+            reset_storage()
+            self.assertIsNot(get_storage(), first)
+        with override_settings(VEEVEE_MEDIA_STORAGE=None, VEEVEE_MEDIA_CONFIG={**config, 'root': '/tmp/veevee-be015-other'}):
+            self.assertIsNot(get_storage(), first)
