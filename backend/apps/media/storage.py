@@ -109,6 +109,8 @@ def _media(stream, size, content_type, range_header=None):
     return MediaObject(BoundedStream(stream, size), content_type, size)
 
 
+# Objects are private: reads go through session-checked /api/media or short-lived signed URLs.
+MASTER_CACHE_CONTROL = 'private, max-age=31536000, immutable'
 MIME = {'jpg':'image/jpeg', 'jpeg':'image/jpeg', 'mov':'video/quicktime',
         'mp4':'video/mp4', 'webm':'video/webm', 'json':'application/json',
         'mp3':'audio/mpeg', 'wav':'audio/wav', 'png':'image/png',
@@ -663,7 +665,7 @@ class StorageService:
     def upload_buffer(self, data, key, ext):
         validate_key(key)
         self.primary.put(key, bytes(data), MIME.get(ext.lower(), 'application/octet-stream'),
-                         'public, max-age=31536000, immutable')
+                         MASTER_CACHE_CONTROL)
         # Masters are immutable original bytes; only separate derivatives are encoded.
         try:
             from .images import write_thumbnails

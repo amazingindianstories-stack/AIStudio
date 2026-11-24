@@ -310,6 +310,8 @@ def move_folder(*, folder_id, destination, expected_version=MISSING, actor_id=No
 def move_generations(*, ids, destination, expected_versions=MISSING, actor_id=None, idempotency_key=None):
     if not isinstance(ids, list) or not ids:
         return {'movedCount': 0, 'items': []}
+    if not all(isinstance(identifier, str) for identifier in ids):
+        raise OrganizationError('INVALID_GENERATION_IDS', 'Generation IDs must be strings.')
     seen = set()
     for identifier in ids:
         if identifier in seen:

@@ -8,7 +8,7 @@ from threading import Event
 from uuid import uuid4
 from django.db import connections
 from apps.common.resilience import recover
-from .services.admission import reap_stale_running_images, show_worker_slot_wait
+from .services.admission import reap_stale_running_images, record_worker_error, show_worker_slot_wait
 from .services.cancellation import pending_cancellations, settle_pending
 from .services.coordinator import MAX_COORDINATOR_BATCH, select_due_generations, select_unlabelled_short_slot
 from .services.executor import process_generation
@@ -87,6 +87,10 @@ def handle_generation(item, process, stop):
     except Exception:
         # Do not print provider URLs, prompts, credentials or DB parameters.
         logger.error('generation worker operation failed; receipt and lease retained for recovery')
+        try:
+            record_worker_error(item.id)
+        except Exception:
+            logger.error('generation worker could not record the failed attempt')
         return 'worker_error'
     finally:
         connections.close_all()

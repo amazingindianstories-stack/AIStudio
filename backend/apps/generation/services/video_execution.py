@@ -31,7 +31,9 @@ def read_assets(project_id=None, user_id=None):
     return [provider_asset_projection(asset) for asset in query.order_by('-created_at')]
 
 
-def callback_url(base, secret):
+def callback_url(base, secret, generation_id=None):
+    """The provider callback address. ``generation`` names the row, so a task whose id never reached the row
+    (a crash between acceptance and receipt) can still be attached to it by callbacks.seedance_callback."""
     if not isinstance(base, str) or not isinstance(secret, str) or not secret:
         return None
     try:
@@ -40,6 +42,8 @@ def callback_url(base, secret):
             return None
         query = [(key, value) for key, value in parse_qsl(parsed.query, keep_blank_values=True) if key != 'token']
         query.append(('token', secret))
+        if generation_id:
+            query.append(('generation', str(generation_id)))
         return urlunsplit(parsed._replace(query=urlencode(query)))
     except ValueError:
         return None
@@ -212,7 +216,7 @@ def submit_video(item, *, signal, on_task, count=1, dependencies=None, env=None)
     charges; already accepted work stays recoverable after a partial failure.
     """
     deps, env = dependencies or Dependencies(), os.environ if env is None else env
-    callbacks = callback_url(env.get('SEEDANCE_CALLBACK_URL'), env.get('SEEDANCE_CALLBACK_SECRET'))
+    callbacks = callback_url(env.get('SEEDANCE_CALLBACK_URL'), env.get('SEEDANCE_CALLBACK_SECRET'), item.id)
     base = {'status': 'running', 'submitted_at': deps.now(), 'next_poll_at': deps.now() + 5000, 'poll_attempts': 0}
     if item.task_id:
         return base  # Recovery polls a receipt; it never submits again.

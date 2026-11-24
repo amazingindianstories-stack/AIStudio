@@ -187,6 +187,11 @@ class OrganizationTests(TransactionTestCase):
         self.assertEqual(self.client.post('/api/folders', '{', content_type='application/json').json()['code'], 'INVALID_NAME')
         self.assertEqual(self.client.patch('/api/folders', {}, content_type='application/json').status_code, 400)
 
+    def test_move_rejects_mixed_type_ids_with_400(self):
+        self.error('INVALID_GENERATION_IDS', lambda: service.move_generations(ids=[1, 'a'], destination={'type': 'project_unsorted'}))
+        self.error('INVALID_GENERATION_IDS', lambda: service.move_generations(ids=[['x'], 'a'], destination={'type': 'project_unsorted'}))
+        self.assertEqual(OrganizationError('INVALID_GENERATION_IDS', 'x').status, 400)
+
     def test_atomic_outer_transaction_rolls_back_all_services(self):
         with self.assertRaises(RuntimeError):
             with transaction.atomic():

@@ -32,6 +32,7 @@ import json
 import logging
 import os
 from dataclasses import dataclass
+from datetime import datetime
 
 from django.db import transaction
 from django.db.models import Q
@@ -163,9 +164,22 @@ def cancel(run, *, now=None, cancel_job=None):
     return 'cancelled'
 
 
+QUOTE_EXPIRED = 'quote_expired'
+
+
+def _quote_expired(step, now):
+    expires = step.result.get('quote', {}).get('expiresAt')
+    try:
+        return datetime.fromisoformat(expires.replace('Z', '+00:00')).timestamp() * 1000 <= now
+    except (AttributeError, ValueError):
+        return False
+
+
 def approve_quote(run_id, user_id, *, step_index=None, now=None):
     """The artist approved the waiting quote: store the approval on the step and queue the run, which replays that
-    step with the quote. Returns the run, or None when nothing is waiting for approval (or ``step_index`` differs)."""
+    step with the quote. Returns the run, or None when nothing is waiting for approval (or ``step_index`` differs).
+    A quote past its expiry stores no approval: the step is declined as expired and the run queued, so the agent
+    asks for a fresh price, and ``QUOTE_EXPIRED`` is returned for the caller to tell the artist."""
     now = now_ms() if now is None else now
     with transaction.atomic():
         run = _locked(run_id)
@@ -173,6 +187,13 @@ def approve_quote(run_id, user_id, *, step_index=None, now=None):
         if (run.status != 'waiting_approval' or run.cancel_requested_at is not None or step is None
                 or (step_index is not None and step.step_index != step_index)):
             return None
+        if _quote_expired(step, now):
+            message = 'The price the artist approved had expired; nothing was charged. Ask for a fresh price and the artist will be asked again.'
+            result = {**step.result, 'declined': {'reason': 'expired', 'at': now}, 'response': {'code': 'QUOTE_EXPIRED', 'message': message}}
+            AgentRunStep.objects.filter(pk=step.pk).update(outcome='quote_declined', result=result)
+            _set(run, now, status='queued')
+            events.emit(run.id, 'quote_declined', {'stepIndex': step.step_index, 'reason': 'expired'}, now=now)
+            return QUOTE_EXPIRED
         result = {**step.result, 'approval': {'by': str(user_id), 'at': now}}
         AgentRunStep.objects.filter(pk=step.pk).update(result=result)
         _set(run, now, status='queued')

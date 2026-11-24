@@ -377,6 +377,16 @@ class QuoteTests(RunsApiCase):
         self.assertIn('quoteToken', sent[-1][1])
         self.assertEqual((AgentRun.objects.get(pk=run.id).status, Generation.objects.count()), ('waiting_jobs', 1))
 
+    def test_approving_an_expired_quote_is_409_quote_expired(self):
+        run, sent, _ = self.waiting()
+        from apps.agents.models import AgentRunStep
+        step = AgentRunStep.objects.get(run_id=run.id, outcome='quote_required')
+        AgentRunStep.objects.filter(pk=step.pk).update(result={**step.result, 'quote': {**step.result['quote'], 'expiresAt': '2020-01-01T00:00:00Z'}})
+        response = self.post(f'{self.base}/{run.id}/approve', {'stepIndex': 1})
+        self.assertEqual((response.status_code, response.json()['code']), (409, 'QUOTE_EXPIRED'))
+        self.assertEqual((AgentRun.objects.get(pk=run.id).status, Generation.objects.count(), len(sent)), ('queued', 0, 1))
+        self.assertEqual(self.post(f'{self.base}/{run.id}/approve', {'stepIndex': 1}).json()['code'], 'NO_PENDING_QUOTE')
+
     def test_decline_tells_the_model_and_pays_nothing(self):
         run, sent, bodies = self.waiting([text('Understood, nothing was made.')])
         response = self.post(f'{self.base}/{run.id}/decline', {'stepIndex': 1})

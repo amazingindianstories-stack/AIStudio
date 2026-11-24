@@ -9,6 +9,7 @@ from apps.authentication.session import lookup
 from apps.common.leases import now_ms
 from apps.generation.providers.seedance import normalize_video_task_payload
 from apps.generation.services import coordinator, poller
+from apps.generation.services.reads import canonical_id
 
 
 def token_matches(supplied, expected):
@@ -49,6 +50,9 @@ def seedance_callback(request):
     if not task_id:
         return Response({'error': 'INVALID_TASK_ID'}, status=400)
     item = coordinator.task_item(task_id)
+    generation = canonical_id(request.query_params.get('generation'))
+    if item is None and generation:
+        item = coordinator.adopt_orphaned_task(generation, task_id)
     if item is None:
         return Response({'accepted': False}, status=202)
     timestamp = now_ms()

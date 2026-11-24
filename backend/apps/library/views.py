@@ -1,3 +1,5 @@
+import logging
+
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
 from apps.authentication.session import lookup
@@ -97,7 +99,8 @@ def folder_mutation(request, user):
     except OrganizationError as exc:
         return renew(request, Response({'error': str(exc), 'code': exc.code}, status=exc.status))
     except Exception:
-        # Database diagnostics can include credentials or supplied payloads.
+        # Database diagnostics can include credentials or supplied payloads, so only the type is logged.
+        logging.getLogger(__name__).exception('folder mutation failed')
         action = {'POST': 'create', 'DELETE': 'delete'}.get(request.method, 'update')
         return renew(request, Response({'error': f'Failed to {action} folder.'}, status=500))
 

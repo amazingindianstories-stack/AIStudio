@@ -388,6 +388,8 @@ def run_quote(request, id, run_id, decision):
         answered = runner.approve_quote(run.id, user.id, step_index=index)
     else:
         answered = runner.decline_quote(run.id, 'declined', step_index=index)
+    if answered == runner.QUOTE_EXPIRED:
+        return Response({'error': 'This price expired; the agent will ask again.', 'code': 'QUOTE_EXPIRED'}, status=409)
     if answered is None:
         return Response({'error': 'No quote is waiting for approval at this step.', 'code': 'NO_PENDING_QUOTE'}, status=409)
     return renew_session(request, Response({'run': runs.run_json(answered)}))

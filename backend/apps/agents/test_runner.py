@@ -8,7 +8,7 @@ import json
 import os
 import threading
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from threading import Event
 from unittest.mock import Mock, patch
@@ -398,6 +398,27 @@ class ApprovalTests(RunnerCase):
         self.assertEqual((run.status, run.step_count, run.cost_cents, Generation.objects.get().cost_cents), ('waiting_jobs', 2, cents, cents))
         self.assertEqual(self.kinds(run).count('quote_approved'), 1)
         return replay
+
+    def test_approving_an_expired_quote_requotes_instead_of_replaying(self):
+        self.price(10)
+        sent = self.dispatched()
+        self.gemini([call('generate_image', {'prompt': 'red fox'})], [call('generate_image', {'prompt': 'red fox'})])
+        run = self.start_run()
+        self.assertEqual(self.advance(run), 'waiting')
+        step = self.steps(run)[1]
+        expiry = datetime.fromisoformat(step.result['quote']['expiresAt'].replace('Z', '+00:00')).timestamp() * 1000
+        self.assertEqual(runner.approve_quote(run.id, self.user.id, step_index=1, now=int(expiry) + 1), runner.QUOTE_EXPIRED)
+        step = self.steps(run)[1]
+        self.assertEqual((step.outcome, step.result['declined']['reason'], step.result['response']['code']),
+                         ('quote_declined', 'expired', 'QUOTE_EXPIRED'))
+        self.assertNotIn('approval', step.result)
+        self.assertEqual(self.refresh(run).status, 'queued')
+        self.assertEqual((Generation.objects.count(), self.kinds(run).count('quote_approved')), (0, 0))
+        self.assertEqual(self.advance(run), 'waiting')
+        self.assertEqual(self.refresh(run).status, 'waiting_approval')
+        self.assertEqual(self.kinds(run).count('quote_required'), 2)
+        self.assertEqual(len(sent), 2)
+        self.assertNotIn('quoteToken', sent[1][1])
 
     def test_an_approved_quote_replays_the_same_step_with_its_token(self):
         self.assertNotIn('confirmedByUser', self.approve_and_replay(10))

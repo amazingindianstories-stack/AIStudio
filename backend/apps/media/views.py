@@ -1,4 +1,5 @@
 import json
+import logging
 import math
 import re
 import time
@@ -139,6 +140,8 @@ def media(request, path):
     except InvalidMediaRangeError:
         return HttpResponse('Range Not Satisfiable',status=416)
     except Exception:
+        # Type only: the key and request are not logged.
+        logging.getLogger(__name__).exception('media read failed')
         return HttpResponse('Internal Server Error',status=500)
 
 

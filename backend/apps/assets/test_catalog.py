@@ -104,6 +104,18 @@ class CatalogTests(TransactionTestCase):
             self.save({'id': asset['id'], 'name': 'Swap', 'kind': 'character', 'images': ['data:image/png;base64,YQ==']})
         delete.assert_not_called()
 
+    def test_non_uuid_id_is_400(self):
+        self.cookie()
+        response = self.save({'id': 'not-a-uuid', 'name': 'X', 'kind': 'character', 'images': ['data:image/png;base64,YQ==']})
+        self.assertEqual((response.status_code, response.json()), (400, {'error': 'Invalid asset id.'}))
+
+    def test_unexpected_save_failure_is_500_and_logged(self):
+        self.cookie()
+        with patch('apps.media.images.save_asset_image', side_effect=RuntimeError('storage down')), \
+                self.assertLogs('apps.assets.catalog', 'ERROR'):
+            response = self.save({'name': 'X', 'kind': 'character', 'images': ['data:image/png;base64,YQ==']})
+        self.assertEqual((response.status_code, response.json()), (500, {'error': 'Failed to save material asset.'}))
+
     def test_hidden_project_asset_is_not_editable_or_deletable(self):
         from apps.authentication.models import User
         self.cookie()

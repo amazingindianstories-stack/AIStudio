@@ -66,6 +66,14 @@ class ExportHTTPTests(TransactionTestCase):
                 self.assertNotIn('private-fixture-token',response.content.decode())
                 self.assertEqual(MediaExport.objects.get(pk=job['id']).error,'private-fixture-token')
 
+    def test_finalize_unexpected_error_is_500_and_logged(self):
+        self.cookie()
+        self.client.raise_request_exception = False
+        with patch.object(services, 'finalize_export', side_effect=RuntimeError('database offline')), \
+                self.assertLogs('django.request', 'ERROR'):
+            response = self.post('/api/history/exports/%s/finalize' % uuid.uuid4())
+        self.assertEqual(response.status_code, 500)
+
     def test_finalize_duplicate_leaf_names_succeeds(self):
         self.cookie()
         job = services.create_export(self.actor)

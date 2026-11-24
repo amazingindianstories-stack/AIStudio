@@ -22,7 +22,7 @@ SUBMISSION_PENDING = 'SUBMISSION_PENDING'
 SUBMISSION_UNCERTAIN = 'SUBMISSION_UNCERTAIN'
 WORKER_SLOT_MESSAGE = 'Waiting for a free worker slot'
 SPEND_WINDOW_MS = 600000
-HELD_MESSAGE = 'Waiting for the API rate-limit window to clear — this will start automatically.'
+HELD_MESSAGE = 'Waiting for the API rate-limit window to clear - this will start automatically.'
 
 
 def numeric(raw, fallback):
@@ -198,3 +198,30 @@ def show_worker_slot_wait(item):
     if changed:
         from apps.generation.realtime import publish_best_effort
         publish_best_effort(Generation.objects.get(pk=item.id))
+
+
+WORKER_ERROR = 'WORKER_ERROR'
+WORKER_ERROR_LIMIT = 20
+WORKER_ERROR_MAX_DELAY_MS = 600000
+
+
+def record_worker_error(identifier, *, now=None, limit=WORKER_ERROR_LIMIT):
+    """Back a row off after an exception outside the executor, and fail it after `limit` attempts.
+
+    Only a row nobody holds is touched. The accepted task id stays on the row, so a failed row is
+    never resubmitted. Returns 'backoff', 'failed' or None (row held, settled or gone)."""
+    now = now_ms() if now is None else now
+    free = Q(worker_lease_until__isnull=True) | Q(worker_lease_until__lte=now)
+    row = Generation.objects.filter(free, pk=identifier, status__in=('queued', 'running')).first()
+    if row is None:
+        return None
+    attempts = (row.poll_error_count or 0) + 1
+    fenced = Generation.objects.filter(free, pk=identifier, status=row.status, poll_error_count=row.poll_error_count)
+    if attempts >= limit:
+        changed = fenced.update(status='failed', provider_status=WORKER_ERROR, poll_error_count=attempts,
+            error='Generation could not be processed. Please try again.', completed_at=now, updated_at=now,
+            worker_lease_id=None, worker_lease_until=None)
+        return 'failed' if changed else None
+    delay = min(2 ** attempts, WORKER_ERROR_MAX_DELAY_MS // 1000) * 1000
+    changed = fenced.update(poll_error_count=attempts, next_poll_at=now + delay)
+    return 'backoff' if changed else None

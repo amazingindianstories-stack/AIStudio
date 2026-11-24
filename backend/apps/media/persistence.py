@@ -9,7 +9,7 @@ import shutil
 from urllib.parse import quote
 from pathlib import Path
 from django.conf import settings
-from .storage import get_storage
+from .storage import MASTER_CACHE_CONTROL, get_storage
 from apps.integrations.remote import get_media_fetcher, SafeMediaFetcher
 
 DEFAULT_RATIOS = {'image':['1:1','3:4','4:3','9:16','16:9','21:9'],
@@ -180,7 +180,7 @@ def _save_video_stream(stream, ext, identifier):
     stream.seek(0)
     from .storage import MIME
     key = f'generations/{identifier}.{ext}'
-    get_storage().upload_stream(stream,key,MIME[ext],'public, max-age=31536000, immutable')
+    get_storage().upload_stream(stream,key,MIME[ext],MASTER_CACHE_CONTROL)
     return '/api/media/'+quote(key,safe='/')
 
 
