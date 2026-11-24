@@ -63,7 +63,7 @@ export function FacilitationButton({ boardId }) {
         {live && <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-brand" />}
       </button>
       {open && (
-        <div role="menu" className="absolute left-0 top-full z-50 mt-2 w-72 max-w-[calc(100vw-2rem)] max-sm:fixed max-sm:left-4 max-sm:right-4 max-sm:top-24 max-sm:mt-0 max-sm:w-auto max-sm:max-w-none rounded-2xl border border-line bg-ink-750/95 shadow-pop backdrop-blur-xl">
+        <div role="menu" className="absolute left-0 top-full z-50 mt-2 w-72 max-w-[calc(100vw-2rem)] max-sm:fixed max-sm:left-4 max-sm:right-4 max-sm:top-24 max-sm:mt-0 max-sm:w-auto max-sm:max-w-none max-sm:max-h-[calc(100dvh-7rem)] max-sm:overflow-y-auto rounded-2xl border border-line bg-ink-750/95 shadow-pop backdrop-blur-xl">
           {view ? (
             <>
               <div className="flex items-center gap-1 border-b border-line px-2 py-1.5">

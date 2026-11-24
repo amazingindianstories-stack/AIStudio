@@ -67,7 +67,7 @@ test("every header menu escapes the scrolling row on phones instead of being cli
       await settle();
       const menu = button(label).parentElement.querySelector("[role=menu]");
       assert.ok(menu, `${label} opens its menu`);
-      assert.ok(phone(menu, "max-sm:fixed", "max-sm:left-4", "max-sm:right-4", "max-sm:w-auto"), `${label} menu is fixed to the viewport on phones`);
+      assert.ok(phone(menu, "max-sm:fixed", "max-sm:left-4", "max-sm:right-4", "max-sm:w-auto", "max-sm:overflow-y-auto"), `${label} menu is fixed to the viewport on phones`);
       await act(async () => button(label).click());
       assert.equal(button(label).parentElement.querySelector("[role=menu]"), null, `${label} closes`);
     }
