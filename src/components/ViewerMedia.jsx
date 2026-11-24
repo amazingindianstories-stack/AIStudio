@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import { standInUrl, useViewerMediaUrl, VIEWER_THUMB_WIDTH } from "@/lib/viewer-media";
 import { generationDownloadUrl } from "@/lib/utils";
+import { VideoFallback } from "./VideoFallback";
 
 // The chat thread shows 1200px stand-ins; matching them reuses the bytes the
 // thread already loaded.
@@ -72,10 +73,7 @@ export function ViewerMedia({ item, source, unplayableUrl, onUnplayable, transpa
   }
   if (item.kind === "video" && unplayableUrl === item.url) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center text-white/80">
-        <p>This browser cannot play this video. Download the original for full-quality playback.</p>
-        <a href={generationDownloadUrl(item.id)} download={item.filename || true} className="rounded-lg bg-brand px-4 py-2 text-ink-900">Download original</a>
-      </div>
+      <VideoFallback href={generationDownloadUrl(item.id)} filename={item.filename} className="h-full" />
     );
   }
   if (item.kind === "video") {

@@ -30,6 +30,7 @@ import {
   Minimize,
   LayoutTemplate,
   Bot,
+  FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCanvasStore, } from "@/lib/canvas-store";
@@ -47,9 +48,11 @@ import { GridMenu } from "./GridMenu";
 import { SyncedMenu } from "./SyncedMenu";
 import { FrameMenu } from "./FrameMenu";
 import { requestTemplates } from "@/lib/canvas/template-events";
+import { boardStatus } from "@/lib/canvas/formats/model";
 import { ACTIVE_STATUSES, useBoardAi } from "@/lib/board-ai";
 import { MediaMenu } from "./MediaMenu";
 import { useBoardPrefs } from "@/lib/canvas/board-prefs";
+import { useBoardUi } from "@/lib/canvas/board-ui";
 import { CREATION_TOOLS, NAVIGATION_TOOLS, moveTool, orderedTools, pinnedTools, placeToolBefore, togglePinned, toolLabel } from "@/lib/canvas/toolbar-tools";
 
 const NAVIGATION_ICONS = { select: MousePointer2, hand: Hand, lasso: Lasso };
@@ -267,6 +270,8 @@ export function CanvasToolbar({
             {aiRunning && <span className="absolute right-1 top-1 h-1.5 w-1.5 animate-pulse rounded-full bg-brand" aria-hidden />}
           </button>
         );
+      case "formats":
+        return <FormatsButton />;
       case "sidekick":
         return (
           <button
@@ -293,16 +298,17 @@ export function CanvasToolbar({
       {/* The dock centres in the free strip between the asset panel and the
           zoom control; below the desktop width it sits above the zoom control,
           and on phones its buttons shrink so every tool fits the width. */}
-      {!viewOnly && (
       <div
         className="pointer-events-none absolute bottom-4 right-60 z-30 flex justify-center transition-[left] duration-200 max-lg:bottom-[4.25rem] max-lg:right-4"
         style={{ left: insetLeft + 16 }}
       >
+      {/* Touch view mode has no tool dock, only the lone formats launcher. */}
       <div
-        role="toolbar"
-        aria-label="Board tools"
+        role={viewOnly ? undefined : "toolbar"}
+        aria-label={viewOnly ? undefined : "Board tools"}
         className="pointer-events-auto flex max-w-full items-center gap-1 overflow-x-auto rounded-2xl border border-line bg-ink-750/95 p-1.5 shadow-pop backdrop-blur-xl max-sm:gap-0.5 max-sm:p-1"
       >
+        {!viewOnly && (
         <ToolGroup>
           {NAVIGATION_TOOLS.map((id) => (
             <ToolButton
@@ -316,9 +322,17 @@ export function CanvasToolbar({
             />
           ))}
         </ToolGroup>
+        )}
 
-        {/* View and comment access: navigation only, no creation tools. */}
-        {!readOnly && (<>
+        {/* View and comment access and touch view mode: no creation tools, but the formats drawer still opens. */}
+        {(readOnly || viewOnly) && (<>
+        {!viewOnly && <Divider />}
+        <ToolGroup>
+          <FormatsButton />
+        </ToolGroup>
+        </>)}
+
+        {!readOnly && !viewOnly && (<>
         <Divider />
 
         <ToolGroup>
@@ -355,7 +369,6 @@ export function CanvasToolbar({
         </>)}
       </div>
       </div>
-      )}
 
       <ZoomControl />
     </>
@@ -551,6 +564,29 @@ function ZoomControl() {
         <Plus className="h-3.5 w-3.5" />
       </button>
     </div>
+  );
+}
+
+/** Opens the board's docs, slides and prototypes drawer (FormatsPanel); a dot shows when a format has a status. */
+function FormatsButton() {
+  const status = useCanvasStore((s) => boardStatus(s.history.present.nodes));
+  const open = useBoardUi((s) => s.formatsOpen);
+  const toggleFormats = useBoardUi((s) => s.toggleFormats);
+  return (
+    <button
+      type="button"
+      className={cn(
+        "relative grid h-9 w-9 cursor-pointer place-items-center rounded-lg transition-colors max-sm:h-8 max-sm:w-8",
+        open ? "bg-ink-600 text-white ring-1 ring-line" : "text-white/55 hover:bg-white/[0.07] hover:text-white"
+      )}
+      title="Docs, slides and prototypes"
+      aria-label="Docs, slides and prototypes"
+      aria-pressed={open}
+      onClick={toggleFormats}
+    >
+      <FileText className="h-4 w-4" />
+      {status && <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-brand" aria-hidden />}
+    </button>
   );
 }
 

@@ -1,0 +1,43 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import DropZone from "./DropZone.jsx";
+
+globalThis.React = React;
+const render = (props) => renderToStaticMarkup(React.createElement(DropZone, props));
+
+test("DropZone renders the same copy pattern for each kind", () => {
+  assert.match(render({ kind: "image" }).replace(/<!-- -->/g, ""), /Drop an image here or <span[^>]*>browse<\/span>/);
+  assert.match(render({ kind: "video" }).replace(/<!-- -->/g, ""), /Drop a video here or <span[^>]*>browse<\/span>/);
+  assert.match(render({ kind: "audio" }).replace(/<!-- -->/g, ""), /Drop audio here or <span[^>]*>browse<\/span>/);
+});
+
+test("DropZone shares geometry classes and renders the hint", () => {
+  const html = render({ kind: "video", hint: "MP4 only" });
+  assert.match(html, /rounded-2xl border border-dashed/);
+  assert.match(html, /h-10 w-10[^"]*rounded-full/);
+  assert.match(html, /MP4 only/);
+});
+
+test("DropZone invalid drag uses the red state, message and invalid hint", () => {
+  const html = render({ kind: "video", dragging: true, dragValid: false, dragMessage: "Videos only", hint: "h", invalidHint: "bad" });
+  assert.match(html, /border-red-500\/80/);
+  assert.match(html, /Videos only/);
+  assert.match(html, /bad/);
+  assert.doesNotMatch(html, />h</);
+});
+
+test("DropZone lets a long rejection reason wrap instead of cutting it off", () => {
+  const reason = "Video upscaling only accepts videos. Switch to Image to upscale an image.";
+  const html = render({ kind: "video", dragging: true, dragValid: false, dragMessage: reason });
+  const line = html.match(new RegExp(`<p class="([^"]*)">${reason}</p>`));
+  assert.ok(line, "the full reason is rendered");
+  assert.doesNotMatch(line[1], /\btruncate\b/);
+});
+
+test("DropZone is keyboard reachable and disables when asked", () => {
+  assert.match(render({ kind: "image" }), /role="button"[^>]*tabindex="0"|tabindex="0"[^>]*role="button"/);
+  assert.match(render({ kind: "image", disabled: true }), /aria-disabled="true"/);
+  assert.match(render({ kind: "video", uploading: true, progress: 40 }), /Uploading video… 40%/);
+});

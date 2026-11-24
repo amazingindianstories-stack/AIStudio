@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useCanvasStore, selectReadOnly } from "@/lib/canvas-store";
 import { isLocked } from "@/lib/canvas/locks";
-import { boardStatus, defaultViewNode, FORMAT_STATUSES, MAX_HTML, newFormatNode, STATUS_LABELS } from "@/lib/canvas/formats/model";
+import { useBoardUi } from "@/lib/canvas/board-ui";
+import { defaultViewNode, FORMAT_STATUSES, MAX_HTML, newFormatNode, STATUS_LABELS } from "@/lib/canvas/formats/model";
 import { formatUrl, openFormat, patchFormat, setDefaultFormat } from "@/lib/canvas/formats/actions";
 import { WIREFRAMES, wireframeNode } from "@/lib/canvas/formats/wireframes";
 import { staticEmbedHtml } from "@/lib/canvas/formats/html-embed";
@@ -23,7 +24,7 @@ export function FormatsPanel({ boardId, touchViewOnly }) {
   const viewOnly = useCanvasStore(selectReadOnly);
   const readOnly = viewOnly || touchViewOnly;
   const selection = useCanvasStore((s) => s.selection);
-  const [panel, setPanel] = useState(false);
+  const panel = useBoardUi((s) => s.formatsOpen);
   const [focusId, setFocusId] = useState(null);
   const [notice, setNotice] = useState("");
   const dialog = useRef(null);
@@ -72,20 +73,16 @@ export function FormatsPanel({ boardId, touchViewOnly }) {
     store.addNode(node);
     setFocusId(node.id);
   };
-  const status = boardStatus(graph.nodes);
   if (!boardId || !loaded) return null;
   return <>
-    <div className="absolute bottom-20 right-60 z-20 max-lg:bottom-[7.5rem] max-lg:right-4 text-sm">
-      <button className="rounded-xl border border-white/15 bg-slate-900 px-4 py-3 text-white shadow-xl" aria-expanded={panel} onClick={() => setPanel(!panel)}>Formats{status ? ` · ${STATUS_LABELS[status]}` : ""}</button>
-      {panel && <div className="absolute bottom-14 right-0 max-h-[70vh] w-80 space-y-4 overflow-auto rounded-xl border border-slate-200 bg-white p-4 text-slate-900 shadow-xl" role="region" aria-label="Board formats">
+    {panel && <div className="absolute right-4 top-16 z-40 max-h-[min(560px,calc(100%-11rem))] w-80 max-w-[calc(100%-2rem)] space-y-4 overflow-y-auto rounded-2xl border border-line bg-ink-750/95 p-4 text-sm text-white shadow-pop backdrop-blur-xl" role="region" aria-label="Board formats">
         <h2 className="font-semibold">Docs, slides and prototypes</h2>
-        {!readOnly && <div className="grid grid-cols-2 gap-2">{[["doc", "New doc"], ["deck", "New slides"], ["drawio", "New Draw.io"], ["html", "New HTML embed"]].map(([kind, label]) => <button key={kind} className="rounded border p-2" onClick={() => create(kind)}>{label}</button>)}<button className="rounded border p-2" onClick={() => setFocusId("new-mermaid")}>New Mermaid</button></div>}
-        <ul className="space-y-2">{formats.map((n) => <li key={n.id}><button className="w-full rounded border px-3 py-2 text-left" onClick={() => openFormat(n.id)}>{n.name || n.type} <span className="text-xs text-slate-500">{STATUS_LABELS[n.status]}{n.defaultView ? " · Default" : ""}</span></button></li>)}</ul>
-        {!readOnly && <><h3 className="font-semibold">Wireframing library</h3><div className="grid grid-cols-2 gap-2">{WIREFRAMES.map((item) => <button className="rounded border p-2 text-xs" key={item.name} onClick={() => { const store = useCanvasStore.getState(); const screen = selected?.type === "frame" && item.type !== "frame" ? selected : null; store.addNode(wireframeNode(item, screen ? { x: screen.x + screen.w / 2, y: screen.y + screen.h / 2 } : store.viewportCenter(), screen?.id ?? null)); }}>{item.name}</button>)}</div>
-          {selected && selected.type !== "frame" && !isLocked(graph, selected) && <label className="block">Click-through destination<select className="w-full rounded border p-2" aria-label="Click-through destination" value={selected.screenLink ?? ""} onChange={(e) => useCanvasStore.getState().updateNodeFields(selected.id, { screenLink: e.target.value || undefined })}><option value="">No link</option>{graph.nodes.filter((n) => n.type === "frame").map((n) => <option key={n.id} value={n.id}>{n.name || "Frame"}</option>)}</select></label>}</>}
-        {graph.nodes.filter((n) => n.type === "frame").map((n) => <button key={n.id} className="block rounded border px-3 py-2" onClick={() => setFocusId(`prototype:${n.id}`)}>Preview {n.name || "screen"}</button>)}
+        {!readOnly && <div className="grid grid-cols-2 gap-2">{[["doc", "New doc"], ["deck", "New slides"], ["drawio", "New Draw.io"], ["html", "New HTML embed"]].map(([kind, label]) => <button key={kind} className="rounded-lg border border-line bg-white/[0.04] p-2 hover:bg-white/[0.08]" onClick={() => create(kind)}>{label}</button>)}<button className="rounded-lg border border-line bg-white/[0.04] p-2 hover:bg-white/[0.08]" onClick={() => setFocusId("new-mermaid")}>New Mermaid</button></div>}
+        <ul className="space-y-2">{formats.map((n) => <li key={n.id}><button className="w-full rounded-lg border border-line bg-white/[0.04] px-3 py-2 text-left hover:bg-white/[0.08]" onClick={() => openFormat(n.id)}>{n.name || n.type} <span className="text-xs text-white/50">{STATUS_LABELS[n.status]}{n.defaultView ? " · Default" : ""}</span></button></li>)}</ul>
+        {!readOnly && <><h3 className="font-semibold">Wireframing library</h3><div className="grid grid-cols-2 gap-2">{WIREFRAMES.map((item) => <button className="rounded-lg border border-line bg-white/[0.04] p-2 text-xs hover:bg-white/[0.08]" key={item.name} onClick={() => { const store = useCanvasStore.getState(); const screen = selected?.type === "frame" && item.type !== "frame" ? selected : null; store.addNode(wireframeNode(item, screen ? { x: screen.x + screen.w / 2, y: screen.y + screen.h / 2 } : store.viewportCenter(), screen?.id ?? null)); }}>{item.name}</button>)}</div>
+          {selected && selected.type !== "frame" && !isLocked(graph, selected) && <label className="block">Click-through destination<select className="w-full rounded-lg border border-line bg-ink-800 p-2" aria-label="Click-through destination" value={selected.screenLink ?? ""} onChange={(e) => useCanvasStore.getState().updateNodeFields(selected.id, { screenLink: e.target.value || undefined })}><option value="">No link</option>{graph.nodes.filter((n) => n.type === "frame").map((n) => <option key={n.id} value={n.id}>{n.name || "Frame"}</option>)}</select></label>}</>}
+        {graph.nodes.filter((n) => n.type === "frame").map((n) => <button key={n.id} className="block rounded-lg border border-line bg-white/[0.04] px-3 py-2 hover:bg-white/[0.08]" onClick={() => setFocusId(`prototype:${n.id}`)}>Preview {n.name || "screen"}</button>)}
       </div>}
-    </div>
     {(focusNode || focusId === "new-mermaid" || focusId?.startsWith("prototype:")) && createPortal(<div ref={dialog} role="dialog" aria-modal="true" aria-label="Format focus mode" tabIndex={-1} className="fixed inset-0 z-[100] flex flex-col bg-slate-50 text-slate-900 outline-none" onKeyDown={(e) => {
       e.stopPropagation();
       if (e.key === "Escape" && !e.isDefaultPrevented()) close();

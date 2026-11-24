@@ -196,6 +196,13 @@ test('Board touch: a phone opens the board view-only, pans and zooms by touch, a
   await expect(sticky).toBeVisible();
   await pixelClean(phone.page);
   await separate(edit, phone.page.getByRole('button', { name: 'Share', exact: true }));
+  // The header is one scrolling row: no pill squeezes onto a second line (Inbox, Cards and work).
+  const pillHeights = () => phone.page.getByRole('button', { name: 'Share', exact: true }).evaluate((share) =>
+    [...share.parentElement.querySelectorAll('button')].filter((pill) => pill.offsetParent)
+      .map((pill) => ({ label: pill.textContent.trim(), extra: Math.round(pill.getBoundingClientRect().height - share.getBoundingClientRect().height) }))
+      .filter((pill) => pill.label && pill.extra > 2));
+  await expect(phone.page.getByRole('button', { name: /^Inbox/ })).toBeVisible();
+  expect(await pillHeights()).toEqual([]);
   await shot(phone.page, info, 'phone-view-only');
   const box = await canvas.boundingBox();
   const at = (x, y) => ({ x: box.x + x, y: box.y + y });
@@ -256,6 +263,7 @@ test('Board touch: a phone opens the board view-only, pans and zooms by touch, a
   await expect(phone.page.getByRole('button', { name: 'Sticky note', exact: true })).toBeVisible();
   await pixelClean(phone.page);
   await separate(phone.page.getByRole('toolbar', { name: 'Board tools' }), phone.page.getByRole('group', { name: 'Zoom', exact: true }));
+  expect(await pillHeights()).toEqual([]);
   await shot(phone.page, info, 'phone-edit-mode');
   await centreNode(touch, sticky, box);
   const start = await sticky.boundingBox();

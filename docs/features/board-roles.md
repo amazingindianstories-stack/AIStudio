@@ -63,7 +63,7 @@ teammate keeps creating boards there. An owner narrows access from the share dia
 `src/components/canvas/BoardShareDialog.jsx` (the Share button beside the board switcher) shows the
 owner, team access, board members and project roles, and lets each caller change what their role
 allows. It offers only active teammates (`isActive` on `GET /api/users`) to add. View-only and
-comment-only users get a read-only canvas: navigation and zoom only, no creation tools, style
+comment-only users get a read-only canvas: navigation, zoom and the formats drawer only, no creation tools, style
 inspector, drops, pastes, text or crop editing, and no autosave (`selectReadOnly` in
 `src/lib/canvas-store.js`). A save refused with 403 turns the open board
 read-only and keeps the unsaved edits in the local pending draft. The board switcher

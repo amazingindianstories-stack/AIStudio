@@ -25,6 +25,8 @@ test('audio transcription modal is a labelled dialog that takes focus, traps Tab
     await settle();
     const dialog = document.querySelector('[role="dialog"][aria-modal="true"]');
     assert.equal(dialog.getAttribute('aria-label'), 'Audio transcription');
+    const zone = dialog.querySelector('[role="button"][tabindex="0"]');
+    assert.ok(zone && zone.textContent.startsWith('Drop audio here or browse'), 'the shared audio drop zone');
     assert.ok(dialog.contains(document.activeElement), 'focus moves into the dialog');
     const controls = [...dialog.querySelectorAll('button:not(:disabled)')];
     controls[controls.length - 1].focus();

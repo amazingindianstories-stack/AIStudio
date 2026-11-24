@@ -88,7 +88,8 @@ export function SettingsToolbar({ destination = true }) {
           label="Generation settings"
           align="right"
           side="top"
-          panelClassName="w-max min-w-[230px] max-w-[min(92vw,340px)] p-3 max-h-[60vh] overflow-y-auto scroll-thin"
+          sideOffset={12}
+          panelClassName="w-max min-w-[230px] max-w-[min(92vw,340px)] p-3 max-h-[min(70vh,34rem)] overflow-y-auto scroll-thin"
           trigger={(open) => (
             <Chip open={open}>
               <Settings2 className="h-4 w-4 text-white/55" />
@@ -279,7 +280,7 @@ export function SettingsToolbar({ destination = true }) {
           )}
         </Dropdown>
 
-        {destination && <DestinationPicker />}
+        {destination && <DestinationPicker className="composer-destination ml-auto shrink-0" />}
       </div>
   );
 }

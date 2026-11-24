@@ -1,7 +1,8 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, ChevronRight, Copy } from "lucide-react";
+import { AlertTriangle, Check, ChevronDown, ChevronRight, Copy } from "lucide-react";
+import EmptyState from "@/components/EmptyState";
 import { apiFetch } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
@@ -355,8 +356,8 @@ export function AdminErrorsTab({ data, usersById }) {
             })}
             {!loading && !failed && rows.length === 0 && (
               <tr className="border-t border-line">
-                <td colSpan={6} className="px-3 py-8 text-center text-xs text-white/40">
-                  No provider errors match these filters.
+                <td colSpan={6} className="p-3">
+                  <EmptyState icon={<AlertTriangle className="h-6 w-6" />} title="No provider errors" body="No errors match these filters." />
                 </td>
               </tr>
             )}

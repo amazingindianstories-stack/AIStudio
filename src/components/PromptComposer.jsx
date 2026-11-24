@@ -1001,7 +1001,8 @@ export function PromptComposer() {
           label="Generation settings"
           align="right"
           side="top"
-          panelClassName="w-max min-w-[230px] max-w-[min(92vw,340px)] p-3 max-h-[60vh] overflow-y-auto scroll-thin"
+          sideOffset={12}
+          panelClassName="w-max min-w-[230px] max-w-[min(92vw,340px)] p-3 max-h-[min(70vh,34rem)] overflow-y-auto scroll-thin"
           trigger={(open) => (
             <Chip open={open}>
               <Settings2 className="h-4 w-4 text-white/55" />
@@ -1215,7 +1216,7 @@ export function PromptComposer() {
 
         {/* destination: which project / folder new generations land in */}
         <Dropdown
-          className="composer-destination shrink-0"
+          className="composer-destination ml-auto shrink-0"
           label="Generation destination"
           align="right"
           side="top"

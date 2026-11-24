@@ -17,6 +17,7 @@ export const useBoardUi = create((set, get) => ({
   findOpen: false,
   paletteOpen: false,
   shortcutsOpen: false,
+  formatsOpen: false,
   // {index, grid, notes, onBoard, returnViewport} while presenting frames, else null.
   // `onBoard` is a break from the slides to look around the board.
   presenting: null,
@@ -35,6 +36,7 @@ export const useBoardUi = create((set, get) => ({
   setFindHits: (hits) => set({ findHits: hits ?? EMPTY_HITS }),
   setPaletteOpen: (open) => set({ paletteOpen: open }),
   setShortcutsOpen: (open) => set({ shortcutsOpen: open }),
+  toggleFormats: () => set({ formatsOpen: !get().formatsOpen }),
   setPresenting: (presenting) => set({ presenting }),
   setGoBack: (viewport) => set({ goBack: viewport }),
   announce: (text) => set({ announcement: { text, seq: get().announcement.seq + 1 } }),
@@ -45,5 +47,5 @@ export const useBoardUi = create((set, get) => ({
 
   /** Leaving a board closes everything that was about it. */
   reset: () =>
-    set({ panel: null, findOpen: false, paletteOpen: false, shortcutsOpen: false, presenting: null, findHits: EMPTY_HITS, goBack: null, notice: { text: "", seq: get().notice.seq } }),
+    set({ panel: null, findOpen: false, paletteOpen: false, shortcutsOpen: false, formatsOpen: false, presenting: null, findHits: EMPTY_HITS, goBack: null, notice: { text: "", seq: get().notice.seq } }),
 }));

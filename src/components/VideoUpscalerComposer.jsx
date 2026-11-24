@@ -4,12 +4,13 @@ import { useMaintenance } from "@/lib/maintenance-client";
 
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { AlertCircle, Loader2, RotateCcw, Sparkles, UploadCloud, X } from "lucide-react";
+import { Loader2, RotateCcw, Sparkles, X } from "lucide-react";
 import { notify } from "@/lib/notify";
 import { useStore, findItem } from "@/lib/store";
 import { MAGNIFIC_VIDEO_DEFAULTS, MAGNIFIC_VIDEO_MAX_SECONDS } from "@/lib/magnific-ui";
 import { isModelAvailable } from "@/lib/model-registry";
 import { cn } from "@/lib/utils";
+import DropZone from "@/components/DropZone";
 import { formatCost } from "@/lib/format-cost";
 import { uploadContentType, uploadFileDirect } from "@/lib/client-reference-upload";
 import { getAssetDragData, validateUpscalerDrop } from "@/lib/asset-drag-contract";
@@ -159,7 +160,7 @@ export function VideoUpscalerComposer() {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ type: "spring", stiffness: 260, damping: 28 }}
-      className="mx-auto w-full max-w-3xl rounded-2xl border border-line bg-ink-800/95 p-3.5 shadow-panel backdrop-blur-xl sm:p-5"
+      className="max-h-[calc(100dvh-9rem)] overflow-y-auto scroll-thin mx-auto w-full max-w-3xl rounded-2xl border border-line bg-ink-800/95 p-3.5 shadow-panel backdrop-blur-xl sm:p-5"
     >
       <input
         ref={fileInputRef}
@@ -271,47 +272,17 @@ export function VideoUpscalerComposer() {
             </button>
           </div>
         ) : (
-          <div
-            role="button"
-            tabIndex={maintenance || uploading ? -1 : 0}
-            aria-disabled={maintenance || uploading}
-            onClick={() => !maintenance && !uploading && fileInputRef.current?.click()}
-            onKeyDown={(e) => {
-              if (e.key !== "Enter" && e.key !== " ") return;
-              e.preventDefault();
-              if (!maintenance && !uploading) fileInputRef.current?.click();
-            }}
-            className={cn(
-              "group flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-6 text-center transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand",
-              dragging
-                ? dragValid
-                  ? "border-brand bg-brand/10 text-brand ring-1 ring-brand/40"
-                  : "border-red-500/80 bg-red-500/10 text-red-400 ring-1 ring-red-500/40 cursor-not-allowed"
-                : "border-line bg-ink-900/40 text-white/60 hover:border-brand/60 hover:bg-ink-900/80 hover:text-white"
-            )}
-          >
-            {dragging && !dragValid ? (
-              <div className="grid h-10 w-10 place-items-center rounded-full bg-red-500/15 ring-1 ring-red-500/40">
-                <AlertCircle className="h-5 w-5 text-red-400" />
-              </div>
-            ) : (
-              <div className="grid h-10 w-10 place-items-center rounded-full bg-white/5 ring-1 ring-line group-hover:bg-brand/20 group-hover:ring-brand/40">
-                {uploading ? <Loader2 className="h-5 w-5 animate-spin text-brand" /> : <UploadCloud className="h-5 w-5 text-brand" />}
-              </div>
-            )}
-            <div>
-              <p className={cn("text-xs font-semibold", dragging && !dragValid ? "text-red-300" : "text-white")}>
-                {uploading
-                  ? `Uploading source video… ${progress}%`
-                  : dragging
-                    ? dragMessage || (dragValid ? "Drop video here to upscale" : "Video upscaling only accepts videos")
-                    : (<>Drop a video here or <span className="text-brand underline underline-offset-2">browse</span></>)}
-              </p>
-              <p className={cn("mt-1 text-[11px]", dragging && !dragValid ? "text-red-400/80" : "text-white/40")}>
-                Or drag a finished video from the chat feed or library · MP4, MOV, WebM · up to {MAGNIFIC_VIDEO_MAX_SECONDS} s
-              </p>
-            </div>
-          </div>
+          <DropZone
+            kind="video"
+            disabled={maintenance}
+            uploading={uploading}
+            progress={progress}
+            onActivate={() => fileInputRef.current?.click()}
+            dragging={dragging}
+            dragValid={dragValid}
+            dragMessage={dragMessage || (dragValid ? "Drop video here to upscale" : "Video upscaling only accepts videos")}
+            hint={`Or drag a finished video from the chat feed or library · MP4, MOV, WebM · up to ${MAGNIFIC_VIDEO_MAX_SECONDS} s`}
+          />
         )}
       </div>
 

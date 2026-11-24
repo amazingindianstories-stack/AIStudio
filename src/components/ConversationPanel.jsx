@@ -23,6 +23,7 @@ import { ChatScopeBar } from "./ChatScopeBar";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
 import { GenerationFolderCue, GenerationName, GenerationTimestamp } from "./MediaCard";
 import { GenerationStatus, waitingNote } from "./GenerationStatus";
+import { VideoFallback } from "./VideoFallback";
 import { useConfirmedAction } from "./useConfirmedAction";
 import { aspectMaxWidth, aspectToPadding, cn, thumbUrl, generationDownloadUrl } from "@/lib/utils";
 import { LayeredCardPreview } from "./LayeredImage";
@@ -41,6 +42,7 @@ export function ConversationPanel() {
   // project's assets emptied the conversation you were in the middle of.
   const threadItems = useStore((s) => s.threadItems);
   const loading = useStore((s) => s.threadLoading);
+  const mode = useStore((s) => s.mode);
   const activeProjectId = useStore((s) => s.activeProjectId);
   const activeFolderId = useStore((s) => s.activeFolderId);
   const scrollRef = useRef(null);
@@ -81,7 +83,7 @@ export function ConversationPanel() {
         className="scroll-thin flex-1 overflow-y-auto px-4 py-6 sm:px-8"
       >
         {!loading && feed.length === 0 ? (
-          <Welcome />
+          <EmptyFeed mode={mode} />
         ) : (
           <div className="mx-auto flex max-w-3xl flex-col gap-12">
             <AnimatePresence initial={false}>
@@ -182,6 +184,7 @@ export function FeedBlock({ item, index }) {
   const toggleFavorite = useStore((s) => s.toggleFavorite);
   const regenerate = useStore((s) => s.regenerate);
   const confirmation = useConfirmedAction();
+  const [undecodable, setUndecodable] = useState(false);
   const isUpscale = item.model?.toLowerCase().includes("magnific") || item.model?.toLowerCase().includes("upscaler");
   const label = isUpscale ? "Upscale" : item.kind === "image" ? "Image" : "Video";
   const pending = item.status === "running" || item.status === "queued";
@@ -254,15 +257,26 @@ export function FeedBlock({ item, index }) {
             />
           )}
           {item.status === "succeeded" && item.kind === "video" && (
-            <video
-              src={item.url}
-              poster={thumbUrl(item.poster, FEED_THUMB_WIDTH)}
-              controls
-              playsInline
-              // A thread can hold dozens of clips; fetch nothing until played.
-              preload="none"
-              className="absolute inset-0 h-full w-full bg-black object-contain"
-            />
+            undecodable ? (
+              <VideoFallback
+                href={generationDownloadUrl(item.id)}
+                filename={item.filename}
+                className="absolute inset-0 bg-ink-800"
+              />
+            ) : (
+              <video
+                src={item.url}
+                poster={thumbUrl(item.poster, FEED_THUMB_WIDTH)}
+                controls
+                playsInline
+                // A thread can hold dozens of clips; fetch nothing until played.
+                preload="none"
+                // A MOV master this browser cannot decode would otherwise stay
+                // a dead black player; the original remains the download.
+                onError={() => setUndecodable(true)}
+                className="absolute inset-0 h-full w-full bg-black object-contain"
+              />
+            )
           )}
 
           {pending && (
@@ -369,13 +383,33 @@ function Meta({ icon, children }) {
   );
 }
 
-function Welcome() {
+const VIDEO_EXAMPLES = [
+  "Cinematic close-up of a woman at a vanity mirror, warm bulbs glowing, 35mm film",
+  "A high-energy 3D cell-shaded downhill skating race in bright sunlight",
+  "Neon-lit Tokyo alley in the rain, reflections, slow dolly forward",
+];
+const IMAGE_EXAMPLES = [
+  "Studio portrait of a woman at a vanity mirror, warm bulbs glowing, 35mm film grain",
+  "Bright sunlit downhill skating race, 3D cell-shaded illustration, wide angle",
+  "Neon-lit Tokyo alley in the rain, reflections on wet asphalt, cinematic still",
+];
+
+// Upscale and depth have their own composers and none of the hero's prompt
+// suggestions apply there, so they get a one-line hint instead of the hero.
+export function EmptyFeed({ mode }) {
+  if (mode === "upscale" || mode === "depth") {
+    return (
+      <p className="mx-auto flex h-full max-w-xl items-center justify-center text-center text-sm text-white/50">
+        {mode === "upscale" ? "Upscaled results appear here" : "Depth maps appear here"}
+      </p>
+    );
+  }
+  return <Welcome mode={mode} />;
+}
+
+function Welcome({ mode }) {
   const setPrompt = useStore((s) => s.setPrompt);
-  const examples = [
-    "Cinematic close-up of a woman at a vanity mirror, warm bulbs glowing, 35mm film",
-    "A high-energy 3D cell-shaded downhill skating race in bright sunlight",
-    "Neon-lit Tokyo alley in the rain, reflections, slow dolly forward",
-  ];
+  const examples = mode === "image" ? IMAGE_EXAMPLES : VIDEO_EXAMPLES;
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}

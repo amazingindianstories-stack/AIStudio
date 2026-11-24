@@ -23,19 +23,19 @@ const PANEL_GAP = 8;
 // Opens on the preferred side, flips when only the other side fits, and when
 // neither fits uses the roomier side with a scrolling cap so the panel never
 // covers its own trigger.
-export function placeDropdownPanel({ trigger, width, height, viewport, align, side }) {
+export function placeDropdownPanel({ trigger, width, height, viewport, align, side, gap = PANEL_GAP }) {
   const panelWidth = Math.min(width, viewport.width - PANEL_MARGIN * 2);
   let left = align === "right" ? trigger.right - panelWidth : trigger.left;
   left = Math.min(Math.max(PANEL_MARGIN, left), viewport.width - panelWidth - PANEL_MARGIN);
 
-  const spaceAbove = Math.max(0, trigger.top - PANEL_GAP - PANEL_MARGIN);
-  const spaceBelow = Math.max(0, viewport.height - PANEL_MARGIN - trigger.bottom - PANEL_GAP);
+  const spaceAbove = Math.max(0, trigger.top - gap - PANEL_MARGIN);
+  const spaceBelow = Math.max(0, viewport.height - PANEL_MARGIN - trigger.bottom - gap);
   const preferBelow = side !== "top";
   const below = height <= (preferBelow ? spaceBelow : spaceAbove) ? preferBelow
     : height <= (preferBelow ? spaceAbove : spaceBelow) ? !preferBelow
     : spaceBelow >= spaceAbove;
   const maxHeight = Math.min(height, below ? spaceBelow : spaceAbove);
-  const top = below ? trigger.bottom + PANEL_GAP : trigger.top - PANEL_GAP - maxHeight;
+  const top = below ? trigger.bottom + gap : trigger.top - gap - maxHeight;
   return { left, top, maxHeight };
 }
 
@@ -44,6 +44,7 @@ export function Dropdown({
   children,
   align = "left",
   side = "bottom",
+  sideOffset = PANEL_GAP,
   className,
   triggerClassName,
   panelClassName,
@@ -200,6 +201,7 @@ export function Dropdown({
         viewport: { width: window.innerWidth, height: window.innerHeight },
         align,
         side,
+        gap: sideOffset,
       }));
     };
 
@@ -215,7 +217,7 @@ export function Dropdown({
       window.removeEventListener("resize", place);
       window.removeEventListener("scroll", place, true);
     };
-  }, [align, open, side]);
+  }, [align, open, side, sideOffset]);
 
   return (
     <div ref={ref} className={cn("relative", className)}>
