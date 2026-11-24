@@ -18,8 +18,8 @@ dropped. Every kind has:
 - `name`: up to 120 UTF-16 units; a missing or longer name becomes the kind's default
   ("Untitled doc", "Untitled slides", "HTML embed", "Draw.io diagram").
 - `status` (optional): `draft`, `in_review`, `approved`, `done` or `outdated`. A `diagram` node
-  can carry one too. The Formats button shows the board's status: the default view's, else
-  the least finished one.
+  can carry one too. A dot on the toolbar's formats button marks a board with a status: the
+  default view's, else the least finished one.
 - `defaultView` (optional, `true`): the format the board opens in focus mode. At most one format
   holds it; a copy never does. `viewLocked` (`true`, only with `defaultView`) keeps read-only
   viewers in focus mode: they cannot go back to the board, and closing another format returns them
@@ -43,8 +43,10 @@ date (`parseChips` in `src/lib/canvas/formats/model.js`).
 
 ## Focus mode
 
-The Formats button (bottom right) creates formats and Mermaid diagrams, lists the board's formats
-and diagrams, and holds the wireframing library and prototype previews. Opening a format shows it
+The toolbar's "Docs, slides and prototypes" button opens the formats drawer. Editors get it as a
+creation tool they can pin or unpin; read-only and touch view-only users always get it in the
+dock. The drawer creates formats and Mermaid diagrams (editors only), lists the board's formats and
+diagrams, and holds the wireframing library (editors only) and prototype previews. Opening a format shows it
 full screen in focus mode, which is local view state and never saved. "Copy focus link" copies the
 current URL with `?board=<id>&focus=<node id>`; opening it switches to the Board, opens that board
 (in its own project when the user can see it) and focuses the node, then removes both parameters.
