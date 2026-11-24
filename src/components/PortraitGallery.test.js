@@ -132,6 +132,20 @@ test("Escape clears the selection first and Ctrl+A selects every portrait", asyn
   });
 });
 
+test("Escape dismisses the delete confirmation and leaves the selection and gallery open", async () => {
+  const items = [p("b", 2), p("a", 1)];
+  await mount(gallery(items), async ({ calls, click, dom }) => {
+    await click(card("b"));
+    await click(button("Delete 1"));
+    assert.ok(document.querySelector("[role=alertdialog]"));
+    await act(async () => { card("b").dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })); });
+    assert.equal(document.querySelector("[role=alertdialog]"), null, "Escape closed the confirmation");
+    assert.match(document.body.textContent, /1 selected/, "the selection behind it is kept");
+    assert.equal(useStore.getState().portraitGalleryOpen, true);
+    assert.deepEqual(calls.delete, []);
+  });
+});
+
 test("arrow keys move focus through the grid and Space toggles the focused portrait", async () => {
   const items = [p("c", 3), p("b", 2), p("a", 1)];
   await mount(gallery(items), async ({ dom }) => {

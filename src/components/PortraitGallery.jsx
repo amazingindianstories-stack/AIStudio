@@ -231,8 +231,9 @@ function PortraitGalleryDialog() {
       setSelected(idsOf(items));
     }
     if (e.key === "Escape") {
-      e.preventDefault();
+      // The confirmation and the viewer own Escape while open; leave it unhandled for them.
       if (pendingDelete || preview) return;
+      e.preventDefault();
       if (selected.length) setSelected([]);
       else setOpen(false);
     }
