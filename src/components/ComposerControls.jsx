@@ -280,7 +280,7 @@ export function SettingsToolbar({ destination = true }) {
           )}
         </Dropdown>
 
-        {destination && <DestinationPicker />}
+        {destination && <DestinationPicker className="composer-destination ml-auto shrink-0" />}
       </div>
   );
 }
