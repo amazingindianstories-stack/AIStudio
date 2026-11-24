@@ -1,6 +1,6 @@
 "use client";
 
-import { pointsToPath, shapeDetails, shapeKindOfTool, shapeOutline } from "@/lib/canvas/shapes";
+import { pointsToPath, sanitizeCustomSvg, shapeDetails, shapeKindOfTool, shapeOutline } from "@/lib/canvas/shapes";
 
 // Glyph boxes (w x h inside an 18 x 18 view) that echo each shape's default proportions.
 const GLYPH_BOX = {
@@ -21,7 +21,8 @@ const GLYPH_BOX = {
 
 /** A small outline icon for a shapes-panel tool, drawn from the same catalogue. */
 export function ShapeGlyph({ tool, className, customSvg, customViewBox }) {
-  if (customSvg) {
+  const cleanSvg = customSvg ? sanitizeCustomSvg(customSvg) : "";
+  if (cleanSvg) {
     return (
       <svg
         viewBox={customViewBox || "0 0 100 100"}
@@ -30,7 +31,7 @@ export function ShapeGlyph({ tool, className, customSvg, customViewBox }) {
         fill="none"
         stroke="currentColor"
         strokeWidth="6"
-        dangerouslySetInnerHTML={{ __html: customSvg }}
+        dangerouslySetInnerHTML={{ __html: cleanSvg }}
       />
     );
   }

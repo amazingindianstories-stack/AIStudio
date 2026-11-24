@@ -14,7 +14,7 @@ import {
 } from "./types";
 import { cleanWorkNode } from "./work-records";
 import { validateMarks } from "./rich-text";
-import { SHAPE_KIND_PATTERN } from "./shapes";
+import { SHAPE_KIND_PATTERN, sanitizeCustomSvg } from "./shapes";
 import { FONT_FAMILY_PATTERN } from "./fonts";
 import { uniqueStrings, validateReactions } from "./reactions";
 import { MAX_NODE_TAGS, MAX_TAG_ID, validateTags } from "./tags";
@@ -293,8 +293,9 @@ function validateNodeContent(raw) {
             node.tail = { x: r.tail.x, y: r.tail.y };
           }
         }
-        if (isCustomSvg(r.svg)) {
-          node.svg = r.svg;
+        const cleanSvg = isCustomSvg(r.svg) ? sanitizeCustomSvg(r.svg) : "";
+        if (cleanSvg) {
+          node.svg = cleanSvg;
           if (typeof r.svgViewBox === "string" && r.svgViewBox.length <= 64 && VIEWBOX_PATTERN.test(r.svgViewBox)) {
             node.svgViewBox = r.svgViewBox;
           }

@@ -446,3 +446,55 @@ function rayHit(polygon, origin, towards) {
   }
   return best && { x: origin.x + dx * best.t, y: origin.y + dy * best.t, edge: best.edge, u: best.u };
 }
+
+// Defense in depth for custom shape markup. The server stays authoritative
+// (backend/apps/canvas/svg_sanitize.py); this allowlist mirrors its tags and
+// attributes so a path that skips the server still cannot reach the DOM.
+const SVG_TAGS = new Set([
+  "svg", "g", "path", "rect", "circle", "ellipse", "line", "polyline", "polygon",
+  "defs", "linearGradient", "radialGradient", "stop", "clipPath", "mask",
+]);
+const SVG_ATTRS = new Set([
+  "viewBox", "d", "points", "x", "y", "x1", "y1", "x2", "y2",
+  "cx", "cy", "r", "rx", "ry", "width", "height",
+  "fill", "fill-rule", "fill-opacity",
+  "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin",
+  "stroke-dasharray", "stroke-dashoffset", "stroke-miterlimit", "stroke-opacity",
+  "opacity", "transform", "id", "clip-path", "mask",
+  "gradientUnits", "gradientTransform", "spreadMethod",
+  "offset", "stop-color", "stop-opacity", "preserveAspectRatio",
+]);
+const DANGEROUS_SVG_VALUE = /(?:javascript\s*:|data\s*:\s*text\/html|vbscript\s*:|expression\s*\()/i;
+const EXTERNAL_SVG_URL = /url\s*\(\s*['"]?\s*(?!#)/i;
+const escapeSvgAttr = (value) => value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+function cleanSvgElement(element) {
+  const tag = element.localName;
+  if (!SVG_TAGS.has(tag)) return "";
+  let attrs = "";
+  for (const attr of Array.from(element.attributes)) {
+    const name = attr.localName;
+    if (attr.namespaceURI || !SVG_ATTRS.has(name) || /^on/i.test(name)) continue;
+    const value = attr.value.trim();
+    if (DANGEROUS_SVG_VALUE.test(value) || EXTERNAL_SVG_URL.test(value)) continue;
+    attrs += ` ${name}="${escapeSvgAttr(value)}"`;
+  }
+  const children = Array.from(element.children).map(cleanSvgElement).join("");
+  return `<${tag}${attrs}>${children}</${tag}>`;
+}
+
+/**
+ * Returns only the allowlisted inner vector markup of a custom shape (the same
+ * fragment form the server stores), or "" when it cannot be parsed or no
+ * DOMParser exists. Failing closed keeps unparsed markup out of the DOM.
+ */
+export function sanitizeCustomSvg(svg) {
+  if (typeof svg !== "string" || typeof DOMParser === "undefined") return "";
+  const source = svg.trim();
+  if (!source || /<!\s*(?:DOCTYPE|ENTITY)\b/i.test(source)) return "";
+  const wrapped = /^<svg[\s>]/i.test(source) ? source : `<svg xmlns="http://www.w3.org/2000/svg">${source}</svg>`;
+  const doc = new DOMParser().parseFromString(wrapped, "image/svg+xml");
+  const root = doc.documentElement;
+  if (!root || root.localName !== "svg" || doc.getElementsByTagName("parsererror").length) return "";
+  return Array.from(root.children).map(cleanSvgElement).join("");
+}

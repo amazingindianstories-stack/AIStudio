@@ -103,6 +103,7 @@ export function HistoryPanel({ drawer = false }) {
 
   const [navigationOpen, setNavigationOpen] = useState(false);
   const navigationToggle = useRef(null);
+  const searchRef = useRef(null);
   const navigationId = useId();
   const [unsortedDrop, setUnsortedDrop] = useState(false);
   const [folderDropError, setFolderDropError] = useState("");
@@ -374,7 +375,7 @@ export function HistoryPanel({ drawer = false }) {
       (((e.metaKey || e.ctrlKey) && (e.key === "f" || e.key === "F")) ||
         (e.key === "/" && document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "TEXTAREA"))
     ) {
-      const searchInput = document.querySelector('input[aria-label="Search prompts"]');
+      const searchInput = searchRef.current;
       if (searchInput) {
         e.preventDefault();
         if (navigationOpen) flushSync(() => setNavigationOpen(false));
@@ -816,6 +817,7 @@ export function HistoryPanel({ drawer = false }) {
                       }
                     }
                   }}
+                  ref={searchRef}
                   placeholder="Search prompts…"
                   aria-label="Search prompts"
                   className={cn(

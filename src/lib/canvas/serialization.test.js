@@ -336,3 +336,25 @@ test("validateCanvasState: image crop is optional, clamped, and preserves intrin
   assert.equal(state.nodes[0].naturalW, 1920);
   assert.equal(state.nodes[0].naturalH, 1080);
 });
+
+// ---------------------------------------------------------------------------
+// custom shape svg is sanitized on load
+// ---------------------------------------------------------------------------
+
+test("validateCanvasState: custom shape svg loses scripts, handlers and external references", async () => {
+  const { JSDOM } = await import("jsdom");
+  const prior = globalThis.DOMParser;
+  globalThis.DOMParser = new JSDOM("").window.DOMParser;
+  try {
+    const shape = (svg) => ({ version: CANVAS_STATE_VERSION, viewport: { x: 0, y: 0, zoom: 1 }, connectors: [],
+      nodes: [{ id: "s1", type: "shape", shape: "custom", x: 0, y: 0, w: 10, h: 10, svg }] });
+    const dirty = validateCanvasState(shape('<svg><script>1</script><path d="M0 0" onclick="x"/><image href="http://x/y.png"/><g><rect width="1" fill="url(http://evil/x)" height="2"/></g></svg>'));
+    const svg = dirty.nodes[0].svg;
+    assert.equal(svg, '<path d="M0 0"></path><g><rect width="1" height="2"></rect></g>');
+    assert.doesNotMatch(svg, /script|onclick|image|evil/);
+    const fragment = validateCanvasState(shape('<path d="M0 0 L1 1"/>'));
+    assert.equal(fragment.nodes[0].svg, '<path d="M0 0 L1 1"></path>');
+    const broken = validateCanvasState(shape("<svg><path"));
+    assert.equal(broken.nodes[0].svg, undefined);
+  } finally { globalThis.DOMParser = prior; }
+});

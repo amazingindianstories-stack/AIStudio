@@ -3,6 +3,7 @@ import { useMaintenance } from "@/lib/maintenance-client";
 
 import { useEffect, useId, useRef } from "react";
 import { useModalFocus } from "@/components/useModalFocus";
+import { useModalLayer } from "@/components/modal-stack";
 import { createPortal } from "react-dom";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -30,6 +31,7 @@ export function ConfirmActionDialog({
   const descriptionId = useId();
   const cancelRef = useRef(null);
   const dialogRef = useRef(null);
+  useModalLayer(open);
 
   // Keyed on `open` alone: `busy` and `onCancel` change while the action runs
   // and must not restart the trap or restore focus to the page behind it.

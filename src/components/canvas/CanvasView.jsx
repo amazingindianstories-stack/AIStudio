@@ -278,6 +278,7 @@ export function CanvasView() {
         if (result.images.length) addImageBatch(result.images, target);
         added += result.images.length;
         failed += result.failed;
+        if (result.lastError) lastError = result.lastError;
       }
       for (const [index, file] of others.entries()) {
         try {

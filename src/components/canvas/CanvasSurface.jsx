@@ -1651,20 +1651,17 @@ function MultiSelectBox({ nodes, onPointerDownRotate }) {
   );
 }
 
+/** Resolves with the stored URL; throws an Error carrying the server's message on failure. */
 export async function uploadImageFile(file, boardId) {
-  try {
-    const uploaded = await uploadFileDirect(file, "canvas");
-    const res = await apiFetch(`/api/canvas-boards/${boardId}/upload`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ referenceId: uploaded.referenceId }),
-    });
-    if (!res.ok) return null;
-    const json = await res.json();
-    return json.url ?? null;
-  } catch {
-    return null;
-  }
+  const uploaded = await uploadFileDirect(file, "canvas");
+  const res = await apiFetch(`/api/canvas-boards/${boardId}/upload`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ referenceId: uploaded.referenceId }),
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? `Upload failed (${res.status})`);
+  const json = await res.json();
+  return json.url ?? null;
 }
 
 export async function readImageDimensions(file) {
@@ -1684,6 +1681,7 @@ export async function readImageDimensions(file) {
 /** Uploads with bounded concurrency while returning successes in input order. */
 export async function uploadImageFiles(files, boardId, concurrency = 3) {
   const results = new Array(files.length);
+  let lastError = "";
   let cursor = 0;
   const worker = async () => {
     while (cursor < files.length) {
@@ -1693,13 +1691,14 @@ export async function uploadImageFiles(files, boardId, concurrency = 3) {
         const dimensions = await readImageDimensions(file);
         const url = await uploadImageFile(file, boardId);
         results[index] = url ? { url, alt: file.name, ...dimensions } : null;
-      } catch {
+      } catch (error) {
         results[index] = null;
+        lastError = error?.message ?? "";
       }
     }
   };
   await Promise.all(Array.from({ length: Math.min(concurrency, files.length) }, worker));
-  return { images: results.filter(Boolean), failed: results.filter((item) => !item).length };
+  return { images: results.filter(Boolean), failed: results.filter((item) => !item).length, lastError };
 }
 
 export { screenToWorld as canvasScreenToWorld };
