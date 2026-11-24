@@ -242,5 +242,5 @@ Never re-run provider requests; uncertain jobs stay uncertain.
   Keep them off Vercel and out of logs, source archives, image build contexts and this repository.
 - Browser origins and allowed hosts are explicit HTTPS values; never widen them with wildcards to
   work around proxy or cookie problems.
-- Schedule `cleanup_uploads` only after operator review: it removes expired incomplete private
-  uploads and never touches READY references or shared originals.
+- The scheduler runs the `cleanup_uploads` sweep daily at 03:17 UTC with limit 100: it removes
+  expired incomplete private uploads and never touches READY references or shared originals.
