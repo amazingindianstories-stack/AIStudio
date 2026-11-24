@@ -563,6 +563,7 @@ export const useStore = create((set, get) => ({
   feedKey: "",
   threadItems: [],
   threadScopeKey: null,
+  threadFloor: null,
   threadLoading: true,
   pendingItems: [],
   // Rows read by id (loadItem) for a card shown outside every loaded scope, such as an agent run's finished job.
@@ -1109,7 +1110,7 @@ export const useStore = create((set, get) => ({
     const scope = threadScope(get());
     const key = scopeKey(scope);
     const seq = nextStoreRequestSequence("thread");
-    if (get().threadScopeKey !== key) set({ threadItems: [], threadScopeKey: key, threadLoading: true });
+    if (get().threadScopeKey !== key) set({ threadItems: [], threadScopeKey: key, threadFloor: null, threadLoading: true });
     try {
       const params = historyFilterToParams(scopeToQuery(scope));
       params.set("limit", String(THREAD_PAGE_SIZE));
@@ -1124,8 +1125,10 @@ export const useStore = create((set, get) => ({
       // undershoot THREAD_PAGE_SIZE when a page happens to contain depth
       // rows — acceptable for a kind this infrequent, on an unpaginated
       // single fetch.
-      const threadItems = (json.items ?? []).filter((it) => matchesThread(it, get()));
-      set({ threadItems, threadLoading: false });
+      const page = json.items ?? [];
+      const threadItems = page.filter((it) => matchesThread(it, get()));
+      const threadFloor = page.length >= THREAD_PAGE_SIZE ? Math.min(...page.map((i) => i.createdAt ?? 0)) : null;
+      set({ threadItems, threadFloor, threadLoading: false });
     } catch {
       if (seq !== currentStoreRequestSequence("thread")) return;
       set({ threadLoading: false });
@@ -2945,7 +2948,7 @@ export function mergeLiveItems(
     const scope = currentScope(s);
     const byId = new Map(s.items.map((i) => [i.id, i]));
     const threadById = new Map(s.threadItems.map((i) => [i.id, i]));
-    const threadFloor = s.threadItems.length < THREAD_PAGE_SIZE ? -Infinity : Math.min(...s.threadItems.map((i) => i.createdAt ?? 0));
+    const threadFloor = s.threadFloor ?? -Infinity;
     const lastLoaded = s.items.at(-1);
     const pendingById = new Map(s.pendingItems.map((i) => [i.id, i]));
     const looseById = new Map(s.looseItems.map((i) => [i.id, i]));
