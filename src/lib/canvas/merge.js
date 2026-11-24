@@ -195,20 +195,22 @@ export function mergeCanvasStates(base, local, remote) {
 }
 
 /**
- * Applies the same remote change to every undo/redo snapshot, so undo only
- * reverts this person's own steps: an item someone else changed shows their
- * latest version in every snapshot this person never touched it in.
+ * Returns a function that applies the same remote change to every undo/redo
+ * snapshot of a history, so undo only reverts this person's own steps: an item
+ * someone else changed shows their latest version in every snapshot this
+ * person never touched it in. Each distinct snapshot is merged once across all
+ * the histories it rebases (a coalesced gesture shares its baseline's past and
+ * future with the live history).
  */
-export function rebaseHistory(history, base, remote) {
-  // Snapshots share most of their objects, and gesture coalescing repeats whole snapshots: merge each distinct one once.
+export function historyRebaser(base, remote) {
   const merged = new Map();
   const rebase = (snapshot) => {
     if (!merged.has(snapshot)) merged.set(snapshot, mergeCanvasStates(base, snapshot, remote));
     return merged.get(snapshot);
   };
-  return {
+  return (history) => ({
     past: history.past.map(rebase),
     present: rebase(history.present),
     future: history.future.map(rebase),
-  };
+  });
 }

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { mergeCanvasStates, rebaseHistory, sameValue } from "./merge.js";
+import { historyRebaser, mergeCanvasStates, sameValue } from "./merge.js";
 import { commit, undo } from "./history.js";
 import { emptyCanvasState, validateCanvasState } from "./serialization.js";
 
@@ -87,7 +87,7 @@ test("undo after a merge reverts only this person's own step", () => {
   // This person moved `mine`; the move is one undo step.
   let history = commit({ past: [], present: base, future: [] }, graph([rect("mine", { x: 40 }), rect("theirs")]));
   const remote = graph([rect("mine"), rect("theirs", { fill: "#f00" }), rect("added")]);
-  history = rebaseHistory(history, base, remote);
+  history = historyRebaser(base, remote)(history);
   assert.equal(node(history.present, "mine").x, 40);
   assert.equal(node(history.present, "theirs").fill, "#f00");
   const undone = undo(history);
@@ -99,7 +99,7 @@ test("undo after a merge reverts only this person's own step", () => {
 test("undoing a step on a node someone else also changed reveals their version", () => {
   const base = graph([rect("shared")]);
   let history = commit({ past: [], present: base, future: [] }, graph([rect("shared", { x: 40 })]));
-  history = rebaseHistory(history, base, graph([rect("shared", { y: 70 })]));
+  history = historyRebaser(base, graph([rect("shared", { y: 70 })]))(history);
   assert.deepEqual(node(history.present, "shared"), rect("shared", { x: 40 }));
   assert.deepEqual(node(undo(history).present, "shared"), rect("shared", { y: 70 }));
 });
@@ -151,13 +151,28 @@ test("two frames nested into each other by different people never form a parent 
   chain("b");
 });
 
-test("rebaseHistory merges a snapshot repeated across the undo history once", () => {
+test("a remote change merges each snapshot once across the live history and a gesture baseline sharing it", () => {
   const base = graph([rect("a"), rect("b")]);
   const remote = graph([rect("a", { x: 40 }), rect("b")]);
-  const snapshot = graph([rect("a"), rect("b", { y: 5 })]);
-  const rebased = rebaseHistory({ past: Array.from({ length: 50 }, () => snapshot), present: snapshot, future: [snapshot] }, base, remote);
-  assert.ok(rebased.past.every((entry) => entry === rebased.past[0]), "equal snapshots share one merged result");
-  assert.equal(rebased.present, rebased.past[0]);
-  assert.equal(node(rebased.present, "a").x, 40);
-  assert.equal(node(rebased.present, "b").y, 5);
+  let merges = 0;
+  const remoteNodes = remote.nodes;
+  // mergeCanvasStates reads the remote nodes once per merge.
+  Object.defineProperty(remote, "nodes", { enumerable: true, get: () => { merges += 1; return remoteNodes; } });
+  let baseline = { past: [], present: base, future: [] };
+  for (let step = 1; step <= 50; step += 1) baseline = commit(baseline, graph([rect("a"), rect("b", { y: step })]));
+  baseline = undo(baseline);
+  // A coalesced gesture keeps the baseline's past and future and replaces only the present.
+  const live = { ...baseline, present: graph([rect("a"), rect("b", { y: 99 })]) };
+  const distinct = new Set([...baseline.past, baseline.present, ...baseline.future, live.present]).size;
+
+  const rebase = historyRebaser(base, remote);
+  const rebasedLive = rebase(live);
+  const rebasedBaseline = rebase(baseline);
+  assert.equal(merges, distinct, "every distinct snapshot is merged exactly once");
+  assert.ok(rebasedBaseline.past.every((entry, index) => entry === rebasedLive.past[index]));
+  assert.equal(rebasedBaseline.future[0], rebasedLive.future[0]);
+  assert.equal(node(rebasedLive.present, "a").x, 40);
+  assert.equal(node(rebasedLive.present, "b").y, 99);
+  assert.equal(node(rebasedBaseline.present, "b").y, 49);
+  assert.equal(node(undo(rebasedBaseline).present, "a").x, 40);
 });

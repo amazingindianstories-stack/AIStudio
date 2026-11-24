@@ -554,6 +554,73 @@ test("a view left alone for a long quiet period is saved on its own without show
   assert.deepEqual(server.data.viewport, { x: 30, y: 40, zoom: 2 });
 });
 
+test("a quiet view save writes no draft and never shows as saving", async (t) => {
+  useStorage(t);
+  const server = fakeServer(t, graph(rect("a")));
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let release;
+  server.holdPut = new Promise((resolve) => { release = resolve; });
+  store.getState().setViewport({ x: 30, y: 40, zoom: 2 });
+  t.mock.timers.tick(10000);
+  await untilImmediate(() => server.puts.length === 1);
+  assert.equal(store.getState().saveStatus, "idle");
+  assert.equal(readPendingDraft("board-1"), null);
+  assert.equal(store.getState().persistPendingDraft(), false);
+  release();
+  await untilImmediate(() => server.version === 2);
+  await store.getState().flushSave();
+  assert.equal(store.getState().saveStatus, "idle");
+  assert.equal(readPendingDraft("board-1"), null);
+  assert.deepEqual(server.data.viewport, { x: 30, y: 40, zoom: 2 });
+});
+
+test("a failed quiet view save stays silent and leaves nothing behind", async (t) => {
+  useStorage(t);
+  const server = fakeServer(t, graph(rect("a")));
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  server.patchStatus = 500;
+  store.getState().setViewport({ x: 30, y: 40, zoom: 2 });
+  t.mock.timers.tick(10000);
+  await untilImmediate(() => globalThis.fetch.mock.calls.some((call) => call.arguments[1]?.method === "PATCH"));
+  await store.getState().flushSave();
+  assert.equal(store.getState().saveStatus, "idle");
+  assert.equal(readPendingDraft("board-1"), null);
+  t.mock.timers.tick(60000);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(store.getState().saveStatus, "idle", "no retry surfaces later");
+  // No unresolved save is left to block other people's changes.
+  server.patchStatus = null;
+  server.edit(graph(rect("a"), rect("theirs")));
+  assert.equal(await store.getState().pollRemote(), true);
+  assert.deepEqual(ids(store.getState().history.present), ["a", "theirs"]);
+  assert.deepEqual(store.getState().history.present.viewport, { x: 30, y: 40, zoom: 2 });
+  assert.equal(store.getState().saveStatus, "idle");
+});
+
+test("a quiet view save that meets someone else's save merges it without showing as unsaved", async (t) => {
+  useStorage(t);
+  const server = fakeServer(t, graph(rect("a")));
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  server.edit(graph(rect("a"), rect("theirs")));
+  store.getState().setViewport({ x: 30, y: 40, zoom: 2 });
+  t.mock.timers.tick(10000);
+  await untilImmediate(() => store.getState().serverVersion === 2);
+  assert.deepEqual(ids(store.getState().history.present), ["a", "theirs"]);
+  assert.equal(store.getState().saveStatus, "idle");
+  assert.equal(readPendingDraft("board-1"), null);
+  t.mock.timers.tick(10000);
+  await untilImmediate(() => server.version === 3);
+  assert.deepEqual(server.data.viewport, { x: 30, y: 40, zoom: 2 });
+  assert.deepEqual(ids(server.data), ["a", "theirs"]);
+  assert.equal(store.getState().saveStatus, "idle");
+});
+
 test("a node someone deleted during an edit without typing follows the delete, and undo never brings it back", async (t) => {
   useStorage(t);
   const server = fakeServer(t, graph(rect("a"), sticky("s", "old")));

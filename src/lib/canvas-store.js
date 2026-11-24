@@ -7,7 +7,7 @@ import { DRAFT_SYNC_MAX_AGE_MS, clearPendingDraft, readPendingDraft, savePending
 import { apiFetch } from "./api";
 import { canEditRole, canShareRole } from "./board-access";
 import { emptyCanvasState, validateCanvasState } from "./canvas/serialization";
-import { mergeCanvasStates, rebaseHistory, sameValue } from "./canvas/merge";
+import { historyRebaser, mergeCanvasStates, sameValue } from "./canvas/merge";
 import { boardFromChanges, buildBoardPatch } from "./canvas/patch";
 import { carryPayloads, createPayloadLoader, needsPayload, slimGraph, withLoadedPayload, withPayload } from "./canvas/formats/payloads";
 import { unstamped, withNotesStamp, withServerStamps } from "./canvas/stamps";
@@ -442,8 +442,9 @@ function applyRemoteBoard(set, get, board, base = get().serverState) {
   cropHold = held ? { id: cropped, remote: nodeOf(remote, cropped) } : null;
   // Adopted as the base with the cropped image as it was, so no snapshot absorbs the held version.
   const adopted = held ? withNodeFrom(remote, base, cropped) : remote;
-  const history = rebaseHistory(state.history, base, adopted);
-  if (gestureBaseline) gestureBaseline = rebaseHistory(gestureBaseline, base, adopted);
+  const rebase = historyRebaser(base, adopted);
+  const history = rebase(state.history);
+  if (gestureBaseline) gestureBaseline = rebase(gestureBaseline);
   set({
     history,
     serverVersion: version,
@@ -501,8 +502,9 @@ function reconcileCrop() {
   cropHold = null;
   const state = useCanvasStore.getState();
   const server = withNodeFrom(state.serverState, { nodes: remote ? [remote] : [] }, id);
-  const history = rebaseHistory(state.history, state.serverState, server);
-  if (gestureBaseline) gestureBaseline = rebaseHistory(gestureBaseline, state.serverState, server);
+  const rebase = historyRebaser(state.serverState, server);
+  const history = rebase(state.history);
+  if (gestureBaseline) gestureBaseline = rebase(gestureBaseline);
   useCanvasStore.setState({
     history,
     serverState: server,
@@ -623,7 +625,7 @@ async function flushSaveImpl(
   if (saveInFlight) return saveInFlight;
   const state = get();
   if (!state.boardId || selectReadOnly(state)) return;
-  const viewportOnly = Boolean(opts?.viewportOnly) && quietStatus(state.saveStatus);
+  const viewportOnly = Boolean(opts?.viewportOnly) && quietStatus(state.saveStatus) && !unresolvedSave;
   if (state.saveStatus !== "dirty" && state.saveStatus !== "error" && !viewportOnly) return;
   // Settling an unresolved save merges the board, so it also waits for the edit to end.
   // An unload skips the lookup, so it has nothing to wait for.
@@ -634,7 +636,8 @@ async function flushSaveImpl(
 
   saveInFlight = (async () => {
     const boardId = state.boardId ;
-    // A view-only save is background work: no "Saving…" chip, and a failure is not surfaced or retried.
+    // A view-only save is background work: no "Saving…" chip or pending draft, and a failure is not surfaced or
+    // retried and leaves nothing behind.
     if (!viewportOnly) set({ saveStatus: "saving", saveError: null, saveLimitMessage: null });
     try {
       // On unload the lookup would outlive the page: send now from the synced base. A 409 is harmless
@@ -669,8 +672,10 @@ async function flushSaveImpl(
         });
       };
       // Durable until the server acknowledges exactly this content.
-      savePendingDraft(boardId, sentPresent, Date.now(), { ...syncOf(synced), save });
-      unresolvedSave = save;
+      if (!viewportOnly) {
+        savePendingDraft(boardId, sentPresent, Date.now(), { ...syncOf(synced), save });
+        unresolvedSave = save;
+      }
       let res = await send(Boolean(patch));
       // A patch the server cannot apply (400), or a server without patch saves (405), wrote
       // nothing: the same save goes again as the whole graph.
@@ -680,6 +685,7 @@ async function flushSaveImpl(
       }
       // Any answer below 500 is definite: applied, or refused before writing.
       if (unresolvedSave === save && res.status < 500) unresolvedSave = null;
+      if (viewportOnly && !res.ok && res.status !== 409) return;
       if (res.status === 401) {
         redirectToLogin();
         set({ saveStatus: "error" });
@@ -708,6 +714,11 @@ async function flushSaveImpl(
         const { board } = await res.json();
         if (get().boardId !== boardId) throw new Error("board changed during save");
         const adopted = applyRemoteBoard(set, get, board) && get().serverVersion === board.version;
+        if (viewportOnly) {
+          // Their save is merged under the view; the view goes again after another quiet period.
+          if (adopted) scheduleViewportSave(get);
+          return;
+        }
         if (!adopted) {
           if (!textEditOpen(get())) throw new Error("save conflict without a newer board");
           // The open text edit holds back their change; save once more when it ends.
@@ -730,6 +741,7 @@ async function flushSaveImpl(
         retryBackoffMs = DEBOUNCE_MS;
         if (ownCropEdit && cropHold === hold) cropHold = null;
         applyRemoteBoard(set, get, { version: j.version, data: j.board }, validateCanvasState(cropHold ? sentPresent : sent));
+        if (viewportOnly) return;
         if (sameValue(get().history.present, get().serverState)) set({ saveStatus: "saved" });
         else {
           set({ saveStatus: "dirty" });
@@ -755,7 +767,7 @@ async function flushSaveImpl(
           history: historyWithStamps(get().history, j.stamps, j.notesStamp),
         });
       }
-      if (settled) {
+      if (settled && !viewportOnly) {
         set({ saveStatus: "saved" });
       }
     } catch {
