@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { pointsToPath, sanitizeCustomSvg, shapeDetails, shapeKindOfTool, shapeOutline } from "@/lib/canvas/shapes";
 
 // Glyph boxes (w x h inside an 18 x 18 view) that echo each shape's default proportions.
@@ -21,7 +22,7 @@ const GLYPH_BOX = {
 
 /** A small outline icon for a shapes-panel tool, drawn from the same catalogue. */
 export function ShapeGlyph({ tool, className, customSvg, customViewBox }) {
-  const cleanSvg = customSvg ? sanitizeCustomSvg(customSvg) : "";
+  const cleanSvg = useMemo(() => (customSvg ? sanitizeCustomSvg(customSvg) : ""), [customSvg]);
   if (cleanSvg) {
     return (
       <svg

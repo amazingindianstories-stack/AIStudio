@@ -282,6 +282,19 @@ test("mergeLiveItems: an unseen row that belongs to the project conversation joi
   assert.deepEqual(h.state().threadItems.map((i) => i.id), ["new", "old"]);
 });
 
+test("mergeLiveItems: an old row edited elsewhere does not join a full thread page it sorts below", () => {
+  const threadScopeKey = scopeKey({ tab: "project", projectId: "project-1", folderId: null, kind: "all", q: "" });
+  const loaded = Array.from({ length: 60 }, (_, n) => makeItem({ id: `row-${n}`, projectId: "project-1", createdAt: 1000 - n, updatedAt: 1000 - n }));
+  const h = harness({ activeProjectId: "project-1", threadItems: loaded, threadScopeKey });
+  const stale = makeItem({ id: "stale", projectId: "project-1", createdAt: 100, updatedAt: 2000 });
+  const fresh = makeItem({ id: "fresh", projectId: "project-1", createdAt: 1500, updatedAt: 1500 });
+  mergeLiveItems([stale, fresh], h.set);
+  const ids = h.state().threadItems.map((i) => i.id);
+  assert.equal(ids[0], "fresh");
+  assert.equal(ids.includes("stale"), false);
+  assert.equal(ids.length, 61);
+});
+
 test("mergeLiveItems: a thread that is not loaded for the current scope is not seeded by live rows", () => {
   const h = harness({ activeProjectId: "project-1", threadItems: [], threadScopeKey: null });
   mergeLiveItems([makeItem({ id: "new", projectId: "project-1" })], h.set);

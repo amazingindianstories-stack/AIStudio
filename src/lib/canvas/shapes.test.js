@@ -8,6 +8,7 @@ import {
   pointInPolygon,
   pointsToPath,
   rayExit,
+  sanitizeCustomSvg,
   shapeDetail,
   shapeKindOfTool,
   shapeOutline,
@@ -115,4 +116,16 @@ test("legacy shapes keep their bounding-box anchors", () => {
 test("isShapeNode covers path shapes and the four legacy shapes only", () => {
   for (const type of ["shape", "rect", "ellipse", "triangle", "diamond"]) assert.equal(isShapeNode({ type }), true);
   for (const type of ["text", "sticky", "frame", "image"]) assert.equal(isShapeNode({ type }), false);
+});
+
+test("sanitizeCustomSvg drops scripts, handlers and external references", async () => {
+  const { JSDOM } = await import("jsdom");
+  const prior = globalThis.DOMParser;
+  globalThis.DOMParser = new JSDOM("").window.DOMParser;
+  try {
+    const svg = sanitizeCustomSvg('<svg><script>1</script><path d="M0 0" onclick="x"/><image href="http://x/y.png"/><g><rect width="1" fill="url(http://evil/x)" height="2"/></g></svg>');
+    assert.equal(svg, '<path d="M0 0"></path><g><rect width="1" height="2"></rect></g>');
+    assert.equal(sanitizeCustomSvg('<path d="M0 0 L1 1"/>'), '<path d="M0 0 L1 1"></path>');
+    assert.equal(sanitizeCustomSvg("<svg><path"), "");
+  } finally { globalThis.DOMParser = prior; }
 });

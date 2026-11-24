@@ -6,10 +6,6 @@ import { useEffect, useId } from "react";
 // whether a child layer is open instead of scanning the document for markup.
 const layers = [];
 
-export function isTopModal(id) {
-  return layers.length > 0 && layers[layers.length - 1] === id;
-}
-
 export function hasModalLayer() {
   return layers.length > 0;
 }

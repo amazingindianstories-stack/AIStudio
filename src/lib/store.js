@@ -2945,6 +2945,7 @@ export function mergeLiveItems(
     const scope = currentScope(s);
     const byId = new Map(s.items.map((i) => [i.id, i]));
     const threadById = new Map(s.threadItems.map((i) => [i.id, i]));
+    const threadFloor = s.threadItems.length < THREAD_PAGE_SIZE ? -Infinity : Math.min(...s.threadItems.map((i) => i.createdAt ?? 0));
     const lastLoaded = s.items.at(-1);
     const pendingById = new Map(s.pendingItems.map((i) => [i.id, i]));
     const looseById = new Map(s.looseItems.map((i) => [i.id, i]));
@@ -2984,8 +2985,10 @@ export function mergeLiveItems(
       // A row created elsewhere (another tab, device or an agent run) joins the
       // conversation as soon as it arrives; the feed below keeps buffering.
       // Only when the thread is loaded for the current scope, so a thread that
-      // has not been fetched yet is not seeded with a partial list.
-      if (!threadById.has(inc.id) && s.threadScopeKey === scopeKey(threadScope(s)) && matchesThread(inc, s)) {
+      // has not been fetched yet is not seeded with a partial list, and only
+      // when the row sorts inside the loaded window, so an old row edited
+      // elsewhere does not join a conversation a refetch would not show it in.
+      if (!threadById.has(inc.id) && s.threadScopeKey === scopeKey(threadScope(s)) && matchesThread(inc, s) && (inc.createdAt ?? 0) >= threadFloor) {
         threadById.set(inc.id, inc);
         threadInserted = true;
         threadChanged = true;
