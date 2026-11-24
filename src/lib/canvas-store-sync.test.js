@@ -352,6 +352,60 @@ test("an unload with an unresolved save sends its keepalive save at once instead
   await flushing;
 });
 
+test("a keepalive save sent past an unresolved save that landed keeps that save as the merge base", async (t) => {
+  useStorage(t);
+  const server = fakeServer(t, graph(rect("a")));
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  store.getState().updateNodeFields("a", { x: 40 });
+  server.dropResponse = true;
+  await store.getState().flushSave();
+  assert.equal(store.getState().saveStatus, "error");
+  server.dropResponse = false;
+  const landed = server.puts[0].saveId;
+  // Someone else moves the node after that save landed.
+  server.edit(graph(rect("a", { x: 10 })));
+  addLocalNode("mine");
+
+  await store.getState().flushSave({ keepalive: true });
+  assert.equal(readPendingDraft("board-1").save.id, landed, "the draft still names the save that may have landed");
+  await until(() => store.getState().saveStatus === "saved");
+  assert.equal(server.data.nodes.find((item) => item.id === "a").x, 10, "their move is not overwritten");
+  assert.deepEqual(ids(server.data), ["a", "mine"]);
+  assert.equal(store.getState().history.present.nodes[0].x, 10);
+});
+
+test("an edit made while a quiet view save is out is saved when that save fails", async (t) => {
+  useStorage(t);
+  const server = fakeServer(t, graph(rect("a")));
+  store.getState().reset();
+  await store.getState().loadBoard("board-1");
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  let release;
+  server.holdPut = new Promise((resolve) => { release = resolve; });
+  store.getState().setViewport({ x: 30, y: 40, zoom: 2 });
+  t.mock.timers.tick(10000);
+  await untilImmediate(() => server.puts.length === 1);
+  addLocalNode("mine");
+  assert.equal(store.getState().saveStatus, "dirty");
+  // The edit's own flush comes due while the view save is still out.
+  t.mock.timers.tick(1500);
+  await new Promise((resolve) => setImmediate(resolve));
+  server.dropResponse = true;
+  release();
+  await untilImmediate(() => server.version === 2);
+  server.holdPut = null;
+  server.dropResponse = false;
+  await new Promise((resolve) => setImmediate(resolve));
+  t.mock.timers.tick(1500);
+  // The view save landed, so this one meets a conflict, merges and goes again.
+  await untilImmediate(() => server.puts.length === 2 && store.getState().saveStatus === "dirty");
+  t.mock.timers.tick(0);
+  await untilImmediate(() => store.getState().saveStatus === "saved");
+  assert.deepEqual(ids(server.data), ["a", "mine"]);
+  assert.deepEqual(server.data.viewport, { x: 30, y: 40, zoom: 2 });
+});
+
 test("a save that never landed is retried as this person's edit", async (t) => {
   useStorage(t);
   const server = fakeServer(t, filled("#ffffff"));

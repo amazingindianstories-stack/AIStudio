@@ -81,6 +81,17 @@ test("Space arms panning on the board, but not when it activates a focused butto
   assert.equal(held(), true);
 });
 
+test("Space with focus on a link or other control outside the board does not arm panning", async (t) => {
+  const held = await mountPan(t);
+  document.body.insertAdjacentHTML("beforeend", "<a id='link' href='#'>Link</a><svg><g id='record' role='button' tabindex='0'></g></svg>");
+  await act(async () => { keydown(document.querySelector("#link"), { code: "Space", key: " " }); });
+  assert.equal(held(), false);
+  await act(async () => { keydown(document.querySelector("#record"), { code: "Space", key: " " }); });
+  assert.equal(held(), false);
+  await act(async () => { keydown(document.body, { code: "Space", key: " " }); });
+  assert.equal(held(), true);
+});
+
 test("Space held while the window loses focus does not leave the board in pan mode", async (t) => {
   const held = await mountPan(t);
   await act(async () => { keydown(document.querySelector("#surface"), { code: "Space", key: " " }); });

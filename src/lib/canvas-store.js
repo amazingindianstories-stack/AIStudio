@@ -672,9 +672,11 @@ async function flushSaveImpl(
         });
       };
       // Durable until the server acknowledges exactly this content.
+      // An unload that skipped the lookup keeps the earlier unresolved save as the merge base: it may have
+      // landed, and this save's content is the draft either way.
       if (!viewportOnly) {
-        savePendingDraft(boardId, sentPresent, Date.now(), { ...syncOf(synced), save });
-        unresolvedSave = save;
+        unresolvedSave ??= save;
+        savePendingDraft(boardId, sentPresent, Date.now(), { ...syncOf(synced), save: unresolvedSave });
       }
       let res = await send(Boolean(patch));
       // A patch the server cannot apply (400), or a server without patch saves (405), wrote
@@ -683,8 +685,9 @@ async function flushSaveImpl(
         if (res.status === 405) patchSavesUnsupported = true;
         res = await send(false);
       }
-      // Any answer below 500 is definite: applied, or refused before writing.
-      if (unresolvedSave === save && res.status < 500) unresolvedSave = null;
+      // Any answer below 500 is definite: applied, or refused before writing. One applied from the same base
+      // as an earlier unresolved save also shows that one never landed.
+      if (res.ok || (unresolvedSave === save && res.status < 500)) unresolvedSave = null;
       if (viewportOnly && !res.ok && res.status !== 409) return;
       if (res.status === 401) {
         redirectToLogin();
@@ -713,6 +716,13 @@ async function flushSaveImpl(
         // Someone else saved first: merge their graph under this tab's edits and save the result.
         const { board } = await res.json();
         if (get().boardId !== boardId) throw new Error("board changed during save");
+        if (unresolvedSave) {
+          // Merging now would measure the earlier unresolved save as an unsaved edit: settle it first.
+          retryBackoffMs = DEBOUNCE_MS;
+          set({ saveStatus: "dirty" });
+          scheduleFlush(get, 0);
+          return;
+        }
         const adopted = applyRemoteBoard(set, get, board) && get().serverVersion === board.version;
         if (viewportOnly) {
           // Their save is merged under the view; the view goes again after another quiet period.
@@ -783,6 +793,8 @@ async function flushSaveImpl(
     await saveInFlight;
   } finally {
     saveInFlight = null;
+    // An edit made during a view-only save was not in it, and its own flush may have found this one in flight.
+    if (viewportOnly && !debounceTimer && get().saveStatus === "dirty") scheduleFlush(get, DEBOUNCE_MS);
   }
 }
 

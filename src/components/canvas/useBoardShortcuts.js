@@ -55,13 +55,13 @@ export function selectFromKeyboard(ids, focusId = ids[0]) {
   useBoardUi.getState().announce(text);
 }
 
-/** Starts a presentation of the board's frames from the first one. */
 /** Runs `fn` on the next frame (at once where there are no frames, as in tests). */
 function afterKeydown(fn) {
   if (typeof requestAnimationFrame === "function") requestAnimationFrame(fn);
   else fn();
 }
 
+/** Starts a presentation of the board's frames from the first one. */
 export function startPresentation() {
   const ui = useBoardUi.getState();
   const store = useCanvasStore.getState();

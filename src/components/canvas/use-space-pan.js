@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { isTypingTarget } from "@/lib/canvas/shortcuts";
+import { isBoardTarget, isTypingTarget } from "@/lib/canvas/shortcuts";
 import { modalOpen } from "@/lib/canvas/use-board-clipboard";
 
-/** Whether Space at `target` is the board's pan key: not a field, a dialog, or a control Space activates. */
+/** Whether Space at `target` is the board's pan key: focus on the board (or nowhere), not a field, a dialog, or a control Space activates. */
 export function spaceStartsPan(target) {
-  if (modalOpen() || isTypingTarget(target)) return false;
+  if (modalOpen() || isTypingTarget(target) || !isBoardTarget(target)) return false;
   return target?.tagName !== "BUTTON";
 }
 
