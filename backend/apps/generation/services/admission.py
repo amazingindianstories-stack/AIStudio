@@ -114,7 +114,8 @@ def reap_stale_running_images(*, now=None):
     uncertain = stale.filter(provider_status=SUBMISSION_PENDING).update(
         status='failed', provider_status=SUBMISSION_UNCERTAIN, completed_at=now, updated_at=now,
         error='Generation timed out - the server process was interrupted. It may still have been accepted by the provider; check before retrying.')
-    return uncertain + stale.update(status='failed', error='Generation timed out - the server process was interrupted.', completed_at=now, updated_at=now)
+    from .audio_submission import reap_stale_audio
+    return uncertain + stale.update(status='failed', error='Generation timed out - the server process was interrupted.', completed_at=now, updated_at=now) + reap_stale_audio(now=now)
 
 
 def queue_position(identifier, *, now=None):

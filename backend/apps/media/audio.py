@@ -171,14 +171,21 @@ def _persist_audio_result(expected, transcript, completed):
                 raise
 
 
-def _mark_audio_uncertain(expected):
-    """Retain ambiguity without modifying a changed execution or newer metadata."""
+def _mark_audio_uncertain(expected, *, code='audio_submission_uncertain', now=None):
+    """End the local attempt, preserving remote ambiguity and one-shot evidence."""
     with transaction.atomic():
         row=Generation.objects.select_for_update().filter(pk=expected.id).first()
         if row is None or not same_execution_identity(row, expected):
             return
-        Generation.objects.filter(pk=row.id).update(provider_status='SUBMISSION_UNCERTAIN',
-            updated_at=max(int(time.time()*1000),row.updated_at+1))
+        from apps.generation.services.audio_submission import AUDIO_UNCERTAIN_MESSAGE
+        now = int(time.time()*1000) if now is None else now
+        record = {'provider':'gemini', 'source':'veevee', 'phase':'transcribe',
+                  'code':code, 'receivedAt':now}
+        Generation.objects.filter(pk=row.id).update(status='failed',
+            provider_status='SUBMISSION_UNCERTAIN', error=AUDIO_UNCERTAIN_MESSAGE,
+            completed_at=now, next_poll_at=None,
+            provider_responses=[*(row.provider_responses or []), record],
+            updated_at=max(now,row.updated_at+1))
 
 
 def _mark_audio_failed(expected, message, responses=None):

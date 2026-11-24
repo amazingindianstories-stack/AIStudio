@@ -234,6 +234,34 @@ class AudioGuardFlowTests(TransactionTestCase):
         row.refresh_from_db()
         self.assertEqual((row.status, row.provider_status, row.prompt), ('succeeded', 'COMPLETED', TRANSCRIPT))
 
+    def test_deadline_preserves_paid_ledger_and_never_replays_after_worker_restart(self):
+        from apps.generation.worker import run_once
+        from apps.media.audio_wait import wait_for_audio, AudioFailed
+        ledger, sent = {}, []
+        def lost_response(*args, **kwargs):
+            sent.append('sent')
+            raise ProviderError('private transport secret', code='request_deadline', may_have_submitted=True)
+        with guard(ledger, sent), patch.object(HttpTransport, '_send', lost_response):
+            row = audio_submission.persist_audio_intent(self.fields())
+            original_input = row.submission_input
+            with self.assertRaises(ProviderError):
+                self.run_worker(row)
+            evidence = dict(ledger[str(row.id)])
+            row.refresh_from_db()
+            self.assertEqual((row.status, row.provider_status), ('failed', 'SUBMISSION_UNCERTAIN'))
+            self.assertEqual(row.submission_input, original_input)
+            self.assertEqual(row.provider_responses[-1]['code'], 'request_deadline')
+            self.assertNotIn('private', row.error)
+            with self.assertRaisesRegex(AudioFailed, 'may have accepted'):
+                wait_for_audio(row, timeout=0)
+            for _ in range(3):
+                self.assertEqual(run_once()['processed'], 0)
+                self.assertEqual(self.run_worker(row), {'kind':'unclaimed'})
+            self.assertEqual(ledger[str(row.id)], evidence)
+            self.assertEqual(evidence['state'], 'SUBMITTING')
+            self.assertTrue(audio_capacity_available(row.user_id))
+        self.assertEqual(sent, ['sent'])
+
     def test_an_unregistered_intent_is_never_sent_and_frees_the_users_slot(self):
         # e.g. a row created before this release, or by any path that skipped registration
         ledger, sent = {}, []
