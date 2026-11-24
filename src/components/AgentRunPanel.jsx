@@ -2,7 +2,7 @@
 import { useEffect, useId, useState } from "react";
 import { AlertCircle, Ban, Check, ChevronRight, Clock, Loader2, PauseCircle, X } from "lucide-react";
 import {
-  durationText, outcomeText, pauseReasonText, queuedNote, quoteCardStep, quoteCost, quoteDetails, resumeText, sentenceCase, statusLine,
+  durationText, outcomeText, pauseReasonText, queuedNote, quoteCardStep, quoteCost, quoteExpired, quoteExpiryText, quoteDetails, resumeText, sentenceCase, statusLine,
   stepStatusText, traceArguments, traceGroups, traceSummary,
 } from "@/lib/agent-run";
 import { MediaCard } from "./MediaCard";
@@ -121,6 +121,13 @@ function QuoteCard({ quote, onDecide }) {
     setPhase("idle");
     setError(null);
   }, [quote.stepIndex, quote.seq]);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 15000);
+    return () => clearInterval(timer);
+  }, [quote.stepIndex, quote.seq]);
+  const expired = quoteExpired(quote, now);
+  const expiry = quoteExpiryText(quote, now);
   const cost = quoteCost(quote);
   const decide = async (action) => {
     const next = action === "approve" ? quoteCardStep(phase, "approve", quote.costCents) : "sending";
@@ -147,9 +154,10 @@ function QuoteCard({ quote, onDecide }) {
         </dl>
       )}
       {phase === "confirming" && <p role="status" className="text-amber-100">This costs {cost}. Confirm to spend it.</p>}
-      {error && <p role="alert" className="text-red-300">{error}</p>}
+      {expiry && <p role={expired ? "alert" : undefined} className={expired ? "text-red-300" : "text-white/60"}>{expiry}</p>}
+      {error && error !== expiry && <p role="alert" className="text-red-300">{error}</p>}
       <div className="flex flex-wrap gap-2">
-        {phase === "confirming" ? (
+        {phase === "confirming" && !expired ? (
           <>
             <button type="button" onClick={() => decide("approve")} className="rounded-full bg-brand/25 px-3 py-1 font-medium text-brand ring-1 ring-brand/50 transition hover:bg-brand/35">
               Confirm {cost}
@@ -160,7 +168,7 @@ function QuoteCard({ quote, onDecide }) {
           </>
         ) : (
           <>
-            <button type="button" disabled={phase === "sending"} onClick={() => decide("approve")} className="rounded-full bg-brand/20 px-3 py-1 font-medium text-brand ring-1 ring-brand/40 transition hover:bg-brand/30 disabled:opacity-50">
+            <button type="button" disabled={phase === "sending" || expired} onClick={() => decide("approve")} className="rounded-full bg-brand/20 px-3 py-1 font-medium text-brand ring-1 ring-brand/40 transition hover:bg-brand/30 disabled:opacity-50">
               Approve {cost}
             </button>
             <button type="button" disabled={phase === "sending"} onClick={() => decide("decline")} className="rounded-full border border-line px-3 py-1 font-medium text-white/70 transition hover:text-white disabled:opacity-50">

@@ -393,6 +393,27 @@ export function quoteCost(quote) {
   return quote?.display || dollars(Number(quote?.costCents) || 0);
 }
 
+/** Milliseconds until the quote's price expires (negative once it has), or null when it carries no usable expiry. */
+export function quoteMsLeft(quote, now = Date.now()) {
+  const at = Date.parse(quote?.expiresAt || "");
+  return Number.isNaN(at) ? null : at - now;
+}
+
+/** Whether the quote's price has expired, so approving it would only make the agent ask again. */
+export function quoteExpired(quote, now = Date.now()) {
+  const left = quoteMsLeft(quote, now);
+  return left !== null && left <= 0;
+}
+
+/** The expiry line on the quote card: minutes left while valid, the re-quote notice once expired, empty without expiry. */
+export function quoteExpiryText(quote, now = Date.now()) {
+  const left = quoteMsLeft(quote, now);
+  if (left === null) return "";
+  if (left <= 0) return QUOTE_EXPIRED_MESSAGE;
+  const minutes = Math.ceil(left / 60000);
+  return `Price valid for ${minutes} more ${minutes === 1 ? "minute" : "minutes"}.`;
+}
+
 const PAUSE_REASONS = {
   agents_disabled: "Agents were turned off by an admin.",
   disabled: "Agents are turned off for your account.",
@@ -535,7 +556,10 @@ export function quoteDetails(args) {
     .sort(byArgumentOrder);
 }
 
+export const QUOTE_EXPIRED_MESSAGE = "This price expired; the agent will ask again.";
+
 const ACTION_ERRORS = {
+  QUOTE_EXPIRED: QUOTE_EXPIRED_MESSAGE,
   NO_PENDING_QUOTE: "This quote is no longer waiting for approval.",
   RUN_FINISHED: "This run has already finished.",
 };
