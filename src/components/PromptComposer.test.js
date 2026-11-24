@@ -602,6 +602,39 @@ test("composer pointer tracking follows the shell across a mode switch remount",
   }
 });
 
+test("the live composer pushes the destination chip to the row end and opens settings 12px above its trigger", async () => {
+  const { dom, restore } = installComposerDom();
+  const before = { ...useStore.getInitialState() };
+  const root = createRoot(document.querySelector("#root"));
+  const rect = dom.window.HTMLElement.prototype.getBoundingClientRect;
+  dom.window.HTMLElement.prototype.getBoundingClientRect = function () {
+    return { left: 600, right: 700, top: 500, bottom: 532, width: 100, height: 32, x: 600, y: 500 };
+  };
+  try {
+    useStore.setState({ mode: "image" });
+    await act(async () => root.render(React.createElement(PromptComposer)));
+    const toolbar = document.querySelector(".composer-toolbar");
+    const chips = [...toolbar.children];
+    const destination = toolbar.querySelector(".composer-destination");
+    assert.equal(chips.at(-1), destination, "destination is the last chip in the row");
+    assert.ok(destination.classList.contains("ml-auto"), "destination is pushed to the row end");
+    for (const chip of chips.slice(0, -1)) assert.ok(!chip.classList.contains("ml-auto"), "other chips keep their place");
+
+    const settings = toolbar.querySelector('button[aria-label="Generation settings"]');
+    await act(async () => settings.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true })));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
+    const panel = document.getElementById(settings.getAttribute("aria-controls"));
+    assert.equal(panel.style.visibility, "visible");
+    const panelBottom = parseFloat(panel.style.top) + parseFloat(panel.style.maxHeight);
+    assert.equal(500 - panelBottom, 12, "settings panel clears its trigger by 12px");
+  } finally {
+    dom.window.HTMLElement.prototype.getBoundingClientRect = rect;
+    await act(async () => root.unmount());
+    useStore.setState(before, true);
+    restore();
+  }
+});
+
 test("composer collapses once the pointer moves on after an overlay that blocked the collapse closes", async () => {
   const { dom, restore } = installComposerDom();
   const before = { ...useStore.getInitialState() };

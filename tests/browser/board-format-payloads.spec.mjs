@@ -52,8 +52,8 @@ test('Board formats: a long Doc keeps its text outside the board JSON, saves and
   page.on('pageerror', (error) => errors.push(error.message));
   await openBoard(page);
   const dialog = page.getByRole('dialog', { name: 'Format focus mode' });
-  const toggle = page.getByRole('button', { name: /^Formats/ });
-  if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
+  const toggle = page.getByRole('button', { name: 'Docs, slides and prototypes', exact: true });
+  if ((await toggle.getAttribute('aria-pressed')) !== 'true') await toggle.click();
 
   const first = page.waitForResponse(isSave);
   await page.getByRole('button', { name: 'New doc', exact: true }).click();

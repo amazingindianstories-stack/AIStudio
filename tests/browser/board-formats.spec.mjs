@@ -83,8 +83,8 @@ test('Board formats: docs, status, focus link, Mermaid code diagrams, HTML embed
   await openBoard(page);
   const dialog = page.getByRole('dialog', { name: 'Format focus mode' });
   const openPanel = async () => {
-    const toggle = page.getByRole('button', { name: /^Formats/ });
-    if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
+    const toggle = page.getByRole('button', { name: 'Docs, slides and prototypes', exact: true });
+    if ((await toggle.getAttribute('aria-pressed')) !== 'true') await toggle.click();
   };
 
   // A doc opens in focus mode, takes a title, a heading block and a status, and saves on the board.
