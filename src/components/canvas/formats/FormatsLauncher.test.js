@@ -7,11 +7,15 @@ import { CanvasToolbar } from "../CanvasToolbar.jsx";
 import { FormatsPanel } from "./FormatsPanel.jsx";
 import { useCanvasStore } from "../../../lib/canvas-store.js";
 import { useBoardPrefs } from "../../../lib/canvas/board-prefs.js";
+import { useBoardUi } from "../../../lib/canvas/board-ui.js";
 import { emptyCanvasState } from "../../../lib/canvas/serialization.js";
 
 const LAUNCHER = "button[aria-label='Docs, slides and prototypes']";
 
 async function board({ boardRole, viewOnly = false, hidden = [] }, run) {
+  const view = (touchViewOnly) => React.createElement(React.Fragment, null,
+    React.createElement(FormatsPanel, { boardId: "board-1", touchViewOnly }),
+    React.createElement(CanvasToolbar, { readOnly: boardRole !== "edit", viewOnly: touchViewOnly, toolLocked: false, onToggleLock() {}, onAddImageClick() {} }));
   const dom = new JSDOM("<div id='root'></div>", { url: "http://localhost", pretendToBeVisual: true });
   const names = ["window", "document", "HTMLElement", "Node", "React", "IS_REACT_ACT_ENVIRONMENT", "localStorage"];
   const prior = Object.fromEntries(names.map((name) => [name, globalThis[name]]));
@@ -23,13 +27,12 @@ async function board({ boardRole, viewOnly = false, hidden = [] }, run) {
   useCanvasStore.setState({ boardId: "board-1", loaded: true, boardRole, serverVersion: 1, history: { past: [], present, future: [] } });
   const root = createRoot(document.querySelector("#root"));
   try {
-    await act(async () => root.render(React.createElement(React.Fragment, null,
-      React.createElement(FormatsPanel, { boardId: "board-1", touchViewOnly: viewOnly }),
-      React.createElement(CanvasToolbar, { readOnly: boardRole !== "edit", viewOnly, toolLocked: false, onToggleLock() {}, onAddImageClick() {} }))));
-    await run();
+    await act(async () => root.render(view(viewOnly)));
+    await run((touchViewOnly) => act(async () => root.render(view(touchViewOnly))));
   } finally {
     await act(async () => root.unmount());
     useCanvasStore.getState().reset();
+    useBoardUi.getState().reset();
     useBoardPrefs.setState({ toolbarHidden: [], toolbarOrder: [], hydrated: false });
     Object.assign(globalThis, prior);
     dom.window.close();
@@ -83,5 +86,15 @@ test("touch view mode keeps a formats launcher while hiding every other tool", a
     await openDrawer();
     assert.ok(buttons().includes("Preview Home"));
     assert.equal(buttons().includes("New doc"), false);
+  });
+});
+
+test("a launcher that mounts while the drawer is open reports it pressed", async () => {
+  await board({ boardRole: "edit", viewOnly: true }, async (rerender) => {
+    await openDrawer();
+    await rerender(false);
+    assert.ok(drawer(), "switching to edit mode keeps the drawer open");
+    assert.ok(document.querySelector("[role=toolbar][aria-label='Board tools']"), "the edit dock replaced the view-mode launcher");
+    assert.equal(document.querySelector(LAUNCHER).getAttribute("aria-pressed"), "true");
   });
 });

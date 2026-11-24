@@ -1626,7 +1626,7 @@ export const CanvasSurface = forwardRef
           <p className="text-sm text-white/55">This board is empty.</p>
           <p className="max-w-xs text-xs text-white/35">
             <span className="max-sm:hidden">Pick a tool below, or drag an asset from the left to start your storyboard.</span>
-            <span className="hidden max-sm:inline">Tap + to add a card or asset.</span>
+            <span className="hidden max-sm:inline">Tap Edit, then pick a tool to add a card or asset.</span>
           </p>
         </div>
       )}

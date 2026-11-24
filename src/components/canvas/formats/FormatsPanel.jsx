@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useCanvasStore, selectReadOnly } from "@/lib/canvas-store";
 import { isLocked } from "@/lib/canvas/locks";
+import { useBoardUi } from "@/lib/canvas/board-ui";
 import { defaultViewNode, FORMAT_STATUSES, MAX_HTML, newFormatNode, STATUS_LABELS } from "@/lib/canvas/formats/model";
 import { formatUrl, openFormat, patchFormat, setDefaultFormat } from "@/lib/canvas/formats/actions";
 import { WIREFRAMES, wireframeNode } from "@/lib/canvas/formats/wireframes";
@@ -23,17 +24,9 @@ export function FormatsPanel({ boardId, touchViewOnly }) {
   const viewOnly = useCanvasStore(selectReadOnly);
   const readOnly = viewOnly || touchViewOnly;
   const selection = useCanvasStore((s) => s.selection);
-  const [panel, setPanel] = useState(false);
+  const panel = useBoardUi((s) => s.formatsOpen);
   const [focusId, setFocusId] = useState(null);
   const [notice, setNotice] = useState("");
-  useEffect(() => {
-    const toggle = () => setPanel((open) => !open);
-    window.addEventListener("board-formats-toggle", toggle);
-    return () => window.removeEventListener("board-formats-toggle", toggle);
-  }, []);
-  useEffect(() => {
-    window.dispatchEvent(new window.CustomEvent("board-formats-state", { detail: panel }));
-  }, [panel]);
   const dialog = useRef(null);
   const initialized = useRef(null);
   const focusNode = graph.nodes.find((n) => n.id === focusId);

@@ -357,7 +357,7 @@ export function AdminErrorsTab({ data, usersById }) {
             {!loading && !failed && rows.length === 0 && (
               <tr className="border-t border-line">
                 <td colSpan={6} className="p-3">
-                  <EmptyState icon={AlertTriangle} title="No provider errors" hint="No errors match these filters." />
+                  <EmptyState icon={<AlertTriangle className="h-6 w-6" />} title="No provider errors" body="No errors match these filters." />
                 </td>
               </tr>
             )}

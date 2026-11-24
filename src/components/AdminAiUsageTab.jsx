@@ -44,7 +44,7 @@ export function AdminAiUsageTab() {
         <>
           <section aria-label="Spend by period">
             <h3 className="mb-2 text-sm font-medium text-white/80">Spend by period</h3>
-            {usage.periods.length === 0 ? <EmptyState icon={Sparkles} title="No board AI spend yet" hint="No board AI jobs in this time." /> : (
+            {usage.periods.length === 0 ? <EmptyState icon={<Sparkles className="h-6 w-6" />} title="No board AI spend yet" body="No board AI jobs in this time." /> : (
               <ul className="space-y-1">
                 {usage.periods.map((row) => (
                   <li key={row.start} className="flex items-center gap-3 text-xs text-white/70">
@@ -73,7 +73,7 @@ export function AdminAiUsageTab() {
 }
 
 function Table({ rows, head }) {
-  if (!rows.length) return <EmptyState icon={Sparkles} title="No board AI spend yet" hint="No board AI jobs in this time." />;
+  if (!rows.length) return <EmptyState icon={<Sparkles className="h-6 w-6" />} title="No board AI spend yet" body="No board AI jobs in this time." />;
   return (
     <table className="w-full text-left text-xs text-white/70">
       <thead className="text-white/45"><tr><th className="py-1 font-medium">{head}</th><th className="py-1 text-right font-medium">Jobs</th><th className="py-1 text-right font-medium">Spend</th></tr></thead>

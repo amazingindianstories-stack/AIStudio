@@ -100,7 +100,7 @@ export function AdminBoardLogsTab() {
               </tr>
             ))}
             {!rows.length && !state && (
-              <tr><td colSpan={log.columns.length} className="p-3"><EmptyState icon={ScrollText} title="No board activity yet" hint="Entries appear here as boards are used." /></td></tr>
+              <tr><td colSpan={log.columns.length} className="p-3"><EmptyState icon={<ScrollText className="h-6 w-6" />} title="No board activity yet" body="Entries appear here as boards are used." /></td></tr>
             )}
           </tbody>
         </table>

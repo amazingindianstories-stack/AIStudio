@@ -1,16 +1,19 @@
-import { cn } from "@/lib/utils";
-
 /**
- * Shared empty view: icon, title, hint and an optional action. Same layout as
- * the library "no matching materials" state so admin tabs read in one voice.
+ * Shared empty view: a ringed icon tile, title and body. The library and the
+ * admin tabs use it so empty states read in one voice.
  */
-export default function EmptyState({ icon: Icon, title, hint, action, className }) {
+export default function EmptyState({
+  icon,
+  title,
+  body,
+}) {
   return (
-    <div className={cn("flex flex-col items-center justify-center rounded-2xl border border-dashed border-line px-4 py-8 text-center", className)}>
-      {Icon && <Icon className="mb-3 h-10 w-10 text-white/20" aria-hidden />}
-      <h3 className="text-sm font-semibold text-white/70">{title}</h3>
-      {hint && <p className="mt-1 max-w-sm text-xs text-white/40">{hint}</p>}
-      {action}
+    <div className="flex h-full flex-col items-center justify-center gap-2.5 px-6 text-center">
+      <div className="grid h-12 w-12 place-items-center rounded-2xl bg-ink-700 text-white/40 ring-1 ring-line">
+        {icon}
+      </div>
+      <p className="text-sm font-medium text-white/75">{title}</p>
+      <p className="max-w-[22rem] text-[13px] leading-relaxed text-white/40">{body}</p>
     </div>
   );
 }

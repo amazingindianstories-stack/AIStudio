@@ -115,7 +115,7 @@ export function useBoardShortcuts({ surfaceRef, toolLocked, touchViewOnly, openS
     else if (id === "image") view.openImagePicker();
     else if (id === "ai") view.toggleAi();
     else if (id === "sidekick") view.toggleSidekick();
-    else if (id === "formats") window.dispatchEvent(new window.CustomEvent("board-formats-toggle"));
+    else if (id === "formats") useBoardUi.getState().toggleFormats();
     else if (id === "templates") requestTemplates({ action: "open" });
     // Menus in the dock, not tools: nothing to arm.
     else if (id === "grid" || id === "synced") return false;

@@ -78,7 +78,7 @@ test("an empty board shows phone copy that does not point at a missing left pane
   await emptyBoard(async () => {
     const copy = [...document.querySelectorAll("span")];
     const desktop = copy.find((span) => span.textContent === "Pick a tool below, or drag an asset from the left to start your storyboard.");
-    const touch = copy.find((span) => span.textContent === "Tap + to add a card or asset.");
+    const touch = copy.find((span) => span.textContent === "Tap Edit, then pick a tool to add a card or asset.");
     assert.ok(desktop && phone(desktop, "max-sm:hidden"), "the desktop copy hides on phones");
     assert.ok(touch && phone(touch, "hidden", "max-sm:inline"), "the phone copy shows only on phones");
   });

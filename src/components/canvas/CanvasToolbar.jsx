@@ -52,6 +52,7 @@ import { boardStatus } from "@/lib/canvas/formats/model";
 import { ACTIVE_STATUSES, useBoardAi } from "@/lib/board-ai";
 import { MediaMenu } from "./MediaMenu";
 import { useBoardPrefs } from "@/lib/canvas/board-prefs";
+import { useBoardUi } from "@/lib/canvas/board-ui";
 import { CREATION_TOOLS, NAVIGATION_TOOLS, moveTool, orderedTools, pinnedTools, placeToolBefore, togglePinned, toolLabel } from "@/lib/canvas/toolbar-tools";
 
 const NAVIGATION_ICONS = { select: MousePointer2, hand: Hand, lasso: Lasso };
@@ -569,12 +570,8 @@ function ZoomControl() {
 /** Opens the board's docs, slides and prototypes drawer (FormatsPanel); a dot shows when a format has a status. */
 function FormatsButton() {
   const status = useCanvasStore((s) => boardStatus(s.history.present.nodes));
-  const [open, setOpen] = useState(false);
-  useEffect(() => {
-    const sync = (e) => setOpen(Boolean(e.detail));
-    window.addEventListener("board-formats-state", sync);
-    return () => window.removeEventListener("board-formats-state", sync);
-  }, []);
+  const open = useBoardUi((s) => s.formatsOpen);
+  const toggleFormats = useBoardUi((s) => s.toggleFormats);
   return (
     <button
       type="button"
@@ -585,7 +582,7 @@ function FormatsButton() {
       title="Docs, slides and prototypes"
       aria-label="Docs, slides and prototypes"
       aria-pressed={open}
-      onClick={() => window.dispatchEvent(new window.CustomEvent("board-formats-toggle"))}
+      onClick={toggleFormats}
     >
       <FileText className="h-4 w-4" />
       {status && <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-brand" aria-hidden />}

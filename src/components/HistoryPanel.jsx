@@ -33,7 +33,8 @@ import {
 import { useStore } from "@/lib/store";
 import { apiFetch } from "@/lib/api";
 import { MediaCard } from "./MediaCard";
-import { EmptyState, BriefEditor } from "./ProjectPanel";
+import { BriefEditor } from "./ProjectPanel";
+import EmptyState from "./EmptyState";
 import { AssetGrid } from "./AssetGrid";
 import { LibraryFilters, LibraryFilterChips, LibraryNoMatches, LibraryResultsAnnouncer } from "./LibraryFilters";
 import { activeLibraryFilters } from "@/lib/library-filters";

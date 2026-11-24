@@ -28,6 +28,14 @@ test("DropZone invalid drag uses the red state, message and invalid hint", () =>
   assert.doesNotMatch(html, />h</);
 });
 
+test("DropZone lets a long rejection reason wrap instead of cutting it off", () => {
+  const reason = "Video upscaling only accepts videos. Switch to Image to upscale an image.";
+  const html = render({ kind: "video", dragging: true, dragValid: false, dragMessage: reason });
+  const line = html.match(new RegExp(`<p class="([^"]*)">${reason}</p>`));
+  assert.ok(line, "the full reason is rendered");
+  assert.doesNotMatch(line[1], /\btruncate\b/);
+});
+
 test("DropZone is keyboard reachable and disables when asked", () => {
   assert.match(render({ kind: "image" }), /role="button"[^>]*tabindex="0"|tabindex="0"[^>]*role="button"/);
   assert.match(render({ kind: "image", disabled: true }), /aria-disabled="true"/);

@@ -14,19 +14,13 @@ import { useStore } from "../lib/store.js";
 
 globalThis.React = React;
 
-test("EmptyState renders icon, title, hint and action", () => {
+test("EmptyState renders the icon tile, title and body", () => {
   const html = renderToStaticMarkup(
-    React.createElement(EmptyState, { icon: Library, title: "No provider errors", hint: "No errors match these filters.", action: React.createElement("button", null, "Clear") })
+    React.createElement(EmptyState, { icon: React.createElement(Library, { className: "h-6 w-6" }), title: "No provider errors", body: "No errors match these filters." })
   );
-  assert.match(html, /<svg[^>]*aria-hidden/);
-  assert.match(html, /<h3[^>]*>No provider errors<\/h3>/);
-  assert.match(html, /No errors match these filters\./);
-  assert.match(html, /<button>Clear<\/button>/);
-});
-
-test("EmptyState omits hint and icon when absent", () => {
-  const html = renderToStaticMarkup(React.createElement(EmptyState, { title: "T" }));
-  assert.doesNotMatch(html, /<svg|<p/);
+  assert.match(html, /ring-line"><svg/);
+  assert.match(html, /<p[^>]*>No provider errors<\/p>/);
+  assert.match(html, /<p[^>]*>No errors match these filters\.<\/p>/);
 });
 
 async function mount(element, respond, run) {
@@ -49,7 +43,7 @@ async function mount(element, respond, run) {
   }
 }
 
-const headings = () => [...document.querySelectorAll("h3")].map((h) => h.textContent);
+const headings = () => [...document.querySelectorAll("p")].map((p) => p.textContent);
 
 test("an admin errors tab with no matching rows shows the shared empty state", async () => {
   await mount(React.createElement(AdminErrorsTab, { data: { users: [] }, usersById: {} }), () => ({ rows: [], total: 0, nextCursor: null, providers: [], models: [] }), async () => {

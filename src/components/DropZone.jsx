@@ -82,7 +82,7 @@ export default function DropZone({
         </div>
       )}
       <div className="min-w-0 max-w-full">
-        <p className={cn("truncate text-xs font-semibold", invalid ? "text-red-300" : "text-white")}>{primary}</p>
+        <p className={cn("break-words text-xs font-semibold", invalid ? "text-red-300" : "text-white")}>{primary}</p>
         {(invalid ? invalidHint || hint : hint) && (
           <p className={cn("mt-1 text-[11px]", invalid ? "text-red-400/80" : "text-white/40")}>
             {invalid ? invalidHint || hint : hint}
