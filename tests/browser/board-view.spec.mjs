@@ -214,6 +214,8 @@ test('Board view: zoom to 2000%, wheel modes, grid, minimap, scroll bars, dimens
   await expect(label).toHaveCount(0);
   await choose(page, 'menuitemcheckbox', 'Object dimensions');
   await expect(label).toBeVisible();
+  // Escape clears the selection from the board, not from the View menu button that kept focus.
+  await page.evaluate(() => document.activeElement?.blur());
   await page.keyboard.press('Escape');
   await expect(label).toHaveCount(0);
 

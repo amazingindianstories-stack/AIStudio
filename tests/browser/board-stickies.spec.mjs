@@ -98,7 +98,9 @@ test('Board stickies: bulk mode, colors, shape, auto size, tags, reactions, auth
     return tops.size;
   });
   expect(gammaLines).toBe(1);
-  // The new stickies arrive selected; start from an empty selection.
+  // The new stickies arrive selected; start from an empty selection. Escape acts on the board, not on the
+  // Sticky options button the closed dialog handed focus back to.
+  await page.evaluate(() => document.activeElement?.blur());
   await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: 'Fill', exact: true })).toHaveCount(0);
 
