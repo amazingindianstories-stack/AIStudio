@@ -626,19 +626,20 @@ export function SaveStatusChip({
     // Resending the same board cannot succeed; the next edit that makes it smaller saves.
     return (
       <div role="alert" className="flex items-center gap-2 whitespace-nowrap rounded-full bg-amber-400/15 px-3 py-1.5 text-xs font-medium text-amber-200 ring-1 ring-amber-400/40">
-        <AlertTriangle className="h-3.5 w-3.5" />
+        <AlertTriangle aria-hidden="true" className="h-3.5 w-3.5" />
         {limitMessage || "Board too large to save - remove some items and try again"}
       </div>
     );
   }
   if (status === "error") {
     return (
-      <div className="flex items-center gap-2 whitespace-nowrap rounded-full bg-amber-400/15 px-3 py-1.5 text-xs font-medium text-amber-200 ring-1 ring-amber-400/40">
-        <AlertTriangle className="h-3.5 w-3.5" />
+      <div role="alert" className="flex items-center gap-2 whitespace-nowrap rounded-full bg-amber-400/15 px-3 py-1.5 text-xs font-medium text-amber-200 ring-1 ring-amber-400/40">
+        <AlertTriangle aria-hidden="true" className="h-3.5 w-3.5" />
         Could not save - retrying
         <button
           type="button"
           onClick={onRetry}
+          aria-label="Retry saving the board"
           className="rounded-full bg-amber-400/20 px-2 py-0.5 text-[11px] font-semibold hover:bg-amber-400/30"
         >
           Retry
@@ -648,15 +649,15 @@ export function SaveStatusChip({
   }
   if (status === "saving" || status === "dirty") {
     return (
-      <div className="flex items-center gap-1.5 whitespace-nowrap rounded-full border border-line bg-ink-750/95 px-3 py-1.5 text-xs text-white/60 shadow-pop backdrop-blur-xl">
-        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+      <div role="status" aria-live="polite" className="flex items-center gap-1.5 whitespace-nowrap rounded-full border border-line bg-ink-750/95 px-3 py-1.5 text-xs text-white/60 shadow-pop backdrop-blur-xl">
+        <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
         Saving…
       </div>
     );
   }
   return (
-    <div className="flex items-center gap-1.5 whitespace-nowrap rounded-full border border-line bg-ink-750/95 px-3 py-1.5 text-xs text-white/45 shadow-pop backdrop-blur-xl">
-      <Check className="h-3.5 w-3.5" />
+    <div role="status" aria-live="polite" className="flex items-center gap-1.5 whitespace-nowrap rounded-full border border-line bg-ink-750/95 px-3 py-1.5 text-xs text-white/45 shadow-pop backdrop-blur-xl">
+      <Check aria-hidden="true" className="h-3.5 w-3.5" />
       Saved
     </div>
   );

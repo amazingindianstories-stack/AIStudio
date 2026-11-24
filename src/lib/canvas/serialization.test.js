@@ -348,3 +348,35 @@ test("validateCanvasState: custom shape svg keeps the stored markup unchanged", 
   assert.equal(state.nodes[0].svg, svg);
   assert.deepEqual(validateCanvasState(state), state);
 });
+
+test("a parent cycle is broken at exactly one node and a chain into it keeps its parent", () => {
+  const frame = (id, parentId = null) => ({ id, type: "frame", x: 0, y: 0, w: 100, h: 100, parentId });
+  const state = validateCanvasState({ nodes: [frame("a", "b"), frame("b", "a"), frame("c", "a"), frame("d", "d")], connectors: [] });
+  assert.deepEqual(state.nodes.map((n) => n.parentId), [null, "a", "a", null]);
+  const clean = validateCanvasState({ nodes: [frame("a"), frame("b", "a"), frame("c", "b")], connectors: [] });
+  assert.deepEqual(clean.nodes.map((n) => n.parentId), [null, "a", "b"], "a valid hierarchy round-trips");
+});
+
+test("duplicate node and connector ids keep the first", () => {
+  const rect = (id, x) => ({ id, type: "rect", x, y: 0, w: 10, h: 10, parentId: null });
+  const arrow = (id, stroke) => ({ id, from: { nodeId: "a", anchor: "auto" }, to: { nodeId: "b", anchor: "auto" }, kind: "arrow", stroke, strokeWidth: 2 });
+  const state = validateCanvasState({ nodes: [rect("a", 1), rect("a", 2), rect("b", 3)], connectors: [arrow("c", "#111111"), arrow("c", "#222222")] });
+  assert.deepEqual(state.nodes.map((n) => [n.id, n.x]), [["a", 1], ["b", 3]]);
+  assert.equal(state.connectors.length, 1);
+  assert.equal(state.connectors[0].stroke, "#111111");
+});
+
+// ---------------------------------------------------------------------------
+// A board saved before the integrity pass (duplicate ids, parent cycles) loads and saves unchanged.
+// ---------------------------------------------------------------------------
+
+test("validateCanvasState: a board saved before the integrity pass round-trips through JSON unchanged", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const stored = JSON.parse(await readFile(new URL("./fixtures/pre-integrity-board.json", import.meta.url), "utf8"));
+  const loaded = validateCanvasState(stored);
+  assert.deepEqual(loaded.nodes.map((n) => [n.id, n.parentId, n.x, n.y, n.w, n.h]), stored.nodes.map((n) => [n.id, n.parentId, n.x, n.y, n.w, n.h]));
+  assert.deepEqual(loaded.connectors.map((c) => c.id), ["conn-1"]);
+  assert.deepEqual(loaded.viewport, stored.viewport);
+  const saved = JSON.parse(JSON.stringify(loaded));
+  assert.deepEqual(validateCanvasState(saved), loaded);
+});

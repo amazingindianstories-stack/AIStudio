@@ -20,6 +20,7 @@ import { uniqueStrings, validateReactions } from "./reactions";
 import { MAX_NODE_TAGS, MAX_TAG_ID, validateTags } from "./tags";
 import { validateGrid, validateInk, validateNotes, validateSynced } from "./extras";
 import { dropDanglingFormatRefs, validateFormatNode, withDiagramSource, withMermaidKey, withScreenLink } from "./formats/validate";
+import { breakParentCycles, dropDuplicateIds } from "./integrity";
 import { MEDIA_NODE_TYPES, validateLink, validateMediaNode } from "./media-nodes";
 
 export function emptyCanvasState() {
@@ -569,8 +570,9 @@ export function validateCanvasState(raw) {
 
   const viewport = validateViewport(obj.viewport);
 
+  // A repeated id keeps its first object: every id-keyed map and React key would otherwise drop the rest.
   const nodes = Array.isArray(obj.nodes)
-    ? obj.nodes.map(validateNode).filter((n) => n !== null)
+    ? dropDuplicateIds(obj.nodes.map(validateNode).filter((n) => n !== null))
     : [];
 
   const tags = validateTags(obj.tags);
@@ -594,12 +596,12 @@ export function validateCanvasState(raw) {
   dropDanglingFormatRefs(nodes, nodeIds);
 
   const connectors = Array.isArray(obj.connectors)
-    ? obj.connectors
+    ? dropDuplicateIds(obj.connectors
         .map((c) => validateConnector(c, nodeIds))
-        .filter((c) => c !== null)
+        .filter((c) => c !== null))
     : [];
 
-  const state = { version: CANVAS_STATE_VERSION, viewport, nodes, connectors };
+  const state = { version: CANVAS_STATE_VERSION, viewport, nodes: breakParentCycles(nodes), connectors };
   // Present only once the board has a tag, so boards without tags keep their shape.
   if (tags.length) state.tags = tags;
   const notes = validateNotes(obj.notes);

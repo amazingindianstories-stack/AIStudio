@@ -56,6 +56,12 @@ export function selectFromKeyboard(ids, focusId = ids[0]) {
 }
 
 /** Starts a presentation of the board's frames from the first one. */
+/** Runs `fn` on the next frame (at once where there are no frames, as in tests). */
+function afterKeydown(fn) {
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(fn);
+  else fn();
+}
+
 export function startPresentation() {
   const ui = useBoardUi.getState();
   const store = useCanvasStore.getState();
@@ -167,7 +173,8 @@ export function useBoardShortcuts({ surfaceRef, toolLocked, touchViewOnly, openS
           store.addNode(node);
           const next = useCanvasStore.getState();
           next.setSelection([node.id]);
-          if (node.type === "text" || node.type === "sticky") next.setEditingTextId(node.id);
+          // The editor mounts after this keydown has finished, so its default cannot land in the new editor.
+          if (node.type === "text" || node.type === "sticky") afterKeydown(() => useCanvasStore.getState().setEditingTextId(node.id));
           if (!view.toolLocked) next.setTool("select");
         },
         editSelectedText: () => {

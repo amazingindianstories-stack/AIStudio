@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { mergeCanvasStates, rebaseHistory, sameValue } from "./merge.js";
 import { commit, undo } from "./history.js";
-import { emptyCanvasState } from "./serialization.js";
+import { emptyCanvasState, validateCanvasState } from "./serialization.js";
 
 const rect = (id, extra = {}) => ({ id, type: "rect", x: 0, y: 0, w: 10, h: 10, parentId: null, groupId: null, fill: "#fff", stroke: "#000", strokeWidth: 1, ...extra });
 const graph = (nodes, connectors = [], viewport = { x: 0, y: 0, zoom: 1 }) => ({ ...emptyCanvasState(), viewport, nodes, connectors });
@@ -135,4 +135,29 @@ test("a local vote is not an edit: another person's concurrent edit survives and
   const edited = graph([rect("a", { text: "mine", reactions: { "👍": ["ben", "ana"] } })]);
   assert.deepEqual(node(mergeCanvasStates(base, edited, remote), "a"),
     rect("a", { text: "mine", reactions: { "👍": ["ben", "ana"], "🔥": ["ben"] } }));
+});
+
+test("two frames nested into each other by different people never form a parent cycle", () => {
+  const base = graph([rect("a"), rect("b")]);
+  const local = graph([rect("a", { parentId: "b" }), rect("b")]);
+  const remote = graph([rect("a"), rect("b", { parentId: "a" })]);
+  const merged = mergeCanvasStates(base, local, remote);
+  const parents = merged.nodes.map((item) => item.parentId);
+  assert.equal(parents.filter(Boolean).length, 1, "exactly one nesting survives");
+  assert.deepEqual(ids(merged), ["a", "b"]);
+  const normalized = validateCanvasState(merged);
+  const chain = (id) => { const seen = new Set(); for (let at = node(normalized, id); at; at = node(normalized, at.parentId)) { assert.ok(!seen.has(at.id), "cycle"); seen.add(at.id); } };
+  chain("a");
+  chain("b");
+});
+
+test("rebaseHistory merges a snapshot repeated across the undo history once", () => {
+  const base = graph([rect("a"), rect("b")]);
+  const remote = graph([rect("a", { x: 40 }), rect("b")]);
+  const snapshot = graph([rect("a"), rect("b", { y: 5 })]);
+  const rebased = rebaseHistory({ past: Array.from({ length: 50 }, () => snapshot), present: snapshot, future: [snapshot] }, base, remote);
+  assert.ok(rebased.past.every((entry) => entry === rebased.past[0]), "equal snapshots share one merged result");
+  assert.equal(rebased.present, rebased.past[0]);
+  assert.equal(node(rebased.present, "a").x, 40);
+  assert.equal(node(rebased.present, "b").y, 5);
 });

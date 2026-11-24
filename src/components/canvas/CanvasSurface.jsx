@@ -56,6 +56,8 @@ import { cullBoard, hiddenBoardIds } from "@/lib/canvas/culling";
 import { withLastStyle } from "@/lib/canvas/styles";
 import { currentUserId, takeStickyFromStack } from "@/lib/canvas/sticky-actions";
 import { markSystemClipboard } from "@/lib/canvas/use-board-clipboard";
+import { useSpaceHeld } from "./use-space-pan";
+import { useStableCallback, useStableList } from "./use-stable-callback";
 import { layeredView } from "@/lib/canvas/layers";
 import { lockedIdSet } from "@/lib/canvas/locks";
 import * as cropHandlers from "@/lib/canvas/crop-handlers";
@@ -309,7 +311,7 @@ export const CanvasSurface = forwardRef
   const viewport = present.viewport;
   const gridStyle = useViewPrefs((s) => s.grid);
 
-  const [spaceHeld, setSpaceHeld] = useState(false);
+  const spaceHeld = useSpaceHeld();
   const [preview, setPreview] = useState(null);
   const [marqueeScreen, setMarqueeScreen] = useState(null);
   const [dropHighlightFrameId, setDropHighlightFrameId] = useState(null);
@@ -318,6 +320,8 @@ export const CanvasSurface = forwardRef
   const [connectorHoverTargetId, setConnectorHoverTargetId] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
   const dragRef = useRef(null);
+  // The ref holds the gesture; this flag tells the (memoized) objects when one starts or ends.
+  const [dragActive, setDragActive] = useState(false);
   // Touch bookkeeping: live finger positions (screen-local) for pinch, the
   // last completed tap for double-tap detection, the tap in progress, and the
   // pointer type of the latest press so touch-synthesised dblclick/contextmenu
@@ -412,26 +416,6 @@ export const CanvasSurface = forwardRef
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
-
-  // space-to-pan
-  useEffect(() => {
-    const onKeyDown = (e) => {
-      if (e.code === "Space" && !e.repeat) {
-        const target = e.target ;
-        if (target?.isContentEditable || target?.tagName === "INPUT" || target?.tagName === "TEXTAREA") return;
-        setSpaceHeld(true);
-      }
-    };
-    const onKeyUp = (e) => {
-      if (e.code === "Space") setSpaceHeld(false);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("keyup", onKeyUp);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("keyup", onKeyUp);
-    };
   }, []);
 
   const toScreenLocal = useCallback((clientX, clientY) => {
@@ -1455,6 +1439,44 @@ export const CanvasSurface = forwardRef
 
   const worldTransform = `scale(${viewport.zoom}) translate(${-viewport.x}px, ${-viewport.y}px)`;
 
+  // Fixed identities for what every object and connector receives, so a pan, wheel tick or drag frame
+  // re-renders the surface only (NodeView and ConnectorLayer are memoized on their props).
+  const nodeHandlers = {
+    onPointerDownBody: useStableCallback(onPointerDownNode),
+    onDoubleClickBody: useStableCallback(onDoubleClickBody),
+    onCommitText: useStableCallback(onCommitText),
+    onCancelEdit: useStableCallback(onCancelEdit),
+    onPointerDownHandle: useStableCallback(onPointerDownHandle),
+    onPointerDownRotate: useStableCallback(onPointerDownRotate),
+    onConnectorHandlePointerDown: useStableCallback(onConnectorHandlePointerDown),
+    onCalloutTailPointerDown: useStableCallback(onCalloutTailPointerDown),
+  };
+  const connectorHandlers = {
+    onSelectConnector: useStableCallback((id, additive) => {
+      // toggleSelect already branches on node-vs-connector id internally.
+      if (additive) toggleSelect(id);
+      else useCanvasStore.setState({ selectedConnectorIds: [id], selection: [] });
+    }),
+    onEndpointPointerDown: useStableCallback(onEndpointPointerDown),
+    onWaypointPointerDown: useStableCallback(onWaypointPointerDown),
+    onResetWaypoints: useStableCallback((connId) => updateConnectorWaypoints(connId, [])),
+    onLabelPointerDown: useStableCallback(onLabelPointerDown),
+    onLabelDoubleClick: useStableCallback((connId) =>
+      upsertConnectorLabel(connId, {
+        id: `lbl-${crypto.randomUUID().slice(0, 8)}`,
+        text: "Label",
+        position: 0.5,
+        orientation: "horizontal",
+      })),
+    onConnectorContextMenu: useStableCallback(onConnectorContextMenu),
+  };
+  const mountedConnectors = useStableList(renderedConnectors);
+  // Pointer handlers on the surface also keep `dragActive` in step with the gesture ref.
+  const syncingDrag = (handler) => (e) => {
+    handler(e);
+    setDragActive(!!dragRef.current);
+  };
+
   return (
     <div
       ref={containerRef}
@@ -1462,13 +1484,13 @@ export const CanvasSurface = forwardRef
       aria-label="Board canvas"
       data-board-surface=""
       tabIndex={0}
-      onPointerDownCapture={onPointerDownCapture}
-      onPointerDown={onPointerDownBackground}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerUpCapture={onPointerReleaseCapture}
-      onPointerCancel={onPointerCancel}
-      onPointerCancelCapture={onPointerReleaseCapture}
+      onPointerDownCapture={syncingDrag(onPointerDownCapture)}
+      onPointerDown={syncingDrag(onPointerDownBackground)}
+      onPointerMove={syncingDrag(onPointerMove)}
+      onPointerUp={syncingDrag(onPointerUp)}
+      onPointerUpCapture={syncingDrag(onPointerReleaseCapture)}
+      onPointerCancel={syncingDrag(onPointerCancel)}
+      onPointerCancelCapture={syncingDrag(onPointerReleaseCapture)}
       onContextMenu={onContextMenu}
       onDrop={onDrop}
       onDragOver={onDragOver}
@@ -1492,16 +1514,16 @@ export const CanvasSurface = forwardRef
             viewOnly={touchViewOnly}
             editingTextId={editingTextId}
             dropHighlight={dropHighlightFrameId === n.id}
-            dragging={!!dragRef.current}
+            dragging={dragActive}
             hasChildren={(childCountByFrame[n.id] ?? 0) > 0}
-            onPointerDownBody={onPointerDownNode}
-            onDoubleClickBody={onDoubleClickBody}
-            onCommitText={onCommitText}
-            onCancelEdit={onCancelEdit}
-            onPointerDownHandle={onPointerDownHandle}
-            onPointerDownRotate={rotatableSelection.has(n.id) ? onPointerDownRotate : undefined}
-            onConnectorHandlePointerDown={onConnectorHandlePointerDown}
-            onCalloutTailPointerDown={onCalloutTailPointerDown}
+            onPointerDownBody={nodeHandlers.onPointerDownBody}
+            onDoubleClickBody={nodeHandlers.onDoubleClickBody}
+            onCommitText={nodeHandlers.onCommitText}
+            onCancelEdit={nodeHandlers.onCancelEdit}
+            onPointerDownHandle={nodeHandlers.onPointerDownHandle}
+            onPointerDownRotate={rotatableSelection.has(n.id) ? nodeHandlers.onPointerDownRotate : undefined}
+            onConnectorHandlePointerDown={nodeHandlers.onConnectorHandlePointerDown}
+            onCalloutTailPointerDown={nodeHandlers.onCalloutTailPointerDown}
             nodesById={nodesById}
             connectorHoverTarget={connectorHoverTargetId === n.id}
             cropMode={croppingImageId === n.id}
@@ -1526,36 +1548,18 @@ export const CanvasSurface = forwardRef
         )}
 
         <ConnectorLayer
-          connectors={renderedConnectors}
+          connectors={mountedConnectors}
           nodesById={nodesById}
           selectedConnectorIds={selectedConnectorIds}
-          onSelectConnector={touchViewOnly ? undefined : (id, additive) => {
-            // toggleSelect already branches on node-vs-connector id internally.
-            if (additive) toggleSelect(id);
-            else useCanvasStore.setState({ selectedConnectorIds: [id], selection: [] });
-          }}
+          onSelectConnector={touchViewOnly ? undefined : connectorHandlers.onSelectConnector}
           marqueeWorldRect={arrange.preciseMarquee ? null : marqueeWorldRect}
           draftConnector={draftConnector}
-          onEndpointPointerDown={readOnly || touchViewOnly ? undefined : onEndpointPointerDown}
-          onWaypointPointerDown={readOnly || touchViewOnly ? undefined : onWaypointPointerDown}
-          onResetWaypoints={
-            readOnly || touchViewOnly
-              ? undefined
-              : (connId) => updateConnectorWaypoints(connId, [])
-          }
-          onLabelPointerDown={readOnly || touchViewOnly ? undefined : onLabelPointerDown}
-          onLabelDoubleClick={
-            readOnly || touchViewOnly
-              ? undefined
-              : (connId) =>
-                  upsertConnectorLabel(connId, {
-                    id: `lbl-${crypto.randomUUID().slice(0, 8)}`,
-                    text: "Label",
-                    position: 0.5,
-                    orientation: "horizontal",
-                  })
-          }
-          onConnectorContextMenu={onConnectorContextMenu}
+          onEndpointPointerDown={readOnly || touchViewOnly ? undefined : connectorHandlers.onEndpointPointerDown}
+          onWaypointPointerDown={readOnly || touchViewOnly ? undefined : connectorHandlers.onWaypointPointerDown}
+          onResetWaypoints={readOnly || touchViewOnly ? undefined : connectorHandlers.onResetWaypoints}
+          onLabelPointerDown={readOnly || touchViewOnly ? undefined : connectorHandlers.onLabelPointerDown}
+          onLabelDoubleClick={readOnly || touchViewOnly ? undefined : connectorHandlers.onLabelDoubleClick}
+          onConnectorContextMenu={connectorHandlers.onConnectorContextMenu}
         />
 
         {dragGhost && isCreateTool(tool) && (

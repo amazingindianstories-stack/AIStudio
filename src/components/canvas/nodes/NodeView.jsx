@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { memo, useState } from "react";
 import { Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { isContainerNode, nodeAnchorPoint, nodeRotation, resolveEndpoint } from "@/lib/canvas/geometry";
@@ -46,7 +46,7 @@ const CONNECTION_ANCHORS = [
   { anchor: "left", cls: "-left-[9px] top-1/2 -translate-y-1/2" },
 ];
 
-export function NodeView({
+function NodeViewImpl({
   node,
   tool,
   showRing,
@@ -346,3 +346,22 @@ function outlineHandlePosition(node, anchor) {
     top: point.y - node.y + OFFSET[1] - 4,
   };
 }
+
+// A pan, wheel tick or drag frame re-renders the surface; an object only follows when something it
+// draws changed. The viewport matters to image objects alone (level of detail) and the node map to
+// a callout whose tail is attached to another object.
+function sameNodeViewProps(prev, next) {
+  for (const key of Object.keys(next)) {
+    if (key === "viewport" || key === "viewportSize" || key === "nodesById") continue;
+    if (!Object.is(prev[key], next[key])) return false;
+  }
+  if (Object.keys(prev).length !== Object.keys(next).length) return false;
+  const node = next.node;
+  if (node.type === "image" && (!Object.is(prev.viewport, next.viewport) || !Object.is(prev.viewportSize, next.viewportSize))) {
+    return false;
+  }
+  if (node.type === "shape" && node.tail && !Object.is(prev.nodesById, next.nodesById)) return false;
+  return true;
+}
+
+export const NodeView = memo(NodeViewImpl, sameNodeViewProps);

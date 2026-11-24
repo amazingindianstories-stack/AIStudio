@@ -56,3 +56,38 @@ test("any other failed save still says it is retrying and offers Retry", async (
   assert.equal(chip.text, "Could not save - retryingRetry");
   assert.equal(chip.retry, true);
 });
+
+/** Renders the chip with the given props in a bare DOM, returning the chip's root element. */
+async function renderChip(t, props) {
+  const dom = new JSDOM("<div id='root'></div>", { url: "http://localhost", pretendToBeVisual: true });
+  const names = ["window", "document", "HTMLElement", "Node", "React", "IS_REACT_ACT_ENVIRONMENT"];
+  const prior = Object.fromEntries(names.map((name) => [name, globalThis[name]]));
+  Object.assign(globalThis, { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, Node: dom.window.Node, React,
+    IS_REACT_ACT_ENVIRONMENT: true });
+  const root = createRoot(document.querySelector("#root"));
+  t.after(async () => {
+    await act(async () => root.unmount());
+    for (const name of names) Object.defineProperty(globalThis, name, { value: prior[name], configurable: true, writable: true });
+    dom.window.close();
+  });
+  await act(async () => root.render(React.createElement(SaveStatusChip, { onRetry: () => {}, ...props })));
+  return document.querySelector("#root > div");
+}
+
+test("a failed save is announced as an alert and its Retry says what it retries", async (t) => {
+  const chip = await renderChip(t, { status: "error" });
+  assert.equal(chip.getAttribute("role"), "alert");
+  assert.match(chip.textContent, /Could not save/);
+  assert.equal(chip.querySelector("button").getAttribute("aria-label"), "Retry saving the board");
+  assert.equal(chip.querySelector("svg").getAttribute("aria-hidden"), "true");
+});
+
+test("saving and saved are polite status messages with decorative icons", async (t) => {
+  for (const [status, text] of [["saving", "Saving"], ["dirty", "Saving"], ["saved", "Saved"]]) {
+    const chip = await renderChip(t, { status });
+    assert.equal(chip.getAttribute("role"), "status");
+    assert.equal(chip.getAttribute("aria-live"), "polite");
+    assert.match(chip.textContent, new RegExp(text));
+    assert.equal(chip.querySelector("svg").getAttribute("aria-hidden"), "true");
+  }
+});

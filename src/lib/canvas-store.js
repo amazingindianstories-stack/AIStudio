@@ -70,6 +70,8 @@ export { MAX_ZOOM, MIN_ZOOM };
 export { isLocked };
 
 const DEBOUNCE_MS = 1500;
+/** Quiet time after the last pan or zoom before the new view is saved on its own. */
+const VIEWPORT_SAVE_MS = 10000;
 const MAX_RETRY_MS = 15000;
 const GESTURE_IDLE_MS = 400;
 
@@ -552,8 +554,11 @@ async function settleUnresolvedSave(set, get, boardId) {
   if (!res.ok) throw new Error(`save lookup failed: ${res.status}`);
   const board = await res.json();
   if (get().boardId !== boardId || unresolvedSave !== save) return;
-  applyRemoteBoard(set, get, board, typeof board.saveVersion === "number" ? validateCanvasState(save.data) : undefined);
-  unresolvedSave = null;
+  const landed = typeof board.saveVersion === "number";
+  const applied = applyRemoteBoard(set, get, board, landed ? validateCanvasState(save.data) : undefined);
+  // A landed save stays unresolved while an open text edit holds the merge back: forgetting it would
+  // leave the pre-save base in place. The flush after the edit ends settles it again.
+  if (applied || !landed || !textEditOpen(get())) unresolvedSave = null;
 }
 
 function clearDebounceTimer() {
@@ -571,8 +576,35 @@ function scheduleFlush(get, delay) {
   }, delay);
 }
 
+let viewportSaveTimer = null;
+
+/** Nothing unsaved and nothing in flight: a freshly opened board is "idle", a saved one "saved". */
+const quietStatus = (status) => status === "saved" || status === "idle";
+
+function clearViewportSaveTimer() {
+  if (viewportSaveTimer) {
+    clearTimeout(viewportSaveTimer);
+    viewportSaveTimer = null;
+  }
+}
+
+/**
+ * A pan or zoom is not an edit: it never sets "dirty" (no chip, draft or leave-page prompt). The view
+ * is saved with the next real edit, or alone after a long quiet period when nothing else is pending.
+ */
+function scheduleViewportSave(get) {
+  clearViewportSaveTimer();
+  if (!get().boardId || selectReadOnly(get())) return;
+  viewportSaveTimer = setTimeout(() => {
+    viewportSaveTimer = null;
+    if (quietStatus(get().saveStatus)) void get().flushSave({ viewportOnly: true });
+  }, VIEWPORT_SAVE_MS);
+}
+
 function markDirty(set, get) {
   if (!get().boardId || selectReadOnly(get())) return;
+  // The save this schedules carries the current view.
+  clearViewportSaveTimer();
   set({ saveStatus: "dirty" });
   scheduleFlush(get, DEBOUNCE_MS);
 }
@@ -591,19 +623,30 @@ async function flushSaveImpl(
   if (saveInFlight) return saveInFlight;
   const state = get();
   if (!state.boardId || selectReadOnly(state)) return;
-  if (state.saveStatus !== "dirty" && state.saveStatus !== "error") return;
+  const viewportOnly = Boolean(opts?.viewportOnly) && quietStatus(state.saveStatus);
+  if (state.saveStatus !== "dirty" && state.saveStatus !== "error" && !viewportOnly) return;
   // Settling an unresolved save merges the board, so it also waits for the edit to end.
-  if (textEditOpen(state) && (unresolvedSave || conflictWaitsForEdit)) return;
+  // An unload skips the lookup, so it has nothing to wait for.
+  const settles = Boolean(unresolvedSave) && !opts?.keepalive;
+  if (textEditOpen(state) && (settles || conflictWaitsForEdit)) return;
 
   clearDebounceTimer();
 
   saveInFlight = (async () => {
     const boardId = state.boardId ;
-    set({ saveStatus: "saving", saveError: null, saveLimitMessage: null });
+    // A view-only save is background work: no "Saving…" chip, and a failure is not surfaced or retried.
+    if (!viewportOnly) set({ saveStatus: "saving", saveError: null, saveLimitMessage: null });
     try {
-      if (unresolvedSave) {
+      // On unload the lookup would outlive the page: send now from the synced base. A 409 is harmless
+      // (the pending draft replays on the next open), a request that never left would lose the edit.
+      if (settles) {
         await settleUnresolvedSave(set, get, boardId);
         if (get().boardId !== boardId) return;
+        if (unresolvedSave && textEditOpen(get())) {
+          // A text edit opened during the lookup: wait for it to end before sending from a stale base.
+          set({ saveStatus: "dirty" });
+          return;
+        }
       }
       const synced = get();
       const sentPresent = synced.history.present;
@@ -716,6 +759,8 @@ async function flushSaveImpl(
         set({ saveStatus: "saved" });
       }
     } catch {
+      // A failure that belongs to a board this tab has left says nothing about the one open now.
+      if (viewportOnly || get().boardId !== boardId) return;
       set({ saveStatus: "error" });
       retryBackoffMs = Math.min(MAX_RETRY_MS, retryBackoffMs * 2);
       scheduleFlush(get, retryBackoffMs);
@@ -1118,6 +1163,7 @@ export const useCanvasStore = create((set, get) => ({
 
   reset: () => {
     clearDebounceTimer();
+    clearViewportSaveTimer();
     if (gestureEndTimer) {
       clearTimeout(gestureEndTimer);
       gestureEndTimer = null;
@@ -1172,8 +1218,11 @@ export const useCanvasStore = create((set, get) => ({
 
   setViewport: (vp) => {
     const state = get();
-    set({ history: { ...state.history, present: { ...state.history.present, viewport: vp } } });
-    markDirty(set, get);
+    const present = { ...state.history.present, viewport: vp };
+    // A view change is not an edit: a save in flight still counts as covering this graph.
+    loadedInto.set(present, rootGraph(state.history.present));
+    set({ history: { ...state.history, present } });
+    scheduleViewportSave(get);
   },
 
   zoomToFit: () => {
@@ -2021,6 +2070,7 @@ export const useCanvasStore = create((set, get) => ({
     if (selectReadOnly(get())) return;
     finalizePendingGesture(set, get);
     const history = undoHistory(get().history);
+    if (history === get().history) return;
     set({ history, ...pruneSelection(history.present, get()) });
     markDirty(set, get);
   },
@@ -2029,6 +2079,7 @@ export const useCanvasStore = create((set, get) => ({
     if (selectReadOnly(get())) return;
     finalizePendingGesture(set, get);
     const history = redoHistory(get().history);
+    if (history === get().history) return;
     set({ history, ...pruneSelection(history.present, get()) });
     markDirty(set, get);
   },

@@ -21,6 +21,7 @@
  * only in votes takes the remote copy with the local votes added. The board's tag table merges per tag id
  * like nodes.
  */
+import { breakParentCycles } from "./integrity";
 import { mergeReactions } from "./reactions";
 import { unstamped } from "./stamps";
 
@@ -171,7 +172,9 @@ export function mergeCanvasStates(base, local, remote) {
   const merged = mergeItems(base.nodes, local.nodes, remote.nodes);
   const nodeIds = new Set(merged.map((node) => node.id));
   // A frame deleted on one side releases children kept from the other, as validation does on load.
-  const nodes = merged.map((node) => (node.parentId && !nodeIds.has(node.parentId) ? { ...node, parentId: null } : node));
+  const released = merged.map((node) => (node.parentId && !nodeIds.has(node.parentId) ? { ...node, parentId: null } : node));
+  // Each side's frame moves are valid alone but can nest two frames in each other together.
+  const nodes = breakParentCycles(released);
   // A node deleted on one side drops connectors attached to it on the other.
   const connectors = mergeItems(base.connectors, local.connectors, remote.connectors)
     .filter((connector) => attachedTo(connector.from, nodeIds) && attachedTo(connector.to, nodeIds));
@@ -197,7 +200,12 @@ export function mergeCanvasStates(base, local, remote) {
  * latest version in every snapshot this person never touched it in.
  */
 export function rebaseHistory(history, base, remote) {
-  const rebase = (snapshot) => mergeCanvasStates(base, snapshot, remote);
+  // Snapshots share most of their objects, and gesture coalescing repeats whole snapshots: merge each distinct one once.
+  const merged = new Map();
+  const rebase = (snapshot) => {
+    if (!merged.has(snapshot)) merged.set(snapshot, mergeCanvasStates(base, snapshot, remote));
+    return merged.get(snapshot);
+  };
   return {
     past: history.past.map(rebase),
     present: rebase(history.present),

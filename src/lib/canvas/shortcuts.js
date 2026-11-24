@@ -281,7 +281,7 @@ const SHORTCUTS = [
     },
   },
   {
-    id: "nav.leave",
+    id: "nav.leave", board: true,
     group: "Navigate",
     label: "Leave a frame or group, then clear the selection",
     keys: ["Escape"],
