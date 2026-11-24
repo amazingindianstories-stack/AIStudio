@@ -114,6 +114,15 @@ class LogoutApiTests(TransactionTestCase):
     cookie=SettingsTests.cookie
     setUp=LoginApiTests.setUp
 
+    def test_logout_clears_cookie_with_matching_attributes(self):
+        from django.conf import settings
+        cookie=self.client.post('/api/auth/logout').cookies['veevee_session']
+        self.assertEqual(cookie['max-age'],0)
+        self.assertTrue(cookie['httponly'])
+        self.assertEqual(cookie['samesite'],'Lax')
+        self.assertEqual(cookie['path'],'/')
+        self.assertEqual(bool(cookie['secure']),bool(settings.SESSION_COOKIE_SECURE))
+
     def test_logout_clears_cookie_and_audits_only_valid_session(self):
         from apps.common.models import ActivityLog
         response=self.client.post('/api/auth/logout')
@@ -121,7 +130,7 @@ class LogoutApiTests(TransactionTestCase):
         self.assertEqual(response.json(),{'ok':True})
         self.assertEqual(response.cookies['veevee_session']['max-age'],0)
         self.assertTrue(response.cookies['veevee_session']['httponly'])
-        self.assertEqual(response.cookies['veevee_session']['samesite'],'')
+        self.assertEqual(response.cookies['veevee_session']['samesite'],'Lax')
         self.assertEqual(ActivityLog.objects.count(),0)
         self.cookie(age=172800000)
         response=self.client.post('/api/auth/logout')

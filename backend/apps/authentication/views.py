@@ -2,6 +2,7 @@ from django.conf import settings
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
 from apps.generation.availability import availability
+from apps.common.responses import clear_session
 from .session import lookup
 
 @api_view(['GET', 'PATCH'])
@@ -105,9 +106,8 @@ def logout(request):
         except Exception:
             pass
     response=Response({'ok':True})
-    # Match the current logout cookie exactly; do not carry renewal through.
-    response.set_cookie('veevee_session','',max_age=0,httponly=True,path='/',samesite=None)
-    return response
+    # Clear with the same attributes the session cookie was set with; do not carry renewal through.
+    return clear_session(response)
 
 @api_view(['PATCH'])
 @authentication_classes([])

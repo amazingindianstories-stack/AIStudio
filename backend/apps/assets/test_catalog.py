@@ -137,3 +137,35 @@ class CatalogTests(TransactionTestCase):
                 self.assertEqual((response.status_code, response.json()), (404, {'error': 'Project not found.'}))
         self.assertEqual(adapter.objects, {})
         self.assertFalse(Asset.objects.filter(name='Leak').exists())
+
+
+class CatalogListQueryTests(TransactionTestCase):
+    cookie = SettingsTests.cookie
+
+    def setUp(self):
+        SettingsTests.setUp(self)
+
+    def add(self, count):
+        from apps.common.leases import now_ms
+        for index in range(count):
+            Asset.objects.create(id=uuid4(), created_by_id=UID, name=f'a{index}', kind='character', slug=f'a{index}-{uuid4().hex[:6]}',
+                                 images=[], created_at=now_ms(), updated_at=now_ms())
+
+    def count_queries(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get('/api/assets')
+        self.assertEqual(response.status_code, 200)
+        return len(queries), response.json()['assets']
+
+    def test_list_uses_a_constant_query_count(self):
+        self.cookie()
+        self.add(1)
+        one, assets = self.count_queries()
+        self.assertEqual(len(assets), 1)
+        self.assertIsNotNone(assets[0]['uploader'])
+        self.add(19)
+        twenty, assets = self.count_queries()
+        self.assertEqual(len(assets), 20)
+        self.assertEqual(one, twenty)
