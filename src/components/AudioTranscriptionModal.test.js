@@ -38,3 +38,41 @@ test('audio transcription modal is a labelled dialog that takes focus, traps Tab
     assert.equal(document.activeElement, opener);
   } finally { await act(async () => root.unmount()); Object.assign(globalThis, prior); dom.window.close(); }
 });
+
+test('audio transcription modal aborts its history fetch on unmount and shows a load error', async () => {
+  const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost', pretendToBeVisual: true });
+  const names = ['window', 'document', 'HTMLElement', 'React', 'IS_REACT_ACT_ENVIRONMENT', 'fetch', 'requestAnimationFrame', 'cancelAnimationFrame', 'KeyboardEvent'];
+  const prior = Object.fromEntries(names.map(n => [n, globalThis[n]]));
+  let signal = null;
+  let mode = 'hang';
+  Object.assign(globalThis, { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, React,
+    IS_REACT_ACT_ENVIRONMENT: true, requestAnimationFrame: cb => setTimeout(cb, 0), cancelAnimationFrame: id => clearTimeout(id), KeyboardEvent: dom.window.KeyboardEvent,
+    fetch: (url, init) => {
+      signal = init?.signal || null;
+      if (mode === 'fail') return Promise.reject(new Error('network'));
+      return new Promise((_, reject) => signal?.addEventListener('abort', () => reject(Object.assign(new Error('aborted'), { name: 'AbortError' }))));
+    } });
+  dom.window.HTMLElement.prototype.getClientRects = function () { return [{}]; };
+  const settle = () => act(async () => { await new Promise(r => setTimeout(r, 10)); });
+  const errors = [];
+  const origError = console.error;
+  console.error = (...args) => { errors.push(args.join(' ')); };
+  try {
+    let root = createRoot(document.querySelector('#root'));
+    await act(async () => root.render(React.createElement(AudioTranscriptionModal, { open: true, projectId: null, onClose() {} })));
+    await settle();
+    assert.ok(signal, 'the history fetch receives an AbortSignal');
+    assert.equal(signal.aborted, false);
+    await act(async () => root.unmount());
+    await settle();
+    assert.equal(signal.aborted, true, 'unmount aborts the in-flight fetch');
+    assert.deepEqual(errors, []);
+
+    mode = 'fail';
+    root = createRoot(document.querySelector('#root'));
+    await act(async () => root.render(React.createElement(AudioTranscriptionModal, { open: true, projectId: null, onClose() {} })));
+    await settle();
+    assert.match(document.querySelector('[role="alert"]').textContent, /Could not load history/);
+    await act(async () => root.unmount());
+  } finally { console.error = origError; Object.assign(globalThis, prior); dom.window.close(); }
+});

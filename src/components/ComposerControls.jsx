@@ -135,6 +135,7 @@ export function SettingsToolbar({ destination = true }) {
           key={`generation-settings-${s.mode}`}
           className="composer-settings shrink-0"
           label="Generation settings"
+          role="dialog"
           align="right"
           side="top"
           sideOffset={12}

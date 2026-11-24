@@ -57,7 +57,7 @@ export function useComposerCollapse({ overlayOpen = false, dragging = false } = 
       hasFocus: root.contains(document.activeElement),
       hasPointer: hasPointerRef.current,
       // The prompt's "Replace @tag with" menu is portaled and takes focus, so it counts as open here.
-      menuOpen: Boolean(root.querySelector('[aria-haspopup="menu"][aria-expanded="true"]') || document.querySelector('[role="menu"], [data-tag-replace-menu="open"]')),
+      menuOpen: Boolean(root.querySelector('[aria-haspopup="menu"][aria-expanded="true"], [aria-haspopup="dialog"][aria-expanded="true"]') || document.querySelector('[role="menu"], [data-tag-replace-menu="open"]')),
       // The @tag listbox only lives while the prompt has focus and closes itself on blur, so it never blocks.
       dropdownOpen: Boolean(overlayOpen || libraryOpen),
       filePickerOpen: filePickerOpenRef.current,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import {
   X,
   ChevronLeft,
@@ -29,6 +29,8 @@ export function PortraitLightbox({
   interactive = true,
 }) {
   const [addedPrompt, setAddedPrompt] = useState(false);
+  const addedTimer = useRef(null);
+  useEffect(() => () => clearTimeout(addedTimer.current), []);
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState(asset?.name || "");
   const [isZoomed, setIsZoomed] = useState(false);
@@ -98,7 +100,8 @@ export function PortraitLightbox({
   const handleAttach = () => {
     onAttach(asset);
     setAddedPrompt(true);
-    setTimeout(() => setAddedPrompt(false), 2500);
+    clearTimeout(addedTimer.current);
+    addedTimer.current = setTimeout(() => setAddedPrompt(false), 2500);
   };
 
   const handleSaveName = async () => {
