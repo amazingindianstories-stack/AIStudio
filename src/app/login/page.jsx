@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, } from "react";
-import { motion } from "framer-motion";
 import { Loader2, LogIn } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { loginNextPath } from "@/lib/login-next";
@@ -40,11 +39,8 @@ export default function LoginPage() {
 
   return (
     <div className="flex min-h-full items-center justify-center bg-ink-900 p-4">
-      <motion.div
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ type: "spring", stiffness: 240, damping: 26 }}
-        className="w-full max-w-sm rounded-2xl border border-line bg-ink-850 p-7 shadow-pop"
+      <div
+        className="fade-up w-full max-w-sm rounded-2xl border border-line bg-ink-850 p-7 shadow-pop"
       >
         <div className="mb-6 flex items-center gap-2.5">
           <img src="/logo.png" alt="Veevee.ai" className="h-9 w-9 rounded-lg shadow-sm" />
@@ -110,7 +106,7 @@ export default function LoginPage() {
         <p className="mt-5 text-center text-xs text-muted">
           Accounts are created by the administrator.
         </p>
-      </motion.div>
+      </div>
     </div>
   );
 }

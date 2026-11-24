@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
-import { motion } from "framer-motion";
 import { AlertTriangle, ArrowRight, BadgeCheck, Loader2, ShieldOff } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
@@ -48,11 +47,8 @@ export default function AuthorizePage() {
 
   return (
     <div className="flex min-h-full items-center justify-center bg-ink-900 p-4 sm:p-6">
-      <motion.main
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ type: "spring", stiffness: 240, damping: 26 }}
-        className="w-full max-w-md rounded-2xl border border-line bg-ink-850 p-6 shadow-pop sm:p-7"
+      <main
+        className="fade-up w-full max-w-md rounded-2xl border border-line bg-ink-850 p-6 shadow-pop sm:p-7"
         aria-busy={!details && !failure}
       >
         <div className="mb-5 flex items-center gap-2.5">
@@ -69,7 +65,7 @@ export default function AuthorizePage() {
             <Loader2 className="h-5 w-5 animate-spin text-white/45" aria-label="Checking the sign-in request" />
           </div>
         )}
-      </motion.main>
+      </main>
     </div>
   );
 }
