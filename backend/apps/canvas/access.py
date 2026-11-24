@@ -5,6 +5,8 @@ membership, the user's project membership, board ownership (`created_by`) and th
 Every board route asks `role_for`/`roles_for` and compares levels; nothing else decides access.
 `readable_boards` is the SQL twin of `_level(...) >= READ` for listing queries; change the two together.
 """
+import re
+
 from django.db.models import Q
 
 from apps.authentication.models import User
@@ -58,6 +60,35 @@ def readable(user):
     return ~Q(project_id__in=visibility.hidden_project_ids(user)) & (Q(created_by=user.id) | Q(team_role__in=BOARD_LEVELS)
             | Q(id__in=BoardMember.objects.filter(user_id=user.id, role__in=BOARD_LEVELS).values('board_id'))
             | Q(project_id__in=ProjectMember.objects.filter(user_id=user.id, role__in=PROJECT_LEVELS).values('project_id')))
+
+
+BOARD_PAGE = 500
+_CURSOR = re.compile(r'([0-9]{1,18}):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})')
+
+
+def parse_board_cursor(cursor):
+    """`(updated_at, id)` from a `visible_boards_page` cursor; None when it is not one."""
+    match = _CURSOR.fullmatch(cursor or '')
+    return (int(match.group(1)), match.group(2)) if match else None
+
+
+def visible_boards_page(user, cursor=None, limit=BOARD_PAGE):
+    """One page of the boards `user` may view, newest first by (updated_at, id), with each effective role.
+
+    The visibility filter runs in SQL before the page is cut, so a user's old board is never pushed out by
+    newer boards they cannot see. Returns (boards, next_cursor); `cursor` is a previous `next_cursor`
+    already checked by `parse_board_cursor`."""
+    query = CanvasBoard.objects.filter(readable(user))
+    if cursor:
+        updated_at, board_id = cursor
+        query = query.filter(Q(updated_at__lt=updated_at) | Q(updated_at=updated_at, id__lt=board_id))
+    rows = list(query.order_by('-updated_at', '-id').values(*services.META_FIELDS)[:limit + 1])
+    more = len(rows) > limit
+    rows = rows[:limit]
+    levels = roles_for(user, rows)
+    found = [{**services.metadata(row), 'role': LEVEL_NAMES[levels[str(row['id'])]]}
+             for row in rows if levels[str(row['id'])] >= READ]
+    return found, (f"{rows[-1]['updated_at']}:{rows[-1]['id']}" if more else None)
 
 
 def readable_boards(user):

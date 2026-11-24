@@ -14,8 +14,7 @@ from django.http import HttpResponse
 
 from apps.mcp_auth import controls, policy
 from apps.mcp_auth.principal import AgentAccessDisabled, AuthenticationError, authenticate_bearer
-from . import access, board_items, services
-from .models import CanvasBoard
+from . import access, board_items
 from .serialization import js_json
 from .views import body, failure, node_route
 
@@ -103,11 +102,12 @@ def page_args(request):
 @guarded
 def boards(request):
     principal, headers = authorize(request, 'veevee.boards.read', 'list')
-    rows = list(CanvasBoard.objects.order_by('-updated_at').values(*services.META_FIELDS)[:BOARD_LIMIT])
-    levels = access.roles_for(principal.user, rows)
-    found = [{**services.metadata(row), 'role': access.LEVEL_NAMES[levels[str(row['id'])]]}
-             for row in rows if levels[str(row['id'])] >= access.READ]
-    return respond({'boards': found}, headers=headers)
+    raw = request.GET.get('cursor', '')
+    cursor = access.parse_board_cursor(raw)
+    if raw and cursor is None:
+        raise Refusal(400, 'INVALID_PAGE', 'cursor must be a nextCursor from a previous listing.')
+    found, next_cursor = access.visible_boards_page(principal.user, cursor, BOARD_LIMIT)
+    return respond({'boards': found, 'nextCursor': next_cursor}, headers=headers)
 
 
 @node_route(['GET'])
