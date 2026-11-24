@@ -42,9 +42,6 @@ EXPECTED = {'/api/admin/activity': ['GET'],
  '/api/canvas-boards/[id]/media/[mediaId]': ['GET'],
  '/api/canvas-boards/[id]/import-url': ['POST'],
  '/api/canvas-boards': ['GET', 'POST'],
- '/api/cron/depth-reconciliation': ['GET'],
- '/api/cron/login-attempts': ['GET'],
- '/api/cron/video-reconciliation': ['GET'],
  '/api/folders': ['GET', 'POST', 'PATCH', 'DELETE'],
  '/api/generate/depth': ['POST'],
  '/api/generate/depth/status': ['GET'],
@@ -257,8 +254,8 @@ class CompleteApiCoverageTests(SimpleTestCase):
         # 90 migrated methods, the media resolver, the managed-portrait routes, the admin provider error log, agent access,
         # board roles, board sync, board AI jobs, board history, synced copies, board work tables, board media, the board
         # integration slices, Agents tab voice notes and agent runs.
-        self.assertEqual(len(EXPECTED),167)
-        self.assertEqual(sum(map(len,EXPECTED.values())),230)
+        self.assertEqual(len(EXPECTED),164)
+        self.assertEqual(sum(map(len,EXPECTED.values())),227)
         resolved_routes=set()
         for path,methods in EXPECTED.items():
             with self.subTest(path=path):
@@ -315,9 +312,6 @@ NEGATIVE_STATUS = {
  '/api/canvas-boards/[id]/media/[mediaId]': {'GET':401},
  '/api/canvas-boards/[id]/import-url': {'POST':401},
  '/api/canvas-boards': {'GET':401,'POST':401},
- '/api/cron/depth-reconciliation': {'GET':401},
- '/api/cron/login-attempts': {'GET':401},
- '/api/cron/video-reconciliation': {'GET':401},
  '/api/folders': {'GET':401,'POST':401,'PATCH':401,'DELETE':401},
  '/api/generate/depth': {'POST':401},
  '/api/generate/depth/status': {'GET':401},
@@ -377,7 +371,7 @@ NEGATIVE_STATUS.update({'/api/oauth/authorization-server':{'GET':200},'/api/oaut
     '/api/oauth/register':{'POST':400},'/api/oauth/token':{'POST':401},'/api/oauth/revoke':{'POST':400}})
 
 @override_settings(ROOT_URLCONF='config.urls',VEEVEE_BROWSER_ORIGINS=('https://frontend.example',),PUBLIC_APP_URL='https://frontend.example',
-    DEPTH_WORKER_TOKEN='boundary-depth',CRON_SECRET='boundary-cron',
+    DEPTH_WORKER_TOKEN='boundary-depth',
     GENERATION_WORKER_SECRET='boundary-worker',EXPORT_WORKER_SECRET='boundary-export',SEEDANCE_CALLBACK_SECRET='boundary-callback')
 class CompleteApiNegativeBoundaryTests(TransactionTestCase):
     def setUp(self):
@@ -460,7 +454,7 @@ class CompleteApiNegativeBoundaryTests(TransactionTestCase):
                             if path=='/api/auth/me' and method=='GET': self.assertEqual(response.json(),{'user':None})
                             if path=='/api/auth/logout': self.assertEqual(response.json(),{'ok':True})
                             seen.add((mode,path,method))
-            self.assertEqual(len(seen),3*230)
+            self.assertEqual(len(seen),3*227)
             self.assert_no_effects(before)
 
     def test_every_unsafe_method_rejects_hostile_origin_even_with_valid_credentials(self):

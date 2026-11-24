@@ -11,7 +11,3 @@ def worker_authorized(request):
     match = re.fullmatch(r'Bearer\s+(.+)', request.headers.get('Authorization', ''), re.IGNORECASE)
     return bool(match) and equal(match[1], getattr(settings, 'DEPTH_WORKER_TOKEN', ''))
 
-
-def cron_authorized(request):
-    secret = getattr(settings, 'CRON_SECRET', '')
-    return bool(secret) and equal(request.headers.get('Authorization', ''), f'Bearer {secret}')

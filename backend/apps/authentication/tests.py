@@ -103,7 +103,27 @@ class LoginApiTests(TransactionTestCase):
         response=self.client.post('/api/auth/login',{'email':'missing@example.invalid','password':'wrong'},content_type='application/json')
         self.assertEqual(response.status_code,429)
         self.assertTrue(int(response['Retry-After'])>0)
-        self.assertEqual(LoginAttempt.objects.count(),5)
+        self.assertEqual(LoginAttempt.objects.filter(identifier='missing@example.invalid').count(),5)
+
+    def test_login_refuses_oversized_email(self):
+        from .models import LoginAttempt
+        response=self.client.post('/api/auth/login',{'email':'a'*290+'@example.invalid','password':'wrong'},content_type='application/json')
+        self.assertEqual(response.status_code,400)
+        self.assertEqual(LoginAttempt.objects.count(),0)
+
+    def test_address_bucket_limits_rotating_emails(self):
+        from .models import LoginAttempt
+        for index in range(50):
+            response=self.client.post('/api/auth/login',{'email':f'rotating{index}@example.invalid','password':'wrong'},
+                                      content_type='application/json',HTTP_X_FORWARDED_FOR='198.51.100.7')
+            self.assertEqual(response.status_code,401)
+        response=self.client.post('/api/auth/login',{'email':'rotating-last@example.invalid','password':'wrong'},
+                                  content_type='application/json',HTTP_X_FORWARDED_FOR='198.51.100.7')
+        self.assertEqual(response.status_code,429)
+        self.assertTrue(int(response['Retry-After'])>0)
+        other=self.client.post('/api/auth/login',{'email':'rotating-last@example.invalid','password':'wrong'},
+                               content_type='application/json',HTTP_X_FORWARDED_FOR='198.51.100.8')
+        self.assertEqual(other.status_code,401)
 
     def test_missing_credentials(self):
         response=self.client.post('/api/auth/login',{},content_type='application/json')

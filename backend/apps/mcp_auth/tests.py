@@ -313,16 +313,32 @@ class DiscoveryAndRegistrationTests(AgentAccessCase):
     def test_registration_is_rate_limited_per_address_and_unused_clients_expire(self):
         body = {'redirect_uris': [LOOPBACK]}
         for _ in range(20):
-            self.assertEqual(self.post_json('/api/oauth/register', body, HTTP_X_REAL_IP='203.0.113.9').status_code, 201)
-        limited = self.post_json('/api/oauth/register', body, HTTP_X_REAL_IP='203.0.113.9')
+            self.assertEqual(self.post_json('/api/oauth/register', body, HTTP_X_FORWARDED_FOR='203.0.113.9').status_code, 201)
+        limited = self.post_json('/api/oauth/register', body, HTTP_X_FORWARDED_FOR='203.0.113.9')
         self.assertEqual(limited.status_code, 429)
         self.assertTrue(int(limited['Retry-After']) > 0)
-        self.assertEqual(self.post_json('/api/oauth/register', body, HTTP_X_REAL_IP='203.0.113.10').status_code, 201)
+        self.assertEqual(self.post_json('/api/oauth/register', body, HTTP_X_FORWARDED_FOR='203.0.113.10').status_code, 201)
         from .maintenance import purge_expired
         McpClient.objects.update(created_at=1)
         McpClient.objects.filter(pk=McpClient.objects.first().pk).update(last_authorized_at=2)
         self.assertEqual(purge_expired()['clients'], 20)
         self.assertEqual(McpClient.objects.count(), 1)
+
+    def test_register_rate_limit_ignores_x_real_ip(self):
+        body = {'redirect_uris': [LOOPBACK]}
+        for index in range(20):
+            response = self.post_json('/api/oauth/register', body, HTTP_X_FORWARDED_FOR='203.0.113.50', HTTP_X_REAL_IP=f'192.0.2.{index}')
+            self.assertEqual(response.status_code, 201)
+        limited = self.post_json('/api/oauth/register', body, HTTP_X_FORWARDED_FOR='203.0.113.50', HTTP_X_REAL_IP='192.0.2.99')
+        self.assertEqual(limited.status_code, 429)
+
+    def test_client_address_takes_the_last_non_loopback_forwarded_entry(self):
+        from django.test import RequestFactory
+        from apps.common.client_address import client_ip
+        factory = RequestFactory()
+        spoofed = factory.get('/', HTTP_X_FORWARDED_FOR='1.1.1.1, 203.0.113.5, 127.0.0.1', HTTP_X_REAL_IP='9.9.9.9')
+        self.assertEqual(client_ip(spoofed), '203.0.113.5')
+        self.assertEqual(client_ip(factory.get('/', REMOTE_ADDR='10.0.0.2')), '10.0.0.2')
 
     def test_client_metadata_documents_from_fixtures(self):
         claude = clients.resolve(CLAUDE_CODE_CIMD, fetch=fixture_fetch, now=1_000)
@@ -614,7 +630,7 @@ class AuthorizationFlowTests(AgentAccessCase):
     def test_token_rate_limit_is_per_client_and_address(self):
         def attempt(address):
             return self.client.post('/api/oauth/token', urlencode({'client_id': self.app['client_id'], 'grant_type': 'refresh_token',
-                                    'refresh_token': 'vvr_guess'}), content_type='application/x-www-form-urlencoded', HTTP_X_REAL_IP=address)
+                                    'refresh_token': 'vvr_guess'}), content_type='application/x-www-form-urlencoded', HTTP_X_FORWARDED_FOR=address)
         for _ in range(policy.RATE_LIMITS['token'][0]):
             self.assertEqual(attempt('203.0.113.9').status_code, 400)
         limited = attempt('203.0.113.9')

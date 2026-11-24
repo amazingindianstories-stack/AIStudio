@@ -18,7 +18,7 @@ from .models import DepthWorker
 from . import depth, maintenance, scheduler
 
 
-@override_settings(ROOT_URLCONF='apps.workers.urls', DEPTH_WORKER_TOKEN='synthetic-depth', CRON_SECRET='synthetic-cron')
+@override_settings(ROOT_URLCONF='apps.workers.urls', DEPTH_WORKER_TOKEN='synthetic-depth')
 class DepthContractTests(TransactionTestCase):
     setUp = session_fixtures.SettingsTests.setUp
     cookie = session_fixtures.SettingsTests.cookie
@@ -46,8 +46,6 @@ class DepthContractTests(TransactionTestCase):
         self.assertEqual(self.client.post('/api/generate/depth', {}, content_type='application/json').status_code, 401)
         with override_settings(DEPTH_WORKER_TOKEN=''):
             self.assertEqual(self.post('claim').status_code, 401)
-        for name in ['depth-reconciliation', 'video-reconciliation', 'login-attempts']:
-            self.assertEqual(self.client.get('/api/cron/'+name, HTTP_AUTHORIZATION='bearer synthetic-cron').json(), {'error': 'UNAUTHORIZED'})
         self.cookie()
         self.assertEqual(self.post('claim', token='').status_code, 401)
 
@@ -240,20 +238,33 @@ class DepthContractTests(TransactionTestCase):
         self.assertEqual(results.count(str(row.id)),1)
         self.assertEqual(results.count(None),1)
 
-    def test_cron_cleanup_boundary_and_headers(self):
+    def test_maintenance_cleanup_boundary(self):
         LoginAttempt.objects.create(identifier='old',created_at=99999)
         LoginAttempt.objects.create(identifier='boundary',created_at=100000)
         LoginAttempt.objects.create(identifier='new',created_at=100001)
         with patch('apps.workers.maintenance.leases.now_ms',return_value=1000000):
-            response = self.client.get('/api/cron/login-attempts',HTTP_AUTHORIZATION='Bearer synthetic-cron')
-        self.assertEqual(response.json(),{'ok':True,'deleted':2})
+            self.assertEqual(maintenance.cleanup_login_attempts(),{'ok':True,'deleted':2})
         self.assertEqual(LoginAttempt.objects.get().identifier,'new')
-        response = self.client.get('/api/cron/depth-reconciliation',HTTP_AUTHORIZATION='Bearer synthetic-cron')
-        self.assertEqual(response.json(),{'reaped':0})
-        self.assertEqual(response['Cache-Control'],'no-store')
-        response = self.client.get('/api/cron/video-reconciliation',HTTP_AUTHORIZATION='Bearer synthetic-cron')
-        self.assertEqual(response.json(),dict(ok=True,checked=0,succeeded=0,failed=0,pending=0,pollErrors=0,raced=0))
-        self.assertEqual(response['Cache-Control'],'no-store')
+        self.assertEqual(maintenance.reconcile_depth(),{'reaped':0})
+        self.assertEqual(maintenance.reconcile_videos(),dict(ok=True,checked=0,succeeded=0,failed=0,pending=0,pollErrors=0,raced=0))
+
+    def test_tick_claims_each_slot_once_per_period(self):
+        claimed = []
+        def claim(key, owner, *, now, ttl_ms):
+            claimed.append(key.rsplit(':', 1)[1])
+            return False
+        handlers = {'depth': lambda: {}, 'portrait_uploads': lambda: {}}
+        next_due = {}
+        with patch('apps.workers.scheduler.leases.claim', claim):
+            for step in range(5):
+                scheduler.tick(now=1000000 + step * 1000, handlers=handlers, next_due=next_due)
+        self.assertEqual(claimed.count('depth'), 1)
+        self.assertLessEqual(claimed.count('portrait_uploads'), 2)
+        claimed.clear()
+        with patch('apps.workers.scheduler.leases.claim', claim):
+            for step in range(2):
+                scheduler.tick(now=1000000 + step * 1000, handlers=handlers)
+        self.assertEqual(claimed.count('depth'), 2)
 
     def test_video_due_selection_counts_errors_and_lease(self):
         now = 1000000
@@ -265,7 +276,7 @@ class DepthContractTests(TransactionTestCase):
         self.assertEqual([r.id for r in maintenance.select_videos(now)],[r.id for r in rows[:5]])
         kinds = iter(['succeeded','failed','poll_error','raced','pending'])
         def advance(item, *, source, signal):
-            self.assertEqual(source,'cron')
+            self.assertEqual(source,'scheduler')
             signal.check()
             return {'kind':next(kinds)}
         counts = maintenance.reconcile_videos(now=now,advance=advance)

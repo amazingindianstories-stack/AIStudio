@@ -1,4 +1,4 @@
-"""Bounded reconciliation shared by authenticated cron routes and the scheduler."""
+"""Bounded reconciliation run by the scheduler."""
 import json
 import logging
 import uuid
@@ -53,7 +53,7 @@ def reconcile_videos(*, now=None, deadline_ms=40000, select=None, advance=None):
             signal.check()
             counts['checked'] += 1
             try:
-                outcome = (advance or advance_video)(item, source='cron', signal=signal)
+                outcome = (advance or advance_video)(item, source='scheduler', signal=signal)
                 signal.check()
             except Exception:
                 counts['ok'] = False

@@ -125,11 +125,11 @@ def default_handlers():
     return handlers
 
 
-def tick(*, now=None, handlers=None):
+def tick(*, now=None, handlers=None, next_due=None):
     now = leases.now_ms() if now is None else now
     handlers = handlers or default_handlers()
-    # Every process startup sweeps its current slot, even after the exact cron
-    # minute. Daily slots start at 03:17 UTC; other slots align to the epoch.
+    # Every process startup sweeps its current slot, even after the exact
+    # slot time. Daily slots start at 03:17 UTC; other slots align to the epoch.
     periods = {'board_table_reminders': (3600000, 0), 'depth': (60000, 0), 'video': (900000, 0), 'exports': (900000, 0),
                'login': (86400000, (3*60+17)*60000), 'board_saves': (86400000, (3*60+17)*60000),
                'board_activity': (86400000, (3*60+17)*60000), 'board_notifications': (86400000, (3*60+17)*60000),
@@ -141,6 +141,12 @@ def tick(*, now=None, handlers=None):
     for name, (period, offset) in periods.items():
         if name not in handlers:
             continue
+        # A long-lived caller passes next_due so a slot already claimed (or lost) this period is not
+        # retried until the next aligned boundary; other callers claim every slot, as before.
+        if next_due is not None and now < next_due.get(name, 0):
+            continue
+        if next_due is not None:
+            next_due[name] = now + period - (now - offset) % period
         # Stable keys prevent an unbounded accumulation of per-slot settings.
         # Expiry is the next aligned slot; a second replica in this slot loses.
         owner = str(uuid.uuid4())
@@ -155,9 +161,10 @@ def tick(*, now=None, handlers=None):
 
 def run(*, stop, interval=1):
     failures = 0
+    next_due = {}
     while not stop.is_set():
         try:
-            tick()
+            tick(next_due=next_due)
             failures = 0
         except Exception as error:      # lease claim or a dropped connection: survive, reconnect, try again
             failures += 1

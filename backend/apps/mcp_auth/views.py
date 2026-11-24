@@ -5,7 +5,6 @@ Machine endpoints (metadata, register, token, revoke) never read cookies and ans
 clients. Consent, personal access tokens and connected apps are cookie-authenticated, same-origin browser
 calls. Bearer tokens are accepted only by ``/api/mcp/me`` here; the MCP service uses ``principal``.
 """
-import hashlib
 import json
 from urllib.parse import urlsplit
 
@@ -14,6 +13,7 @@ from django.http import HttpResponse, JsonResponse
 
 from apps.authentication.models import User
 from apps.authentication.session import lookup
+from apps.common.client_address import address_key
 from apps.common.leases import now_ms
 from apps.common.responses import log_activity
 from apps.generation.history_parameters import UUID_TEXT
@@ -86,15 +86,6 @@ def read_form(request):
         return {key: request.POST.get(key) for key in request.POST}
     except Exception:
         return {}
-
-
-def client_ip(request):
-    forwarded = request.headers.get('X-Real-IP') or (request.headers.get('X-Forwarded-For') or '').split(',')[0]
-    return forwarded.strip() or request.META.get('REMOTE_ADDR', '')
-
-
-def address_key(request):
-    return hashlib.sha256(client_ip(request).encode()).hexdigest()[:32]
 
 
 def session_user(request):
