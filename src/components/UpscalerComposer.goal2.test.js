@@ -81,3 +81,33 @@ test("Video mode renders each Magnific video upscaler with only its documented c
     globalThis.React = previousReact;
   }
 });
+
+test("Empty feed hides the Welcome hero on upscale and depth, keeps it for video and image", async () => {
+  const previousReact = globalThis.React;
+  globalThis.React = React;
+  try {
+    const { EmptyFeed } = await import("./ConversationPanel.jsx");
+    for (const mode of ["upscale", "depth"]) {
+      const html = renderToString(React.createElement(EmptyFeed, { mode }));
+      assert.doesNotMatch(html, /Create with/);
+      assert.doesNotMatch(html, /Neon-lit Tokyo/);
+    }
+    assert.match(renderToString(React.createElement(EmptyFeed, { mode: "upscale" })), /Upscaled results appear here/);
+    assert.match(renderToString(React.createElement(EmptyFeed, { mode: "video" })), /Create with/);
+    const image = renderToString(React.createElement(EmptyFeed, { mode: "image" }));
+    assert.match(image, /Create with/);
+    assert.doesNotMatch(image, /slow dolly/);
+  } finally {
+    globalThis.React = previousReact;
+  }
+});
+
+test("Upscale composers scroll inside their panel instead of growing past the column", () => {
+  const previousReact = globalThis.React;
+  globalThis.React = React;
+  try {
+    assert.match(renderToString(React.createElement(UpscalerComposer)), /max-h-\[calc\(100dvh-9rem\)\] overflow-y-auto/);
+  } finally {
+    globalThis.React = previousReact;
+  }
+});

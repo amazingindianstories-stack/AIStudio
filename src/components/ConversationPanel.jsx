@@ -41,6 +41,7 @@ export function ConversationPanel() {
   // project's assets emptied the conversation you were in the middle of.
   const threadItems = useStore((s) => s.threadItems);
   const loading = useStore((s) => s.threadLoading);
+  const mode = useStore((s) => s.mode);
   const activeProjectId = useStore((s) => s.activeProjectId);
   const activeFolderId = useStore((s) => s.activeFolderId);
   const scrollRef = useRef(null);
@@ -81,7 +82,7 @@ export function ConversationPanel() {
         className="scroll-thin flex-1 overflow-y-auto px-4 py-6 sm:px-8"
       >
         {!loading && feed.length === 0 ? (
-          <Welcome />
+          <EmptyFeed mode={mode} />
         ) : (
           <div className="mx-auto flex max-w-3xl flex-col gap-12">
             <AnimatePresence initial={false}>
@@ -369,13 +370,33 @@ function Meta({ icon, children }) {
   );
 }
 
-function Welcome() {
+const VIDEO_EXAMPLES = [
+  "Cinematic close-up of a woman at a vanity mirror, warm bulbs glowing, 35mm film",
+  "A high-energy 3D cell-shaded downhill skating race in bright sunlight",
+  "Neon-lit Tokyo alley in the rain, reflections, slow dolly forward",
+];
+const IMAGE_EXAMPLES = [
+  "Studio portrait of a woman at a vanity mirror, warm bulbs glowing, 35mm film grain",
+  "Bright sunlit downhill skating race, 3D cell-shaded illustration, wide angle",
+  "Neon-lit Tokyo alley in the rain, reflections on wet asphalt, cinematic still",
+];
+
+// Upscale and depth have their own composers and none of the hero's prompt
+// suggestions apply there, so they get a one-line hint instead of the hero.
+export function EmptyFeed({ mode }) {
+  if (mode === "upscale" || mode === "depth") {
+    return (
+      <p className="mx-auto flex h-full max-w-xl items-center justify-center text-center text-sm text-white/50">
+        {mode === "upscale" ? "Upscaled results appear here" : "Depth maps appear here"}
+      </p>
+    );
+  }
+  return <Welcome mode={mode} />;
+}
+
+function Welcome({ mode }) {
   const setPrompt = useStore((s) => s.setPrompt);
-  const examples = [
-    "Cinematic close-up of a woman at a vanity mirror, warm bulbs glowing, 35mm film",
-    "A high-energy 3D cell-shaded downhill skating race in bright sunlight",
-    "Neon-lit Tokyo alley in the rain, reflections, slow dolly forward",
-  ];
+  const examples = mode === "image" ? IMAGE_EXAMPLES : VIDEO_EXAMPLES;
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}

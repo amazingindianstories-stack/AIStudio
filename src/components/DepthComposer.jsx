@@ -128,7 +128,7 @@ export function DepthComposer() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-3xl rounded-2xl border border-line bg-ink-800 p-4 shadow-lg sm:p-5">
+    <div className="max-h-[calc(100dvh-9rem)] overflow-y-auto scroll-thin mx-auto w-full max-w-3xl rounded-2xl border border-line bg-ink-800 p-4 shadow-lg sm:p-5">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold text-white">Depth map</h2>
