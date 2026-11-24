@@ -122,6 +122,7 @@ export function TopBar() {
                 key={d.id}
                 onClick={() => goTo(d.id)}
                 aria-label={d.label}
+                title={d.label}
                 aria-current={active ? "page" : undefined}
                 className={cn(
                   "relative flex items-center gap-1 rounded-lg px-1.5 py-1.5 text-sm font-medium transition-colors sm:px-2.5",
@@ -139,6 +140,14 @@ export function TopBar() {
                   <d.icon className="h-4 w-4" strokeWidth={1.9} />
                   {d.id === "depth" && (
                     <span
+                      role="img"
+                      aria-label={
+                        depthWorkerStatus === null
+                          ? "Checking depth worker status"
+                          : depthWorkerStatus.online
+                            ? "Depth worker online"
+                            : "Depth worker offline"
+                      }
                       className={cn(
                         "ml-1 h-1.5 w-1.5 shrink-0 rounded-full",
                         depthWorkerStatus === null

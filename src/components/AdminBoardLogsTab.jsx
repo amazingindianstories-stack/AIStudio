@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { ScrollText } from "lucide-react";
+import EmptyState from "@/components/EmptyState";
 import { apiFetch } from "@/lib/api";
 import { apiErrorMessage } from "@/lib/api-error";
 
@@ -98,7 +100,7 @@ export function AdminBoardLogsTab() {
               </tr>
             ))}
             {!rows.length && !state && (
-              <tr><td colSpan={log.columns.length} className="px-3 py-6 text-center text-white/40">No entries yet.</td></tr>
+              <tr><td colSpan={log.columns.length} className="p-3"><EmptyState icon={ScrollText} title="No board activity yet" hint="Entries appear here as boards are used." /></td></tr>
             )}
           </tbody>
         </table>

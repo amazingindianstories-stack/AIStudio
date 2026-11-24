@@ -291,6 +291,7 @@ function StatusPill({ online, checking, status }) {
       }
     >
       <span
+        aria-hidden
         className={cn(
           "h-1.5 w-1.5 rounded-full",
           checking ? "bg-white/40" : online ? "bg-emerald-400" : "bg-red-400"
