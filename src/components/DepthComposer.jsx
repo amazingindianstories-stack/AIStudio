@@ -3,10 +3,11 @@
 import { useMaintenance } from "@/lib/maintenance-client";
 
 import { useEffect, useRef, useState } from "react";
-import { UploadCloud, Loader2, X, Users, AlertCircle } from "lucide-react";
+import { Loader2, X, Users } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { DEPTH_ENCODERS, DEPTH_ENCODER_LABELS as ENCODER_LABELS } from "@/lib/config";
 import { cn } from "@/lib/utils";
+import DropZone from "@/components/DropZone";
 import { validateDepthDrop } from "@/lib/asset-drag-contract";
 import { uploadContentType, uploadFileDirect } from "@/lib/client-reference-upload";
 
@@ -140,45 +141,23 @@ export function DepthComposer() {
       </div>
 
       {!file ? (
-        <div
+        <DropZone
+          kind="video"
+          disabled={maintenance}
+          onActivate={() => fileRef.current?.click()}
           onDragEnter={onDragEnter}
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
           onDrop={onDrop}
-          role="button"
-          tabIndex={maintenance ? -1 : 0}
-          aria-disabled={maintenance}
-          onClick={() => !maintenance && fileRef.current?.click()}
-          onKeyDown={(e) => {
-            if (e.key !== "Enter" && e.key !== " ") return;
-            e.preventDefault();
-            if (!maintenance) fileRef.current?.click();
-          }}
-          className={cn(
-            "flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-line bg-ink-900/50 px-4 py-10 text-center transition-all duration-200 hover:border-lineStrong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand",
-            dragging &&
-              (dragValid
-                ? "border-brand/80 bg-brand/10 text-brand ring-1 ring-brand/40"
-                : "border-red-500/80 bg-red-500/10 text-red-400 ring-1 ring-red-500/40 cursor-not-allowed")
-          )}
+          dragging={dragging}
+          dragValid={dragValid}
+          dragMessage={
+            dragValid
+              ? "Drop video file to generate depth map"
+              : dragMessage || "Direct video file uploads only - Asset Library generations cannot be used here"
+          }
+          hint="Video files only · MP4, MOV, WebM"
         >
-          {dragging && !dragValid ? (
-            <AlertCircle className="h-6 w-6 text-red-400" />
-          ) : (
-            <UploadCloud className={cn("h-6 w-6", dragging && dragValid ? "text-brand" : "text-white/40")} />
-          )}
-          <p
-            className={cn(
-              "text-sm font-medium",
-              dragging && !dragValid ? "text-red-300" : "text-white/70"
-            )}
-          >
-            {dragging
-              ? dragValid
-                ? "Drop video file to generate depth map"
-                : dragMessage || "Direct video file uploads only — Asset Library generations cannot be used here"
-              : "Drop a video here, or click to choose one"}
-          </p>
           <input
             ref={fileRef}
             disabled={maintenance}
@@ -187,7 +166,7 @@ export function DepthComposer() {
             className="hidden"
             onChange={(e) => pickFile(e.target.files?.[0])}
           />
-        </div>
+        </DropZone>
       ) : (
         <div className="flex items-center justify-between gap-3 rounded-xl border border-line bg-ink-900/50 px-3 py-2.5">
           <span className="truncate text-sm text-white/85">{file.name}</span>

@@ -6,15 +6,14 @@ import { notify } from "@/lib/notify";
 import { motion } from "framer-motion";
 import {
   Sparkles,
-  UploadCloud,
   X,
   RotateCcw,
   Loader2,
-  AlertCircle,
 } from "lucide-react";
 import { useStore, findItem } from "@/lib/store";
 import { isModelAvailable } from "@/lib/model-registry";
 import { cn } from "@/lib/utils";
+import DropZone from "@/components/DropZone";
 import { uploadContentType, uploadFileDirect } from "@/lib/client-reference-upload";
 import { getAssetDragData, validateUpscalerDrop } from "@/lib/asset-drag-contract";
 import { ProgressiveImage } from "./ProgressiveImage";
@@ -285,64 +284,16 @@ export function UpscalerComposer() {
             </button>
           </div>
         ) : (
-          <div
-            role="button"
-            tabIndex={maintenance ? -1 : 0}
-            aria-disabled={maintenance}
-            onClick={() => !maintenance && fileInputRef.current?.click()}
-            onKeyDown={(e) => {
-              if (e.key !== "Enter" && e.key !== " ") return;
-              e.preventDefault();
-              if (!maintenance) fileInputRef.current?.click();
-            }}
-            className={cn(
-              "group flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed p-6 text-center transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand",
-              dragging
-                ? dragValid
-                  ? "border-brand bg-brand/10 text-brand ring-1 ring-brand/40"
-                  : "border-red-500/80 bg-red-500/10 text-red-400 ring-1 ring-red-500/40 cursor-not-allowed"
-                : "border-line bg-ink-900/40 text-white/60 hover:border-brand/60 hover:bg-ink-900/80 hover:text-white"
-            )}
-          >
-            {dragging && !dragValid ? (
-              <div className="grid h-10 w-10 place-items-center rounded-full bg-red-500/15 ring-1 ring-red-500/40">
-                <AlertCircle className="h-5 w-5 text-red-400" />
-              </div>
-            ) : (
-              <div className="grid h-10 w-10 place-items-center rounded-full bg-white/5 ring-1 ring-line group-hover:bg-brand/20 group-hover:ring-brand/40">
-                <UploadCloud className="h-5 w-5 text-brand" />
-              </div>
-            )}
-            <div>
-              <p
-                className={cn(
-                  "text-xs font-semibold",
-                  dragging && !dragValid ? "text-red-300" : "text-white"
-                )}
-              >
-                {dragging
-                  ? dragValid
-                    ? dragMessage || "Drop image here to upscale"
-                    : dragMessage || "Upscaler only accepts images"
-                  : (
-                    <>
-                      Drop an image here or{" "}
-                      <span className="text-brand underline underline-offset-2">browse</span>
-                    </>
-                  )}
-              </p>
-              <p
-                className={cn(
-                  "mt-1 text-[11px]",
-                  dragging && !dragValid ? "text-red-400/80" : "text-white/40"
-                )}
-              >
-                {dragging && !dragValid
-                  ? "Videos and depth maps cannot be upscaled. Select an image generation."
-                  : "Or drag any generation directly from the chat feed or library · PNG, JPEG, WebP"}
-              </p>
-            </div>
-          </div>
+          <DropZone
+            kind="image"
+            disabled={maintenance}
+            onActivate={() => fileInputRef.current?.click()}
+            dragging={dragging}
+            dragValid={dragValid}
+            dragMessage={dragMessage || (dragValid ? "Drop image here to upscale" : "Upscaler only accepts images")}
+            hint="Or drag any generation directly from the chat feed or library · PNG, JPEG, WebP"
+            invalidHint="Videos and depth maps cannot be upscaled. Select an image generation."
+          />
         )}
       </div>
 
