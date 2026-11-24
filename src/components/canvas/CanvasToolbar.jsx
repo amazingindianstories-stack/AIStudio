@@ -301,9 +301,10 @@ export function CanvasToolbar({
         className="pointer-events-none absolute bottom-4 right-60 z-30 flex justify-center transition-[left] duration-200 max-lg:bottom-[4.25rem] max-lg:right-4"
         style={{ left: insetLeft + 16 }}
       >
+      {/* Touch view mode has no tool dock, only the lone formats launcher. */}
       <div
-        role="toolbar"
-        aria-label="Board tools"
+        role={viewOnly ? undefined : "toolbar"}
+        aria-label={viewOnly ? undefined : "Board tools"}
         className="pointer-events-auto flex max-w-full items-center gap-1 overflow-x-auto rounded-2xl border border-line bg-ink-750/95 p-1.5 shadow-pop backdrop-blur-xl max-sm:gap-0.5 max-sm:p-1"
       >
         {!viewOnly && (

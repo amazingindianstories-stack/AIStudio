@@ -79,6 +79,7 @@ test("viewers and commenters still open the drawer to read and preview, without 
 test("touch view mode keeps a formats launcher while hiding every other tool", async () => {
   await board({ boardRole: "view", viewOnly: true }, async () => {
     assert.equal(document.querySelector("button[aria-label='Select']"), null);
+    assert.equal(document.querySelector("[role=toolbar][aria-label='Board tools']"), null, "touch view mode has no tool dock");
     await openDrawer();
     assert.ok(buttons().includes("Preview Home"));
     assert.equal(buttons().includes("New doc"), false);

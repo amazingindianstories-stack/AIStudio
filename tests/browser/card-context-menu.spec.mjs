@@ -82,13 +82,13 @@ test2('card context: the card face has the name overlay, avatar, Draft, and hove
   await expect(draftCard.locator('[data-draft-label]')).toHaveText('Draft');
   await expect(draftCard.locator('[data-draft-label]')).toHaveCSS('color', 'rgb(255, 255, 255)');
   await expect(imageCard.locator('[data-draft-label]')).toHaveCount(0);
-  // Besides media-state content (an undecodable mock master reads "Preview unavailable" under its poster).
+  // Besides media-state content (an undecodable mock master shows its duration and "Preview unavailable" under its poster).
   const faceWithoutName = card => card.locator('.media-card-body').evaluate(element => {
     const face = element.cloneNode(true);
     face.querySelector('[data-generation-name]')?.remove();
     return face.textContent.trim();
   });
-  expect(await faceWithoutName(draftCard)).toMatch(/^(Preview unavailable\. Open to download the original\.\s*)?Draft\s*D$/);
+  expect(await faceWithoutName(draftCard)).toMatch(/^((\d+s)?Preview unavailable\. Open to download the original\.\s*)?Draft\s*D$/);
   expect(await faceWithoutName(imageCard)).toBe('D');
   for (const card of [draftCard, imageCard]) {
     const name = card.locator('[data-generation-name]');
