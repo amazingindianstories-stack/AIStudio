@@ -154,6 +154,18 @@ class CoordinatorTests(TransactionTestCase):
             Generation.objects.filter(pk=billed.id).update(status='failed', error='provider 429')
             self.assertIsNotNone(admission.admit_job(next_item.id, now=1000010))
 
+    def test_cross_kind_gemini_admission_serializes_on_the_budget(self):
+        # 100 in the window: each 40-cent job fits alone (140), both together (180) exceed the 150 limit.
+        self.job(status='succeeded', model='Nano Banana Pro', cost_cents=100)
+        image = self.job(model='Nano Banana Pro', cost_cents=40, created_at=1000001)
+        video = self.job(kind='video', model='Gemini Omni Flash 1.1', cost_cents=40, created_at=1000002)
+        with patch.dict('os.environ', {'GEMINI_SPEND_LIMIT_CENTS': '150', 'FACE_BEST_OF': '1', 'VIDEO_BEST_OF': '1'}):
+            results = self.race([lambda: admission.admit_job(image.id, now=1000010),
+                                 lambda: admission.admit_job(video.id, now=1000010)])
+            self.assertEqual(sum(value is not None for value in results), 1)
+            loser = image if results[0] is None else video
+            self.assertTrue(admission.queue_position(loser.id, now=1000010)['heldForBudget'])
+
     def test_library_metadata_writes_do_not_reenter_the_spend_window(self):
         from apps.generation import history_writes
         now = 100 * 60 * 60 * 1000

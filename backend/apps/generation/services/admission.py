@@ -154,7 +154,11 @@ def admit_job(identifier, *, now=None, owner=None, held=None):
         if row is None or row.status != 'queued' or row.kind not in MAX_CONCURRENT or row.user_id is None:
             return None
         with connection.cursor() as cursor:
-            for key in ('generation-kind:' + row.kind, 'generation-user:' + str(row.user_id or row.id)):
+            # Fixed order: spend, kind, user. Gemini kinds share one budget, so they also serialize on it.
+            keys = ('generation-kind:' + row.kind, 'generation-user:' + str(row.user_id or row.id))
+            if bills_gemini(row):
+                keys = ('generation-spend:gemini',) + keys
+            for key in keys:
                 cursor.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))', [key])
         fresh = Generation.objects.filter(pk=identifier, status='queued').first()
         if fresh is None or (owner is not None and fresh.worker_lease_id != owner):
