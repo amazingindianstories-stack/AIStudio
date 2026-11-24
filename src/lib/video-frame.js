@@ -37,7 +37,9 @@ function once(el, event, timeoutMs = 15_000) {
     };
     const onErr = () => {
       cleanup();
-      reject(new Error("The browser could not decode this video."));
+      // Typed so opportunistic callers (poster/frame extraction) can swallow
+      // it; only an explicit "use this frame" action should surface it.
+      reject(Object.assign(new Error("The browser could not decode this video."), { code: "undecodable" }));
     };
     const timer = setTimeout(() => {
       cleanup();

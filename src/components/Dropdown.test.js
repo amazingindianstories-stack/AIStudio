@@ -27,3 +27,10 @@ test("a panel that fits neither side scrolls on the roomier side instead of cove
   assert.deepEqual(above, { left: 646, top: 8, maxHeight: 214 });
   assert.ok(above.top + above.maxHeight <= high.top);
 });
+
+test("sideOffset widens the clearance between panel and trigger", () => {
+  const placed = placeDropdownPanel({ trigger, width: 190, height: 120, viewport, align: "right", side: "top", gap: 12 });
+  assert.equal(trigger.top - (placed.top + placed.maxHeight), 12);
+  const base = placeDropdownPanel({ trigger, width: 190, height: 120, viewport, align: "right", side: "top" });
+  assert.equal(trigger.top - (base.top + base.maxHeight), 8);
+});

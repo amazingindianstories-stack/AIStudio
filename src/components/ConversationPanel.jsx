@@ -23,6 +23,7 @@ import { ChatScopeBar } from "./ChatScopeBar";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
 import { GenerationFolderCue, GenerationName, GenerationTimestamp } from "./MediaCard";
 import { GenerationStatus, waitingNote } from "./GenerationStatus";
+import { VideoFallback } from "./VideoFallback";
 import { useConfirmedAction } from "./useConfirmedAction";
 import { aspectMaxWidth, aspectToPadding, cn, thumbUrl, generationDownloadUrl } from "@/lib/utils";
 import { LayeredCardPreview } from "./LayeredImage";
@@ -183,6 +184,7 @@ export function FeedBlock({ item, index }) {
   const toggleFavorite = useStore((s) => s.toggleFavorite);
   const regenerate = useStore((s) => s.regenerate);
   const confirmation = useConfirmedAction();
+  const [undecodable, setUndecodable] = useState(false);
   const isUpscale = item.model?.toLowerCase().includes("magnific") || item.model?.toLowerCase().includes("upscaler");
   const label = isUpscale ? "Upscale" : item.kind === "image" ? "Image" : "Video";
   const pending = item.status === "running" || item.status === "queued";
@@ -255,15 +257,26 @@ export function FeedBlock({ item, index }) {
             />
           )}
           {item.status === "succeeded" && item.kind === "video" && (
-            <video
-              src={item.url}
-              poster={thumbUrl(item.poster, FEED_THUMB_WIDTH)}
-              controls
-              playsInline
-              // A thread can hold dozens of clips; fetch nothing until played.
-              preload="none"
-              className="absolute inset-0 h-full w-full bg-black object-contain"
-            />
+            undecodable ? (
+              <VideoFallback
+                href={generationDownloadUrl(item.id)}
+                filename={item.filename}
+                className="absolute inset-0 bg-ink-800"
+              />
+            ) : (
+              <video
+                src={item.url}
+                poster={thumbUrl(item.poster, FEED_THUMB_WIDTH)}
+                controls
+                playsInline
+                // A thread can hold dozens of clips; fetch nothing until played.
+                preload="none"
+                // A MOV master this browser cannot decode would otherwise stay
+                // a dead black player; the original remains the download.
+                onError={() => setUndecodable(true)}
+                className="absolute inset-0 h-full w-full bg-black object-contain"
+              />
+            )
           )}
 
           {pending && (

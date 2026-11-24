@@ -396,7 +396,7 @@ export function CanvasView() {
         <div
           ref={topBarRef}
           className={cn(
-            "pointer-events-none absolute top-4 z-30 flex has-[[role=menu]]:z-[45] flex-wrap items-center gap-2 transition-[left] duration-200",
+            "pointer-events-none absolute top-4 z-30 flex has-[[role=menu]]:z-[45] flex-wrap items-center gap-2 transition-[left] duration-200 max-sm:flex-nowrap max-sm:overflow-x-auto max-sm:pr-4 scroll-thin",
             !(boardsLoading || (!loaded && boardId)) && "[&>*]:pointer-events-auto"
           )}
           style={{ left: assetPanelWidth + 16, right: "1rem" }}

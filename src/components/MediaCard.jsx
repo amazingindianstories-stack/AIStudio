@@ -27,6 +27,7 @@ import {
 import { useMaintenance } from "@/lib/maintenance-client";
 import { MAINTENANCE_MESSAGE } from "@/lib/maintenance";
 import { UNSORTED } from "@/lib/feed-scope";
+import { VideoFallback } from "./VideoFallback";
 import { useStore } from "@/lib/store";
 import { useDirectMediaUrl } from "@/lib/media-resolver";
 import { aspectToPadding, cn, generationDownloadUrl } from "@/lib/utils";
@@ -508,7 +509,7 @@ export function MediaCard({
               </div>
             )}
             {unplayableUrl === item.url && (
-              <div className="absolute inset-0 flex items-center justify-center bg-ink-800 p-4 text-center text-xs text-white/70">Preview unavailable. Open to download the original.</div>
+              <VideoFallback compact duration={item.duration ? `${item.duration}s` : null} className="absolute inset-0" />
             )}
             {item.poster && (
               // `loading="lazy"` is load-bearing, not decoration. Without it

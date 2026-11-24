@@ -173,7 +173,7 @@ export function BoardMenu() {
           aria-label="Board"
           data-board-keys="own"
           onKeyDown={onMenuKeyDown}
-          className="absolute left-0 top-full z-50 mt-2 w-64 rounded-xl border border-line bg-ink-750/95 p-1 shadow-pop backdrop-blur-xl"
+          className="absolute left-0 top-full z-50 mt-2 w-64 max-sm:fixed max-sm:left-4 max-sm:right-4 max-sm:top-24 max-sm:mt-0 max-sm:w-auto rounded-xl border border-line bg-ink-750/95 p-1 shadow-pop backdrop-blur-xl"
         >
           {items.map(({ id, label, Icon, hint: keys, run, disabled, checked }) => (
             <button
