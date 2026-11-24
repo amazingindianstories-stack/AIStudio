@@ -30,6 +30,7 @@ import {
   Minimize,
   LayoutTemplate,
   Bot,
+  FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useCanvasStore, } from "@/lib/canvas-store";
@@ -47,6 +48,7 @@ import { GridMenu } from "./GridMenu";
 import { SyncedMenu } from "./SyncedMenu";
 import { FrameMenu } from "./FrameMenu";
 import { requestTemplates } from "@/lib/canvas/template-events";
+import { boardStatus } from "@/lib/canvas/formats/model";
 import { ACTIVE_STATUSES, useBoardAi } from "@/lib/board-ai";
 import { MediaMenu } from "./MediaMenu";
 import { useBoardPrefs } from "@/lib/canvas/board-prefs";
@@ -267,6 +269,8 @@ export function CanvasToolbar({
             {aiRunning && <span className="absolute right-1 top-1 h-1.5 w-1.5 animate-pulse rounded-full bg-brand" aria-hidden />}
           </button>
         );
+      case "formats":
+        return <FormatsButton />;
       case "sidekick":
         return (
           <button
@@ -551,6 +555,33 @@ function ZoomControl() {
         <Plus className="h-3.5 w-3.5" />
       </button>
     </div>
+  );
+}
+
+/** Opens the board's docs, slides and prototypes drawer (FormatsPanel); a dot shows when a format has a status. */
+function FormatsButton() {
+  const status = useCanvasStore((s) => boardStatus(s.history.present.nodes));
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const sync = (e) => setOpen(Boolean(e.detail));
+    window.addEventListener("board-formats-state", sync);
+    return () => window.removeEventListener("board-formats-state", sync);
+  }, []);
+  return (
+    <button
+      type="button"
+      className={cn(
+        "relative grid h-9 w-9 cursor-pointer place-items-center rounded-lg transition-colors max-sm:h-8 max-sm:w-8",
+        open ? "bg-ink-600 text-white ring-1 ring-line" : "text-white/55 hover:bg-white/[0.07] hover:text-white"
+      )}
+      title="Docs, slides and prototypes"
+      aria-label="Docs, slides and prototypes"
+      aria-pressed={open}
+      onClick={() => window.dispatchEvent(new window.CustomEvent("board-formats-toggle"))}
+    >
+      <FileText className="h-4 w-4" />
+      {status && <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-brand" aria-hidden />}
+    </button>
   );
 }
 
