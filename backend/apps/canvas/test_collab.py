@@ -370,6 +370,31 @@ class PushTests(TransactionTestCase):
             late[0].refresh_from_db()
             self.assertEqual(late[0].pushed_at, 3000)
 
+    def test_a_transient_failure_keeps_the_notification_pending_and_old_ones_still_push(self):
+        PushSubscription.objects.create(user_id=self.user.id, endpoint=ENDPOINT, created_at=1)
+        note = Notification.objects.create(user_id=self.user.id, board_id=BOARD, kind='mention', created_at=1000, snippet='s')
+
+        def failing(endpoint, headers):
+            raise push.requests.RequestException('timeout')
+
+        with self.configure():
+            self.assertEqual(push.send_pending(now=2000, post=failing)['sent'], 0)
+            note.refresh_from_db()
+            self.assertIsNone(note.pushed_at)
+            self.assertEqual(push.send_pending(now=3000, post=lambda e, h: MagicMock(status_code=201))['sent'], 1)
+            note.refresh_from_db()
+            self.assertEqual(note.pushed_at, 3000)
+            # Older than the previous ten minute window, still pushed.
+            old = Notification.objects.create(user_id=self.user.id, board_id=BOARD, kind='mention', created_at=1000, snippet='o')
+            self.assertEqual(push.send_pending(now=1000 + 11 * 60 * 1000, post=lambda e, h: MagicMock(status_code=201))['sent'], 1)
+            old.refresh_from_db()
+            self.assertIsNotNone(old.pushed_at)
+            # A permanently failing endpoint stops retrying after an hour.
+            stuck = Notification.objects.create(user_id=self.user.id, board_id=BOARD, kind='mention', created_at=5000, snippet='x')
+            push.send_pending(now=5000 + 61 * 60 * 1000, post=failing)
+            stuck.refresh_from_db()
+            self.assertIsNotNone(stuck.pushed_at)
+
     def test_a_tick_sends_a_bounded_batch_and_leaves_the_rest_pending(self):
         other = make_user('pusher2')
         for user in (self.user, other):
