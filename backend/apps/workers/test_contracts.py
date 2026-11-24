@@ -246,6 +246,16 @@ class DepthContractTests(TransactionTestCase):
         AppSetting.objects.filter(key__startswith='lease:scheduler:').delete()
         self.assertEqual(set(scheduler.tick(now=now+60000,handlers=handlers)),{'depth','video','exports','login'})
 
+    def test_scheduler_claims_the_expired_upload_cleanup_on_the_daily_slot(self):
+        self.assertIn('uploads', scheduler.default_handlers())
+        calls = []
+        handlers = {'uploads': lambda: calls.append('uploads')}
+        before = int(datetime(2026,10,8,3,16,tzinfo=timezone.utc).timestamp()*1000)
+        self.assertEqual(scheduler.tick(now=before,handlers=handlers),{'uploads':None})
+        self.assertEqual(scheduler.tick(now=before+3600000,handlers=handlers),{})
+        self.assertEqual(scheduler.tick(now=before+86400000,handlers=handlers),{'uploads':None})
+        self.assertEqual(calls,['uploads','uploads'])
+
     def test_invalid_json_wrong_types_and_implicit_methods(self):
         self.assertEqual(self.post('claim',{'workerId':True}).status_code,500)
         self.assertEqual(self.post('progress',{'jobId':str(uuid.uuid4()),'percent':'NaN'}).status_code,400)
