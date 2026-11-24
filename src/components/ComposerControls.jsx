@@ -12,6 +12,7 @@ import {
   Inbox,
   Volume2,
 } from "lucide-react";
+import { useShallow } from "zustand/react/shallow";
 import { useStore } from "@/lib/store";
 import { UNSORTED } from "@/lib/feed-scope";
 import { Dropdown, MenuItem } from "./Dropdown";
@@ -38,6 +39,54 @@ import {
 import { cn } from "@/lib/utils";
 import { askText } from "@/lib/ask-text";
 
+/** The store fields the toolbar and destination picker read. Subscribing to just these (shallow) keeps feed
+ *  and polling updates from re-rendering the always-mounted composer. */
+const COMPOSER_KEYS = [
+  "activeFolderId",
+  "activeProjectId",
+  "aspectRatio",
+  "availableModelIds",
+  "batchCount",
+  "bitrateMode",
+  "continuationFrame",
+  "createProject",
+  "draftMode",
+  "duration",
+  "firstFrame",
+  "firstFrameMode",
+  "generateAudio",
+  "imageBackground",
+  "imageLayers",
+  "imageQuality",
+  "libraryTree",
+  "model",
+  "projects",
+  "referenceImages",
+  "referenceVideos",
+  "resolution",
+  "setActiveFolder",
+  "setActiveProject",
+  "setAspectRatio",
+  "setBatchCount",
+  "setBitrateMode",
+  "setDraftMode",
+  "setDuration",
+  "setFirstFrameMode",
+  "setGenerateAudio",
+  "setImageBackground",
+  "setImageLayers",
+  "setImageQuality",
+  "setModel",
+  "setResolution",
+  "setVideoTaskMode",
+  "videoTaskMode",
+  "mode",
+];
+
+function useComposerState() {
+  return useStore(useShallow((state) => Object.fromEntries(COMPOSER_KEYS.map((key) => [key, state[key]]))));
+}
+
 /**
  * Reference-image strip + settings toolbar, extracted verbatim (behavior
  * unchanged) from the pre-redesign PromptComposer.tsx so StudioChat can
@@ -54,7 +103,7 @@ import { askText } from "@/lib/ask-text";
  * a mode switch here would just contradict which tab you're looking at.
  */
 export function SettingsToolbar({ destination = true }) {
-  const s = useStore();
+  const s = useComposerState();
   const inputDrivenVideo = s.mode === "video" && capability(s.model, "inputDrivenVideo");
   const audioApplies = s.mode === "video" && supportsAudio(s.model) && !inputDrivenVideo;
   const draftApplies = s.mode === "video" && supportsDraftMode(s.model);
@@ -313,7 +362,7 @@ export function destinationOf(s) {
  * the Agents tab's header passes its own `trigger`.
  */
 export function DestinationPicker({ className = "composer-destination shrink-0", side = "top", trigger }) {
-  const s = useStore();
+  const s = useComposerState();
   return (
     <Dropdown
       className={className}

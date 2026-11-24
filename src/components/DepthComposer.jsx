@@ -20,11 +20,10 @@ import { uploadContentType, uploadFileDirect } from "@/lib/client-reference-uplo
  */
 export function DepthComposer() {
   const maintenance = useMaintenance((s) => s.enabled);
-  const s = useStore();
-  const status = s.depthWorkerStatus;
-  const loadStatus = s.loadDepthWorkerStatus;
-  const generateDepthMap = s.generateDepthMap;
-  const generating = s.generating;
+  const status = useStore((s) => s.depthWorkerStatus);
+  const loadStatus = useStore((s) => s.loadDepthWorkerStatus);
+  const generateDepthMap = useStore((s) => s.generateDepthMap);
+  const generating = useStore((s) => s.generating);
 
   const [file, setFile] = useState(null);
   const [encoder, setEncoder] = useState(DEPTH_ENCODERS[1]); // "vitb"
@@ -63,14 +62,14 @@ export function DepthComposer() {
     if (dragEnterCountRef.current === 1) {
       setDragging(true);
     }
-    const val = validateDepthDrop(e, s);
+    const val = validateDepthDrop(e, useStore.getState());
     setDragValid(val.valid);
     setDragMessage(val.reason || "");
   };
 
   const onDragOver = (e) => {
     e.preventDefault();
-    const val = validateDepthDrop(e, s);
+    const val = validateDepthDrop(e, useStore.getState());
     setDragValid(val.valid);
     setDragMessage(val.reason || "");
     e.dataTransfer.dropEffect = val.valid ? "copy" : "none";
@@ -91,7 +90,7 @@ export function DepthComposer() {
     dragEnterCountRef.current = 0;
     setDragging(false);
 
-    const val = validateDepthDrop(e, s);
+    const val = validateDepthDrop(e, useStore.getState());
     if (!val.valid) {
       setError(val.reason || "Depth Map mode only accepts direct video uploads from your computer.");
       setDragValid(true);

@@ -52,3 +52,17 @@ test("without a destination the toolbar renders no destination chip", async () =
     assert.equal(document.querySelector(".composer-destination"), null);
   });
 });
+
+test("the toolbar ignores unrelated store changes but still follows its own fields (FE-015)", async () => {
+  await harness(async ({ root }) => {
+    let renders = 0;
+    const onRender = () => { renders += 1; };
+    await act(async () => root.render(React.createElement(React.Profiler, { id: "toolbar", onRender }, React.createElement(SettingsToolbar))));
+    const before = renders;
+    assert.ok(before >= 1);
+    await act(async () => { useStore.setState({ unrelatedField: 1 }); });
+    assert.equal(renders, before, "an unrelated field must not re-render the toolbar");
+    await act(async () => { useStore.setState({ aspectRatio: useStore.getState().aspectRatio === "1:1" ? "16:9" : "1:1" }); });
+    assert.ok(renders > before, "its own field still does");
+  });
+});

@@ -34,6 +34,7 @@ export function useComposerCollapse({ overlayOpen = false, dragging = false } = 
   }, [collapsed]);
 
   const collapseIfIdleRef = useRef(null);
+  const filePickerCleanupRef = useRef(null);
   const [pointerListeners] = useState(() => ({
     enter: () => { hasPointerRef.current = true; },
     leave: () => {
@@ -42,6 +43,12 @@ export function useComposerCollapse({ overlayOpen = false, dragging = false } = 
     },
     recheck: () => collapseIfIdleRef.current(),
   }));
+
+  // Drop the one-shot listeners an unmounted composer would otherwise leave on document/window.
+  useEffect(() => () => {
+    document.removeEventListener("mousemove", pointerListeners.recheck);
+    filePickerCleanupRef.current?.();
+  }, [pointerListeners]);
 
   const collapseIfIdle = () => {
     const root = ref.current;
@@ -90,11 +97,32 @@ export function useComposerCollapse({ overlayOpen = false, dragging = false } = 
   };
 
   const openFilePicker = (inputRef) => {
+    filePickerCleanupRef.current?.();
+    const input = inputRef.current;
+    let timer = null;
+    const cleanup = () => {
+      window.removeEventListener("focus", onFocus);
+      input?.removeEventListener("change", release);
+      input?.removeEventListener("cancel", release);
+      clearTimeout(timer);
+      if (filePickerCleanupRef.current === cleanup) filePickerCleanupRef.current = null;
+    };
+    const release = () => {
+      filePickerOpenRef.current = false;
+      cleanup();
+    };
+    // Safari can skip the window focus event when the picker is cancelled, so change and cancel
+    // clear the flag too.
+    function onFocus() {
+      window.removeEventListener("focus", onFocus);
+      timer = setTimeout(release, 300);
+    }
     filePickerOpenRef.current = true;
-    window.addEventListener("focus", () => {
-      setTimeout(() => { filePickerOpenRef.current = false; }, 300);
-    }, { once: true });
-    inputRef.current?.click();
+    filePickerCleanupRef.current = cleanup;
+    window.addEventListener("focus", onFocus);
+    input?.addEventListener("change", release);
+    input?.addEventListener("cancel", release);
+    input?.click();
   };
 
   const collapseOnSend = () => {
