@@ -1471,7 +1471,9 @@ export const CanvasSurface = forwardRef
     onConnectorContextMenu: useStableCallback(onConnectorContextMenu),
   };
   const mountedConnectors = useStableList(renderedConnectors);
-  // Pointer handlers on the surface also keep `dragActive` in step with the gesture ref.
+  // Pointer handlers on the surface also keep `dragActive` in step with the gesture ref. Release capture
+  // handlers run before the gesture ends: syncing there would hide a pressed handle (dragging) and its
+  // pointerup would never reach onPointerUp.
   const syncingDrag = (handler) => (e) => {
     handler(e);
     setDragActive(!!dragRef.current);
@@ -1488,9 +1490,9 @@ export const CanvasSurface = forwardRef
       onPointerDown={syncingDrag(onPointerDownBackground)}
       onPointerMove={syncingDrag(onPointerMove)}
       onPointerUp={syncingDrag(onPointerUp)}
-      onPointerUpCapture={syncingDrag(onPointerReleaseCapture)}
+      onPointerUpCapture={onPointerReleaseCapture}
       onPointerCancel={syncingDrag(onPointerCancel)}
-      onPointerCancelCapture={syncingDrag(onPointerReleaseCapture)}
+      onPointerCancelCapture={onPointerReleaseCapture}
       onContextMenu={onContextMenu}
       onDrop={onDrop}
       onDragOver={onDragOver}

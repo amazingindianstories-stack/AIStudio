@@ -195,6 +195,9 @@ test('Board stickies: bulk mode, colors, shape, auto size, tags, reactions, auth
   const stackNode = board.data.nodes.find((item) => item.type === 'stack');
   const before = stickies(board).length;
   const box = await stack.boundingBox();
+  // Escape deselects the new stack from the board (a selected stack moves instead of handing out a sticky),
+  // not from the Sticky options button that kept focus.
+  await page.evaluate(() => document.activeElement?.blur());
   await page.keyboard.press('Escape');
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
