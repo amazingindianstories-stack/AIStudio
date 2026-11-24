@@ -1,16 +1,18 @@
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from threading import Barrier
 from unittest.mock import patch
 from django.db import close_old_connections, connection
 from django.test import TransactionTestCase, override_settings
+from django.utils import timezone as django_timezone
 from apps.admin_dashboard import tests as session_fixtures
 from apps.authentication.models import LoginAttempt
 from apps.common.models import ActivityLog
 from apps.common import leases
 from apps.generation.models import Generation
 from apps.library.models import GenerationNaming
+from apps.media.models import UploadSession
 from apps.media.storage import StorageService, MemoryAdapter
 from .models import DepthWorker
 from . import depth, maintenance, scheduler
@@ -250,11 +252,29 @@ class DepthContractTests(TransactionTestCase):
         self.assertIn('uploads', scheduler.default_handlers())
         calls = []
         handlers = {'uploads': lambda: calls.append('uploads')}
-        before = int(datetime(2026,10,8,3,16,tzinfo=timezone.utc).timestamp()*1000)
+        before = int(datetime(2026,10,8,3,20,tzinfo=timezone.utc).timestamp()*1000)
         self.assertEqual(scheduler.tick(now=before,handlers=handlers),{'uploads':None})
         self.assertEqual(scheduler.tick(now=before+3600000,handlers=handlers),{})
         self.assertEqual(scheduler.tick(now=before+86400000,handlers=handlers),{'uploads':None})
         self.assertEqual(calls,['uploads','uploads'])
+
+    def test_scheduled_upload_cleanup_sweeps_100_expired_rows_from_configured_storage(self):
+        storage = StorageService(MemoryAdapter())
+        actor, past = uuid.uuid4(), django_timezone.now()-timedelta(minutes=1)
+        expired = [UploadSession.objects.create(actor_id=actor, key=f'uploads/expired-{n}.png', purpose='image-reference',
+            content_type='image/png', byte_size=1, expires_at=past) for n in range(101)]
+        ready = UploadSession.objects.create(actor_id=actor, key='uploads/ready.png', purpose='image-reference',
+            content_type='image/png', byte_size=1, expires_at=past, state='ready', finalized_at=past)
+        for key in [row.key for row in expired]+[ready.key, 'assets/legacy-original.png']:
+            storage.primary.put(key, b'x', 'image/png', '')
+        with override_settings(VEEVEE_MEDIA_STORAGE=storage):
+            self.assertEqual(scheduler.default_handlers()['uploads'](), {'cleaned': 100, 'failed': 0})
+            self.assertEqual(UploadSession.objects.filter(state='uploading').count(), 1)
+            self.assertEqual(scheduler.default_handlers()['uploads'](), {'cleaned': 1, 'failed': 0})
+        self.assertFalse(any(storage.exists(row.key) for row in expired))
+        self.assertTrue(storage.exists(ready.key))
+        self.assertTrue(storage.exists('assets/legacy-original.png'))
+        self.assertEqual(UploadSession.objects.get(id=ready.id).state, 'ready')
 
     def test_invalid_json_wrong_types_and_implicit_methods(self):
         self.assertEqual(self.post('claim',{'workerId':True}).status_code,500)
