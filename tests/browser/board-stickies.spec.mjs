@@ -177,7 +177,9 @@ test('Board stickies: bulk mode, colors, shape, auto size, tags, reactions, auth
   expect(byText(board, 'Beta').x).toBeGreaterThan(byText(board, 'Gamma').x);
   await info.attach('clustered', { body: await page.screenshot(), contentType: 'image/png' });
 
-  // Switch Gamma to a text box; its text stays.
+  // Switch Gamma to a text box; its text stays. Escape clears the select-all from the board, not from the
+  // More button the cluster menu handed focus back to (otherwise every sticky would switch).
+  await page.evaluate(() => document.activeElement?.blur());
   await page.keyboard.press('Escape');
   await node(gamma.id).click();
   await page.getByRole('button', { name: 'More', exact: true }).click();
@@ -186,6 +188,7 @@ test('Board stickies: bulk mode, colors, shape, auto size, tags, reactions, auth
   expect(byText(board, 'Gamma').id).toBe(gamma.id);
 
   // A sticky stack hands out a new sticky in its color each time one is dragged off it.
+  await page.evaluate(() => document.activeElement?.blur());
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Sticky options' }).click();
   await page.getByRole('menuitem', { name: 'Sticky stack' }).click();
