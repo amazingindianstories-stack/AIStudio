@@ -45,13 +45,31 @@ export const fetchWork = (boardId, jobId) => getJson(board(boardId, `work/${part
 /** The project's boards the user can read (the Sidekick's board sources). */
 export const fetchProjectBoards = (projectId) => getJson(`/api/canvas-boards?projectId=${part(projectId)}`).then((json) => json.boards ?? []);
 
-/** Polls a job until it ends. Resolves with the finished job (status succeeded, failed or cancelled). */
-export async function waitForJob(boardId, jobId, { signal, fetchJob = fetchWork, interval = (hidden) => (hidden ? 6000 : 1500) } = {}) {
+const NOT_RETRYABLE = [401, 403, 404];
+
+/**
+ * Polls a job until it ends. Resolves with the finished job (status succeeded, failed or cancelled).
+ * A failed poll (dropped connection, gateway 502, maintenance 503) is retried with a growing delay: the server keeps
+ * running the job, so one blip must not strand the turn. Only a sustained outage (`maxFailures` in a row), an abort or
+ * a definite refusal (401, 403, 404) is thrown.
+ */
+export async function waitForJob(boardId, jobId, { signal, fetchJob = fetchWork, interval = (hidden) => (hidden ? 6000 : 1500), maxFailures = 5 } = {}) {
+  let failures = 0;
   for (;;) {
     if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
-    const job = await fetchJob(boardId, jobId);
-    if (!["queued", "running"].includes(job.status)) return job;
     const hidden = typeof document !== "undefined" && document.visibilityState === "hidden";
+    let job;
+    try {
+      job = await fetchJob(boardId, jobId);
+      failures = 0;
+    } catch (error) {
+      if (error?.name === "AbortError" || NOT_RETRYABLE.includes(error?.status)) throw error;
+      failures += 1;
+      if (failures >= maxFailures) throw error;
+      await new Promise((resolve) => setTimeout(resolve, Math.min(30000, interval(hidden) * 2 ** failures)));
+      continue;
+    }
+    if (!["queued", "running"].includes(job.status)) return job;
     await new Promise((resolve) => setTimeout(resolve, interval(hidden)));
   }
 }

@@ -59,3 +59,21 @@ test("the web search choice travels with the quote and the turn it prices", asyn
     useSidekick.setState(previous, true);
   }
 });
+
+test("a turn whose poll ends in a definite failure is marked failed, not left running", async () => {
+  const { useSidekick } = await import("./sidekick.js");
+  const previous = useSidekick.getState();
+  const fetchBefore = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({ error: "gone" }, { status: 404 });
+  useSidekick.setState({ boardId: "b1", turns: [{ id: "j1", status: "running" }, { id: "j2", status: "succeeded" }], error: null });
+  try {
+    await useSidekick.getState().follow("j1");
+    const [first, second] = useSidekick.getState().turns;
+    assert.equal(first.status, "failed");
+    assert.match(first.error, /reopen the chat/);
+    assert.equal(second.status, "succeeded");
+  } finally {
+    globalThis.fetch = fetchBefore;
+    useSidekick.setState(previous, true);
+  }
+});

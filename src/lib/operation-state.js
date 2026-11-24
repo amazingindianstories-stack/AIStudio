@@ -63,7 +63,7 @@ export function installOperationTracking(store) {
             if (name === 'moveGenerationsToDestination' && callArgs[2] === undefined) {
               callArgs[2] = {};
               for (const id of callArgs[0] || []) {
-                const item = current.items?.find(item => item.id === id);
+                const item = [current.items, current.threadItems, current.pendingItems, current.looseItems].map(pool => pool?.find(item => item.id === id)).find(Boolean);
                 if (typeof item?.locationVersion === 'number') callArgs[2][id] = item.locationVersion;
               }
             }

@@ -7,6 +7,8 @@ import {
   mergeLiveItems,
 } from "./store";
 import { clearFeedCache, getCached, putFeedCache } from "./feed-cache";
+import { useStore } from "./store";
+import { scopeKey } from "./feed-scope";
 
 /**
  * Tests for store.js's pool-management helpers — patchEverywhere,
@@ -268,4 +270,38 @@ test("mergeLiveItems: a newer row also updates other cached scopes, and unseen r
   mergeLiveItems([makeItem({ id: "job", status: "succeeded", updatedAt: 2000 })], h.set);
   assert.equal(getCached("project:p1:*:all:").items[0].status, "succeeded");
   assert.equal(getCached("favorites:all:").at, 0);
+});
+
+test("mergeLiveItems: an unseen row that belongs to the project conversation joins the thread, a depth row does not", () => {
+  const threadScopeKey = scopeKey({ tab: "project", projectId: "project-1", folderId: null, kind: "all", q: "" });
+  const old = makeItem({ id: "old", projectId: "project-1", createdAt: 500, updatedAt: 500 });
+  const h = harness({ activeProjectId: "project-1", threadItems: [old], threadScopeKey });
+  const fresh = makeItem({ id: "new", projectId: "project-1", createdAt: 900, updatedAt: 900 });
+  const depth = makeItem({ id: "depth", kind: "depth", projectId: "project-1", createdAt: 950, updatedAt: 950 });
+  mergeLiveItems([fresh, depth], h.set);
+  assert.deepEqual(h.state().threadItems.map((i) => i.id), ["new", "old"]);
+});
+
+test("mergeLiveItems: a thread that is not loaded for the current scope is not seeded by live rows", () => {
+  const h = harness({ activeProjectId: "project-1", threadItems: [], threadScopeKey: null });
+  mergeLiveItems([makeItem({ id: "new", projectId: "project-1" })], h.set);
+  assert.deepEqual(h.state().threadItems, []);
+});
+
+test("moveGenerationsToDestination: optimistic versions come from every pool, not only the feed page", async () => {
+  const previous = useStore.getState();
+  const originalFetch = globalThis.fetch;
+  let body;
+  globalThis.fetch = async (url, options) => {
+    if (new URL(String(url), "http://veevee.test").pathname === "/api/history/move") body = JSON.parse(options.body);
+    return new Response(JSON.stringify({ globalFolders: [], projects: [], moved: [] }));
+  };
+  try {
+    useStore.setState({ items: [], threadItems: [makeItem({ id: "t1", locationVersion: 3 })], pendingItems: [] });
+    await useStore.getState().moveGenerationsToDestination(["t1"], { projectId: "p2" });
+    assert.deepEqual(body.expectedVersions, { t1: 3 });
+  } finally {
+    globalThis.fetch = originalFetch;
+    useStore.setState(previous, true);
+  }
 });

@@ -201,7 +201,14 @@ export const useSidekick = create((set, get) => ({
       if (job.status === "succeeded") await get().apply(job);
       else if (!job.placedAt) markBoardAiPlaced(boardId, job.id, []).catch(() => {});
     } catch (error) {
-      if (error.name !== "AbortError" && mine === pollGeneration) set({ error: error.message });
+      if (error.name === "AbortError" || mine !== pollGeneration) return;
+      // Out of retries: free the composer. The server keeps working, and reopening the chat reconciles the real answer.
+      set((s) => ({
+        error: error.message,
+        turns: s.turns.map((turn) => (turn.id === jobId && ["queued", "running"].includes(turn.status)
+          ? { ...turn, status: "failed", error: "Lost the connection while waiting; reopen the chat to see the answer." }
+          : turn)),
+      }));
     }
   },
 

@@ -32,13 +32,13 @@ test("loadMe keeps currentUser and does not redirect on 502 JSON error", async (
 test("loadMe still redirects on 200 { user: null }", async () => {
   const prevFetch = globalThis.fetch;
   const prevWindow = globalThis.window;
-  const location = { href: "http://localhost/", pathname: "/" };
+  const location = { href: "http://localhost/", pathname: "/", search: "?board=abc" };
   globalThis.window = { location };
   globalThis.fetch = async () => jsonResponse({ user: null }, 200);
 
   try {
     await useStore.getState().loadMe();
-    assert.equal(location.href, "/login");
+    assert.equal(location.href, "/login?next=%2F%3Fboard%3Dabc");
   } finally {
     globalThis.fetch = prevFetch;
     globalThis.window = prevWindow;

@@ -50,6 +50,7 @@ import { cleanLibraryQuery, clearLibrarySession, readLibrarySession, writeLibrar
 import { clearRecentBoards } from "./canvas/board-prefs";
 import { apiFetch as crossOriginFetch, retryWhileBusy, fetchRetryBusy } from "./api";
 import { apiErrorMessage } from "./api-error";
+import { loginUrlFor } from "./login-next";
 import { referenceAudioProblem, withAudioDurations } from "./audio-duration";
 import {
   clearFeedCache,
@@ -408,7 +409,7 @@ async function apiFetch(input, init) {
     disposeStoreRuntime();
     useStore.setState({ currentUser: null });
     if (typeof window !== "undefined" && window.location.pathname !== "/login") {
-      window.location.replace("/login");
+      window.location.replace(loginUrlFor(window.location));
     }
     throw new Error("UNAUTHENTICATED");
   }
@@ -1765,11 +1766,6 @@ export const useStore = create((set, get) => ({
       if (!res.ok) throw new Error(apiErrorMessage(newItem, res.status));
       if (newItem?.id) {
         insertNewItem(set, newItem);
-        if (
-          newItem.kind === "video" &&
-          (newItem.status === "running" || newItem.status === "queued")
-        ) {
-        }
         return { ok: true };
       }
       throw new Error("The retry did not create a generation.");
@@ -1869,14 +1865,9 @@ export const useStore = create((set, get) => ({
         firstFrame: dataUrl,
         lastFrame: null,
         firstFrameMode: true,
-        productionContext: { sourceGenerationId: item.id, relation: "continuation", frame: "last" },
-        destinationProjectId: item.projectId,
-        destinationFolderId: item.folderId ?? null,
         referenceVideos: [],
         videoNotes: [],
         referenceAudios: [],
-        stagedReferenceVideos: [],
-        stagedContinuationFrame: null,
         seed: null,
         videoTaskMode: "generate",
         prompt: "",
@@ -2028,14 +2019,9 @@ export const useStore = create((set, get) => ({
       // A row made with a retired model reuses its replacement. Gemini Omni Flash's 16:9/9:16, 720p and
       // 4/6/8s all exist on Gemini Omni Flash 1.1, so the stored settings below stay valid.
       model: composerModel(item.model),
-      productionContext: { sourceGenerationId: item.id, relation: "clone" },
-      destinationProjectId: item.projectId,
-      destinationFolderId: item.folderId ?? null,
         referenceVideos: item.referenceVideos ?? [],
         referenceAudios: item.referenceAudios ?? [],
         audioNotes: (item.referenceAudios ?? []).map((ref, i) => ({ref,name:`Audio ${i+1}`})),
-      stagedReferenceVideos: [],
-      stagedContinuationFrame: null,
       aspectRatio: item.aspectRatio,
       resolution: item.resolution ?? get().resolution,
       duration: item.duration ?? get().duration,
@@ -2741,9 +2727,8 @@ export const useStore = create((set, get) => ({
     if (!Array.isArray(ids) || ids.length === 0 || !destination) return false;
     const expVers = expectedVersions ? { ...expectedVersions } : {};
     if (!expectedVersions) {
-      const items = get().items || [];
       for (const id of ids) {
-        const it = items.find((x) => x.id === id);
+        const it = findItem(get(), id);
         if (it && typeof it.locationVersion === "number") {
           expVers[id] = it.locationVersion;
         }
@@ -2855,7 +2840,7 @@ export const useStore = create((set, get) => ({
         // The list response owns managed-portrait availability. Resolve it before
         // anyone opens the attachment menu, including when the gallery is off.
         await get().loadPortraits();
-      } else if (json.user === null) window.location.href = "/login";
+      } else if (json.user === null) window.location.href = loginUrlFor(window.location);
     } catch {
       /* ignore */
     }
@@ -2966,6 +2951,7 @@ export function mergeLiveItems(
     let changed = false;
     let looseChanged = false;
     let threadChanged = false;
+    let threadInserted = false;
     let pendingChanged = false;
     let unseen = false;
 
@@ -2992,6 +2978,16 @@ export function mergeLiveItems(
         } else {
           threadById.delete(inc.id);
         }
+        threadChanged = true;
+      }
+
+      // A row created elsewhere (another tab, device or an agent run) joins the
+      // conversation as soon as it arrives; the feed below keeps buffering.
+      // Only when the thread is loaded for the current scope, so a thread that
+      // has not been fetched yet is not seeded with a partial list.
+      if (!threadById.has(inc.id) && s.threadScopeKey === scopeKey(threadScope(s)) && matchesThread(inc, s)) {
+        threadById.set(inc.id, inc);
+        threadInserted = true;
         threadChanged = true;
       }
 
@@ -3035,7 +3031,13 @@ export function mergeLiveItems(
       patch.items = items;
       writeCachedItems(scopeKey(scope), items);
     }
-    if (threadChanged) patch.threadItems = Array.from(threadById.values());
+    if (threadChanged) {
+      const rows = Array.from(threadById.values());
+      // The thread is newest first, as the server returns it and insertNewItem
+      // keeps it; only a newly inserted row needs placing.
+      if (threadInserted) rows.sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0) || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+      patch.threadItems = rows;
+    }
     if (pendingChanged) patch.pendingItems = Array.from(pendingById.values());
     if (looseChanged) patch.looseItems = Array.from(looseById.values());
     if (unseen) staleCached(scopeKey(scope));

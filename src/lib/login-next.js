@@ -5,3 +5,9 @@ export function loginNextPath(value) {
   if (target.origin !== 'https://frontend.invalid') return '/';
   return target.pathname + target.search + target.hash;
 }
+
+/** `/login` that returns to the current page after sign-in; the root view needs no `next`. */
+export function loginUrlFor(location) {
+  const next = `${location.pathname}${location.search ?? ''}`;
+  return next && next !== '/' ? `/login?next=${encodeURIComponent(next)}` : '/login';
+}
