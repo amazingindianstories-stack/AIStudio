@@ -32,6 +32,10 @@ class DepthContractTests(TransactionTestCase):
         base.update(fields)
         return Generation.objects.create(**base)
 
+    def upload(self, key, actor=session_fixtures.UID):
+        return UploadSession.objects.create(actor_id=actor, key=key, purpose='video-reference', content_type='video/quicktime',
+            byte_size=10, state='ready', finalized_at=datetime.now(timezone.utc), expires_at=datetime.now(timezone.utc))
+
     def test_authentication_headers_and_session_boundaries(self):
         for operation in ['claim', 'heartbeat', 'progress', 'upload-url', 'complete']:
             self.assertEqual(self.post(operation, token='').json(), {'error': 'Unauthorized.'})
@@ -49,6 +53,7 @@ class DepthContractTests(TransactionTestCase):
 
     def test_enqueue_shape_naming_status_and_no_provider_work(self):
         self.cookie()
+        self.upload('uploads/native.mov')
         self.assertEqual(self.client.post('/api/generate/depth', {}, content_type='application/json').json(), {'error': 'An input video is required.'})
         response = self.client.post('/api/generate/depth', {'inputVideoKey': ' uploads/native.mov ', 'encoder': 'vitl',
             'trackCharacters': True, 'originalName': 'Native MOV'}, content_type='application/json')
@@ -67,8 +72,45 @@ class DepthContractTests(TransactionTestCase):
         self.assertEqual(self.client.get('/api/generate/depth/status', {'id':'invalid'}).status_code,500)
         self.assertEqual(self.client.post('/api/generate/depth', {'inputVideoKey':23}, content_type='application/json').content,b'')
 
+    def test_depth_enqueue_and_status_respect_project_visibility(self):
+        from apps.projects.models import Project
+        project = Project.objects.create(name='Hidden', access='admin', created_at=1, updated_at=1)
+        self.cookie()
+        self.upload('uploads/native.mov')
+        response = self.client.post('/api/generate/depth', {'inputVideoKey': 'uploads/native.mov', 'projectId': str(project.id)},
+            content_type='application/json')
+        self.assertEqual((response.status_code, response.json()['error']), (404, 'Project not found.'))
+        self.assertFalse(Generation.objects.filter(kind='depth').exists())
+        hidden = self.row(project=project)
+        self.assertEqual(self.client.get('/api/generate/depth/status', {'id': str(hidden.id)}).status_code, 404)
+        visible = self.row()
+        self.assertEqual(self.client.get('/api/generate/depth/status', {'id': str(visible.id)}).status_code, 200)
+
+    def test_depth_enqueue_refuses_foreign_keys(self):
+        self.cookie()
+        self.upload('uploads/other.mov', actor=str(uuid.uuid4()))
+        for key in [f'generations/{uuid.uuid4()}.mp4', 'exports/x/y.zip', 'uploads/missing.mov', 'uploads/../settings/x']:
+            response = self.client.post('/api/generate/depth', {'inputVideoKey': key}, content_type='application/json')
+            self.assertEqual(response.status_code, 400, key)
+            self.assertEqual(response.json(), {'error': 'The input video must be a finished upload.'})
+        self.assertFalse(Generation.objects.filter(kind='depth').exists())
+
+    def test_depth_enqueue_is_bounded_per_user(self):
+        self.cookie()
+        self.upload('uploads/native.mov')
+        for _ in range(5):
+            self.row(user_id=session_fixtures.UID, status='running')
+        self.row(user_id=session_fixtures.UID, status='succeeded')
+        response = self.client.post('/api/generate/depth', {'inputVideoKey': 'uploads/native.mov'}, content_type='application/json')
+        self.assertEqual((response.status_code, response.json()['code']), (429, 'DEPTH_QUEUE_FULL'))
+        self.row(user_id=str(uuid.uuid4()))  # another user's queue does not count against this one
+        Generation.objects.filter(user_id=session_fixtures.UID, status='running').first().delete()
+        self.assertEqual(self.client.post('/api/generate/depth', {'inputVideoKey': 'uploads/native.mov'},
+            content_type='application/json').status_code, 200)
+
     def test_internal_enqueue_and_signing_errors_are_private(self):
         self.cookie()
+        self.upload('uploads/fixture.mov')
         with patch('apps.workers.views.Generation.objects.create',side_effect=ValueError('private-fixture-token')):
             response = self.client.post('/api/generate/depth',{'inputVideoKey':'uploads/fixture.mov'},content_type='application/json')
         self.assertEqual(response.status_code,500)

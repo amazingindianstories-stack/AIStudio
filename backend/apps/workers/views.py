@@ -10,12 +10,20 @@ from apps.generation.models import Generation
 from apps.generation.serialization import generation_item
 from apps.library.services.naming import assign_generation_naming
 from apps.media.storage import get_storage
+from apps.media.keys import validate_key, InvalidMediaKey
+from apps.media.grants import authorize_upload_read
+from apps.projects import visibility
+from apps.generation.services.submission import refuse_hidden_project, Refused
 from .auth import worker_authorized
 from . import depth
 
 
 def cut(value, limit):
     return value.encode('utf-16-le', errors='surrogatepass')[:limit*2].decode('utf-16-le', errors='surrogatepass') if isinstance(value, str) else None
+
+
+# Queued or running depth jobs one user may hold; the single external GPU worker claims FIFO.
+DEPTH_QUEUE_LIMIT = 5
 
 
 def integer(value):
@@ -107,6 +115,15 @@ def worker_status(request):
         return failure()
 
 
+def finished_upload(user, key):
+    """True for a ready upload key; any other namespace (generations, exports, depth output) is not a depth input."""
+    try:
+        validate_key(key)
+        return key.startswith('uploads/') and authorize_upload_read(key, str(user.id)) is not None
+    except (InvalidMediaKey, ValueError):
+        return False
+
+
 @node_route(['POST'])
 def enqueue(request):
     user = lookup(request)
@@ -117,6 +134,14 @@ def enqueue(request):
         get = lambda key: property_of(data, key)
         key = name_value(get('inputVideoKey'))
         if not key: return reply(request, {'error': 'An input video is required.'}, 400)
+        try:
+            refuse_hidden_project(user, data)
+        except Refused as refusal:
+            return reply(request, refusal.body, refusal.status)
+        if not finished_upload(user, key):
+            return reply(request, {'error': 'The input video must be a finished upload.'}, 400)
+        if Generation.objects.filter(kind='depth', status__in=('queued', 'running'), user_id=user.id).count() >= DEPTH_QUEUE_LIMIT:
+            return reply(request, {'error': 'Too many depth jobs are queued. Wait for one to finish.', 'code': 'DEPTH_QUEUE_FULL'}, 429)
         encoder = get('encoder') if get('encoder') in ('vits', 'vitb', 'vitl') else 'vitb'
         name = cut(get('originalName'), 200) or ''
         now = now_ms()
@@ -143,12 +168,13 @@ def enqueue(request):
 
 @node_route(['GET'])
 def generation_status(request):
-    if lookup(request) is None: return reply(request, {'error': 'Unauthorized.'}, 401)
+    user = lookup(request)
+    if user is None: return reply(request, {'error': 'Unauthorized.'}, 401)
     identifiers = request.query_params.getlist('id')
     identifier = identifiers[0] if identifiers else None
     if not identifier: return reply(request, {'error': 'id is required.'}, 400)
     try:
-        row = Generation.objects.filter(pk=identifier, kind='depth').first()
+        row = visibility.visible(user, Generation.objects.filter(pk=identifier, kind='depth')).first()
         return reply(request, generation_item(row)) if row else reply(request, {'error': 'Not found.'}, 404)
     except Exception:
         return failure()
