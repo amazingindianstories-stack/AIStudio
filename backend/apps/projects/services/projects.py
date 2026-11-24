@@ -57,9 +57,30 @@ def validate_access(mode, user_ids):
             raise OrganizationError('INVALID_ACCESS', 'Pick at least one active user.')
 
 
+def require_level(user, project_id, level):
+    """Role gate for project mutations. A project with no member besides its creator keeps the open studio
+    behavior (every teammate who can see it); once it has other members the project roles are enforced."""
+    from apps.canvas import access
+    if user is None or not project_id or user.role == 'admin':
+        return
+    try:
+        creator = Project.objects.filter(pk=project_id).values_list('created_by', flat=True).first()
+        members = ProjectMember.objects.filter(project_id=project_id)
+        restricted = (members.exclude(user_id=creator) if creator else members).exists()
+    except visibility.MALFORMED:
+        return
+    if restricted and access.project_level(user, project_id) < level:
+        raise OrganizationError('FORBIDDEN', 'Only project owners, co-owners and admins can do this.', 403)
+
+
 def create_project(name, actor_id=None, access='all', access_user_ids=None, user=None):
     access_user_ids = [] if access_user_ids is None else access_user_ids
+    if access == 'admin' and user is not None and user.role != 'admin':
+        raise OrganizationError('INVALID_ACCESS', 'Only admins can create admin-only projects.', 403)
     validate_access(access, access_user_ids)
+    if access == 'users' and actor_id and str(actor_id) not in access_user_ids:
+        # The creator never loses a project it just made.
+        access_user_ids = [*access_user_ids, str(actor_id)]
     now = now_ms()
     with transaction.atomic():
         row = Project.objects.create(name=name, created_by=actor_id, created_at=now, updated_at=now)
@@ -73,11 +94,15 @@ def create_project(name, actor_id=None, access='all', access_user_ids=None, user
 
 
 def rename_project(project_id, name, user=None):
+    from apps.canvas import access
+    require_level(user, project_id, access.CO_OWNER)
     Project.objects.filter(pk=project_id).update(name=name, updated_at=now_ms())
     return read_projects(user)
 
 
 def set_brief(project_id, brief, user=None):
+    from apps.canvas import access
+    require_level(user, project_id, access.CO_OWNER)
     Project.objects.filter(pk=project_id).update(brief=brief, updated_at=now_ms())
     return read_projects(user)
 
@@ -94,6 +119,8 @@ def set_project_access(project_id, mode, user_ids, user):
 
 def delete_project(project_id, actor_id=None, user=None):
     from apps.generation.models import Generation
+    from apps.canvas import access
+    require_level(user, project_id, access.CO_OWNER)
     with transaction.atomic():
         folders.acquire_scope_locks(folders.scope_key(project_id))
         row = Project.objects.select_for_update().filter(pk=project_id).first()

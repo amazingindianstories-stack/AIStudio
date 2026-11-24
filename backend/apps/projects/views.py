@@ -6,7 +6,7 @@ from apps.library.services import folder_engine as folders
 from apps.library.services.idempotency import MISSING, OrganizationError
 from apps.generation.watermark import WHITESPACE
 from .services.projects import (ensure_default_project, read_projects, create_project,
-    rename_project, set_brief, delete_project, set_project_access)
+    rename_project, set_brief, delete_project, set_project_access, require_level)
 from . import visibility
 
 
@@ -30,6 +30,16 @@ def project_reads(request):
         folder_target = body.get('folderId')
         if folder_target and operation in ('renameFolder', 'deleteFolder') and not visibility.can_see_folder(user, folder_target):
             return renew(request, Response({'error': 'Folder not found.', 'code': 'FOLDER_NOT_FOUND'}, status=404))
+        if operation in ('createFolder', 'renameFolder', 'deleteFolder'):
+            from apps.canvas import access
+            folder_project = target
+            if not folder_project and folder_target:
+                from apps.library.models import Folder
+                try:
+                    folder_project = Folder.objects.filter(pk=folder_target).values_list('project_id', flat=True).first()
+                except visibility.MALFORMED:
+                    folder_project = None
+            require_level(user, folder_project, access.EDIT)
         if operation in ('createProject', 'renameProject', 'createFolder', 'renameFolder'):
             name = body.get('name') or ''
             if not isinstance(name, str):

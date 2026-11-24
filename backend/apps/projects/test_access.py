@@ -58,7 +58,8 @@ class ProjectAccessTests(TransactionTestCase):
         return folder, generation, board
 
     def make(self, access, users=()):
-        self.as_user(self.creator)
+        # Only admins may create admin-only projects (BE-009); a creator of any other mode is a non-admin user.
+        self.as_user(self.admin if access == 'admin' else self.creator)
         payload = {'op': 'createProject', 'name': f'P-{access}', 'access': access, 'accessUserIds': [str(u.id) for u in users]}
         response = self.post(payload)
         self.assertEqual(response.status_code, 200, response.content)
@@ -95,7 +96,8 @@ class ProjectAccessTests(TransactionTestCase):
     def test_particular_users_project_is_open_to_the_list_and_its_creator_only(self):
         project = self.make('users', [self.invited])
         folder, generation, board = self.seed(project)
-        self.assertEqual({str(row.user_id) for row in ProjectAccessUser.objects.filter(project=project)}, {str(self.invited.id)})
+        self.assertEqual({str(row.user_id) for row in ProjectAccessUser.objects.filter(project=project)},
+            {str(self.invited.id), str(self.creator.id)})
         self.assert_hidden(self.outsider, project, folder, generation, board)
         for user in (self.invited, self.creator, self.admin):
             self.assert_visible(user, project, folder, generation, board)
