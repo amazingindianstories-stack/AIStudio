@@ -62,6 +62,23 @@ test("Escape with focus on a control outside the board leaves the selection alon
   assert.equal(cleared, 1);
 });
 
+test("Escape on the board's toolbar cancels an armed tool and leaves the selection alone", (t) => {
+  installDom(t);
+  document.body.insertAdjacentHTML("beforeend", "<div role='toolbar' data-board-toolbar><button id='rect'>Rectangle</button></div>");
+  const key = (target) => { const event = new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }); Object.defineProperty(event, "target", { value: target }); return event; };
+  let cleared = 0;
+  const store = { tool: "rect", selection: ["a"], history: { present: { nodes: [], connectors: [] } }, clearSelection: () => { cleared += 1; }, setTool: (tool) => { store.tool = tool; } };
+  const ctx = { store, ui: {}, canEdit: true };
+  const rect = document.querySelector("#rect");
+  rect.focus();
+  assert.equal(dispatchShortcut(key(document.querySelector("#tool")), ctx), false, "a control outside the board's toolbar is left alone");
+  assert.equal(store.tool, "rect");
+  assert.equal(dispatchShortcut(key(rect), ctx), true);
+  assert.equal(store.tool, "select");
+  assert.equal(dispatchShortcut(key(rect), ctx), false, "with no tool armed, Escape on the toolbar does nothing");
+  assert.equal(cleared, 0);
+});
+
 async function mountPan(t) {
   const { cleanups } = installDom(t);
   function Probe() {

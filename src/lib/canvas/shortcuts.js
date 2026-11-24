@@ -281,15 +281,18 @@ const SHORTCUTS = [
     },
   },
   {
-    id: "nav.leave", board: true,
+    id: "nav.leave",
     group: "Navigate",
     label: "Leave a frame or group, then clear the selection",
     keys: ["Escape"],
-    run: (ctx) => {
-      if (ctx.store.tool !== "select") {
+    run: (ctx, event) => {
+      const onBoard = isBoardTarget(event.target);
+      // An armed tool is also cancelled from the board's own toolbar, where clicking it left focus.
+      if (ctx.store.tool !== "select" && (onBoard || event.target.closest?.("[data-board-toolbar]"))) {
         ctx.store.setTool("select");
         return;
       }
+      if (!onBoard) return false;
       const ids = leaveContainer(present(ctx), ctx.store.selection);
       if (ids) return ctx.select(ids);
       ctx.store.clearSelection();
