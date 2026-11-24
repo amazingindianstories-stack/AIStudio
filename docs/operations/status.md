@@ -650,6 +650,19 @@ more than one layer blocking it:
 - Frontend suite 469/469, lint clean, `next build` OK.
 - Frontend suite 452/452, lint clean, build OK.
 
+## Backend audit batch notes (branch `fm/veevee-audit-be-rest`)
+
+- **VIDEO_BEST_OF** (generation worker env). Unset or empty: video generation submits one task. When set, and the model
+  has the `videoBestOf` capability, the request has reference images and it is not a draft finalization, the worker
+  submits 2 to 3 tasks (the value is clamped to 2..3, an unparseable value means 2) and keeps the best. Each extra task is
+  billed. The production value is not recorded here: the owner must confirm it.
+- **FACE_BEST_OF** (generation worker and API env, read by spend admission). Applies to image requests that ask for the
+  face judge: it is the number of candidates generated per request (spend admission multiplies the estimate by it,
+  capped at 4, default 2 when unset or invalid; the image executor bounds the count by image size). The production
+  value is not recorded here: the owner must confirm it.
+- **Upload keys outside `uploads/canvas/`**: the BE-006 rule hides stored SVG only for the canvas namespace. Older
+  pre-session upload keys outside `uploads/canvas/` stay readable by design and are not rewritten.
+
 ## Owner approval gates
 - **A0-depth** Depth hotfix: gateway allowlist for depth routes + `DEPTH_WORKER_TOKEN` (value from the existing depth-worker config, never printed) on the Green API, then API redeploy.
 - **A1** Green cutover to versioned image (P3), one service at a time.

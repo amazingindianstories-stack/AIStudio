@@ -238,7 +238,7 @@ def transcribe(request, id):
     try:
         transcript = media.transcribe(mime, audio, api_key=key, usage=usage)
     except errors.ToolError as error:
-        return renew_session(request, Response({'error': error.message}, status=429))
+        return renew_session(request, Response({'error': error.message}, status=ATTACHMENT_STATUS.get(error.code, 502)))
     if transcript is None:
         return renew_session(request, Response({'error': 'Veevee could not transcribe the voice note. Try again.'}, status=502))
     return renew_session(request, Response({'transcript': transcript}))

@@ -10,6 +10,7 @@ from django.db import models, transaction
 from apps.authentication.models import User
 from . import access, notifications
 from .collab_models import BoardComment, BoardPresence, CommentFollow, CommentRead, CommentReaction
+from .board_items import UUID_PATTERN
 from .services import now_ms
 
 MAX_BODY = 4000
@@ -138,7 +139,7 @@ def create(user, board, data):
     with transaction.atomic():
         if parent_id is not None:
             parent = BoardComment.objects.select_for_update().filter(pk=parent_id, board_id=board['id'], deleted_at__isnull=True).first() \
-                if isinstance(parent_id, str) and re.fullmatch(r'[0-9a-fA-F-]{36}', parent_id) else None
+                if isinstance(parent_id, str) and UUID_PATTERN.fullmatch(parent_id) else None
             if parent is None or parent.parent_id is not None:
                 raise CommentError('Thread not found.', 404)
             if BoardComment.objects.filter(parent=parent, deleted_at__isnull=True).count() >= MAX_REPLIES_PER_THREAD:
@@ -165,7 +166,7 @@ def create(user, board, data):
 
 def _live(board, comment_id):
     row = BoardComment.objects.filter(pk=comment_id, board_id=board['id'], deleted_at__isnull=True).first() \
-        if isinstance(comment_id, str) and re.fullmatch(r'[0-9a-fA-F-]{36}', comment_id) else None
+        if isinstance(comment_id, str) and UUID_PATTERN.fullmatch(comment_id) else None
     if row is None:
         raise CommentError('Comment not found.', 404)
     return row
@@ -251,7 +252,7 @@ def mark_read(user, board, ids=None, unread=False):
     """Mark the given comments (a thread's, when it is opened) or every comment on the board read, or unread."""
     rows = BoardComment.objects.filter(board_id=board['id'], deleted_at__isnull=True).exclude(author_id=user.id)
     if ids is not None:
-        if not isinstance(ids, list) or len(ids) > 500 or not all(isinstance(i, str) and re.fullmatch(r'[0-9a-fA-F-]{36}', i) for i in ids):
+        if not isinstance(ids, list) or len(ids) > 500 or not all(isinstance(i, str) and UUID_PATTERN.fullmatch(i) for i in ids):
             raise CommentError('Invalid ids.')
         rows = rows.filter(pk__in=ids)
     found = list(rows.values_list('pk', flat=True))

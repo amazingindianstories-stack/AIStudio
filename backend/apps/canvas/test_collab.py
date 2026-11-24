@@ -115,6 +115,7 @@ class CollabTests(TransactionTestCase):
         self.as_user(self.mate)
         self.assertTrue(self.send('get', self.base + '/comments').json()['comments'][0]['read'])   # own comments are never unread
         self.assertEqual(self.send('post', self.base + '/comments/read', {'ids': ['bad']}).status_code, 400)
+        self.assertEqual(self.send('post', self.base + '/comments/read', {'ids': ['-' * 36]}).status_code, 400)
 
     def test_mentions_notify_once_and_follow_the_thread(self):
         _, root = self.post(self.mate, f'hello {mention(self.third)} and {mention(self.mate)}')
