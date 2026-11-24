@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -33,10 +32,4 @@ test("DropZone is keyboard reachable and disables when asked", () => {
   assert.match(render({ kind: "image" }), /role="button"[^>]*tabindex="0"|tabindex="0"[^>]*role="button"/);
   assert.match(render({ kind: "image", disabled: true }), /aria-disabled="true"/);
   assert.match(render({ kind: "video", uploading: true, progress: 40 }), /Uploading video… 40%/);
-});
-
-test("all four pickers use DropZone", () => {
-  for (const f of ["UpscalerComposer.jsx", "VideoUpscalerComposer.jsx", "DepthComposer.jsx", "AudioTranscriptionModal.jsx"]) {
-    assert.match(readFileSync(new URL(`./${f}`, import.meta.url), "utf8"), /<DropZone/);
-  }
 });

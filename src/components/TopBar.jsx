@@ -174,6 +174,7 @@ export function TopBar() {
           <button
             onClick={() => setAudioOpen(true)}
             aria-label="Audio transcription"
+            title="Audio transcription"
             className="relative flex items-center gap-1 rounded-lg px-1.5 py-1.5 text-sm font-medium text-white/70 transition-colors hover:bg-white/5 hover:text-white/90 sm:px-2.5"
           >
             <AudioLines className="h-4 w-4" strokeWidth={1.9} />
@@ -186,6 +187,7 @@ export function TopBar() {
             <button
               onClick={() => setView("agents")}
               aria-label="Agents"
+              title="Agents"
               aria-current={activeDestination === "agents" ? "page" : undefined}
               className={cn(
                 "relative flex items-center gap-1 rounded-lg px-1.5 py-1.5 text-sm font-medium transition-colors sm:px-2.5",

@@ -297,7 +297,6 @@ export function CanvasToolbar({
       {/* The dock centres in the free strip between the asset panel and the
           zoom control; below the desktop width it sits above the zoom control,
           and on phones its buttons shrink so every tool fits the width. */}
-      {!viewOnly && (
       <div
         className="pointer-events-none absolute bottom-4 right-60 z-30 flex justify-center transition-[left] duration-200 max-lg:bottom-[4.25rem] max-lg:right-4"
         style={{ left: insetLeft + 16 }}
@@ -307,6 +306,7 @@ export function CanvasToolbar({
         aria-label="Board tools"
         className="pointer-events-auto flex max-w-full items-center gap-1 overflow-x-auto rounded-2xl border border-line bg-ink-750/95 p-1.5 shadow-pop backdrop-blur-xl max-sm:gap-0.5 max-sm:p-1"
       >
+        {!viewOnly && (
         <ToolGroup>
           {NAVIGATION_TOOLS.map((id) => (
             <ToolButton
@@ -320,9 +320,17 @@ export function CanvasToolbar({
             />
           ))}
         </ToolGroup>
+        )}
 
-        {/* View and comment access: navigation only, no creation tools. */}
-        {!readOnly && (<>
+        {/* View and comment access and touch view mode: no creation tools, but the formats drawer still opens. */}
+        {(readOnly || viewOnly) && (<>
+        {!viewOnly && <Divider />}
+        <ToolGroup>
+          <FormatsButton />
+        </ToolGroup>
+        </>)}
+
+        {!readOnly && !viewOnly && (<>
         <Divider />
 
         <ToolGroup>
@@ -359,7 +367,6 @@ export function CanvasToolbar({
         </>)}
       </div>
       </div>
-      )}
 
       <ZoomControl />
     </>

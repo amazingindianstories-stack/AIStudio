@@ -32,10 +32,10 @@ async function withComposer(Component, state, run) {
 }
 
 // Tab to the drop zone and press Enter or Space: the hidden file input is clicked.
-async function assertKeyboardOpensChooser() {
+async function assertKeyboardOpensChooser(copy) {
   const zone = document.querySelector('[role="button"][tabindex="0"]');
   assert.ok(zone, "drop zone is a focusable button");
-  assert.match(zone.textContent, /Drop/);
+  assert.ok(zone.textContent.startsWith(copy), "the shared drop zone copy");
   const input = document.querySelector("input[type=file]");
   let clicks = 0;
   input.click = () => { clicks += 1; };
@@ -57,21 +57,21 @@ function assertModelTabsPressed() {
 
 test("image upscaler drop zone opens the file chooser from the keyboard and model tabs report pressed", async () => {
   await withComposer(UpscalerComposer, {}, async () => {
-    await assertKeyboardOpensChooser();
+    await assertKeyboardOpensChooser("Drop an image here or browse");
     assertModelTabsPressed();
   });
 });
 
 test("video upscaler drop zone opens the file chooser from the keyboard and model tabs report pressed", async () => {
   await withComposer(VideoUpscalerComposer, {}, async () => {
-    await assertKeyboardOpensChooser();
+    await assertKeyboardOpensChooser("Drop a video here or browse");
     assertModelTabsPressed();
   });
 });
 
 test("depth drop zone opens the file chooser from the keyboard and its error is announced", async () => {
   await withComposer(DepthComposer, {}, async () => {
-    await assertKeyboardOpensChooser();
+    await assertKeyboardOpensChooser("Drop a video here or browse");
     const input = document.querySelector("input[type=file]");
     const bad = new window.File(["x"], "notes.txt", { type: "text/plain" });
     Object.defineProperty(input, "files", { configurable: true, value: [bad] });

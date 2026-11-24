@@ -219,7 +219,7 @@ export function TalktrackButton({ boardId, activeProjectId, onOpenBoard }) {
         {recording && <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-red-500" />}
       </button>
       {open && (
-        <div role="menu" data-talktrack-panel="" className="absolute left-0 top-full z-50 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-2xl border border-line bg-ink-750/95 shadow-pop backdrop-blur-xl">
+        <div role="menu" data-talktrack-panel="" className="absolute left-0 top-full z-50 mt-2 w-80 max-w-[calc(100vw-2rem)] max-sm:fixed max-sm:left-4 max-sm:right-4 max-sm:top-24 max-sm:mt-0 max-sm:w-auto max-sm:max-w-none rounded-2xl border border-line bg-ink-750/95 shadow-pop backdrop-blur-xl">
           {editable && (
             <div className="border-b border-line p-3">
               <div className="mb-2 flex gap-1" role="radiogroup" aria-label="What to record">
