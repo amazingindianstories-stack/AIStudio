@@ -21,6 +21,7 @@ function ingressHeaders(req) {
   const headers = new Headers(req.headers);
   headers.delete("x-vercel-protection-bypass");
   headers.delete("x-vercel-set-bypass-cookie");
+  headers.delete("x-veevee-maintenance");
   headers.set("x-veevee-g4-ingress", ingressSecret);
   return headers;
 }
@@ -37,7 +38,6 @@ async function forwardMcp(req, readToggle) {
     const destination = mcpDestination(req.url, { origin: process.env.MCP_API_ORIGIN, allowLocal: process.env.DJANGO_API_ALLOW_LOCAL });
     const headers = ingressHeaders(req);
     headers.delete("cookie");
-    headers.delete("x-veevee-maintenance");
     if (state.enabled) headers.set("x-veevee-maintenance", "1");
     return NextResponse.rewrite(destination, { request: { headers }, headers: noStore });
   } catch {
@@ -49,9 +49,11 @@ async function forwardMcp(req, readToggle) {
 export function createMiddleware(readToggle) {
   return async function middleware(req) {
     const { pathname } = req.nextUrl;
+    let maintenanceEnabled = false;
     if (pathname === MCP_PATH) return forwardMcp(req, readToggle);
     if (pathname === "/api" || pathname.startsWith("/api/")) {
       const state = await readToggle();
+      maintenanceEnabled = !!state.enabled;
       const responseHeaders = { "Cache-Control": "no-store", "X-Veevee-Maintenance": state.enabled ? "1" : "0" };
       if (pathname === "/api/maintenance" && ["GET", "HEAD"].includes(req.method)) {
         return new NextResponse(req.method === "HEAD" ? null : JSON.stringify(state), {
@@ -70,6 +72,7 @@ export function createMiddleware(readToggle) {
       if (destination) {
         // Acceptance-only server credential: overwrite any caller-supplied value.
         const headers = ingressHeaders(req);
+        if (maintenanceEnabled) headers.set("x-veevee-maintenance", "1");
         const cookie = headers.get("cookie");
         if (cookie) headers.set("cookie", cookie.split(";").filter((part) => !["_vercel_jwt", "_vercel_protection_bypass"].includes(part.trim().split("=")[0])).join(";"));
         return NextResponse.rewrite(destination, { request: { headers } });

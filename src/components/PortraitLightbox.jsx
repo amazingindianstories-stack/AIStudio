@@ -26,6 +26,7 @@ export function PortraitLightbox({
   onAttach,
   onDelete,
   onRename,
+  interactive = true,
 }) {
   const [addedPrompt, setAddedPrompt] = useState(false);
   const [editingName, setEditingName] = useState(false);
@@ -53,8 +54,9 @@ export function PortraitLightbox({
 
   // Keyboard navigation
   useEffect(() => {
+    if (!interactive) return undefined;
     const onKeyDown = (e) => {
-      if (editingName || e.target?.matches?.("input, textarea, select")) return;
+      if (e.defaultPrevented || editingName || e.target?.matches?.("input, textarea, select")) return;
       if (e.key === "Escape") {
         e.stopPropagation();
         onClose();
@@ -68,7 +70,7 @@ export function PortraitLightbox({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [editingName, onClose, goToPrev, goToNext]);
+  }, [interactive, editingName, onClose, goToPrev, goToNext]);
 
   // Keep name input in sync with asset
   useEffect(() => {

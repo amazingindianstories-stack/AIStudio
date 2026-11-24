@@ -143,6 +143,10 @@ export function UpscalerComposer() {
         notify("Upscaler only accepts image generations.");
         return;
       }
+      if (firstItem.status !== "succeeded" || !firstItem.url) {
+        notify("Wait for the image to finish first.");
+        return;
+      }
       setUpscalerImage({
         url: firstItem.url,
         name: firstItem.prompt ? firstItem.prompt.slice(0, 50) : "Generation reference",

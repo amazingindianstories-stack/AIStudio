@@ -424,6 +424,7 @@ function PortraitGalleryDialog() {
           {preview && (
             <PortraitLightbox
               embedded
+              interactive={!pendingDelete}
               asset={preview}
               assets={items}
               onClose={() => setPreviewId(null)}

@@ -3411,5 +3411,5 @@ if (typeof window !== "undefined") {
       } catch {}
     }
   });
-  window.useStore = useStore;
+  if (process.env.NODE_ENV !== "production") window.useStore = useStore;
 }
