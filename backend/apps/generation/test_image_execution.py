@@ -3,12 +3,14 @@ import io
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase
 from PIL import Image
 
 from apps.generation.services.image_execution import Dependencies, execute_image, bounded_best_of, TASK_WAIT_MS
+from apps.integrations.errors import MediaTooLargeError
+from apps.integrations.remote import IMAGE_RESULT_MAX_BYTES
 from apps.integrations.transport import ProviderError
 from apps.generation.services.deadline import Cancellation, QueueExecutionDeadlineError
 from apps.media.storage import MemoryAdapter, StorageService
@@ -210,6 +212,31 @@ class ImageExecutionTests(SimpleTestCase):
         self.deps.kling_submit = Mock(return_value='accepted')
         self.deps.kling_resolve = Mock(side_effect=[{'status':'running'}, {'status':'succeeded','url':'https://fixture','unitDeduction':'10'}])
         self.deps.fetcher = Mock(return_value=(png(), 'image/png'))
+
+    def test_oversized_image_result_is_rejected_before_storage(self):
+        self.kling()
+        self.deps.fetcher = Mock(side_effect=MediaTooLargeError('Provider media exceeds the configured download limit.'))
+        with self.assertRaises(MediaTooLargeError):
+            self.execute(on_task=lambda task: None)
+        self.assertFalse(any(key.startswith('generations/fixture/') for key in self.adapter.objects))
+        self.assertEqual(self.item.cost_cents, 5)
+
+    def test_default_image_fetcher_applies_the_image_result_bound(self):
+        with patch('apps.generation.services.image_execution.get_media_fetcher') as get:
+            get.return_value = Mock(return_value=(b'x', 'image/png'))
+            self.assertEqual(Dependencies().fetcher('https://fixture'), (b'x', 'image/png'))
+        self.assertEqual(get.call_args.kwargs['max_bytes'], IMAGE_RESULT_MAX_BYTES)
+        self.assertEqual(IMAGE_RESULT_MAX_BYTES, 80 * 1024 * 1024)
+
+    def test_layered_seedream_result_with_an_oversized_layer_stores_nothing(self):
+        from apps.generation.providers.seedream import _download_layers
+        data = [{'url': 'https://fixture/base.png'}, {'url': 'https://fixture/one.png', 'z_index': 1}]
+        fetch = Mock(side_effect=[(png(), 'image/png'), MediaTooLargeError('too big')])
+        response = SimpleNamespace(status=200, text='', headers={})
+        with patch('apps.generation.providers.seedream.parse_layers', return_value=[(data[0], data[0]['url']), (data[1], data[1]['url'])]):
+            with self.assertRaises(ProviderError) as raised:
+                _download_layers(data, response, None, fetch)
+        self.assertEqual(raised.exception.code, 'output_download_failed')
 
     def test_kling_receipt_precedes_poll_and_reconciles(self):
         self.kling()

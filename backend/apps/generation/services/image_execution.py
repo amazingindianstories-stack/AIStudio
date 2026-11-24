@@ -14,7 +14,7 @@ from apps.generation.prompting.assembler import assemble_prompt
 from apps.generation.prompting import image_prep, face_judge
 from apps.generation.providers import gemini, kling, openai_image, seedream, higgsfield
 from apps.media.persistence import measure_generated_media
-from apps.integrations.remote import get_media_fetcher
+from apps.integrations.remote import IMAGE_RESULT_MAX_BYTES, get_media_fetcher
 from apps.media.storage import get_storage
 from .pricing import read_pricing, compute_cost, kling_units_to_cents, openai_token_cost
 from .seedream_references import prepare_seedream_references
@@ -55,7 +55,7 @@ class Dependencies:
     read_pricing = staticmethod(read_pricing)
     storage = staticmethod(get_storage)
     def fetcher(self, url):
-        return get_media_fetcher(signal=self.signal)(url)
+        return get_media_fetcher(signal=self.signal, max_bytes=IMAGE_RESULT_MAX_BYTES)(url)
     now = staticmethod(now_ms)
     monotonic = staticmethod(time.monotonic)
     random_seed = staticmethod(lambda: random.randrange(2147483647))
