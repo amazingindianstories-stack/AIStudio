@@ -69,7 +69,7 @@ def login(request):
     if not email or not password:
         return Response({'error':'Email and password are required.'},status=400)
     if len(str(email)) > MAX_IDENTIFIER_LENGTH:
-        return Response({'error':'Email and password are required.'},status=400)
+        return Response({'error':'Email is too long.'},status=400)
     address=address_key(request)
     throttle=check(email,address_key=address)
     if not throttle['allowed']:

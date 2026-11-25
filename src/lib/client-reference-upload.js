@@ -112,6 +112,7 @@ export async function uploadFileDirect(file, purpose, {
   attempts = 3, fetchImpl = fetch, signal, onProgress, sha256,
   resumeUploadId,
   timeoutMs = 120000, metadataTimeoutMs = 30000, retryDelayMs = 250,
+  verifyTimeoutMs = 180000, verifyPollMs = 2000,
 } = {}) {
   const contentType = uploadContentType(file);
   if (!contentType) throw new Error(`Could not determine the file type for ${file?.name || "this file"}.`);
@@ -209,7 +210,8 @@ export async function uploadFileDirect(file, purpose, {
       }
     }
     onProgress?.({ uploadedBytes: file.size, totalBytes: file.size, state: "verifying" });
-    for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const verifyDeadline = Date.now() + verifyTimeoutMs;
+    for (let attempt = 0; attempt < attempts;) {
       try {
         const ready = await jsonRequest(fetchImpl, `/api/uploads/${session.uploadId}/finalize`,
           { version: 1 }, signal, metadataTimeoutMs);
@@ -220,8 +222,14 @@ export async function uploadFileDirect(file, purpose, {
         return ready;
       } catch (error) {
         abortCheck(signal);
-        if (error.retryable === false || attempt + 1 >= attempts) throw error;
-        await pause(retryDelayMs * 2 ** attempt, signal);
+        // An earlier finalize is still hashing the object; wait for it instead of failing the upload.
+        if (error.code === "UPLOAD_VERIFYING" && Date.now() < verifyDeadline) {
+          await pause(verifyPollMs, signal);
+          continue;
+        }
+        attempt += 1;
+        if (error.retryable === false || attempt >= attempts) throw error;
+        await pause(retryDelayMs * 2 ** (attempt - 1), signal);
       }
     }
   } catch (error) {

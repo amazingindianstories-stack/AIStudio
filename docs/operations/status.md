@@ -660,6 +660,13 @@ more than one layer blocking it:
   face judge: it is the number of candidates generated per request (spend admission multiplies the estimate by it,
   capped at 4, default 2 when unset or invalid; the image executor bounds the count by image size). The production
   value is not recorded here: the owner must confirm it.
+- **VEEVEE_ADDRESS_RATE_LIMITS** (API env, off unless `1`). Switches on the per-address login bucket (50 failed
+  logins per 15 min across all e-mails) and the OAuth register (20/hour) and token per-address limits. Off by default:
+  they key on the last non-loopback `X-Forwarded-For` entry, and which entry holds the client after the Vercel and
+  Railway hops on Green is not yet confirmed; if it were a proxy address, every artist would share one bucket. The
+  per-account login throttle stays on either way. Turn it on only after the owner confirms that header chain.
+- **Push cutoff**: migration `canvas.0020_notification_push_cutoff` marks every notification that exists when it runs
+  as pushed, so the new push sender (which pushes unpushed notifications up to 7 days old) sends no stale pushes.
 - **Upload keys outside `uploads/canvas/`**: the BE-006 rule hides stored SVG only for the canvas namespace. Older
   pre-session upload keys outside `uploads/canvas/` stay readable by design and are not rewritten.
 

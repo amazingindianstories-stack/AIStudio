@@ -73,6 +73,14 @@ def folder_mutation(request, user):
                 destination.get('folderId') and not visibility.can_see_folder(user, destination['folderId']))
         if hidden:
             return renew(request, Response({'error': 'Not found.', 'code': 'NOT_FOUND'}, status=404))
+        from apps.canvas import access
+        from apps.projects.services.projects import require_folder_level, require_level
+        require_level(user, body.get('projectId'), access.EDIT)
+        for value in (body.get('parentId'), body.get('id'), body.get('folderId')):
+            require_folder_level(user, value, access.EDIT)
+        if isinstance(destination, dict):
+            require_level(user, destination.get('projectId'), access.EDIT)
+            require_folder_level(user, destination.get('folderId'), access.EDIT)
         if request.method == 'POST':
             result = {'folder': service.create_folder(name=body.get('name'), color=body.get('color'),
                 project_id=body.get('projectId') or None, parent_id=body.get('parentId') or None, **common)}

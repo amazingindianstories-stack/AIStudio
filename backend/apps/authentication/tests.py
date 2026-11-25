@@ -1,5 +1,5 @@
 from testsupport.frozen_oracle import run as oracle_run
-from django.test import TransactionTestCase
+from django.test import TransactionTestCase, override_settings
 from apps.admin_dashboard.tests import SettingsTests
 
 class CurrentUserTests(TransactionTestCase):
@@ -109,8 +109,10 @@ class LoginApiTests(TransactionTestCase):
         from .models import LoginAttempt
         response=self.client.post('/api/auth/login',{'email':'a'*290+'@example.invalid','password':'wrong'},content_type='application/json')
         self.assertEqual(response.status_code,400)
+        self.assertEqual(response.json(),{'error':'Email is too long.'})
         self.assertEqual(LoginAttempt.objects.count(),0)
 
+    @override_settings(VEEVEE_ADDRESS_RATE_LIMITS=True)
     def test_address_bucket_limits_rotating_emails(self):
         from .models import LoginAttempt
         for index in range(50):
@@ -124,6 +126,18 @@ class LoginApiTests(TransactionTestCase):
         other=self.client.post('/api/auth/login',{'email':'rotating-last@example.invalid','password':'wrong'},
                                content_type='application/json',HTTP_X_FORWARDED_FOR='198.51.100.8')
         self.assertEqual(other.status_code,401)
+
+    def test_address_bucket_is_off_by_default_and_the_account_bucket_stays(self):
+        from .models import LoginAttempt
+        for index in range(51):
+            response=self.client.post('/api/auth/login',{'email':f'rotating{index}@example.invalid','password':'wrong'},
+                                      content_type='application/json',HTTP_X_FORWARDED_FOR='198.51.100.7')
+            self.assertEqual(response.status_code,401)
+        self.assertFalse(LoginAttempt.objects.filter(identifier__startswith='ip:').exists())
+        for _ in range(4):
+            self.client.post('/api/auth/login',{'email':'rotating0@example.invalid','password':'wrong'},content_type='application/json')
+        response=self.client.post('/api/auth/login',{'email':'rotating0@example.invalid','password':'wrong'},content_type='application/json')
+        self.assertEqual(response.status_code,429)
 
     def test_missing_credentials(self):
         response=self.client.post('/api/auth/login',{},content_type='application/json')

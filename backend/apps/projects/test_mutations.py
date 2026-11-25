@@ -102,3 +102,35 @@ class ProjectMutationTests(TransactionTestCase):
         listed = [row for row in self.client.get('/api/projects').json()['projects'] if row['name'] == 'U']
         self.assertEqual(len(listed), 1)
         self.assertIn('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', listed[0]['accessUserIds'])
+
+    def test_folder_api_applies_the_same_project_role_gate(self):
+        from apps.library.models import Folder
+        from .models import ProjectMember
+        self.cookie()
+        other = self._other_user()
+        me = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+        project = Project.objects.create(name='P', created_by=str(other.id), created_at=1, updated_at=1)
+        open_project = Project.objects.create(name='O', created_at=1, updated_at=1)
+        ProjectMember.objects.create(project=project, user_id=str(other.id), role='owner', created_at=1, updated_at=1)
+        ProjectMember.objects.create(project=project, user_id=me, role='viewer', created_at=1, updated_at=1)
+        folder = create_folder(project_id=str(project.id), name='F')
+        mine = create_folder(project_id=str(open_project.id), name='M')
+
+        def send(method, payload):
+            return getattr(self.client, method)('/api/folders', payload, content_type='application/json')
+
+        for method, payload in (('post', {'projectId': str(project.id), 'name': 'N'}),
+                                ('post', {'parentId': folder['id'], 'name': 'N'}),
+                                ('patch', {'id': folder['id'], 'name': 'G'}),
+                                ('patch', {'id': folder['id'], 'color': 'red'}),
+                                ('patch', {'id': folder['id'], 'action': 'renameGenerations', 'previewToken': 'x'}),
+                                ('patch', {'id': mine['id'], 'destination': {'type': 'folder', 'folderId': folder['id']}}),
+                                ('patch', {'id': mine['id'], 'destination': {'type': 'project_root', 'projectId': str(project.id)}}),
+                                ('patch', {'id': folder['id'], 'destination': {'type': 'project_root', 'projectId': str(open_project.id)}})):
+            response = send(method, payload)
+            self.assertEqual((response.status_code, response.json()['code']), (403, 'FORBIDDEN'), (method, payload))
+        self.assertEqual(Folder.objects.get(pk=folder['id']).name, 'F')
+        self.assertEqual(str(Folder.objects.get(pk=mine['id']).project_id), str(open_project.id))
+        ProjectMember.objects.filter(project=project, user_id=me).update(role='editor')
+        self.assertEqual(send('patch', {'id': folder['id'], 'name': 'G'}).status_code, 200)
+        self.assertEqual(send('patch', {'id': folder['id'], 'color': 'red'}).status_code, 200)

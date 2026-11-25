@@ -310,6 +310,7 @@ class DiscoveryAndRegistrationTests(AgentAccessCase):
         self.assertFalse(McpClient.objects.exists())
         self.assertFalse(McpRateWindow.objects.exists())
 
+    @override_settings(VEEVEE_ADDRESS_RATE_LIMITS=True)
     def test_registration_is_rate_limited_per_address_and_unused_clients_expire(self):
         body = {'redirect_uris': [LOOPBACK]}
         for _ in range(20):
@@ -324,6 +325,7 @@ class DiscoveryAndRegistrationTests(AgentAccessCase):
         self.assertEqual(purge_expired()['clients'], 20)
         self.assertEqual(McpClient.objects.count(), 1)
 
+    @override_settings(VEEVEE_ADDRESS_RATE_LIMITS=True)
     def test_register_rate_limit_ignores_x_real_ip(self):
         body = {'redirect_uris': [LOOPBACK]}
         for index in range(20):
@@ -331,6 +333,12 @@ class DiscoveryAndRegistrationTests(AgentAccessCase):
             self.assertEqual(response.status_code, 201)
         limited = self.post_json('/api/oauth/register', body, HTTP_X_FORWARDED_FOR='203.0.113.50', HTTP_X_REAL_IP='192.0.2.99')
         self.assertEqual(limited.status_code, 429)
+
+    def test_address_rate_limits_are_off_by_default(self):
+        body = {'redirect_uris': [LOOPBACK]}
+        for _ in range(21):
+            self.assertEqual(self.post_json('/api/oauth/register', body, HTTP_X_FORWARDED_FOR='203.0.113.9').status_code, 201)
+        self.assertFalse(McpRateWindow.objects.exists())
 
     def test_client_address_takes_the_last_non_loopback_forwarded_entry(self):
         from django.test import RequestFactory
@@ -627,6 +635,7 @@ class AuthorizationFlowTests(AgentAccessCase):
         self.assertEqual((unknown_client.status_code, unknown_client.json()['error']), (401, 'invalid_client'))
         self.assertEqual(self.token(grant_type='password').json()['error'], 'unsupported_grant_type')
 
+    @override_settings(VEEVEE_ADDRESS_RATE_LIMITS=True)
     def test_token_rate_limit_is_per_client_and_address(self):
         def attempt(address):
             return self.client.post('/api/oauth/token', urlencode({'client_id': self.app['client_id'], 'grant_type': 'refresh_token',

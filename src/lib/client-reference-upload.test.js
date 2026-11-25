@@ -145,3 +145,28 @@ test('resume rejects a different filename before storage bytes or finalize', asy
   }}), /does not match/);
   assert.equal(calls, 1);
 });
+
+test('a finalize retry that meets an earlier verification still running waits for it', async () => {
+  let finalize = 0, storage = 0;
+  const result = await uploadFileDirect(file, 'video-reference', { retryDelayMs: 0, verifyPollMs: 0, fetchImpl: async (url) => {
+    if (url === '/api/uploads/init') return reply(200, session);
+    if (url.endsWith('/finalize')) {
+      finalize++;
+      if (finalize === 1) throw new Error('Upload request timed out.');
+      return finalize <= 6 ? reply(409, { error: 'UPLOAD_VERIFYING' }) : reply(200, ready);
+    }
+    return ++storage === 1 ? reply(308, {}, 'bytes=0-8388607') : reply(201);
+  } });
+  assert.equal(result.ref, ready.ref);
+  assert.equal(finalize, 7);
+});
+
+test('a verification that never finishes fails once the verify window ends', async () => {
+  let storage = 0;
+  await assert.rejects(uploadFileDirect(file, 'video-reference', { retryDelayMs: 0, verifyPollMs: 0, verifyTimeoutMs: 0,
+    fetchImpl: async (url) => {
+      if (url === '/api/uploads/init') return reply(200, session);
+      if (url.endsWith('/finalize')) return reply(409, { error: 'UPLOAD_VERIFYING' });
+      return ++storage === 1 ? reply(308, {}, 'bytes=0-8388607') : reply(201);
+    } }), (error) => error.code === 'UPLOAD_VERIFYING');
+});

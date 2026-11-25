@@ -422,3 +422,32 @@ class PushTests(TransactionTestCase):
         public = ec.derive_private_key(7, ec.SECP256R1()).public_key()
         public.verify(encode_dss_signature(int.from_bytes(raw[:32], 'big'), int.from_bytes(raw[32:], 'big')),
                       f'{head}.{claims}'.encode(), ec.ECDSA(hashes.SHA256()))
+
+
+class PushCutoffMigrationTests(TransactionTestCase):
+    """canvas.0020 marks notifications that exist before the release as pushed, so none is pushed late."""
+
+    def migrate(self, target):
+        from django.db import connection
+        from django.db.migrations.executor import MigrationExecutor
+        executor = MigrationExecutor(connection)
+        executor.migrate([target])
+        return executor.loader.project_state([target]).apps
+
+    def tearDown(self):
+        self.migrate(('canvas', '0020_notification_push_cutoff'))
+
+    def test_existing_unpushed_notifications_are_never_pushed(self):
+        old = self.migrate(('canvas', '0019_format_payloads'))
+        Old = old.get_model('canvas', 'Notification')
+        user = uuid4()
+        waiting = Old.objects.create(user_id=user, board_id=BOARD, kind='mention', created_at=1000, snippet='s')
+        done = Old.objects.create(user_id=user, board_id=BOARD, kind='mention', created_at=1000, snippet='d', pushed_at=7)
+        self.migrate(('canvas', '0020_notification_push_cutoff'))
+        self.assertIsNotNone(Notification.objects.get(pk=waiting.pk).pushed_at)
+        self.assertEqual(Notification.objects.get(pk=done.pk).pushed_at, 7)
+        PushSubscription.objects.create(user_id=user, endpoint=ENDPOINT, created_at=1)
+        sent = []
+        with PushTests.configure(self):
+            self.assertEqual(push.send_pending(now=2000, post=lambda e, h: sent.append(e) or MagicMock(status_code=201))['sent'], 0)
+        self.assertEqual(sent, [])

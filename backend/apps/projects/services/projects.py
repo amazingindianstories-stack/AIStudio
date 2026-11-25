@@ -73,6 +73,17 @@ def require_level(user, project_id, level):
         raise OrganizationError('FORBIDDEN', 'Only project owners, co-owners and admins can do this.', 403)
 
 
+def require_folder_level(user, folder_id, level):
+    """The project role gate for a mutation that names a folder, applied to the folder's project."""
+    if not folder_id:
+        return
+    try:
+        project_id = Folder.objects.filter(pk=folder_id).values_list('project_id', flat=True).first()
+    except visibility.MALFORMED:
+        return
+    require_level(user, project_id, level)
+
+
 def create_project(name, actor_id=None, access='all', access_user_ids=None, user=None):
     access_user_ids = [] if access_user_ids is None else access_user_ids
     if access == 'admin' and user is not None and user.role != 'admin':

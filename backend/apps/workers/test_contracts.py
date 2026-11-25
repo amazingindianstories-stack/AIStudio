@@ -266,6 +266,22 @@ class DepthContractTests(TransactionTestCase):
                 scheduler.tick(now=1000000 + step * 1000, handlers=handlers)
         self.assertEqual(claimed.count('depth'), 2)
 
+    def test_a_failed_claim_leaves_the_slot_due_for_the_next_tick(self):
+        attempts = []
+        def claim(key, owner, *, now, ttl_ms):
+            attempts.append(now)
+            if len(attempts) == 1:
+                raise RuntimeError('connection dropped')
+            return False
+        next_due = {}
+        with patch('apps.workers.scheduler.leases.claim', claim):
+            with self.assertRaises(RuntimeError):
+                scheduler.tick(now=1000000, handlers={'login': lambda: {}}, next_due=next_due)
+            self.assertNotIn('login', next_due)
+            scheduler.tick(now=1001000, handlers={'login': lambda: {}}, next_due=next_due)
+            scheduler.tick(now=1002000, handlers={'login': lambda: {}}, next_due=next_due)
+        self.assertEqual(attempts, [1000000, 1001000])
+
     def test_video_due_selection_counts_errors_and_lease(self):
         now = 1000000
         rows = [self.row(kind='video',task_id=f't{i}',updated_at=now+i,next_poll_at=now) for i in range(6)]

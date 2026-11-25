@@ -3,6 +3,8 @@ client address to X-Forwarded-For; earlier entries and X-Real-IP are client-cont
 import hashlib
 import ipaddress
 
+from django.conf import settings
+
 
 def _is_loopback(value):
     try:
@@ -20,4 +22,7 @@ def client_ip(request):
 
 
 def address_key(request):
+    """The address bucket key, or None while VEEVEE_ADDRESS_RATE_LIMITS is off."""
+    if not settings.VEEVEE_ADDRESS_RATE_LIMITS:
+        return None
     return hashlib.sha256(client_ip(request).encode()).hexdigest()[:32]

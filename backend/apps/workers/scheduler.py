@@ -145,12 +145,13 @@ def tick(*, now=None, handlers=None, next_due=None):
         # retried until the next aligned boundary; other callers claim every slot, as before.
         if next_due is not None and now < next_due.get(name, 0):
             continue
-        if next_due is not None:
-            next_due[name] = now + period - (now - offset) % period
         # Stable keys prevent an unbounded accumulation of per-slot settings.
         # Expiry is the next aligned slot; a second replica in this slot loses.
         owner = str(uuid.uuid4())
-        if leases.claim(f'lease:scheduler:{name}', owner, now=now, ttl_ms=period-(now-offset)%period):
+        won = leases.claim(f'lease:scheduler:{name}', owner, now=now, ttl_ms=period-(now-offset)%period)
+        if next_due is not None:
+            next_due[name] = now + period - (now - offset) % period
+        if won:
             try:
                 results[name] = handlers[name]()
             except Exception:
