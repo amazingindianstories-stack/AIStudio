@@ -10,4 +10,3 @@ def equal(actual, expected):
 def worker_authorized(request):
     match = re.fullmatch(r'Bearer\s+(.+)', request.headers.get('Authorization', ''), re.IGNORECASE)
     return bool(match) and equal(match[1], getattr(settings, 'DEPTH_WORKER_TOKEN', ''))
-
