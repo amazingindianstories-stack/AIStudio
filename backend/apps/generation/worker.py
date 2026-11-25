@@ -29,21 +29,32 @@ def release_freed_memory():
         pass
 
 
+# A stop (deploy or restart) lets a paid provider call that has no receipt yet finish for this long, inside Railway's
+# 120-second drain; cutting it off would fail a generation the provider is still rendering and billing.
+SHUTDOWN_DRAIN_SECONDS = 90
+
+
 class WorkerCancellation(Cancellation):
-    def __init__(self, stop, timeout_ms=QUEUE_EXECUTION_DEADLINE_MS):
+    def __init__(self, stop, timeout_ms=QUEUE_EXECUTION_DEADLINE_MS, *, drain_seconds=SHUTDOWN_DRAIN_SECONDS):
         super().__init__(timeout_ms)
         self.stop = stop
+        self.drain_seconds = drain_seconds
+        self.stop_seen = None
 
     def check(self):
-        if self.stop.is_set():
-            self.cancelled.set()
+        if self.stop.is_set() and not self.cancelled.is_set():
+            now = time.monotonic()
+            self.stop_seen = self.stop_seen or now
+            if not (self.shielded and self.request_started) or now - self.stop_seen >= self.drain_seconds:
+                self.cancel('shutdown')
         super().check()
 
     def wait(self, milliseconds):
         until = time.monotonic() + milliseconds / 1000
         self.check()
         while time.monotonic() < until:
-            self.stop.wait(min(.1, until - time.monotonic(), self.remaining()))
+            # Short slices: a shielded call keeps running through a stop, so the stop event cannot be the sleep.
+            self.cancelled.wait(min(.1, until - time.monotonic(), self.remaining()))
             self.check()
 
 

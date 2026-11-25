@@ -54,6 +54,8 @@ class HttpTransport:
         # No retries on ambiguous POST failure and no redirect credential leak.
         # Session.trust_env=False also avoids checkout proxy/.netrc credentials.
         from .request_deadline import SocketDeadline, deadline_adapter
+        if signal is not None:
+            signal.request_started = True     # from here a failure may have reached (and been billed by) the provider
         with SocketDeadline(deadline, signal=signal) as guard:
             try:
                 with requests.Session() as session:

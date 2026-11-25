@@ -5,6 +5,7 @@ import math
 import os
 import secrets
 import threading
+import time
 from uuid import uuid4
 
 from django.db import connections, transaction, OperationalError, InterfaceError
@@ -15,7 +16,7 @@ from apps.generation.models import Generation
 from apps.generation.realtime import publish_best_effort
 from apps.library.services.naming import assign_generation_naming, same_execution_identity
 from . import admission, coordinator, paid_guard, poller
-from .deadline import Cancellation
+from .deadline import Cancellation, QueueExecutionCancelledError, NOT_SENT_MESSAGE
 from . import image_execution
 from .video_execution import submit_video
 from . import portrait_prepare
@@ -50,22 +51,52 @@ def video_best_of(item, env):
 
 
 class LeaseHeartbeat:
-    def __init__(self, item, owner, cancellation, *, interval=15, ttl_ms=60000):
+    """Renews the row's lease while a worker thread owns it.
+
+    A renewal that cannot reach the database is retried, not treated as a lost lease: the database is the shared
+    resource that runs out of connections under load, and cancelling provider work because a heartbeat could not
+    connect fails a generation that is still healthy. Only a renewal that ran and found the row no longer ours
+    cancels at once; an unverifiable lease cancels once it has been unrenewable for a whole TTL, which is when
+    another worker may legitimately claim the row."""
+    RETRY_SECONDS = 2
+
+    def __init__(self, item, owner, cancellation, *, interval=15, ttl_ms=60000, retry=None):
         self.item, self.owner, self.cancellation = item, owner, cancellation
         self.interval, self.ttl_ms = interval, ttl_ms
+        self.retry = self.RETRY_SECONDS if retry is None else retry
         self.stop = threading.Event()
+
+    def _renew(self):
+        return Generation.objects.filter(pk=self.item.id, worker_lease_id=self.owner,
+            status='running').update(worker_lease_until=now_ms() + self.ttl_ms)
+
+    def _cancel(self, reason):
+        cancel = getattr(self.cancellation, 'cancel', None)
+        if cancel:
+            cancel(reason)
+        else:
+            self.cancellation.cancelled.set()
 
     def __enter__(self):
         def beat():
+            renewed_at = time.monotonic()
+            wait = self.interval
             try:
-                while not self.stop.wait(self.interval):
-                    renewed = Generation.objects.filter(pk=self.item.id, worker_lease_id=self.owner,
-                        status='running').update(worker_lease_until=now_ms() + self.ttl_ms)
+                while not self.stop.wait(wait):
+                    try:
+                        renewed = self._renew()
+                    except Exception as error:
+                        connections.close_all()     # reconnect on the next try
+                        if time.monotonic() - renewed_at >= self.ttl_ms / 1000:
+                            logger.error('generation lease could not be renewed for a full TTL error_type=%s', type(error).__name__)
+                            self._cancel('lease_unverified')
+                            return
+                        wait = self.retry
+                        continue
                     if not renewed:
-                        self.cancellation.cancelled.set()
+                        self._cancel('lease_lost')
                         return
-            except Exception:
-                self.cancellation.cancelled.set()
+                    renewed_at, wait = time.monotonic(), self.interval
             finally:
                 connections.close_all()
         self.thread = threading.Thread(target=beat, name='generation-lease', daemon=True)
@@ -154,6 +185,7 @@ def _execute_admitted(item, *, owner, signal=None, image_execute=None, video_sub
         if not isinstance(task_id, str) or not task_id:
             raise ValueError('Provider returned an invalid task receipt.')
         accepted.append(task_id)
+        signal.shielded = False     # accepted work resumes by polling after a stop; nothing left to wait for here
         timestamp = now_ms()
         update = {'task_id': accepted[0], 'candidate_task_ids': accepted[1:] if requested_count > 1 else None,
             'submitted_at': timestamp, 'next_poll_at': timestamp + 5000,
@@ -195,6 +227,9 @@ def _execute_admitted(item, *, owner, signal=None, image_execute=None, video_sub
 
     # Work errors are caught here. The following success persistence remains
     # outside the catch so a DB failure never becomes a provider-failed row.
+    # Until the provider's receipt is stored, a worker stop waits (bounded) for this call: a restart must not
+    # fail, and cannot safely resubmit, a paid request the provider is already rendering.
+    signal.shielded = not item.task_id
     try:
         if item.kind == 'video':
             updates = video_submit(item, signal=signal, on_task=on_task, count=count, env=env)
@@ -203,13 +238,17 @@ def _execute_admitted(item, *, owner, signal=None, image_execute=None, video_sub
         else:
             updates = image_execute(item, signal=signal, on_task=on_task, env=env)
         signal.check()
+        signal.shielded = False
     except LeaseLost:
+        signal.shielded = False
         return {'kind': 'raced'}
     except ReceiptPersistenceError:
+        signal.shielded = False
         bounded_event(expected, phase='task_receipt', error_code='task_receipt_persistence_failed',
             persisted=False, event='generation_persistence_failure')
         raise
     except Exception as error:
+        signal.shielded = False
         # An accepted asynchronous task is useful work, even when later
         # candidates, request cancellation, or local storage failed. Only the
         # provider ending that task (error.terminal) settles it as failed.
@@ -248,7 +287,10 @@ def _execute_admitted(item, *, owner, signal=None, image_execute=None, video_sub
             failure['error'] = portrait_prepare.REJECTED_MESSAGE     # a face the detector missed is now a portrait; Retry sends it as one
         if item.kind == 'video' and not expected.task_id:
             failure['provider_status'] = None
-        if not terminal and submission_uncertain(error):
+        if isinstance(error, QueueExecutionCancelledError) and not signal.request_started:
+            # Interrupted while preparing, before any provider request went out: nothing can have been billed.
+            failure['error'] = NOT_SENT_MESSAGE
+        elif not terminal and submission_uncertain(error):
             # The provider may have accepted (and billed) this request. Keep the
             # evidence and say so; nothing here ever re-submits automatically.
             if item.kind == 'video' and not expected.task_id:

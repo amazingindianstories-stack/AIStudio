@@ -24,7 +24,9 @@ BUSY = 'This model is busy or out of capacity right now. Try again in a few minu
 UNAVAILABLE = "This model isn't available right now. Choose another model or try again later."
 TIME_LIMIT = 'Our 30-minute generation time limit was reached before the result arrived. The provider may still finish; check before retrying.'
 DROPPED = 'The connection to the provider dropped before the result arrived. Retry the generation.'
-INTERRUPTED = 'The server was interrupted before this generation finished. Retry it.'
+INTERRUPTED = ('The server was interrupted while this generation was running. The provider may still have created it, '
+               'so check your library before retrying.')
+NOT_SENT = 'The server was interrupted before this generation reached the provider, so nothing was charged. Retry it.'
 PORTRAIT_ASSET = ('A portrait reference could not be used by the video provider. Open it in the Portrait Gallery to '
                   'check it, or remove it from the references, then try again.')
 PORTRAIT_UNREGISTERED = ("A Gallery portrait in your references isn't ready for video. Open the Portrait Gallery to "
@@ -110,7 +112,7 @@ def _curated():
         'Use an uploaded or stored original image as the reference.',
         'Provider reported success but returned no video.', 'Omni reported success but returned no video.',
         'All candidates failed to generate.', AUDIO_INPUT_INVALID, audio_submission.AUDIO_UNCERTAIN_MESSAGE, *audio_submission.INVALID_INPUT_MESSAGES,
-        FACE_GALLERY, COPYRIGHT, POLICY, MODERATION_BLOCKED, AUDIO, BUSY, UNAVAILABLE, DROPPED, INTERRUPTED, PORTRAIT_ASSET,
+        FACE_GALLERY, COPYRIGHT, POLICY, MODERATION_BLOCKED, AUDIO, BUSY, UNAVAILABLE, DROPPED, INTERRUPTED, NOT_SENT, PORTRAIT_ASSET,
         PORTRAIT_UNREGISTERED, DRAFT, RATIO_DURATION, IMAGE_REJECTED, NO_IMAGE, NO_VIDEO, CLIP_PREPARE, UPSCALE_FAILED,
         UPSCALE_BUSY, AUDIO_REJECTED, TEXT_UNUSABLE,
         *GENERIC.values(), *PROVIDER_ERROR.values(),
@@ -145,6 +147,7 @@ RULES = (
     (re.compile(r'api key not valid|invalid api key|api_key_invalid|InvalidEndpointOrModel|NotFound|\(404|do not have access|'
                 r'ModelNotOpen|model access failed|authentication|reauthenticat|gcloud auth|token family|no higgsfield mcp token|'
                 r'unauthori[sz]ed|forbidden|is not set|\(40[13]\b', re.I), UNAVAILABLE),
+    (re.compile(r'interrupted before this generation reached the provider', re.I), NOT_SENT),
     (re.compile(r'server process was interrupted', re.I), INTERRUPTED),
     (re.compile(r'timed out|timeout|connection (?:aborted|reset|ended|error|closed)|socket hang up|fetch failed|'
                 r'deadline|econnreset|etimedout|enotfound|interrupted|remote end closed|broken pipe', re.I), DROPPED),

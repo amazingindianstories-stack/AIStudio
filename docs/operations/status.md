@@ -857,8 +857,16 @@ REL-03 now checks survival beyond 270 seconds and expiry at 30 minutes. The diag
 code remains `queue_execution_deadline`; public copy attributes expiry to our time limit.
 Cooperative interruption uses `queue_execution_cancelled` so shutdown does not falsely
 claim the 30-minute time limit elapsed.
-The Railway generation drain remains 120 seconds. A deploy or restart interrupts jobs
-still within their 30 minutes; release only after queued/running work has emptied.
+The Railway generation drain remains 120 seconds. A deploy or restart now lets a synchronous paid
+provider call that is on the wire (no receipt yet) finish for up to 90 seconds before cancelling it;
+anything longer, and any call still preparing, is interrupted. Release only after queued/running work has emptied.
+Interruption incident, 2026-11-24 (629 `queue_execution_cancelled`, mostly Seedream 5.0 Pro): not a deploy.
+PostgreSQL ran out of connections (max 30), the per-job lease heartbeat could not reconnect, and it cancelled a
+healthy in-flight provider call about 10 seconds in. The heartbeat now retries on database errors and cancels
+only after a full lease TTL without a renewal or when another owner holds the lease. A failure says
+"nothing was sent and nothing was charged" only when no request had gone on the wire; otherwise it says the
+provider may still have accepted it. A claimed paid job is never resubmitted automatically (one-shot paid-guard ledger).
+Infra follow-up (needs owner decision): raise Postgres `max_connections` or add a pooler, and shorten idle API connections.
 This is offline regression evidence only, with no live provider acceptance or release.
 
 Local validation: 92 targeted PostgreSQL tests passed for started deadlines, real
