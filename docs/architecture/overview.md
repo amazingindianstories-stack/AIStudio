@@ -13,12 +13,13 @@ flowchart LR
   subgraph Railway Green
     Gateway --> API[Django API / gunicorn]
     McpGateway --> MCP[MCP service / uvicorn]
-    MCP --> PG
-    Gen[Generation worker] --> PG[(PostgreSQL 18)]
-    Export[Export worker] --> PG
-    Sched[Scheduler] --> PG
-    AgentW[Agent worker] --> PG
-    API --> PG
+    MCP --> Pool
+    Gen[Generation worker] --> Pool
+    Export[Export worker] --> Pool
+    Sched[Scheduler] --> Pool
+    AgentW[Agent worker] --> Pool
+    API --> Pool
+    Pool[PgBouncer, transaction mode] --> PG[(PostgreSQL 18)]
   end
   Gen --> Providers[Gemini, Seedream, Seedance, Kling, OpenAI, Magnific, ...]
   AgentW -->|agent loop only| Gemini[Gemini]
@@ -42,6 +43,7 @@ flowchart LR
 | Agent worker | `apps/agents` (`agent_worker`) | Advances the Agents tab's durable runs (`agent_runs`): Gemini loop calls through the pinned agent transport and in-process tool calls as the user's agent grant, with leases, a step journal and resume. Started by `python -m deploy.entrypoint agent`; API database role, `GOOGLE_API_KEY` as its only provider key, `VEEVEE_AGENT_WORKER_SLOTS` runs at once (`agent-access.md`). Not deployed yet (`operations/status.md`). |
 | Scheduler | `apps/workers` (`run_scheduler`) | Depth/video reconciliation, re-queueing agent runs whose worker stopped heartbeating, export, login-attempt, canvas save-record, board-history, 90-day board-notification and 30-day comment-notification cleanup, daily expired resumable-upload cleanup, hourly work-table due reminders, board notification Web Push, portrait janitor. |
 | Depth worker | `depth-worker/` | Runs on a GPU machine and talks to the fenced depth HTTP protocol. |
+| Connection pooler | `infra/pgbouncer`, `backend/config/db_profile.py` | Transaction-mode PgBouncer (service `green-pgbouncer`, private network) between every service and PostgreSQL, one alias and one server-connection budget per service, so the connection count cannot grow with replicas or worker slots. A service connects to it when `VEEVEE_DB_POOLER` is set and directly otherwise (the instant rollback). Budgets, sizing and the pooler-safety audit: `operations/database-connections.md`. |
 | Database | `backend/apps/*/migrations` | One Django migration graph; production tables, roles and row-level security are described in `operations/status.md`. |
 
 Which commit each Railway service runs, and its rollback target, is
@@ -113,6 +115,7 @@ reader.
 | `scripts/dev/` | Disposable test database runner, the browser harness and the MCP harness |
 | `depth-worker/` | GPU depth worker |
 | `infra/gcp/` | Media bucket CORS and lifecycle configuration |
+| `infra/pgbouncer/` | Connection pooler image, configuration template and one-time login-lookup SQL |
 | `docs/` | This documentation |
 
 ## Project access

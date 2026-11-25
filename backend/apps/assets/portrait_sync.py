@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from urllib.parse import urlsplit
 from django.conf import settings
-from django.db import connection
+from apps.common import leases
 from apps.library.services.idempotency import now_ms
 from apps.media.keys import media_key_from_ref
 from apps.media.storage import get_storage
@@ -103,6 +103,11 @@ def inventory_portraits(client=None):
         'remoteAssetsMissingLocally': sorted(remote_ids - local_ids), 'localAssetsMissingRemotely': sorted(local_ids - remote_ids)}
 
 
+# Longer than any one synchronization (the inventory deadline is 45 s) plus its local writes.
+SYNC_LEASE = 'lease:portrait-sync'
+SYNC_LEASE_MS = 300000
+
+
 def remote_time(value):
     return int(datetime.fromisoformat(value.replace('Z', '+00:00')).timestamp() * 1000) if value else now_ms()
 
@@ -120,20 +125,18 @@ def _sync_portraits(project_id=None, client=None):
     client = client or get_client()
     if client.is_mock or not client.available:
         return local_result(project_id)
-    # A session-level try-lock permits each successful identity write to commit
-    # before later network calls; waiting requests never occupy pool slots.
-    with connection.cursor() as cursor:
-        cursor.execute('SELECT pg_try_advisory_lock(746833219)')
-        locked = cursor.fetchone()[0]
-    if not locked:
+    # A database lease, not a session advisory lock: a session lock lives on one PostgreSQL connection, which a
+    # transaction-mode pooler hands to other clients between statements, and the sync spans network calls and
+    # commits. The lease expires on its own if the process dies. Waiting requests never occupy pool slots.
+    owner = str(uuid.uuid4())
+    if not leases.claim(SYNC_LEASE, owner, ttl_ms=SYNC_LEASE_MS):
         return {**local_result(project_id), 'syncInProgress': True}
     try:
         return reconcile(project_id, client)
     except Exception:
         return {**local_result(project_id), 'syncError': 'Portrait synchronization incomplete; local records preserved.'}
     finally:
-        with connection.cursor() as cursor:
-            cursor.execute('SELECT pg_advisory_unlock(746833219)')
+        leases.release(SYNC_LEASE, owner)
 
 
 def reconcile(project_id, client):

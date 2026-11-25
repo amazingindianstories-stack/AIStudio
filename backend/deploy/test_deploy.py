@@ -1,8 +1,11 @@
 """Entrypoint credential materialization and gateway route allowlist."""
+import contextlib
 import importlib.util
+import io
 import os
 import stat
 from pathlib import Path
+from unittest import mock
 from urllib.parse import parse_qsl, urlsplit
 from django.test import SimpleTestCase
 from deploy import entrypoint
@@ -27,6 +30,14 @@ class EntrypointTests(SimpleTestCase):
             self.assertEqual(stat.S_IMODE(os.stat(path).st_mode), 0o600)
         self.assertEqual(stat.S_IMODE(os.stat(os.path.dirname(query['sslrootcert'])).st_mode), 0o700)
         self.assertEqual(env['DJANGO_SETTINGS_MODULE'], 'config.settings.production')
+
+    def test_a_pooled_connection_encrypts_to_the_pooler_and_leaves_database_verification_to_it(self):
+        env = entrypoint.prepare_environment({
+            'DATABASE_URL': 'postgresql://role:pw@pgbouncer.railway.internal:6432/veevee_api', 'VEEVEE_DB_POOLED': '1',
+            'VEEVEE_DATABASE_CA_PEM': '-----BEGIN CERTIFICATE-----\nfixture\n-----END CERTIFICATE-----\n'})
+        query = dict(parse_qsl(urlsplit(env['DATABASE_URL']).query))
+        self.assertEqual(query, {'sslmode': 'require'})
+        self.assertNotIn('VEEVEE_DATABASE_CA_PEM', env)
 
     def test_malformed_credentials_and_weak_ingress_fail_fast(self):
         with self.assertRaises(ValueError):
@@ -290,6 +301,29 @@ class LegacyConfigTests(SimpleTestCase):
         self.assertNotIn('VEEVEE_PUBLIC_APP_URL_OVERRIDE', override)
         self.assertFalse(self.legacy.present({**env, 'DATABASE_URL': 'postgresql://explicit'}))
 
+    def test_the_pooler_variable_points_every_component_at_its_own_alias_and_unset_means_direct(self):
+        from urllib.parse import urlsplit
+        pooler = 'pgbouncer.railway.internal:6432'
+        for component, env in (('api', self.api_env()), ('mcp', {**self.api_env(), 'VEEVEE_MCP': '1'}), ('agent', self.api_env()),
+                               ('generation', self.worker_env('generation')), ('export', self.worker_env('export'))):
+            with self.subTest(component=component):
+                direct = self.legacy.translate(component, env)
+                self.assertNotIn('VEEVEE_DB_POOLED', direct)
+                self.assertEqual(urlsplit(direct['DATABASE_URL']).hostname, 'green-postgres18.railway.internal')
+                out = self.legacy.translate(component, {**env, 'VEEVEE_DB_POOLER': pooler})
+                url = urlsplit(out['DATABASE_URL'])
+                self.assertEqual((url.hostname, url.port, url.path, out['VEEVEE_DB_POOLED']),
+                                 ('pgbouncer.railway.internal', 6432, f'/veevee_{component}', '1'))
+                self.assertEqual((url.username, url.password), (urlsplit(direct['DATABASE_URL']).username, 'p%40ss%2Fword'))
+                self.assertEqual({k: v for k, v in out.items() if k not in ('DATABASE_URL', 'VEEVEE_DB_POOLED')},
+                                 {k: v for k, v in direct.items() if k != 'DATABASE_URL'})
+
+    def test_the_pooler_must_be_a_private_network_host(self):
+        for pooler in ('pgbouncer.example.com:6432', 'pgbouncer.railway.internal', 'x@evil.railway.internal:6432',
+                       'pgbouncer.railway.internal:6432/other', 'localhost:6432'):
+            with self.subTest(pooler=pooler), self.assertRaises(SystemExit):
+                self.legacy.translate('api', {**self.api_env(), 'VEEVEE_DB_POOLER': pooler})
+
     def test_magnific_key_flag_and_cdn_pass_through_only_when_set(self):
         plain = self.legacy.translate('generation', {**self.worker_env('generation'), 'MAGNIFIC_API_KEY': 'mk'})
         self.assertNotIn('MAGNIFIC_API_KEY', plain, 'a key set ahead of the flag stays out of Django')
@@ -552,3 +586,47 @@ class LegacyConfigTests(SimpleTestCase):
             answers[index] = (good[index][0], bad)
             with self.subTest(index=index), self.assertRaises(SystemExit):
                 self.legacy.preflight('url', contract, connect=lambda url, a=answers: Connection(a))
+
+
+class CheckPoolerTests(SimpleTestCase):
+    def test_the_expected_session_is_the_profile_of_the_component(self):
+        from deploy import check_pooler
+        self.assertEqual(check_pooler.expected('generation'), {'application_name': 'veevee-generation',
+            'statement_timeout': '60000', 'idle_in_transaction_session_timeout': '60000'})
+
+    def test_the_url_is_the_one_the_entrypoint_would_use_with_the_pooler_variable(self):
+        from deploy import check_pooler
+        env = {'GOAL4_PREVIEW_WORKER_CONFIGURATION': 'unused'}
+        with mock.patch.object(check_pooler.legacy_config, 'translate', return_value={
+                'DATABASE_URL': 'postgresql://role:pw@green-pgbouncer.railway.internal:6432/veevee_scheduler',
+                'VEEVEE_DB_POOLED': '1'}) as translate:
+            url = check_pooler.database_url('scheduler', 'green-pgbouncer.railway.internal:6432', env)
+        self.assertEqual(translate.call_args.args[1]['VEEVEE_DB_POOLER'], 'green-pgbouncer.railway.internal:6432')
+        self.assertEqual(dict(parse_qsl(urlsplit(url).query)), {})  # no CA variable here: nothing is added
+
+    def test_a_mismatch_fails_and_never_prints_the_url(self):
+        from deploy import check_pooler
+        wrong = {'application_name': 'veevee-api', 'statement_timeout': '0', 'idle_in_transaction_session_timeout': '0'}
+        output = io.StringIO()
+        with mock.patch.object(check_pooler, 'database_url', return_value='postgresql://role:secret@h:1/x'), \
+                mock.patch.object(check_pooler, 'observed', return_value=('role', wrong)), contextlib.redirect_stdout(output):
+            status = check_pooler.main(['check_pooler', 'scheduler', 'green-pgbouncer.railway.internal:6432'], {})
+        self.assertEqual(status, 1)
+        self.assertIn('MISMATCH', output.getvalue())
+        self.assertNotIn('secret', output.getvalue())
+
+    def test_the_matching_session_passes(self):
+        from deploy import check_pooler
+        output = io.StringIO()
+        with mock.patch.object(check_pooler, 'database_url', return_value='postgresql://role:pw@h:1/x'), \
+                mock.patch.object(check_pooler, 'observed', return_value=('role', check_pooler.expected('api'))), \
+                contextlib.redirect_stdout(output):
+            self.assertEqual(check_pooler.main(['check_pooler', 'api', 'green-pgbouncer.railway.internal:6432'], {}), 0)
+        self.assertTrue(output.getvalue().rstrip().endswith('OK'))
+
+    def test_the_admin_form_only_runs_a_show_or_one_alias_reset_on_a_private_pooler(self):
+        from deploy import check_pooler
+        for pooler, command in (('green-pgbouncer.railway.internal:6432', 'DROP TABLE x'), ('example.com:6432', 'SHOW POOLS'),
+                                ('green-pgbouncer.railway.internal:6432', 'KILL pgbouncer'), ('green-pgbouncer.railway.internal:6432', 'SHUTDOWN')):
+            with self.subTest(pooler=pooler, command=command), self.assertRaises(SystemExit):
+                check_pooler.admin(pooler, command, 'unused')

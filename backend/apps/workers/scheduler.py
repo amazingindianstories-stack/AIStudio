@@ -21,6 +21,15 @@ def cleanup_exports():
     return cleanup_expired_archives(get_storage())
 
 
+def check_db_connections():
+    """Log (for the platform's log alerts) when PostgreSQL connection use reaches 80% of what it accepts."""
+    from apps.common import db_usage
+    usage = db_usage.snapshot()
+    if db_usage.is_high(usage):
+        logger.warning('Database connections near the limit: %s', db_usage.summary(usage))
+    return {'ok': True, 'used': usage['used'], 'available': usage['available']}
+
+
 def cleanup_uploads():
     """Remove expired incomplete resumable uploads; READY rows and legacy keys without rows are never touched."""
     from apps.media.storage import get_storage
@@ -118,7 +127,8 @@ def default_handlers():
                 'board_notifications': prune_board_notifications,
                 'push': push_notifications, 'notifications': prune_notifications,
                 'talktracks': process_talktracks,
-                'flow_versions': prune_flow_versions, 'uploads': cleanup_uploads, 'agent_runs': resume_agent_runs}
+                'flow_versions': prune_flow_versions, 'uploads': cleanup_uploads, 'agent_runs': resume_agent_runs,
+                'db_connections': check_db_connections}
     if getattr(settings, 'VEEVEE_MANAGED_PORTRAITS', False):
         handlers['portraits'] = maintain_portraits
         handlers['portrait_uploads'] = process_portrait_uploads
@@ -135,7 +145,7 @@ def tick(*, now=None, handlers=None, next_due=None):
                'board_activity': (86400000, (3*60+17)*60000), 'board_notifications': (86400000, (3*60+17)*60000),
                'notifications': (86400000, (3*60+17)*60000),
                'flow_versions': (86400000, (3*60+17)*60000), 'uploads': (86400000, (3*60+17)*60000),
-               'push': (5000, 0), 'agent_runs': (15000, 0),
+               'push': (5000, 0), 'agent_runs': (15000, 0), 'db_connections': (60000, 0),
                'portraits': (60000, 0), 'portrait_uploads': (3000, 0), 'talktracks': (5000, 0)}
     results = {}
     for name, (period, offset) in periods.items():

@@ -33,6 +33,11 @@ class DeploySettingsTests(unittest.TestCase):
                                     'restartPolicyMaxRetries': 10, 'overlapSeconds': 0})
         self.assertFalse({'healthcheckPath', 'healthcheckTimeout', 'port'} & set(settings))
 
+    def test_pgbouncer_runs_its_image_entrypoint_and_serves_no_http(self):
+        settings = stage.deploy_settings('pgbouncer')
+        self.assertEqual(settings, {'restartPolicyType': 'ON_FAILURE', 'restartPolicyMaxRetries': 10,
+                                    'overlapSeconds': 20, 'drainingSeconds': 30})
+
     def test_existing_components_keep_their_settings(self):
         self.assertEqual(stage.deploy_settings('generation')['overlapSeconds'], 0)
         self.assertEqual(stage.deploy_settings('generation')['drainingSeconds'], 120)
@@ -47,7 +52,7 @@ class DeploySettingsTests(unittest.TestCase):
             self.assertEqual(default['overlapSeconds'], 20)
 
     def test_no_overlap_is_refused_for_other_components(self):
-        for component in ('generation', 'export', 'scheduler', 'agent'):
+        for component in ('generation', 'export', 'scheduler', 'agent', 'pgbouncer'):
             with self.assertRaises(SystemExit, msg=component):
                 stage.deploy_settings(component, no_overlap=True)
 
@@ -60,7 +65,7 @@ class DeploySettingsTests(unittest.TestCase):
         # which cannot build the staged tree (green-django-agent, 2026-11-06).
         for component in stage.SERVICES:
             settings = stage.instance_settings(component)
-            self.assertEqual(settings.pop('dockerfilePath'), 'backend/Dockerfile', component)
+            self.assertEqual(settings.pop('dockerfilePath'), 'Dockerfile' if component == 'pgbouncer' else 'backend/Dockerfile', component)
             self.assertEqual(settings, stage.deploy_settings(component), component)
         self.assertEqual(stage.instance_settings('api', no_overlap=True)['overlapSeconds'], 0)
 
@@ -73,6 +78,9 @@ class StageTests(unittest.TestCase):
         self.gates.mkdir()
         (self.repo / 'backend' / 'app.py').write_text('print(1)\n')
         (self.repo / 'backend' / 'railway.toml').write_text('[deploy]\n')
+        (self.repo / 'infra' / 'pgbouncer').mkdir(parents=True)
+        (self.repo / 'infra' / 'pgbouncer' / 'Dockerfile').write_text('FROM scratch\n')
+        (self.repo / 'infra' / 'pgbouncer' / 'railway.json').write_text('{}')
         subprocess.run(['git', 'init', '-q'], cwd=self.repo, check=True)
         subprocess.run([*GIT, 'add', '.'], cwd=self.repo, check=True)
         subprocess.run([*GIT, 'commit', '-qm', 'one'], cwd=self.repo, check=True)
@@ -115,6 +123,16 @@ class StageTests(unittest.TestCase):
         self.assertFalse((self.tmp / 'out' / 'backend' / 'railway.toml').exists())
         self.assertEqual((self.tmp / 'out' / 'STAGED_COMMIT').read_text().strip(), self.commit)
         self.assertEqual(self.printed['serviceInstance'], {'dockerfilePath': 'backend/Dockerfile', **config['deploy']})
+
+    def test_stages_the_pooler_from_its_own_directory(self):
+        self.pass_gates()
+        config = self.stage('pgbouncer')
+        self.assertEqual(config['build'], {'builder': 'DOCKERFILE', 'dockerfilePath': 'Dockerfile'})
+        self.assertNotIn('startCommand', config['deploy'])
+        self.assertEqual((self.tmp / 'out' / 'Dockerfile').read_text(), 'FROM scratch\n')
+        self.assertFalse((self.tmp / 'out' / 'backend').exists())
+        self.assertNotEqual((self.tmp / 'out' / 'railway.json').read_text().strip(), '{}')
+        self.assertEqual(self.printed['serviceInstance']['dockerfilePath'], 'Dockerfile')
 
     def test_stages_mcp_and_the_no_overlap_variant(self):
         self.pass_gates()

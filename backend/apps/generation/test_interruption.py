@@ -10,10 +10,12 @@ from functools import partial
 from unittest.mock import patch
 from uuid import uuid4
 
-from django.db import OperationalError
+from django.db import OperationalError, connection
 from django.test import SimpleTestCase, TransactionTestCase
+from django.test.utils import CaptureQueriesContext
 from PIL import Image
 
+from apps.common.leases import now_ms
 from apps.integrations.transport import admit_request
 from apps.media.storage import MemoryAdapter, StorageService
 
@@ -22,43 +24,125 @@ from .failure_copy import INTERRUPTED, NOT_SENT
 from .models import Generation
 from .providers import higgsfield
 from .prompting import face_judge
-from .services import executor, image_execution
+from .services import coordinator, executor, heartbeat, image_execution
 from .services.deadline import Cancellation, NOT_SENT_MESSAGE, QueueExecutionCancelledError
+from .services.heartbeat import HeartbeatPool, LeaseHeartbeat
 
 
 def beat(**options):
-    return partial(executor.LeaseHeartbeat, interval=.01, retry=.01, **options)
+    pool = HeartbeatPool(interval=.01, retry=.01, **options)
+    return partial(executor.LeaseHeartbeat, pool=pool)
+
+
+def job(identifier=1):
+    return type('Row', (), {'id': identifier})()
 
 
 class HeartbeatTests(SimpleTestCase):
     def run_heartbeat(self, renew, *, ttl_ms=60000, settle=.3):
         signal = Cancellation()
-        heartbeat = executor.LeaseHeartbeat(type('Row', (), {'id': 1})(), 'owner', signal, interval=.01, retry=.01, ttl_ms=ttl_ms)
-        with patch.object(heartbeat, '_renew', side_effect=renew), patch.object(executor, 'connections'):
-            with heartbeat:
+        pool = HeartbeatPool(interval=.01, retry=.01, ttl_ms=ttl_ms)
+        with patch.object(pool, '_renew', side_effect=renew), patch.object(heartbeat, 'connections'):
+            with LeaseHeartbeat(job(), 'owner', signal, pool=pool):
                 time.sleep(settle)
         return signal
 
     def test_database_errors_are_retried_not_treated_as_a_lost_lease(self):
         calls = []
-        def renew():
+        def renew(registrations):
             calls.append(True)
             if len(calls) <= 3:
                 raise OperationalError('FATAL: sorry, too many clients already')
-            return 1
+            return []
         signal = self.run_heartbeat(renew)
         self.assertGreater(len(calls), 4)
         self.assertFalse(signal.cancelled.is_set())
 
     def test_lease_taken_by_another_owner_cancels_at_once(self):
-        signal = self.run_heartbeat(lambda: 0)
+        signal = self.run_heartbeat(lambda registrations: list(registrations))
         self.assertTrue(signal.cancelled.is_set())
 
     def test_a_lease_unrenewable_for_a_whole_ttl_cancels_before_another_worker_can_claim_it(self):
-        def renew():
+        def renew(registrations):
             raise OperationalError('connection refused')
         signal = self.run_heartbeat(renew, ttl_ms=100)
         self.assertTrue(signal.cancelled.is_set())
+
+    def test_every_running_job_is_renewed_by_one_call_on_one_thread(self):
+        pool = HeartbeatPool(interval=.01, retry=.01)
+        calls, threads = [], set()
+        def renew(registrations):
+            calls.append(len(registrations))
+            threads.add(threading.get_ident())
+            return []
+        signals = [Cancellation() for _ in range(8)]
+        with patch.object(pool, '_renew', side_effect=renew), patch.object(heartbeat, 'connections'):
+            beats = [LeaseHeartbeat(job(number), 'owner', signal, pool=pool) for number, signal in enumerate(signals)]
+            for item in beats:
+                item.__enter__()
+            time.sleep(.2)
+            for item in beats:
+                item.__exit__()
+        self.assertIn(8, calls)
+        self.assertEqual(len(threads), 1)
+        self.assertFalse(any(signal.cancelled.is_set() for signal in signals))
+
+    def test_only_the_job_that_lost_its_lease_is_cancelled(self):
+        pool = HeartbeatPool(interval=.01, retry=.01)
+        signals = {1: Cancellation(), 2: Cancellation()}
+        def renew(registrations):
+            return [r for r in registrations if r.item_id == 2]
+        with patch.object(pool, '_renew', side_effect=renew), patch.object(heartbeat, 'connections'):
+            beats = [LeaseHeartbeat(job(number), 'owner', signal, pool=pool) for number, signal in signals.items()]
+            for item in beats:
+                item.__enter__()
+            time.sleep(.2)
+            for item in beats:
+                item.__exit__()
+        self.assertFalse(signals[1].cancelled.is_set())
+        self.assertTrue(signals[2].cancelled.is_set())
+
+    def test_the_thread_gives_up_its_connection_when_the_last_job_ends(self):
+        pool = HeartbeatPool(interval=30)
+        with patch.object(heartbeat, 'connections') as connections:
+            with LeaseHeartbeat(job(), 'owner', Cancellation(), pool=pool):
+                thread = pool._thread
+            thread.join(timeout=2)
+        self.assertFalse(thread.is_alive())
+        connections.close_all.assert_called()
+        self.assertIsNone(pool._thread)
+
+
+class RenewalQueryTests(TransactionTestCase):
+    def running(self, owner):
+        return Generation.objects.create(kind='image', status='running', model='Seedream 5.0 Pro', prompt='fixture',
+            aspect_ratio='1:1', created_at=100, updated_at=100, cost_cents=14, user_id=uuid4(),
+            worker_lease_id=owner, worker_lease_until=1)
+
+    def registrations(self, *rows):
+        return [heartbeat._Registration(row.id, row.worker_lease_id, Cancellation()) for row in rows]
+
+    def test_one_statement_renews_every_owned_lease_and_names_the_ones_that_moved(self):
+        pool = HeartbeatPool(ttl_ms=60000)
+        ours, also_ours, taken, finished = self.running('a'), self.running('b'), self.running('c'), self.running('d')
+        Generation.objects.filter(pk=taken.pk).update(worker_lease_id='someone-else')
+        Generation.objects.filter(pk=finished.pk).update(status='succeeded')
+        registrations = self.registrations(ours, also_ours, taken, finished)
+        lost = pool._renew(registrations)
+        self.assertEqual([r.item_id for r in lost], [taken.id, finished.id])
+        for row in (ours, also_ours):
+            row.refresh_from_db()
+            self.assertGreater(row.worker_lease_until, now_ms())
+        for row in (taken, finished):
+            row.refresh_from_db()
+            self.assertEqual(row.worker_lease_until, 1)
+
+    def test_nothing_is_lost_when_every_lease_is_ours(self):
+        pool = HeartbeatPool()
+        registrations = self.registrations(self.running('a'), self.running('b'))
+        with CaptureQueriesContext(connection) as queries:
+            self.assertEqual(pool._renew(registrations), [])
+        self.assertEqual(len(queries), 1)
 
 
 class DrainTests(SimpleTestCase):
@@ -156,12 +240,12 @@ class InterruptionPersistenceTests(TransactionTestCase):
     def test_heartbeat_outage_during_the_provider_call_does_not_fail_or_resubmit_the_generation(self):
         item = self.job()
         submitted, renewals = [], []
-        real = executor.LeaseHeartbeat._renew
-        def renew(self):
+        real = HeartbeatPool._renew
+        def renew(self, registrations):
             renewals.append(True)
             if len(renewals) <= 3:
                 raise OperationalError('FATAL: sorry, too many clients already')
-            return real(self)
+            return real(self, registrations)
         def image(job, *, signal, **kwargs):
             submitted.append(True)
             signal.request_started = True
@@ -170,7 +254,7 @@ class InterruptionPersistenceTests(TransactionTestCase):
                 signal.check()
                 time.sleep(.01)
             return {'status': 'succeeded', 'url': '/api/media/generations/master.png'}
-        with patch.object(executor.LeaseHeartbeat, '_renew', renew), patch.object(executor, 'LeaseHeartbeat', beat()):
+        with patch.object(HeartbeatPool, '_renew', renew), patch.object(executor, 'LeaseHeartbeat', beat()):
             outcome = self.run_job(item, image)
         self.assertEqual(outcome['kind'], 'succeeded')
         self.assertEqual(len(submitted), 1)

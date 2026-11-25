@@ -162,7 +162,8 @@ commit carries is dropped, so the generated file is the only service configurati
 builds and deploys with the service instance's settings, not the file's, so apply the printed
 `serviceInstance` object (the same settings plus `dockerfilePath`) to the instance immediately
 before `railway up`, on every service including a new one.
-`<component>` is `api`, `mcp`, `generation`, `export`, `scheduler` or `agent`. `api` and `mcp` get the readiness
+`<component>` is `api`, `mcp`, `generation`, `export`, `scheduler`, `agent` or `pgbouncer` (the connection pooler, a different
+image: see the pooler rollout below). `api` and `mcp` get the readiness
 health check and a 20 s overlap; `generation` and `agent` overlap 0; `agent` serves no HTTP, so it has no health
 check, port or domain. `--no-overlap` (`api` and `mcp` only) stages `overlapSeconds` 0 for the no-overlap pause
 below; without it nothing changes.
@@ -217,6 +218,80 @@ Always confirm the applied start command in the new deployment's `meta.serviceMa
 
 Separate later single-variable steps: `DEPTH_WORKER_TOKEN` on the API (F-04),
 `VEEVEE_PUBLIC_APP_URL_OVERRIDE=https://veevee.ai` (F-01).
+
+## Database pooler rollout (audit deploy stage)
+
+Puts the transaction-mode PgBouncer (`infra/pgbouncer`, why and how big: [database-connections.md](database-connections.md))
+between every service and PostgreSQL. It is a stage of the audit deploy, after the steps above, and it changes nothing
+in PostgreSQL's data or schema. The code already runs both ways: a service connects directly (today) unless its
+variable `VEEVEE_DB_POOLER=green-pgbouncer.railway.internal:6432` is set, so **the variable is the switch and unsetting
+it is the instant rollback**. The direct database URL is never removed.
+
+Preconditions: the audit commit (which contains the pooler-safety fixes and `deploy.check_pooler`) is deployed and
+verified on every service (order above), the release gate and local rehearsal passed for that commit, and the 9
+spare PostgreSQL connections are free (the `db-connections` check in the admin status is `ok`).
+
+**P1. Lookup role for the pooler (owner, once).** As the PostgreSQL owner, in the application database, run
+`psql "$OWNER_URL" -v auth_password="'<new password>'" -f infra/pgbouncer/auth.sql` (the same password goes to the pooler
+as `PGBOUNCER_AUTH_PASSWORD`). It creates `pgbouncer_auth` (login, no other privilege, `CONNECTION LIMIT 2`) and the
+restricted `pgbouncer.get_auth` lookup, which only returns `goal4_*` login roles. Verify as `pgbouncer_auth` that
+`SELECT usename FROM pgbouncer.get_auth('<api role>')` returns that one role and that the same call for a superuser
+returns nothing. No application role, table or privilege changes.
+
+**P2. Create the pooler service `green-pgbouncer`.** Private network only: no public domain, no TCP proxy. Variables:
+`PGBOUNCER_UPSTREAM_HOST=green-postgres18.railway.internal`, `PGBOUNCER_AUTH_PASSWORD`, `PGBOUNCER_ADMIN_PASSWORD`,
+`PGBOUNCER_DATABASE_CA_PEM` (the pinned CA the services already hold) and, to fail closed, `PGBOUNCER_DATABASE_CA_SHA256`
+(`infra/pgbouncer/README.md`). Stage and deploy it exactly like any service, from the qualified commit:
+```
+python3 scripts/release/stage_railway_deploy.py <commit> pgbouncer <empty-dir>
+# serviceInstanceUpdate(environmentId, serviceId, input: <the printed serviceInstance object>)   # sets the Dockerfile
+railway up <empty-dir> --path-as-root -p <project> -e <environment> -s <green-pgbouncer-id> -c
+```
+Confirm in the new deployment's `meta.serviceManifest` that the builder is `DOCKERFILE` and `infra/pgbouncer/Dockerfile` built
+(a new service otherwise falls to Railpack, as in the notes above). Startup log: `pgbouncer ... process up`, no
+`pgbouncer: database CA does not match`, no auth errors. Nothing connects to it yet.
+
+**P3. Verify on the staged environment before switching anything.** In each component's own running container (it
+holds that component's variables) check its alias. The helper builds the URL with the real code path and prints
+only settings, never the URL or a credential:
+```
+railway ssh -s <scheduler-service-id> -- python -m deploy.check_pooler scheduler green-pgbouncer.railway.internal:6432
+```
+Repeat in the `export`, `generation`, `agent`, `mcp` and `api` services (`<component>` is that service). Every line must say `ok` and the
+last `OK`: the right role, `application_name` `veevee-<component>`, and that alias's two timeouts. Then read the
+pooler's admin console the same way (the application image has no `psql`; the `pgbouncer_admin` password goes on stdin,
+never on the command line):
+```
+read -rs PW; printf '%s\n' "$PW" | railway ssh -s <scheduler-service-id> -- python -m deploy.check_pooler admin green-pgbouncer.railway.internal:6432 "SHOW DATABASES"
+```
+`SHOW DATABASES` lists the seven aliases (`veevee_auth` included) with their `pool_size`, and `SHOW POOLS` (same form) shows
+`sv_active` 0 after the checks. Stop here on any mismatch: no service has been touched.
+
+**P4. Switch one service at a time, behind health checks.** For each service in this order, set
+`VEEVEE_DB_POOLER=green-pgbouncer.railway.internal:6432` on that service and let it redeploy by the usual path, then
+verify before the next. Order: scheduler, export, agent, mcp, generation, api.
+- scheduler, export, agent: startup log reaches the worker loop; the scheduler lease keeps ticking; an export ZIP builds
+  (agent: a run reaches `completed`).
+- mcp: readiness, a tool call.
+- generation: **only with no queued or running jobs** (overlap 0, drain 120 s as above). Verify the next real job is
+  claimed once and its heartbeat renews (`SHOW CLIENTS` shows the worker's clients, `SHOW POOLS` `sv_active` returns to 0).
+- api (health check `/__g4_readiness`, overlap 20 s): readiness, login, history, a media redirect, portraits, a
+  resumable upload round trip (init, chunks, finalize, cancel), no new 5xx.
+After each switch: `SHOW POOLS` has `cl_waiting` 0 for that alias, `maxwait` 0 at idle, and the admin `db-connections` check
+shows its `veevee-<component>` count inside its budget. Wait one full reconciliation window before the next service.
+
+**P5. Watch.** For a day: the `db-connections` check stays `ok` (the scheduler logs a warning on `veevee.maintenance` at
+80% and the check turns to `error`), `SHOW POOLS` `cl_waiting` stays at 0 at idle and under load, no `query_wait_timeout`
+errors in the API logs. Then record the date and commit in `status.md` and remove the old direct-connection tuning
+notes from the record; keep the variable-unset path, it is the rollback.
+
+**Rollback.** Per service: unset `VEEVEE_DB_POOLER` and redeploy (the service reconnects to the direct URL with the
+identical settings it ran before). Roll back in the reverse order (api first), one at a time, and before the api goes
+direct confirm there are 8 free connections (`db-connections` check; the api needs up to 8 direct). If the pooler itself
+misbehaves while services are still on it, use its admin console (`check_pooler admin`, P3): `RECONNECT veevee_<alias>` (reopens its server
+connections) or `KILL veevee_<alias>` (drops its clients), and unset the variable on the services as above. Removing the `green-pgbouncer` service is
+never part of a rollback: it holds no data and costs nothing idle. Nothing here touches PostgreSQL, so there is nothing to
+restore; never run a destructive migration or change `max_connections` as part of it.
 
 ## Rollback (per service)
 Primary: dashboard **Rollback** to the recorded previous deployment id, which restores its image.

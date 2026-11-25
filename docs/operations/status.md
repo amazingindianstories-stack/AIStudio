@@ -931,7 +931,13 @@ healthy in-flight provider call about 10 seconds in. The heartbeat now retries o
 only after a full lease TTL without a renewal or when another owner holds the lease. A failure says
 "nothing was sent and nothing was charged" only when no request had gone on the wire; otherwise it says the
 provider may still have accepted it. A claimed paid job is never resubmitted automatically (one-shot paid-guard ledger).
-Infra follow-up (needs owner decision): raise Postgres `max_connections` or add a pooler, and shorten idle API connections.
+Connection pooling (decided, not yet deployed): a transaction-mode PgBouncer (`infra/pgbouncer`, service `green-pgbouncer`)
+in front of PostgreSQL for every service, per-service budgets summing to 18 of the 27 usable connections, shorter idle
+direct API connections, one shared lease-heartbeat connection per generation worker, an `application_name` and timeouts per
+service, and a `db-connections` admin check and 80% scheduler log. Why, the sizing and the pooler-safety audit are in
+`database-connections.md`; the audit-deploy stage and its rollback (unset `VEEVEE_DB_POOLER` per service) are in
+`release-runbook.md`. Nothing is created in production by the change itself: the owner runs the rollout, and every
+service stays on its direct URL until its variable is set.
 This is offline regression evidence only, with no live provider acceptance or release.
 
 Local validation: 92 targeted PostgreSQL tests passed for started deadlines, real

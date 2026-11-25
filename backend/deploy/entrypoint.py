@@ -58,7 +58,12 @@ def prepare_environment(env):
         ca_path = private_file(home, 'database-ca.pem', ca.encode())
         url = urlsplit(env['DATABASE_URL'])
         query = dict(parse_qsl(url.query))
-        query.update({'sslmode': 'verify-full', 'sslrootcert': ca_path})
+        if env.get('VEEVEE_DB_POOLED') == '1':
+            # The pooler terminates TLS with its own per-start certificate (it encrypts the private-network hop) and
+            # verifies the pinned database CA itself on its side of the connection.
+            query['sslmode'] = 'require'
+        else:
+            query.update({'sslmode': 'verify-full', 'sslrootcert': ca_path})
         env['DATABASE_URL'] = urlunsplit(url._replace(query=urlencode(query)))
     adc = env.pop('GCP_ADC_JSON', '')
     if adc:
