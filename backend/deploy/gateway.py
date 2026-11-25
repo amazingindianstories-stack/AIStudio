@@ -16,9 +16,6 @@ HEADER='x-veevee-g4-ingress'
 MAX_BODY=8*1024*1024
 MAX_OPERATIONS=128
 MAX_TOTAL_BYTES=16*1024*1024
-SAFE_READ=re.compile(r'^/api/[^?]+$')
-SAFE_POST=re.compile(r'^/api/(?:auth/(?:login|logout)|uploads/init|uploads/[0-9a-f-]{36}/(?:finalize|cancel))$')
-SAFE_PUT=re.compile(r'^/api/uploads/[0-9a-f-]{36}/local$')
 ADMIN_READ_PATHS=frozenset(('/api/admin/data','/api/admin/logs','/api/admin/errors','/api/admin/activity','/api/admin/status',
                             '/api/admin/workspace','/api/admin/template-usage','/api/admin/content-log','/api/admin/ai-log'))
 # Admin data mutations (Django answers 401 without a session and 403 for a non-admin).
@@ -91,7 +88,7 @@ def allowed(method,path,paid_initial_routes=False,new_exports=False,magnific_ups
     if method in ('GET','HEAD') and path=='/api/generate/depth/status':return True
     if method=='POST' and path in DEPTH_POST_ROUTES:return True
     if method=='GET' and path=='/api/worker/depth/status':return True
-    if not path.startswith('/api/') or path.startswith(('/api/generate/','/api/admin/','/api/worker/','/api/workers/','/api/webhooks/','/api/depth/','/api/audio/transcribe','/api/queue/execute')):return False
+    if not path.startswith('/api/') or path.startswith(('/api/generate/','/api/admin/','/api/worker/','/api/workers/','/api/webhooks/','/api/cron/','/api/depth/','/api/audio/transcribe','/api/queue/execute')):return False
     if agent_paid(method,path) or method not in ('GET','HEAD') and path.startswith('/api/history/exports'):return False
     return method in ('GET','HEAD','POST','PUT','PATCH','DELETE')
 MEDIA_CACHE_HEADERS=frozenset({'private, max-age=31536000, immutable'})

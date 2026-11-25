@@ -115,6 +115,7 @@ class CollabTests(TransactionTestCase):
         self.as_user(self.mate)
         self.assertTrue(self.send('get', self.base + '/comments').json()['comments'][0]['read'])   # own comments are never unread
         self.assertEqual(self.send('post', self.base + '/comments/read', {'ids': ['bad']}).status_code, 400)
+        self.assertEqual(self.send('post', self.base + '/comments/read', {'ids': ['-' * 36]}).status_code, 400)
 
     def test_mentions_notify_once_and_follow_the_thread(self):
         _, root = self.post(self.mate, f'hello {mention(self.third)} and {mention(self.mate)}')
@@ -369,6 +370,31 @@ class PushTests(TransactionTestCase):
             late[0].refresh_from_db()
             self.assertEqual(late[0].pushed_at, 3000)
 
+    def test_a_transient_failure_keeps_the_notification_pending_and_old_ones_still_push(self):
+        PushSubscription.objects.create(user_id=self.user.id, endpoint=ENDPOINT, created_at=1)
+        note = Notification.objects.create(user_id=self.user.id, board_id=BOARD, kind='mention', created_at=1000, snippet='s')
+
+        def failing(endpoint, headers):
+            raise push.requests.RequestException('timeout')
+
+        with self.configure():
+            self.assertEqual(push.send_pending(now=2000, post=failing)['sent'], 0)
+            note.refresh_from_db()
+            self.assertIsNone(note.pushed_at)
+            self.assertEqual(push.send_pending(now=3000, post=lambda e, h: MagicMock(status_code=201))['sent'], 1)
+            note.refresh_from_db()
+            self.assertEqual(note.pushed_at, 3000)
+            # Older than the previous ten minute window, still pushed.
+            old = Notification.objects.create(user_id=self.user.id, board_id=BOARD, kind='mention', created_at=1000, snippet='o')
+            self.assertEqual(push.send_pending(now=1000 + 11 * 60 * 1000, post=lambda e, h: MagicMock(status_code=201))['sent'], 1)
+            old.refresh_from_db()
+            self.assertIsNotNone(old.pushed_at)
+            # A permanently failing endpoint stops retrying after an hour.
+            stuck = Notification.objects.create(user_id=self.user.id, board_id=BOARD, kind='mention', created_at=5000, snippet='x')
+            push.send_pending(now=5000 + 61 * 60 * 1000, post=failing)
+            stuck.refresh_from_db()
+            self.assertIsNotNone(stuck.pushed_at)
+
     def test_a_tick_sends_a_bounded_batch_and_leaves_the_rest_pending(self):
         other = make_user('pusher2')
         for user in (self.user, other):
@@ -396,3 +422,32 @@ class PushTests(TransactionTestCase):
         public = ec.derive_private_key(7, ec.SECP256R1()).public_key()
         public.verify(encode_dss_signature(int.from_bytes(raw[:32], 'big'), int.from_bytes(raw[32:], 'big')),
                       f'{head}.{claims}'.encode(), ec.ECDSA(hashes.SHA256()))
+
+
+class PushCutoffMigrationTests(TransactionTestCase):
+    """canvas.0020 marks notifications that exist before the release as pushed, so none is pushed late."""
+
+    def migrate(self, target):
+        from django.db import connection
+        from django.db.migrations.executor import MigrationExecutor
+        executor = MigrationExecutor(connection)
+        executor.migrate([target])
+        return executor.loader.project_state([target]).apps
+
+    def tearDown(self):
+        self.migrate(('canvas', '0020_notification_push_cutoff'))
+
+    def test_existing_unpushed_notifications_are_never_pushed(self):
+        old = self.migrate(('canvas', '0019_format_payloads'))
+        Old = old.get_model('canvas', 'Notification')
+        user = uuid4()
+        waiting = Old.objects.create(user_id=user, board_id=BOARD, kind='mention', created_at=1000, snippet='s')
+        done = Old.objects.create(user_id=user, board_id=BOARD, kind='mention', created_at=1000, snippet='d', pushed_at=7)
+        self.migrate(('canvas', '0020_notification_push_cutoff'))
+        self.assertIsNotNone(Notification.objects.get(pk=waiting.pk).pushed_at)
+        self.assertEqual(Notification.objects.get(pk=done.pk).pushed_at, 7)
+        PushSubscription.objects.create(user_id=user, endpoint=ENDPOINT, created_at=1)
+        sent = []
+        with PushTests.configure(self):
+            self.assertEqual(push.send_pending(now=2000, post=lambda e, h: sent.append(e) or MagicMock(status_code=201))['sent'], 0)
+        self.assertEqual(sent, [])

@@ -46,6 +46,13 @@ or above; admins may always create. A refused creation gets 403 `FORBIDDEN`. The
 board. Every board list response (`GET /api/canvas-boards` and the `createBoard`, `renameBoard` and
 `deleteBoard` replies) carries `canCreate` for the caller and project.
 
+Project and folder mutations follow the same rule (`require_level` in
+`backend/apps/projects/services/projects.py`): open to every teammate who can see the project until it
+has a member besides its creator, then role-gated, with admins always allowed. Renaming a project,
+setting its brief or deleting it needs project co-owner or above; creating, renaming, moving or deleting
+its folders (`/api/folders` and the `POST /api/projects` folder operations) needs project editor or
+above. A refused call gets 403 `FORBIDDEN`. Only admins may create an admin-only project.
+
 Project roles are changed through `GET`/`POST /api/projects/<id>/members` (`setMember`, `removeMember`).
 Project owners and admins manage every role; co-owners manage roles below owner. Creating a project
 makes its creator the project owner. Deleting a board, project or user removes its memberships.

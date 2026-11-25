@@ -63,6 +63,30 @@ class BoardToolTests(McpCase):
             self.assert_tool_error(gone, errors.NOT_FOUND)
             self.call(self.raw, 'delete_board_item', {'boardId': BOARD, 'itemId': second['id']}, mode)
 
+    def test_list_boards_sees_the_users_old_board_among_many_newer_boards(self):
+        hidden = str(uuid4())
+        Project.objects.create(id=hidden, name='Hidden', access='users', created_at=1, updated_at=1)
+        CanvasBoard.objects.bulk_create([CanvasBoard(id=uuid4(), project_id=hidden, name=f'Other {i}', created_by=None,
+                                                     data=empty_state(), created_at=10, updated_at=1000 + i)
+                                         for i in range(501)])
+        for mode in ERAS:
+            listed = self.call(self.viewer_raw, 'list_boards', {}, mode)
+            self.assert_structured(listed, self.schema('list_boards'))
+            self.assertEqual([b['id'] for b in listed.structured_content['boards']], [BOARD])
+            self.assertIsNone(listed.structured_content['nextCursor'])
+
+    def test_list_boards_pages_with_a_cursor(self):
+        CanvasBoard.objects.bulk_create([CanvasBoard(id=uuid4(), project_id=PROJECT, name=f'More {i}', created_by=self.user.id,
+                                                     data=empty_state(), created_at=10, updated_at=1000 + i)
+                                         for i in range(500)])
+        first = self.call(self.raw, 'list_boards', {})
+        self.assert_structured(first, self.schema('list_boards'))
+        self.assertEqual(len(first.structured_content['boards']), 500)
+        second = self.call(self.raw, 'list_boards', {'cursor': first.structured_content['nextCursor']})
+        self.assertEqual([b['id'] for b in second.structured_content['boards']], [BOARD])
+        self.assertIsNone(second.structured_content['nextCursor'])
+        self.assert_tool_error(self.call(self.raw, 'list_boards', {'cursor': 'bad'}), errors.INVALID_INPUT)
+
     def test_a_viewer_reads_but_cannot_write(self):
         self.assert_structured(self.call(self.viewer_raw, 'list_board_items', {'boardId': BOARD}), self.schema('list_board_items'))
         refused = self.call(self.viewer_raw, 'add_board_items', {'boardId': BOARD, 'items': [STICKY]})

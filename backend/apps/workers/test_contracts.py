@@ -18,7 +18,7 @@ from .models import DepthWorker
 from . import depth, maintenance, scheduler
 
 
-@override_settings(ROOT_URLCONF='apps.workers.urls', DEPTH_WORKER_TOKEN='synthetic-depth', CRON_SECRET='synthetic-cron')
+@override_settings(ROOT_URLCONF='apps.workers.urls', DEPTH_WORKER_TOKEN='synthetic-depth')
 class DepthContractTests(TransactionTestCase):
     setUp = session_fixtures.SettingsTests.setUp
     cookie = session_fixtures.SettingsTests.cookie
@@ -32,6 +32,10 @@ class DepthContractTests(TransactionTestCase):
         base.update(fields)
         return Generation.objects.create(**base)
 
+    def upload(self, key, actor=session_fixtures.UID):
+        return UploadSession.objects.create(actor_id=actor, key=key, purpose='video-reference', content_type='video/quicktime',
+            byte_size=10, state='ready', finalized_at=datetime.now(timezone.utc), expires_at=datetime.now(timezone.utc))
+
     def test_authentication_headers_and_session_boundaries(self):
         for operation in ['claim', 'heartbeat', 'progress', 'upload-url', 'complete']:
             self.assertEqual(self.post(operation, token='').json(), {'error': 'Unauthorized.'})
@@ -42,13 +46,12 @@ class DepthContractTests(TransactionTestCase):
         self.assertEqual(self.client.post('/api/generate/depth', {}, content_type='application/json').status_code, 401)
         with override_settings(DEPTH_WORKER_TOKEN=''):
             self.assertEqual(self.post('claim').status_code, 401)
-        for name in ['depth-reconciliation', 'video-reconciliation', 'login-attempts']:
-            self.assertEqual(self.client.get('/api/cron/'+name, HTTP_AUTHORIZATION='bearer synthetic-cron').json(), {'error': 'UNAUTHORIZED'})
         self.cookie()
         self.assertEqual(self.post('claim', token='').status_code, 401)
 
     def test_enqueue_shape_naming_status_and_no_provider_work(self):
         self.cookie()
+        self.upload('uploads/native.mov')
         self.assertEqual(self.client.post('/api/generate/depth', {}, content_type='application/json').json(), {'error': 'An input video is required.'})
         response = self.client.post('/api/generate/depth', {'inputVideoKey': ' uploads/native.mov ', 'encoder': 'vitl',
             'trackCharacters': True, 'originalName': 'Native MOV'}, content_type='application/json')
@@ -67,8 +70,45 @@ class DepthContractTests(TransactionTestCase):
         self.assertEqual(self.client.get('/api/generate/depth/status', {'id':'invalid'}).status_code,500)
         self.assertEqual(self.client.post('/api/generate/depth', {'inputVideoKey':23}, content_type='application/json').content,b'')
 
+    def test_depth_enqueue_and_status_respect_project_visibility(self):
+        from apps.projects.models import Project
+        project = Project.objects.create(name='Hidden', access='admin', created_at=1, updated_at=1)
+        self.cookie()
+        self.upload('uploads/native.mov')
+        response = self.client.post('/api/generate/depth', {'inputVideoKey': 'uploads/native.mov', 'projectId': str(project.id)},
+            content_type='application/json')
+        self.assertEqual((response.status_code, response.json()['error']), (404, 'Project not found.'))
+        self.assertFalse(Generation.objects.filter(kind='depth').exists())
+        hidden = self.row(project=project)
+        self.assertEqual(self.client.get('/api/generate/depth/status', {'id': str(hidden.id)}).status_code, 404)
+        visible = self.row()
+        self.assertEqual(self.client.get('/api/generate/depth/status', {'id': str(visible.id)}).status_code, 200)
+
+    def test_depth_enqueue_refuses_foreign_keys(self):
+        self.cookie()
+        self.upload('uploads/other.mov', actor=str(uuid.uuid4()))
+        for key in [f'generations/{uuid.uuid4()}.mp4', 'exports/x/y.zip', 'uploads/missing.mov', 'uploads/../settings/x']:
+            response = self.client.post('/api/generate/depth', {'inputVideoKey': key}, content_type='application/json')
+            self.assertEqual(response.status_code, 400, key)
+            self.assertEqual(response.json(), {'error': 'The input video must be a finished upload.'})
+        self.assertFalse(Generation.objects.filter(kind='depth').exists())
+
+    def test_depth_enqueue_is_bounded_per_user(self):
+        self.cookie()
+        self.upload('uploads/native.mov')
+        for _ in range(5):
+            self.row(user_id=session_fixtures.UID, status='running')
+        self.row(user_id=session_fixtures.UID, status='succeeded')
+        response = self.client.post('/api/generate/depth', {'inputVideoKey': 'uploads/native.mov'}, content_type='application/json')
+        self.assertEqual((response.status_code, response.json()['code']), (429, 'DEPTH_QUEUE_FULL'))
+        self.row(user_id=str(uuid.uuid4()))  # another user's queue does not count against this one
+        Generation.objects.filter(user_id=session_fixtures.UID, status='running').first().delete()
+        self.assertEqual(self.client.post('/api/generate/depth', {'inputVideoKey': 'uploads/native.mov'},
+            content_type='application/json').status_code, 200)
+
     def test_internal_enqueue_and_signing_errors_are_private(self):
         self.cookie()
+        self.upload('uploads/fixture.mov')
         with patch('apps.workers.views.Generation.objects.create',side_effect=ValueError('private-fixture-token')):
             response = self.client.post('/api/generate/depth',{'inputVideoKey':'uploads/fixture.mov'},content_type='application/json')
         self.assertEqual(response.status_code,500)
@@ -198,20 +238,49 @@ class DepthContractTests(TransactionTestCase):
         self.assertEqual(results.count(str(row.id)),1)
         self.assertEqual(results.count(None),1)
 
-    def test_cron_cleanup_boundary_and_headers(self):
+    def test_maintenance_cleanup_boundary(self):
         LoginAttempt.objects.create(identifier='old',created_at=99999)
         LoginAttempt.objects.create(identifier='boundary',created_at=100000)
         LoginAttempt.objects.create(identifier='new',created_at=100001)
         with patch('apps.workers.maintenance.leases.now_ms',return_value=1000000):
-            response = self.client.get('/api/cron/login-attempts',HTTP_AUTHORIZATION='Bearer synthetic-cron')
-        self.assertEqual(response.json(),{'ok':True,'deleted':2})
+            self.assertEqual(maintenance.cleanup_login_attempts(),{'ok':True,'deleted':2})
         self.assertEqual(LoginAttempt.objects.get().identifier,'new')
-        response = self.client.get('/api/cron/depth-reconciliation',HTTP_AUTHORIZATION='Bearer synthetic-cron')
-        self.assertEqual(response.json(),{'reaped':0})
-        self.assertEqual(response['Cache-Control'],'no-store')
-        response = self.client.get('/api/cron/video-reconciliation',HTTP_AUTHORIZATION='Bearer synthetic-cron')
-        self.assertEqual(response.json(),dict(ok=True,checked=0,succeeded=0,failed=0,pending=0,pollErrors=0,raced=0))
-        self.assertEqual(response['Cache-Control'],'no-store')
+        self.assertEqual(maintenance.reconcile_depth(),{'reaped':0})
+        self.assertEqual(maintenance.reconcile_videos(),dict(ok=True,checked=0,succeeded=0,failed=0,pending=0,pollErrors=0,raced=0))
+
+    def test_tick_claims_each_slot_once_per_period(self):
+        claimed = []
+        def claim(key, owner, *, now, ttl_ms):
+            claimed.append(key.rsplit(':', 1)[1])
+            return False
+        handlers = {'depth': lambda: {}, 'portrait_uploads': lambda: {}}
+        next_due = {}
+        with patch('apps.workers.scheduler.leases.claim', claim):
+            for step in range(5):
+                scheduler.tick(now=1000000 + step * 1000, handlers=handlers, next_due=next_due)
+        self.assertEqual(claimed.count('depth'), 1)
+        self.assertLessEqual(claimed.count('portrait_uploads'), 2)
+        claimed.clear()
+        with patch('apps.workers.scheduler.leases.claim', claim):
+            for step in range(2):
+                scheduler.tick(now=1000000 + step * 1000, handlers=handlers)
+        self.assertEqual(claimed.count('depth'), 2)
+
+    def test_a_failed_claim_leaves_the_slot_due_for_the_next_tick(self):
+        attempts = []
+        def claim(key, owner, *, now, ttl_ms):
+            attempts.append(now)
+            if len(attempts) == 1:
+                raise RuntimeError('connection dropped')
+            return False
+        next_due = {}
+        with patch('apps.workers.scheduler.leases.claim', claim):
+            with self.assertRaises(RuntimeError):
+                scheduler.tick(now=1000000, handlers={'login': lambda: {}}, next_due=next_due)
+            self.assertNotIn('login', next_due)
+            scheduler.tick(now=1001000, handlers={'login': lambda: {}}, next_due=next_due)
+            scheduler.tick(now=1002000, handlers={'login': lambda: {}}, next_due=next_due)
+        self.assertEqual(attempts, [1000000, 1001000])
 
     def test_video_due_selection_counts_errors_and_lease(self):
         now = 1000000
@@ -223,7 +292,7 @@ class DepthContractTests(TransactionTestCase):
         self.assertEqual([r.id for r in maintenance.select_videos(now)],[r.id for r in rows[:5]])
         kinds = iter(['succeeded','failed','poll_error','raced','pending'])
         def advance(item, *, source, signal):
-            self.assertEqual(source,'cron')
+            self.assertEqual(source,'scheduler')
             signal.check()
             return {'kind':next(kinds)}
         counts = maintenance.reconcile_videos(now=now,advance=advance)

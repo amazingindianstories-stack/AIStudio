@@ -11,6 +11,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import threading
 import unicodedata
 from urllib.parse import quote, urlsplit
 from django.conf import settings
@@ -108,6 +109,8 @@ def _media(stream, size, content_type, range_header=None):
     return MediaObject(BoundedStream(stream, size), content_type, size)
 
 
+# Objects are private: reads go through session-checked /api/media or short-lived signed URLs.
+MASTER_CACHE_CONTROL = 'private, max-age=31536000, immutable'
 MIME = {'jpg':'image/jpeg', 'jpeg':'image/jpeg', 'mov':'video/quicktime',
         'mp4':'video/mp4', 'webm':'video/webm', 'json':'application/json',
         'mp3':'audio/mpeg', 'wav':'audio/wav', 'png':'image/png',
@@ -662,7 +665,7 @@ class StorageService:
     def upload_buffer(self, data, key, ext):
         validate_key(key)
         self.primary.put(key, bytes(data), MIME.get(ext.lower(), 'application/octet-stream'),
-                         'public, max-age=31536000, immutable')
+                         MASTER_CACHE_CONTROL)
         # Masters are immutable original bytes; only separate derivatives are encoded.
         try:
             from .images import write_thumbnails
@@ -800,5 +803,37 @@ def get_storage():
     if isinstance(instance, str):
         instance = import_string(instance)
     if instance is None:
-        return configured_storage()
+        return _shared_configured_storage()
     return instance() if callable(instance) else instance
+
+
+_SHARED_STORAGE = None
+_SHARED_STORAGE_LOCK = threading.Lock()
+
+
+def _shared_storage_key():
+    return (repr(getattr(settings, 'VEEVEE_MEDIA_CONFIG', {})), repr(getattr(settings, 'VEEVEE_MEDIA_FETCHER', None)))
+
+
+def _shared_configured_storage():
+    """One configured service per process, so the GCS client and the signed-URL cache are reused.
+
+    The cache is keyed on the settings it was built from, so a settings override builds a fresh service."""
+    global _SHARED_STORAGE
+    key = _shared_storage_key()
+    cached = _SHARED_STORAGE
+    if cached is not None and cached[0] == key:
+        return cached[1]
+    with _SHARED_STORAGE_LOCK:
+        cached = _SHARED_STORAGE
+        if cached is None or cached[0] != key:
+            cached = (key, configured_storage())
+            _SHARED_STORAGE = cached
+        return cached[1]
+
+
+def reset_storage():
+    """Drop the per-process configured service (tests and settings reloads)."""
+    global _SHARED_STORAGE
+    with _SHARED_STORAGE_LOCK:
+        _SHARED_STORAGE = None

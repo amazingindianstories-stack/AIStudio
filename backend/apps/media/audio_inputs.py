@@ -5,6 +5,7 @@ import re
 from uuid import uuid4
 
 from .errors import MediaTooLargeError
+from .storage import MASTER_CACHE_CONTROL
 
 MAX_AUDIO_BYTES = 15 * 1024 * 1024
 AUDIO_EXTENSIONS = {'audio/mpeg':'mp3', 'audio/mp3':'mp3', 'audio/wav':'wav',
@@ -32,7 +33,7 @@ def capture_audio_input(storage, reference, identifier, *, model, name):
     key = f'references/{identifier}-audio-{uuid4()}.{AUDIO_EXTENSIONS[mime]}'
     # Audio masters must retain the supplied MIME, including audio/mp4 and
     # audio/webm. Generic video extension defaults must not change that type.
-    storage.primary.put(key, data, mime, 'public, max-age=31536000, immutable')
+    storage.primary.put(key, data, mime, MASTER_CACHE_CONTROL)
     return {'version':2, 'operation':'audio-transcription', 'source':'/api/media/'+key,
         'model':model, 'originalName':name, 'mimeType':mime,
         'byteLength':len(data), 'sha256':hashlib.sha256(data).hexdigest()}

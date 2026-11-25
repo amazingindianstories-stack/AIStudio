@@ -176,8 +176,8 @@ def _generate_image(input, *, transport=None, env=None, signal=None, fetcher=Non
     if signal:
         signal.check()
     if fetcher is None:
-        from apps.integrations.remote import get_media_fetcher
-        fetcher = get_media_fetcher(signal=signal)
+        from apps.integrations.remote import IMAGE_RESULT_MAX_BYTES, get_media_fetcher
+        fetcher = get_media_fetcher(signal=signal, max_bytes=IMAGE_RESULT_MAX_BYTES)
     try:
         content = fetcher(url)
     except Exception as error:
@@ -198,8 +198,8 @@ def _download_layers(data, response, signal, fetcher):
             'seedream', 'no_result', NO_RESULT_MESSAGE, phase='create', status=response.status, body=response.text,
             headers=response.headers))
     if fetcher is None:
-        from apps.integrations.remote import get_media_fetcher
-        fetcher = get_media_fetcher(signal=signal)
+        from apps.integrations.remote import IMAGE_RESULT_MAX_BYTES, get_media_fetcher
+        fetcher = get_media_fetcher(signal=signal, max_bytes=IMAGE_RESULT_MAX_BYTES)
     downloaded = []
     for item, url in parsed:
         if signal:

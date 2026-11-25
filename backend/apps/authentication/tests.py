@@ -1,5 +1,5 @@
 from testsupport.frozen_oracle import run as oracle_run
-from django.test import TransactionTestCase
+from django.test import TransactionTestCase, override_settings
 from apps.admin_dashboard.tests import SettingsTests
 
 class CurrentUserTests(TransactionTestCase):
@@ -103,7 +103,40 @@ class LoginApiTests(TransactionTestCase):
         response=self.client.post('/api/auth/login',{'email':'missing@example.invalid','password':'wrong'},content_type='application/json')
         self.assertEqual(response.status_code,429)
         self.assertTrue(int(response['Retry-After'])>0)
-        self.assertEqual(LoginAttempt.objects.count(),5)
+        self.assertEqual(LoginAttempt.objects.filter(identifier='missing@example.invalid').count(),5)
+
+    def test_login_refuses_oversized_email(self):
+        from .models import LoginAttempt
+        response=self.client.post('/api/auth/login',{'email':'a'*290+'@example.invalid','password':'wrong'},content_type='application/json')
+        self.assertEqual(response.status_code,400)
+        self.assertEqual(response.json(),{'error':'Email is too long.'})
+        self.assertEqual(LoginAttempt.objects.count(),0)
+
+    @override_settings(VEEVEE_ADDRESS_RATE_LIMITS=True)
+    def test_address_bucket_limits_rotating_emails(self):
+        for index in range(50):
+            response=self.client.post('/api/auth/login',{'email':f'rotating{index}@example.invalid','password':'wrong'},
+                                      content_type='application/json',HTTP_X_FORWARDED_FOR='198.51.100.7')
+            self.assertEqual(response.status_code,401)
+        response=self.client.post('/api/auth/login',{'email':'rotating-last@example.invalid','password':'wrong'},
+                                  content_type='application/json',HTTP_X_FORWARDED_FOR='198.51.100.7')
+        self.assertEqual(response.status_code,429)
+        self.assertTrue(int(response['Retry-After'])>0)
+        other=self.client.post('/api/auth/login',{'email':'rotating-last@example.invalid','password':'wrong'},
+                               content_type='application/json',HTTP_X_FORWARDED_FOR='198.51.100.8')
+        self.assertEqual(other.status_code,401)
+
+    def test_address_bucket_is_off_by_default_and_the_account_bucket_stays(self):
+        from .models import LoginAttempt
+        for index in range(51):
+            response=self.client.post('/api/auth/login',{'email':f'rotating{index}@example.invalid','password':'wrong'},
+                                      content_type='application/json',HTTP_X_FORWARDED_FOR='198.51.100.7')
+            self.assertEqual(response.status_code,401)
+        self.assertFalse(LoginAttempt.objects.filter(identifier__startswith='ip:').exists())
+        for _ in range(4):
+            self.client.post('/api/auth/login',{'email':'rotating0@example.invalid','password':'wrong'},content_type='application/json')
+        response=self.client.post('/api/auth/login',{'email':'rotating0@example.invalid','password':'wrong'},content_type='application/json')
+        self.assertEqual(response.status_code,429)
 
     def test_missing_credentials(self):
         response=self.client.post('/api/auth/login',{},content_type='application/json')
@@ -114,6 +147,15 @@ class LogoutApiTests(TransactionTestCase):
     cookie=SettingsTests.cookie
     setUp=LoginApiTests.setUp
 
+    def test_logout_clears_cookie_with_matching_attributes(self):
+        from django.conf import settings
+        cookie=self.client.post('/api/auth/logout').cookies['veevee_session']
+        self.assertEqual(cookie['max-age'],0)
+        self.assertTrue(cookie['httponly'])
+        self.assertEqual(cookie['samesite'],'Lax')
+        self.assertEqual(cookie['path'],'/')
+        self.assertEqual(bool(cookie['secure']),bool(settings.SESSION_COOKIE_SECURE))
+
     def test_logout_clears_cookie_and_audits_only_valid_session(self):
         from apps.common.models import ActivityLog
         response=self.client.post('/api/auth/logout')
@@ -121,7 +163,7 @@ class LogoutApiTests(TransactionTestCase):
         self.assertEqual(response.json(),{'ok':True})
         self.assertEqual(response.cookies['veevee_session']['max-age'],0)
         self.assertTrue(response.cookies['veevee_session']['httponly'])
-        self.assertEqual(response.cookies['veevee_session']['samesite'],'')
+        self.assertEqual(response.cookies['veevee_session']['samesite'],'Lax')
         self.assertEqual(ActivityLog.objects.count(),0)
         self.cookie(age=172800000)
         response=self.client.post('/api/auth/logout')

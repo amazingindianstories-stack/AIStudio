@@ -5,7 +5,6 @@ Machine endpoints (metadata, register, token, revoke) never read cookies and ans
 clients. Consent, personal access tokens and connected apps are cookie-authenticated, same-origin browser
 calls. Bearer tokens are accepted only by ``/api/mcp/me`` here; the MCP service uses ``principal``.
 """
-import hashlib
 import json
 from urllib.parse import urlsplit
 
@@ -14,6 +13,7 @@ from django.http import HttpResponse, JsonResponse
 
 from apps.authentication.models import User
 from apps.authentication.session import lookup
+from apps.common.client_address import address_key
 from apps.common.leases import now_ms
 from apps.common.responses import log_activity
 from apps.generation.history_parameters import UUID_TEXT
@@ -88,15 +88,6 @@ def read_form(request):
         return {}
 
 
-def client_ip(request):
-    forwarded = request.headers.get('X-Real-IP') or (request.headers.get('X-Forwarded-For') or '').split(',')[0]
-    return forwarded.strip() or request.META.get('REMOTE_ADDR', '')
-
-
-def address_key(request):
-    return hashlib.sha256(client_ip(request).encode()).hexdigest()[:32]
-
-
 def session_user(request):
     user = lookup(request)
     if user is not None:
@@ -157,11 +148,13 @@ def register(request):
         clients.clean_metadata(document)
     except clients.ClientError as error:
         return respond({'error': error.error, 'error_description': error.description}, 400)
-    limit, window = policy.RATE_LIMITS['register']
-    rate = controls.hit('register:' + address_key(request), limit, window)
-    if not rate.allowed:
-        return respond({'error': 'slow_down', 'error_description': 'Too many registrations from this address.'}, 429,
-                       {'Retry-After': str(rate.retry_after_seconds)})
+    address = address_key(request)
+    if address:
+        limit, window = policy.RATE_LIMITS['register']
+        rate = controls.hit('register:' + address, limit, window)
+        if not rate.allowed:
+            return respond({'error': 'slow_down', 'error_description': 'Too many registrations from this address.'}, 429,
+                           {'Retry-After': str(rate.retry_after_seconds)})
     from .maintenance import purge_unused_clients
     purge_unused_clients()
     client = clients.register(document)
@@ -181,10 +174,12 @@ def token(request):
     client = clients.known(form.get('client_id'))
     if client is None:
         return oauth_failure(oauth.OAuthError('invalid_client', 'Unknown client_id.', status=401))
-    limit, window = policy.RATE_LIMITS['token']
-    rate = controls.hit(f'token:{client.id}:{address_key(request)}', limit, window)
-    if not rate.allowed:
-        return respond({'error': 'slow_down', 'error_description': 'Too many token requests.'}, 429, {'Retry-After': str(rate.retry_after_seconds)})
+    address = address_key(request)
+    if address:
+        limit, window = policy.RATE_LIMITS['token']
+        rate = controls.hit(f'token:{client.id}:{address}', limit, window)
+        if not rate.allowed:
+            return respond({'error': 'slow_down', 'error_description': 'Too many token requests.'}, 429, {'Retry-After': str(rate.retry_after_seconds)})
     grant = form.get('grant_type')
     try:
         if grant == 'authorization_code':

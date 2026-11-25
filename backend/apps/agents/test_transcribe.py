@@ -168,6 +168,14 @@ class TranscribeTests(TestCase):
         self.assertEqual((response.status_code, response.json(), sent),
                          (503, {'error': 'Voice input is not configured: GOOGLE_API_KEY is not set. Ask a Veevee admin.'}, []))
 
+    def test_a_tool_error_keeps_its_own_status_instead_of_rate_limited(self):
+        from apps.mcp import errors
+        cases = {errors.MODEL_UNAVAILABLE: 503, errors.BUDGET_EXCEEDED: 429, errors.INVALID_INPUT: 400}
+        for code, status in cases.items():
+            with self.subTest(code=code), patch('apps.agents.media.transcribe', side_effect=errors.ToolError(code, 'refused')):
+                response, _ = self.post()
+            self.assertEqual(response.status_code, status)
+
     def test_a_provider_failure_is_a_retryable_error_without_a_usage_row(self):
         failures = [HttpResult(500, b'{}'), HttpResult(429, b'{}')]
         for failure in failures:

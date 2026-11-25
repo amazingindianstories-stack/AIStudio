@@ -97,10 +97,12 @@ class VideoPreparationTests(SimpleTestCase):
         calls = []
         deps.seedance_final = lambda input, **kwargs: calls.append(input) or 'final-task'
         deps.assets = lambda *_: self.fail('Draft finalization assembled references')
-        outcome = video_execution.submit_video(self.item(draft_task_id='draft-id'), signal=Cancellation(), on_task=lambda *args: None,
+        draft = self.item(draft_task_id='draft-id')
+        outcome = video_execution.submit_video(draft, signal=Cancellation(), on_task=lambda *args: None,
             count=3, dependencies=deps, env={'SEEDANCE_CALLBACK_URL': 'https://app.example/api/webhooks/seedance?token=old', 'SEEDANCE_CALLBACK_SECRET': 'fixture'})
         self.assertEqual(outcome['task_id'], 'final-task')
-        self.assertEqual(calls, [{'modelDisplay': 'Seedance 2.5', 'draftTaskId': 'draft-id', 'callbackUrl': 'https://app.example/api/webhooks/seedance?token=fixture'}])
+        self.assertEqual(calls, [{'modelDisplay': 'Seedance 2.5', 'draftTaskId': 'draft-id',
+            'callbackUrl': f'https://app.example/api/webhooks/seedance?token=fixture&generation={draft.id}'}])
 
     def test_portrait_asset_uri_shortcuts_and_nonjpeg_conversion(self):
         buffer = io.BytesIO()
@@ -548,6 +550,32 @@ class ExecutionPersistenceTests(TransactionTestCase):
         with patch('apps.generation.callbacks.poller.advance', side_effect=AssertionError('replayed terminal callback advanced')):
             response = self.client.post(path + '?token=callback-fixture', data={'id': 'real-task', 'status': 'failed'}, content_type='application/json')
             self.assertEqual(response.json()['outcome'], 'failed')
+
+    @override_settings(SEEDANCE_CALLBACK_SECRET='callback-fixture')
+    def test_callback_attaches_an_orphaned_task_to_its_row_by_generation_id(self):
+        path = '/api/webhooks/seedance?token=callback-fixture'
+        reaped = self.job(kind='video', status='failed', model='Seedance 2.5', provider_status='SUBMISSION_UNCERTAIN', error='Generation timed out')
+        other = self.job(kind='video', status='failed', model='Seedance 2.5', error='plain failure')
+        pending_held = self.job(kind='video', status='running', model='Seedance 2.5', provider_status='SUBMISSION_PENDING', worker_lease_id='live', worker_lease_until=now_ms() + 60000)
+        # No generation param, a malformed one, a row with no submission marker, and a live lease all adopt nothing.
+        for query, task in (('', 'task-a'), ('&generation=nope', 'task-b'), (f'&generation={other.id}', 'task-c'), (f'&generation={pending_held.id}', 'task-d')):
+            response = self.client.post(path + query, data={'id': task, 'status': 'running'}, content_type='application/json')
+            self.assertEqual((response.status_code, response.json()), (202, {'accepted': False}))
+        for row in (reaped, other, pending_held):
+            row.refresh_from_db()
+        self.assertEqual([(row.task_id, row.status) for row in (reaped, other, pending_held)], [(None, 'failed'), (None, 'failed'), (None, 'running')])
+        with patch('apps.generation.services.poller.Dependencies.mock', return_value=False):
+            response = self.client.post(f'{path}&generation={reaped.id}', data={'id': 'orphan-task', 'status': 'running'}, content_type='application/json')
+        self.assertEqual((response.status_code, response.json()['accepted']), (200, True))
+        reaped.refresh_from_db()
+        self.assertEqual((reaped.task_id, reaped.status, reaped.error, reaped.provider_status is None or reaped.provider_status != 'SUBMISSION_UNCERTAIN'),
+                         ('orphan-task', 'running', None, True))
+        self.assertIsNotNone(reaped.submitted_at)
+        # A second task for the same generation (a best-of candidate) is not attached over the first.
+        response = self.client.post(f'{path}&generation={reaped.id}', data={'id': 'second-task', 'status': 'running'}, content_type='application/json')
+        self.assertEqual(response.status_code, 202)
+        reaped.refresh_from_db()
+        self.assertEqual(reaped.task_id, 'orphan-task')
 
     @override_settings(GENERATION_WORKER_SECRET='worker-fixture')
     def test_http_executor_is_retired_without_provider_calls(self):

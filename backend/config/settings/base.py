@@ -38,7 +38,6 @@ GENERATION_WORKER_SECRET = os.environ.get('GENERATION_WORKER_SECRET', '')
 EXPORT_WORKER_SECRET = os.environ.get('EXPORT_WORKER_SECRET', '')
 DEPTH_WORKER_SECRET = os.environ.get('DEPTH_WORKER_SECRET', '')
 DEPTH_WORKER_TOKEN = os.environ.get('DEPTH_WORKER_TOKEN', '')
-CRON_SECRET = os.environ.get('CRON_SECRET', '')
 SEEDANCE_CALLBACK_SECRET = os.environ.get('SEEDANCE_CALLBACK_SECRET', '')
 PUBLIC_APP_URL = os.environ.get('PUBLIC_APP_URL', os.environ.get('NEXT_PUBLIC_APP_URL', '')).rstrip('/')
 GCP_MEDIA_CDN_URL = os.environ.get('GCP_MEDIA_CDN_URL', '').rstrip('/')
@@ -131,6 +130,9 @@ if VEEVEE_RUNTIME_COMPONENT == 'mcp' and (not VEEVEE_MCP or len(MCP_QUOTE_SECRET
 if VEEVEE_RUNTIME_COMPONENT == 'agent' and len(MCP_QUOTE_SECRET) < 32:
     raise ImproperlyConfigured('The agent component needs a 32+ character MCP_QUOTE_SECRET')
 VEEVEE_EXPORT_ADMISSION = os.environ.get('VEEVEE_EXPORT_ADMISSION') == '1'
+# Per-address login and OAuth register/token rate limits (off unless '1'). They key on the last non-loopback
+# X-Forwarded-For entry, so switch them on only once that entry is confirmed to be the client on Green.
+VEEVEE_ADDRESS_RATE_LIMITS = os.environ.get('VEEVEE_ADDRESS_RATE_LIMITS') == '1'
 # Magnific image/video upscaling through the gateway and paid guard (off unless '1').
 VEEVEE_MAGNIFIC_UPSCALE = os.environ.get('VEEVEE_MAGNIFIC_UPSCALE') == '1'
 # Paid Gemini Omni Flash 1.1 video through the paid guard (off unless '1'; switched on after live acceptance).

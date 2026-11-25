@@ -289,6 +289,17 @@ class UploadToolTests(StorageMixin, McpCase):
         self.assert_tool_error(self.inline(png_bytes(400, 400), 'image/png', idempotencyKey='hero-upload-1'), 'IDEMPOTENCY_CONFLICT')
         self.assertEqual(UploadSession.objects.count(), 3)
 
+    def test_a_keyed_replay_while_the_first_call_is_still_checking_asks_for_the_same_call_again(self):
+        keyed = self.ready(self.inline(self.png, 'image/png', idempotencyKey='hero-upload-2'))
+        UploadSession.objects.filter(pk=keyed['id']).update(state='verifying', finalized_at=None)
+        busy = self.assert_tool_error(self.inline(self.png, 'image/png', idempotencyKey='hero-upload-2'), 'CONCURRENCY_LIMIT')
+        self.assertIn('Repeat this call with the same idempotencyKey', busy['message'])
+        row = UploadSession.objects.get(pk=keyed['id'])
+        self.assertEqual(row.state, 'verifying')
+        self.assertEqual(self.storage.read(row.key), self.png)
+        UploadSession.objects.filter(pk=keyed['id']).update(state='uploading')
+        self.assertEqual(self.ready(self.inline(self.png, 'image/png', idempotencyKey='hero-upload-2'))['id'], keyed['id'])
+
     def put(self, upload, data):
         path = upload['url'][len(SITE):]
         return self.client.put(path, data=data, content_type=upload['headers']['Content-Type'])
@@ -308,6 +319,11 @@ class UploadToolTests(StorageMixin, McpCase):
         self.assert_structured(early, tool.UPLOAD_RESULT)
         self.assertEqual(early.structured_content['outcome'], 'upload_pending')
         self.assertEqual(self.put(body['upload'], wav).status_code, 200)
+        UploadSession.objects.filter(pk=identifier).update(state='verifying')
+        busy = self.assert_tool_error(self.upload({'uploadId': identifier}), 'CONCURRENCY_LIMIT')
+        self.assertIn('again in a few seconds', busy['message'])
+        self.assertEqual(UploadSession.objects.get(pk=identifier).state, 'verifying')
+        UploadSession.objects.filter(pk=identifier).update(state='uploading')
         reference = self.ready(self.upload({'uploadId': identifier}))
         self.assertEqual((reference['id'], reference['bytes'], reference['sha256']), (identifier, len(wav), hashlib.sha256(wav).hexdigest()))
         self.assertEqual(self.ready(self.upload({'uploadId': identifier.upper()}))['id'], identifier)     # finalize is idempotent

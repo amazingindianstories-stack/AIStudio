@@ -79,7 +79,7 @@ def finalize(request, id):
     try:
         row = services.finalize_export(id, user.id)
         return renew_session(request, Response({'id': str(row.id), 'status': row.status}))
-    except Exception as exc:
+    except (services.ExportError, ValueError) as exc:
         message = ('Some selected assets no longer have valid folder or source metadata. Create a new export after refreshing your selection.'
             if str(exc) == 'EXPORT_MANIFEST_INVALID' else 'Export cannot be queued.')
         return renew_session(request, Response({'error': message}, status=409))

@@ -141,6 +141,7 @@ UPLOAD_ERRORS = {
     'INVALID_UPLOAD_METADATA': (errors.INVALID_INPUT, 'The filename or sha256 is not valid.'),
     'UPLOAD_INFLIGHT_LIMIT': (errors.RATE_LIMITED, 'Too many unfinished uploads. Finish or wait for them, then retry.'),
     'UPLOAD_QUOTA_EXCEEDED': (errors.RATE_LIMITED, 'Your unfinished uploads are too large in total. Finish them, then retry.'),
+    'UPLOAD_VERIFYING': (errors.CONCURRENCY_LIMIT, 'Upload {id} is still being checked by an earlier call. Call upload_reference with this uploadId again in a few seconds.'),
     'UPLOAD_IDEMPOTENCY_CONFLICT': (errors.IDEMPOTENCY_CONFLICT, 'This idempotencyKey was already used for another file. Use a new key.'),
 }
 
@@ -160,6 +161,9 @@ def store(user_id, body, data):
     try:
         return ready(uploads.store_upload(user_id, body, data, get_storage()))
     except uploads.UploadError as error:
+        if error.code == 'UPLOAD_VERIFYING':
+            raise errors.ToolError(errors.CONCURRENCY_LIMIT, 'This file is still being checked by an earlier call. Repeat '
+                                   'this call with the same idempotencyKey in a few seconds.') from None
         purpose = body['purpose']
         raise from_upload_error(error, type=body['contentType'], limit=megabytes(IMPORT_BYTES.get(purpose, uploads.LIMITS[purpose]))) from None
 

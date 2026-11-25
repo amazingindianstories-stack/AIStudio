@@ -167,6 +167,15 @@ class WorkTableTests(TransactionTestCase):
         self.assertEqual((saved['cells']['title'], saved['cells']['assignee']), ('Renamed', str(person.id)))
         self.mutate(table, {'op': 'add', 'cells': {'title': 'New', 'assignee': str(person.id)}}, 404)
 
+    def test_all_is_capped_at_the_ceiling_and_reports_the_server_total(self):
+        table = self.create()
+        WorkRecord.objects.bulk_create([WorkRecord(table_id=table['id'], cells={'title': f'Item {i}', 'a': i}, position=i, created_at=1, updated_at=1)
+                                        for i in range(2500)])
+        body = self.client.get(f"{self.base}/{table['id']}?all=1&view=table").json()
+        self.assertEqual((len(body['records']), body['total'], body['truncated']), (2000, 2500, True))
+        small = self.client.get(f"{self.base}/{table['id']}?limit=5").json()
+        self.assertFalse(small['truncated'])
+
     def test_numeric_filter_rejects_non_finite_values(self):
         table = self.create()
         path = f"{self.base}/{table['id']}"

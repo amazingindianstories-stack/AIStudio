@@ -73,6 +73,30 @@ class BoardApiTests(TransactionTestCase):
         self.client.cookies['veevee_session'] = sign_session(self.owner)
         self.assertEqual(self.call('get', '/api/v1/boards').status_code, 401)
 
+    def test_list_boards_sees_the_users_old_board_among_many_newer_boards(self):
+        hidden = str(uuid4())
+        Project.objects.create(id=hidden, name='Hidden', access='users', created_at=1, updated_at=1)
+        CanvasBoard.objects.bulk_create([CanvasBoard(id=uuid4(), project_id=hidden, name=f'Other {i}', created_by=None,
+                                                     data=empty_state(), created_at=10, updated_at=1000 + i)
+                                         for i in range(501)])
+        raw = self.token(self.viewer)
+        first = self.call('get', '/api/v1/boards', raw).json()
+        self.assertEqual([board['id'] for board in first['boards']], [BOARD])
+        self.assertIsNone(first['nextCursor'])
+        self.assertEqual(self.call('get', '/api/v1/boards?cursor=nope', raw).status_code, 400)
+
+    def test_list_boards_pages_with_a_keyset_cursor(self):
+        CanvasBoard.objects.bulk_create([CanvasBoard(id=uuid4(), project_id=PROJECT, name=f'More {i}', created_by=self.owner.id,
+                                                     data=empty_state(), created_at=10, updated_at=1000 + i)
+                                         for i in range(500)])
+        raw = self.token()
+        first = self.call('get', '/api/v1/boards', raw).json()
+        self.assertEqual(len(first['boards']), 500)
+        self.assertTrue(first['nextCursor'])
+        second = self.call('get', f"/api/v1/boards?cursor={first['nextCursor']}", raw).json()
+        self.assertEqual([board['id'] for board in second['boards']], [BOARD])
+        self.assertIsNone(second['nextCursor'])
+
     def test_list_and_read_a_board(self):
         raw = self.token()
         listed = self.call('get', '/api/v1/boards', raw).json()['boards']

@@ -5,15 +5,16 @@ from apps.authentication.session import lookup
 from .models import Asset
 
 
-def serialize(asset):
+def serialize(asset, users=None):
     result = {'id': str(asset.id), 'kind': asset.kind, 'name': asset.name,
               'slug': asset.slug, 'images': asset.images if asset.images is not None else [],
               'createdAt': asset.created_at, 'updatedAt': asset.updated_at}
     result['createdById'] = str(asset.created_by_id) if asset.created_by_id else None
     result['uploader'] = None
     if asset.created_by_id:
-        from apps.authentication.models import User
-        user = User.objects.filter(pk=asset.created_by_id).only('id', 'name', 'avatar_url', 'color').first()
+        if users is None:
+            users = uploaders([asset])
+        user = users.get(asset.created_by_id)
         if user:
             result['uploader'] = {'id': str(user.id), 'name': user.name, 'avatarUrl': user.avatar_url, 'color': user.color}
     # Current Node omits undefined fields, rather than emitting JSON null.
@@ -22,6 +23,14 @@ def serialize(asset):
     if asset.project_id is not None:
         result['projectId'] = str(asset.project_id)
     return result
+
+
+def uploaders(assets):
+    ids = {asset.created_by_id for asset in assets if asset.created_by_id}
+    if not ids:
+        return {}
+    from apps.authentication.models import User
+    return {user.id: user for user in User.objects.filter(pk__in=ids).only('id', 'name', 'avatar_url', 'color')}
 
 
 @api_view(['GET', 'POST', 'DELETE'])
@@ -43,7 +52,9 @@ def asset_reads(request):
     query = visibility.visible(actor, Asset.objects.all())
     if project:
         query = query.filter(project_id=project)
-    response = Response({'assets': [serialize(asset) for asset in query.order_by('-created_at')]})
+    assets = list(query.order_by('-created_at'))
+    users = uploaders(assets)
+    response = Response({'assets': [serialize(asset, users) for asset in assets]})
     if hasattr(request, 'renewed_session'):
         response.set_cookie('veevee_session', request.renewed_session, max_age=2592000,
                             httponly=True, samesite='Lax', secure=settings.SESSION_COOKIE_SECURE, path='/')

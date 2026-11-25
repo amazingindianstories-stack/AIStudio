@@ -5,7 +5,7 @@ import math
 from django.db import transaction
 from django.db.models import F, Q
 from django.db.models import Count, Window, Case, When, Value, IntegerField
-from django.db.models.functions import RowNumber
+from django.db.models.functions import Coalesce, RowNumber
 
 from apps.common.leases import now_ms
 from apps.generation.models import Generation
@@ -159,6 +159,26 @@ def schedule_generation(item, *, now=None, delay_ms=DEFAULT_POLL_DELAY_MS, provi
 
 def task_item(task_id):
     return Generation.objects.filter(Q(task_id=task_id) | Q(candidate_task_ids__contains=[task_id])).first()
+
+
+def adopt_orphaned_task(generation_id, task_id, *, now=None):
+    """Attach a provider task to the video row that submitted it when the id never reached the row.
+
+    Only a row with no task id whose submission was in flight (``SUBMISSION_PENDING``) or left uncertain is
+    touched, and a running one only when no worker holds its lease, so an executor still recording the
+    receipt is never raced. The row goes back to running for the poller. Later best-of candidates are not
+    attached (the row keeps one task id). Returns the row, or None when nothing was adopted."""
+    from .admission import SUBMISSION_PENDING, SUBMISSION_UNCERTAIN
+    now = now_ms() if now is None else now
+    with transaction.atomic():
+        free = Q(worker_lease_until__isnull=True) | Q(worker_lease_until__lte=now)
+        query = Generation.objects.filter(pk=generation_id, kind='video', task_id__isnull=True,
+            provider_status__in=(SUBMISSION_PENDING, SUBMISSION_UNCERTAIN)).filter(
+            Q(status='failed') | (Q(status='running') & free))
+        if not query.update(task_id=task_id, status='running', provider_status=None, error=None, completed_at=None,
+                            next_poll_at=now, updated_at=now, submitted_at=Coalesce('submitted_at', Value(now))):
+            return None
+        return Generation.objects.get(pk=generation_id)
 
 
 def mark_callback_received(task_id, *, now=None, provider=None):

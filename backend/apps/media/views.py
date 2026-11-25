@@ -1,4 +1,5 @@
 import json
+import logging
 import math
 import re
 import time
@@ -139,6 +140,8 @@ def media(request, path):
     except InvalidMediaRangeError:
         return HttpResponse('Range Not Satisfiable',status=416)
     except Exception:
+        # Type only: the key and request are not logged.
+        logging.getLogger(__name__).exception('media read failed')
         return HttpResponse('Internal Server Error',status=500)
 
 
@@ -166,6 +169,8 @@ def _upload_reply(request, callback):
         response = JsonResponse(result)
     except UploadError as error:
         response = JsonResponse({'error': error.code}, status=error.status)
+        if error.code == 'UPLOAD_VERIFYING':
+            response['Retry-After'] = '2'
     except Exception:
         response = JsonResponse({'error': 'UPLOAD_SERVICE_UNAVAILABLE'}, status=503)
     response['Cache-Control'] = 'private, no-store'

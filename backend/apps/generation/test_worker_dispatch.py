@@ -27,6 +27,28 @@ class RollingDispatcherTests(TransactionTestCase):
         values.update(extra)
         return Generation.objects.create(**values)
 
+    def test_repeated_worker_errors_back_off_and_eventually_fail_the_row(self):
+        row = self.video(status='running', task_id='task-1')
+
+        def boom(identifier, **kwargs):
+            raise ValueError('switched off')
+        clock, delays = 1000000, []
+        for attempt in range(1, admission.WORKER_ERROR_LIMIT):
+            with patch.object(admission, 'now_ms', return_value=clock):
+                self.assertEqual(worker.run_once(process=boom, concurrency=1)['outcomes'], {'worker_error': 1})
+            row.refresh_from_db()
+            self.assertEqual((row.status, row.poll_error_count), ('running', attempt))
+            delays.append(row.next_poll_at - clock)
+            self.assertEqual(delays[-1], min(2 ** attempt, 600) * 1000)
+            self.assertEqual(coordinator.select_due_generations(now=clock, exclude_ids=()), [])
+            clock = row.next_poll_at
+        self.assertEqual(delays, sorted(delays))
+        with patch.object(admission, 'now_ms', return_value=clock):
+            worker.run_once(process=boom, concurrency=1)
+        row.refresh_from_db()
+        self.assertEqual((row.status, row.provider_status, row.task_id), ('failed', 'WORKER_ERROR', 'task-1'))
+        self.assertEqual(coordinator.select_due_generations(now=clock + 10 ** 9), [])
+
     def test_late_seedance_draft_takes_the_first_freed_slot_ahead_of_an_image_backlog(self):
         images = [self.job() for _ in range(coordinator.MAX_COORDINATOR_BATCH + 5)]
         release = {row.id: Event() for row in images}

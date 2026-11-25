@@ -500,7 +500,7 @@ Deployment needs owner approval (gate **A0-depth**).
 |---|---|---|
 | P2.1 Non-skipping updates | PASS | `d768416`. `backend/apps/generation/updates.py`: oldest-first `(updated_at,id)` cursor, `next`/`more`, 30 s commit lag, active rows always included; `src/lib/live-cursor.js` drains pages, backs off on errors, ignores rows stuck >30 min for cadence. Tests: 250 changes in one interval, 150 identical timestamps, late commit, active rows (DB-backed); frontend unit tests. |
 | P2.2 Media/finalize permissions | PASS | `189826a`. READY uploads readable/referencable by any signed-in user (live parity); unready/cancelled/export hidden; upload mutations, portrait registration and ZIP exports owner-only (live parity - those call sites imported the original function). Finalize-for-all. Allow/deny suite `apps/media/test_shared_access_policy.py`. |
-| P2.3 Paid-job safety | PARTIAL | Audit (read-only): **fixed** Gemini re-submits after billed 200/ambiguous 5xx (`ab720df`, `providers/gemini.py`); **fixed** duplicate in-flight finals - finalize serializes on the draft row and reuses a queued/running final, re-finalizing after completion stays allowed per owner (`ab720df`, `enqueue_views.py`); **fixed** ambiguous failures now carry an `uncertainSubmission` marker + artist-facing warning (`82ff6be`). **Fixed (`a1da3c2`):** optional `Idempotency-Key` on enqueue - a re-sent POST returns the first generation (receipt under advisory lock in the insert transaction; concurrent test: 4 POSTs → 1 row). **Open:** orphaned task id after lease loss is not ledgered; Higgsfield preset re-call; duplicate callbacks may re-run best-of judge calls. **Overlay-only protections that must be ported before any overlay removal (P3):** one-shot RESERVED→ATTEMPTING and ATTEMPTING→SUBMITTING DB transitions per POST (stops retry loops and extra best-of POSTs), DB-enforced no-resubmit, endpoint allowlist per active execution, payload limits (candidateCount 1, Seedance MOV, duration ≤15), new-jobs-only reservation, worker RLS. |
+| P2.3 Paid-job safety | PARTIAL | Audit (read-only): **fixed** Gemini re-submits after billed 200/ambiguous 5xx (`ab720df`, `providers/gemini.py`); **fixed** duplicate in-flight finals - finalize serializes on the draft row and reuses a queued/running final, re-finalizing after completion stays allowed per owner (`ab720df`, `enqueue_views.py`); **fixed** ambiguous failures now carry an `uncertainSubmission` marker + artist-facing warning (`82ff6be`). **Fixed (`a1da3c2`):** optional `Idempotency-Key` on enqueue - a re-sent POST returns the first generation (receipt under advisory lock in the insert transaction; concurrent test: 4 POSTs → 1 row). **Partly fixed:** an orphaned video task id after lease loss is now attached to its row when the provider callback arrives (the callback URL carries `generation=<id>`; `coordinator.adopt_orphaned_task` adopts only a row with no task id that was `SUBMISSION_PENDING` or `SUBMISSION_UNCERTAIN` and not held by a live lease; it needs `SEEDANCE_CALLBACK_URL` configured and attaches the first task only, not later best-of candidates). **Open:** Higgsfield preset re-call; duplicate callbacks may re-run best-of judge calls. **Overlay-only protections that must be ported before any overlay removal (P3):** one-shot RESERVED→ATTEMPTING and ATTEMPTING→SUBMITTING DB transitions per POST (stops retry loops and extra best-of POSTs), DB-enforced no-resubmit, endpoint allowlist per active execution, payload limits (candidateCount 1, Seedance MOV, duration ≤15), new-jobs-only reservation, worker RLS. |
 | P2.4 Bounded thumbnails | PASS | `189826a`, `apps/media/derivatives.py` (ported live overlay: 32 MB/20 MP caps, one decoder per process, create-only, fallback to original) + `private, no-store` redirects. The caps, tiers and decoder since moved on; `apps/media/derivatives.py` owns the current rule. |
 | P2.5 Canvas durability | PASS | `aaa33ad`. Pending draft per board until server ack; keepalive only < 60 KiB; recovery on reopen. Tests for failed save→unmount→reopen and keepalive sizing. |
 | Live risk noted | - | Production now allows finalize-for-all (owner request) **without** the in-flight dedupe; until the P3 release, a double finalize from two tabs could submit two paid finals. The confirmation dialog mitigates single-tab double clicks. |
@@ -649,6 +649,26 @@ more than one layer blocking it:
   neutral portrait labels, quieter reference strip; central API error copy (codes never shown raw).
 - Frontend suite 469/469, lint clean, `next build` OK.
 - Frontend suite 452/452, lint clean, build OK.
+
+## Backend audit batch notes (branch `fm/veevee-audit-be-rest`)
+
+- **VIDEO_BEST_OF** (generation worker env). Unset or empty: video generation submits one task. When set, and the model
+  has the `videoBestOf` capability, the request has reference images and it is not a draft finalization, the worker
+  submits 2 to 3 tasks (the value is clamped to 2..3, an unparseable value means 2) and keeps the best. Each extra task is
+  billed. The production value is not recorded here: the owner must confirm it.
+- **FACE_BEST_OF** (generation worker and API env, read by spend admission). Applies to image requests that ask for the
+  face judge: it is the number of candidates generated per request (spend admission multiplies the estimate by it,
+  capped at 4, default 2 when unset or invalid; the image executor bounds the count by image size). The production
+  value is not recorded here: the owner must confirm it.
+- **VEEVEE_ADDRESS_RATE_LIMITS** (API env, off unless `1`). Switches on the per-address login bucket (50 failed
+  logins per 15 min across all e-mails) and the OAuth register (20/hour) and token per-address limits. Off by default:
+  they key on the last non-loopback `X-Forwarded-For` entry, and which entry holds the client after the Vercel and
+  Railway hops on Green is not yet confirmed; if it were a proxy address, every artist would share one bucket. The
+  per-account login throttle stays on either way. Turn it on only after the owner confirms that header chain.
+- **Push cutoff**: migration `canvas.0020_notification_push_cutoff` marks every notification that exists when it runs
+  as pushed, so the new push sender (which pushes unpushed notifications up to 7 days old) sends no stale pushes.
+- **Upload keys outside `uploads/canvas/`**: the BE-006 rule hides stored SVG only for the canvas namespace. Older
+  pre-session upload keys outside `uploads/canvas/` stay readable by design and are not rewritten.
 
 ## Owner approval gates
 - **A0-depth** Depth hotfix: gateway allowlist for depth routes + `DEPTH_WORKER_TOKEN` (value from the existing depth-worker config, never printed) on the Green API, then API redeploy.

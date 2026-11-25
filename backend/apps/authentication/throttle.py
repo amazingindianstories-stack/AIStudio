@@ -26,8 +26,16 @@ def maximum_attempts(raw=None):
     return math.floor(value) if math.isfinite(value) and value > 0 else 5
 
 
+MAX_IDENTIFIER_LENGTH = 254
+ADDRESS_MAX_ATTEMPTS = 50
+
+
 def identifier(email):
-    return str(email or '').lower().strip()
+    return str(email or '').lower().strip()[:MAX_IDENTIFIER_LENGTH]
+
+
+def address_identifier(address_key):
+    return 'ip:' + address_key
 
 
 def retry_after(oldest, now):
@@ -38,18 +46,26 @@ def admits(max_attempts, recent_failure_count):
     return max_attempts <= 0 or recent_failure_count < max_attempts
 
 
-def check(email, *, now=None, max_attempts=None):
+def check(email, *, now=None, max_attempts=None, address_key=None):
     maximum = maximum_attempts() if max_attempts is None else max_attempts
     if maximum <= 0:
         return {'allowed':True,'retryAfterMs':0}
     now = int(time.time()*1000) if now is None else now
-    key=identifier(email)
+    result = _check_bucket(identifier(email), maximum, now)
+    if result['allowed'] and address_key:
+        result = _check_bucket(address_identifier(address_key), max(maximum, ADDRESS_MAX_ATTEMPTS), now)
+    return result
+
+
+def _check_bucket(key, maximum, now):
     LoginAttempt.objects.filter(identifier=key,created_at__lte=now-WINDOW_MS).delete()
     rows=list(LoginAttempt.objects.filter(identifier=key,created_at__gt=now-WINDOW_MS).values_list('created_at',flat=True))
     allowed=admits(maximum,len(rows))
     return {'allowed':allowed,'retryAfterMs':0 if allowed else retry_after(min(rows),now)}
 
 
-def record_failure(email, *, now=None):
-    LoginAttempt.objects.create(id=uuid.uuid4(),identifier=identifier(email),
-                                created_at=int(time.time()*1000) if now is None else now)
+def record_failure(email, *, now=None, address_key=None):
+    created_at = int(time.time()*1000) if now is None else now
+    keys = [identifier(email)] + ([address_identifier(address_key)] if address_key else [])
+    for key in keys:
+        LoginAttempt.objects.create(id=uuid.uuid4(),identifier=key,created_at=created_at)

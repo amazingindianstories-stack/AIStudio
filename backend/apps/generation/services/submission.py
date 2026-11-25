@@ -369,13 +369,8 @@ def submit_upscale(actor, body, *, origin, idempotency_key=None, created_by=None
         raise receipt_refused(error) from None
     except Exception as error:
         if intent is not None:
-            # An ambiguous provider/commit error must leave an inspectable
-            # intent, never schedule a second paid request automatically.
-            try:
-                Generation.objects.filter(pk=intent.id, status='running', task_id__isnull=True).update(
-                    provider_status='SUBMISSION_UNCERTAIN', updated_at=now_ms())
-            except Exception:
-                pass
+            # upscale_submission.uncertain() has already marked an ambiguous submission; the
+            # intent stays inspectable and is never resubmitted automatically.
             logging.getLogger('veevee.generation').error('upscale submission unresolved generation_id=%s error_type=%s', intent.id, type(error).__name__)
         if isinstance(error, PaidBudgetHold):
             raise

@@ -54,3 +54,86 @@ class ProjectMutationTests(TransactionTestCase):
         project = Project.objects.create(name='P', created_at=1, updated_at=1)
         # Project rename intentionally permits empty names in the existing contract.
         self.assertEqual(self.post({'op': 'renameProject', 'projectId': str(project.id), 'name': ''}).json()['projects'][0]['name'], '')
+
+    def _other_user(self, **extra):
+        from apps.authentication.models import User
+        return User.objects.create(id='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', email='owner@example.invalid', name='Owner',
+            role='user', password_hash='x', password_salt='x', created_at=1, is_active=True, auth_version=0, **extra)
+
+    def test_project_roles_gate_rename_brief_delete_and_folders(self):
+        from .models import ProjectMember
+        self.cookie()
+        other = self._other_user()
+        me = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+        project = Project.objects.create(name='P', created_by=str(other.id), created_at=1, updated_at=1)
+        ProjectMember.objects.create(project=project, user_id=str(other.id), role='owner', created_at=1, updated_at=1)
+        ProjectMember.objects.create(project=project, user_id=me, role='viewer', created_at=1, updated_at=1)
+        pid = str(project.id)
+        for payload in ({'op': 'renameProject', 'name': 'X'}, {'op': 'setBrief', 'brief': 'b'}, {'op': 'deleteProject'},
+                {'op': 'createFolder', 'name': 'F'}):
+            response = self.post({**payload, 'projectId': pid})
+            self.assertEqual((response.status_code, response.json()['code']), (403, 'FORBIDDEN'), payload)
+        self.assertEqual(Project.objects.get(pk=project.pk).name, 'P')
+        # An editor may manage folders but not rename the project; a co-owner and an owner may do both.
+        ProjectMember.objects.filter(project=project, user_id=me).update(role='editor')
+        folder = self.post({'op': 'createFolder', 'projectId': pid, 'name': 'F'}).json()['folder']
+        self.assertEqual(self.post({'op': 'renameProject', 'projectId': pid, 'name': 'X'}).status_code, 403)
+        self.assertEqual(self.post({'op': 'renameFolder', 'projectId': pid, 'folderId': folder['id'], 'name': 'G'}).status_code, 200)
+        ProjectMember.objects.filter(project=project, user_id=me).update(role='viewer')
+        refused = self.post({'op': 'renameFolder', 'folderId': folder['id'], 'name': 'H'})
+        self.assertEqual((refused.status_code, refused.json()['error']), (403, 'Only project editors and above can do this.'))
+        refused = self.post({'op': 'renameProject', 'projectId': pid, 'name': 'X'})
+        self.assertEqual(refused.json()['error'], 'Only project owners, co-owners and admins can do this.')
+        ProjectMember.objects.filter(project=project, user_id=me).update(role='owner')
+        self.assertEqual(self.post({'op': 'renameProject', 'projectId': pid, 'name': 'X'}).status_code, 200)
+        self.assertEqual(self.post({'op': 'setBrief', 'projectId': pid, 'brief': 'b'}).status_code, 200)
+
+    def test_hidden_project_still_answers_404_before_role_errors(self):
+        self.cookie()
+        other = self._other_user()
+        project = Project.objects.create(name='H', created_by=str(other.id), access='admin', created_at=1, updated_at=1)
+        response = self.post({'op': 'renameProject', 'projectId': str(project.id), 'name': 'X'})
+        self.assertEqual((response.status_code, response.json()['code']), (404, 'PROJECT_NOT_FOUND'))
+
+    def test_non_admin_cannot_create_admin_projects_and_keeps_its_users_project(self):
+        self.cookie()
+        response = self.post({'op': 'createProject', 'name': 'A', 'access': 'admin'})
+        self.assertEqual((response.status_code, response.json()['code']), (403, 'INVALID_ACCESS'))
+        other = self._other_user()
+        made = self.post({'op': 'createProject', 'name': 'U', 'access': 'users', 'accessUserIds': [str(other.id)]})
+        self.assertEqual(made.status_code, 200)
+        listed = [row for row in self.client.get('/api/projects').json()['projects'] if row['name'] == 'U']
+        self.assertEqual(len(listed), 1)
+        self.assertIn('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', listed[0]['accessUserIds'])
+
+    def test_folder_api_applies_the_same_project_role_gate(self):
+        from apps.library.models import Folder
+        from .models import ProjectMember
+        self.cookie()
+        other = self._other_user()
+        me = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+        project = Project.objects.create(name='P', created_by=str(other.id), created_at=1, updated_at=1)
+        open_project = Project.objects.create(name='O', created_at=1, updated_at=1)
+        ProjectMember.objects.create(project=project, user_id=str(other.id), role='owner', created_at=1, updated_at=1)
+        ProjectMember.objects.create(project=project, user_id=me, role='viewer', created_at=1, updated_at=1)
+        folder = create_folder(project_id=str(project.id), name='F')
+        mine = create_folder(project_id=str(open_project.id), name='M')
+
+        def send(method, payload):
+            return getattr(self.client, method)('/api/folders', payload, content_type='application/json')
+
+        for method, payload in (('post', {'projectId': str(project.id), 'name': 'N'}),
+                                ('post', {'parentId': folder['id'], 'name': 'N'}),
+                                ('patch', {'id': folder['id'], 'name': 'G'}),
+                                ('patch', {'id': folder['id'], 'color': 'red'}),
+                                ('patch', {'id': folder['id'], 'action': 'renameGenerations', 'previewToken': 'x'}),
+                                ('patch', {'id': mine['id'], 'destination': {'type': 'folder', 'folderId': folder['id']}}),
+                                ('patch', {'id': mine['id'], 'destination': {'type': 'project_root', 'projectId': str(project.id)}}),
+                                ('patch', {'id': folder['id'], 'destination': {'type': 'project_root', 'projectId': str(open_project.id)}})):
+            response = send(method, payload)
+            self.assertEqual((response.status_code, response.json()['code']), (403, 'FORBIDDEN'), (method, payload))
+        self.assertEqual(Folder.objects.get(pk=folder['id']).name, 'F')
+        self.assertEqual(str(Folder.objects.get(pk=mine['id']).project_id), str(open_project.id))
+        ProjectMember.objects.filter(project=project, user_id=me).update(role='editor')
+        self.assertEqual(send('patch', {'id': folder['id'], 'name': 'G'}).status_code, 200)
+        self.assertEqual(send('patch', {'id': folder['id'], 'color': 'red'}).status_code, 200)

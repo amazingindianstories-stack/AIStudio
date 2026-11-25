@@ -125,6 +125,24 @@ class PrimitiveTests(SimpleTestCase):
         self.assertEqual(b''.join(response.stream),master[-25:])
         self.assertEqual(len(adapter.objects),1)
 
+    def test_masters_and_derivatives_are_written_with_private_cache_metadata(self):
+        from .images import write_thumbnails
+        from .storage import MASTER_CACHE_CONTROL
+        recorded = {}
+
+        class Recording(MemoryAdapter):
+            def put(self, key, data, content_type, cache_control):
+                recorded[key] = cache_control
+                super().put(key, data, content_type, cache_control)
+
+        store = StorageService(Recording())
+        store.upload_buffer(b'\x00\x00\x00\x18ftypqt  ', 'generations/native.mov', 'mov')
+        with patch('apps.media.derivatives.encode_tiers_from_bytes', return_value={320: b'a', 640: b'b'}):
+            write_thumbnails(b'png', 'generations/still.png', storage=store)
+        self.assertEqual(len(recorded), 3)
+        self.assertEqual(set(recorded.values()), {'private, max-age=31536000, immutable'})
+        self.assertEqual(MASTER_CACHE_CONTROL, 'private, max-age=31536000, immutable')
+
     def test_fallback_only_on_missing(self):
         primary,fallback=MemoryAdapter(),MemoryAdapter()
         fallback.put('assets/a',b'legacy','image/png','')
@@ -322,6 +340,13 @@ class EndpointTests(TransactionTestCase):
         self.assertEqual(self.client.get('/api/media/generated/missing').status_code,404)
         self.client.cookies['veevee_session']='garbage'
         self.assertEqual(self.client.get('/api/media/generated/movie.mov').status_code,401)
+
+    def test_unexpected_storage_failure_is_500_and_logged(self):
+        with patch.object(views,'get_storage',side_effect=RuntimeError('credentials expired')), \
+                self.assertLogs('apps.media.views','ERROR'):
+            response=self.client.get('/api/media/generated/movie.mov')
+        self.assertEqual(response.status_code,500)
+        self.assertNotIn(b'credentials',response.content)
 
     def test_media_cookie_validation_checks_current_user(self):
         # The current user row, then the project-visibility check for the key.

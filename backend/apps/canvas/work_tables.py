@@ -18,6 +18,10 @@ class WorkError(ValueError):
     pass
 
 
+# ?all=1 returns at most this many records; the response says truncated and total stays the server count.
+ALL_RECORDS_CEILING = 2000
+
+
 def identifier(value):
     try:
         return uuid.UUID(str(value))
@@ -197,9 +201,12 @@ def query(table, params):
         limit = max(1, min(200, int(params.get('limit', 200))))
     except (ValueError, TypeError) as error: raise WorkError('Invalid page offset or limit.') from error
     total = filtered.count()
-    if params.get('all') == '1': limit = max(total, 1)
+    truncated = False
+    if params.get('all') == '1':
+        limit = max(min(total, ALL_RECORDS_CEILING), 1)
+        truncated = total > ALL_RECORDS_CEILING
     page = list(records.prefetch_related('dependencies')[offset:offset + limit])
-    return {'records': [record_json(r, table.fields) for r in page], 'total': total, 'offset': offset, 'limit': limit,
+    return {'records': [record_json(r, table.fields) for r in page], 'total': total, 'offset': offset, 'limit': limit, 'truncated': truncated,
             'aggregates': filtered.aggregate(**aggregations) if aggregations else {}, 'groups': groups}
 
 

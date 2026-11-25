@@ -1,6 +1,7 @@
 """Reusable material catalog; stable slugs and the existing one-image contract."""
+import logging
 import re
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from django.db import transaction
 from rest_framework.response import Response
@@ -57,6 +58,10 @@ def save_catalog_asset(request, actor):
             return Response({'error': 'A reference image is required for this material.'}, status=400)
         existing = None
         if data.get('id'):
+            try:
+                UUID(str(data['id']))
+            except ValueError:
+                return Response({'error': 'Invalid asset id.'}, status=400)
             # A hidden project answers like a missing one; never fall through to creating a row with the client's id.
             try:
                 existing = visibility.visible(actor, Asset.objects.filter(pk=data['id'])).first()
@@ -75,7 +80,6 @@ def save_catalog_asset(request, actor):
         images = []
         for value in inputs:
             if isinstance(value, dict):
-                from uuid import UUID
                 try:
                     reference_id = UUID(str(value.get('referenceId', '')))
                 except ValueError:
@@ -125,6 +129,7 @@ def save_catalog_asset(request, actor):
     except UploadError as error:
         return Response({'error': error.code}, status=error.status)
     except Exception:
+        logging.getLogger(__name__).exception('material asset save failed')
         return Response({'error': 'Failed to save material asset.'}, status=500)
 
 

@@ -181,8 +181,13 @@ class SafeMediaFetcher:
         raise ValueError('Too many provider media redirects.')
 
 
-def get_media_fetcher(*, signal=None):
+# Image results are a few MB; 4K PNG masters stay under 40 MB. Same figure as the Magnific image cap.
+IMAGE_RESULT_MAX_BYTES = 80 * 1024 * 1024
+
+
+def get_media_fetcher(*, signal=None, max_bytes=None):
     fetcher = getattr(settings,'VEEVEE_MEDIA_FETCHER',None)
     if fetcher is not None:
         return fetcher
-    return SafeMediaFetcher(getattr(settings,'VEEVEE_PROVIDER_MEDIA_HOSTS',()), signal=signal)
+    options = {} if max_bytes is None else {'max_bytes': max_bytes}
+    return SafeMediaFetcher(getattr(settings,'VEEVEE_PROVIDER_MEDIA_HOSTS',()), signal=signal, **options)

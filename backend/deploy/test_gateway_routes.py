@@ -49,6 +49,7 @@ class ProductionRouteTableTests(SimpleTestCase):
             ('POST', '/api/admin/audit/runtime', False), ('GET', '/api/admin/audit/runtime', False),
             ('POST', '/api/admin/set-token', False), ('POST', '/api/admin/migrate-schema', False),
             ('POST', '/api/webhooks/seedance', False), ('POST', '/api/queue/execute', False),
+            ('GET', '/api/cron/login-attempts', False), ('GET', '/api/cron/video-reconciliation', False),
             ('POST', '/api/worker/exports/access', False), ('GET', '/api/generate/upscale/status', False),
             # Only the methods the dashboard uses open; nothing else under the same paths.
             ('GET', '/api/admin/users', False), ('PUT', '/api/admin/users', False), ('GET', '/api/admin/pricing', False),

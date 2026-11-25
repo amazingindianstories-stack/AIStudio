@@ -59,12 +59,12 @@ recorded in `operations/status.md`. Releases follow `operations/release-runbook.
 | `agents` | Gemini tool-loop chat; the Agents tab's grants (`grants.py`, `agent-access.md`), durable runs (`runner.py`, `runs.py`, the `agent_worker` in `worker.py`), prompt design (`design.py`) and pinned-model loop transport (steps, design, media sub-calls, voice transcription and the Files API calls of large attachments) with its usage ledger (`loop_llm.py`), the library files it reads as Gemini parts (the user's own uploads, and any finished generation of the shared library) and the `view_media`/`read_document` sub-call (`media.py`); the composer's voice note endpoint, `POST /api/agent-conversations/<id>/transcribe` (raw audio, never stored; a paid initial route at the gateway, `AGENT_TRANSCRIBE`; client `src/lib/voice-note.js`, with documents staged as `document-reference` uploads by `src/lib/agent-attachments.js`); board AI text formats and the agent payload allowlists |
 | `generation` | Enqueue, history and live updates, providers, prompting, worker execution |
 | `exports` | ZIP manifests and the export worker |
-| `workers` | Depth protocol, depth enqueue, cron routes, scheduler |
+| `workers` | Depth protocol, depth enqueue, scheduler |
 | `media` | Storage, uploads, signed grants, downloads, audio transcription |
 | `admin_dashboard` | Admin views, pricing, settings, limits, status checks, provider error log (`/api/admin/errors`) |
 | `mcp_auth` | Agent (MCP) access: hashed tokens, OAuth 2.1 server, per-user opt-in, spend and rate controls (`agent-access.md`) |
 | `mcp` | The MCP server: tools, resources, prompts, quotes and holds over the shared services (`mcp-server.md`) |
-| `common` | Middleware, leases, responses, health, activity log |
+| `common` | Middleware, leases, responses, health, activity log, client address for rate limits (`client_address.py`: last non-loopback `X-Forwarded-For` entry, `X-Real-IP` ignored; only meaningful behind Vercel) |
 | `integrations` | Model-free outbound HTTP: provider transport and request deadlines, BytePlus client, bounded remote media fetch, DNS resolver |
 
 Provider failures are recorded once, in `generation/provider_errors.py`: every adapter keeps the provider's code,

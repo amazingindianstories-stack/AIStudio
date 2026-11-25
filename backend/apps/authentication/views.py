@@ -2,6 +2,7 @@ from django.conf import settings
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.response import Response
 from apps.generation.availability import availability
+from apps.common.responses import clear_session
 from .session import lookup
 
 @api_view(['GET', 'PATCH'])
@@ -55,7 +56,8 @@ def login(request):
     from .models import User
     from .password import verify_password
     from .session import sign_session
-    from .throttle import check, record_failure
+    from .throttle import check, record_failure, MAX_IDENTIFIER_LENGTH
+    from apps.common.client_address import address_key
     from apps.common.models import ActivityLog
     try:
         body=json.loads(request.body)
@@ -66,7 +68,10 @@ def login(request):
     email,password=body.get('email'),body.get('password')
     if not email or not password:
         return Response({'error':'Email and password are required.'},status=400)
-    throttle=check(email)
+    if len(str(email)) > MAX_IDENTIFIER_LENGTH:
+        return Response({'error':'Email is too long.'},status=400)
+    address=address_key(request)
+    throttle=check(email,address_key=address)
     if not throttle['allowed']:
         return Response({'error':'Too many failed attempts. Try again later.'},status=429,
                         headers={'Retry-After':str(math.ceil(throttle['retryAfterMs']/1000))})
@@ -77,7 +82,7 @@ def login(request):
     verified = verify_password(str(password), user.password_hash if active else '00' * 64,
                                user.password_salt if active else 'veevee-dummy-scrypt-salt')
     if not active or not verified:
-        record_failure(email)
+        record_failure(email,address_key=address)
         return Response({'error':'Invalid email or password.'},status=401)
     getattr(request, '_request', request).validated_actor_id = str(user.id)
     response=Response({'user':{'id':str(user.id),'email':user.email,'name':user.name,
@@ -105,9 +110,8 @@ def logout(request):
         except Exception:
             pass
     response=Response({'ok':True})
-    # Match the current logout cookie exactly; do not carry renewal through.
-    response.set_cookie('veevee_session','',max_age=0,httponly=True,path='/',samesite=None)
-    return response
+    # Clear with the same attributes the session cookie was set with; do not carry renewal through.
+    return clear_session(response)
 
 @api_view(['PATCH'])
 @authentication_classes([])

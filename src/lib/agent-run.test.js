@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   addQueuedMessage, applyPage, drainFeed, forgetRunState, isSettled, needsSecondConfirmation, outcomeText, pauseReasonText,
-  pollDelay, queuedNote, quoteCardStep, quoteCost, quoteDetails, restoreRunState, resumeText, runAction, runState, runView, saveRunState,
+  pollDelay, queuedNote, quoteCardStep, quoteCost, quoteExpired, quoteExpiryText, quoteMsLeft, quoteDetails, restoreRunState, resumeText, runAction, runState, runView, saveRunState,
   durationText, sentenceCase, statusLine, stepStatusText, threadEntries, traceArguments, traceGroups, traceSummary, withRun,
 } from "./agent-run.js";
 
@@ -405,6 +405,23 @@ test("runAction turns a quote or run that moved on into a plain message", async 
   assert.equal((await runAction("c-1", "run-1", "approve", { stepIndex: 2 }, disabled.fetchImpl)).error, "Agents are turned off for your account.");
   const offline = await runAction("c-1", "run-1", "approve", { stepIndex: 2 }, async () => { throw new TypeError("offline"); });
   assert.deepEqual(offline, { ok: false, run: null, code: null, error: "Veevee could not be reached. Try again." });
+});
+
+test("a quote past its expiry cannot be approved and a 409 QUOTE_EXPIRED reads as a re-quote notice", async () => {
+  const now = Date.parse("2026-11-04T09:00:00Z");
+  const quote = (offsetMs) => ({ costCents: 40, expiresAt: new Date(now + offsetMs).toISOString() });
+  assert.equal(quoteMsLeft({ costCents: 40 }, now), null);
+  assert.equal(quoteExpired({ costCents: 40 }, now), false);
+  assert.equal(quoteExpiryText({ costCents: 40 }, now), "");
+  assert.equal(quoteExpired(quote(60000), now), false);
+  assert.equal(quoteExpired(quote(0), now), true);
+  assert.equal(quoteExpired(quote(-1000), now), true);
+  assert.equal(quoteExpiryText(quote(60000), now), "Price valid for 1 more minute.");
+  assert.equal(quoteExpiryText(quote(90000), now), "Price valid for 2 more minutes.");
+  assert.equal(quoteExpiryText(quote(-1000), now), "This price expired; the agent will ask again.");
+  const expired = fakeFetch(409, { error: "This price expired; the agent will ask again.", code: "QUOTE_EXPIRED" });
+  assert.deepEqual(await runAction("c-1", "run-1", "approve", { stepIndex: 2 }, expired.fetchImpl),
+    { ok: false, run: null, code: "QUOTE_EXPIRED", error: "This price expired; the agent will ask again." });
 });
 
 test("a run whose JSON still says queued but whose events show it started reads as working", () => {

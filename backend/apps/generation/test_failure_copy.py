@@ -160,6 +160,14 @@ class FailureCopyTests(SimpleTestCase):
         self.assertEqual(copy.public_message(row('image', 'Magnific Precision V2'), 'Upscaler precision failed — creative: terminal_failure — 400 x'), copy.UPSCALE_FAILED)
         self.assertEqual(copy.public_message(row('image', 'Magnific Precision V2'), 'permission denied for table users'), copy.GENERIC['upscale'])
 
+    def test_stored_queue_and_registry_copy_has_no_em_dash(self):
+        from apps.generation import model_registry
+        from apps.generation.services import admission
+        self.assertNotIn('—', admission.HELD_MESSAGE)
+        self.assertIn('rate-limit window to clear - this will', admission.HELD_MESSAGE)
+        for model in model_registry.MODEL_REGISTRY:
+            self.assertNotIn('—', str(model))
+
     def test_curated_copy_has_no_em_dash_and_seedance_pattern_is_anchored(self):
         for value in (*vars(copy).values(),):
             if isinstance(value, str):

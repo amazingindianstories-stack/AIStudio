@@ -7,7 +7,8 @@ session clients. Each allow array indexes the paid/export/Magnific bit mask
 Generation delete and move were updated to the admin-only 403 for users.
 Board PATCH was updated from 405 to the board save's 401/400 when per-object
 saves were added. The synchronous agent chat route (agent conversation
-/messages) was dropped when Agents moved to durable runs.
+/messages) was dropped when Agents moved to durable runs. The /api/cron/
+routes were dropped when the scheduler replaced them.
 """
 import json
 from pathlib import Path

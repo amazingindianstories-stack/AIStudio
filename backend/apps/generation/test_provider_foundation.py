@@ -52,6 +52,11 @@ class PureProviderParityTests(SimpleTestCase):
         for item in frozen:
             if item['id'] in kling_frozen:
                 self.assertEqual(item['hint'], kling_frozen[item['id']].replace(' — ', ' - '))
+        # BE-026: the seedance, seedance-25 and depth-anything-local hints lost their em dash the same way.
+        for identifier in ('seedance', 'seedance-25', 'depth-anything-local'):
+            item = next(item for item in frozen if item['id'] == identifier)
+            self.assertNotIn('\u2014', item['hint'])
+            kling_frozen[identifier] = item['hint'].replace(' - ', ' \u2014 ', 1)
         frozen = [{**item, 'hint': kling_frozen[item['id']]} if item['id'] in kling_frozen else item for item in frozen]
         request = {'modelIds': [item['id'] for item in frozen] + [item['name'] for item in frozen] + ['unknown'],
                    'seedream': [], 'references': []}

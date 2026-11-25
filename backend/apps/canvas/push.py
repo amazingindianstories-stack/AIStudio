@@ -21,7 +21,8 @@ from .collab_models import Notification, PushSubscription
 from .services import now_ms
 
 logger = logging.getLogger('veevee.push')
-BATCH_WINDOW_MS = 10 * 60 * 1000
+RETENTION_MS = 7 * 24 * 60 * 60 * 1000
+RETRY_WINDOW_MS = 60 * 60 * 1000
 MAX_ENDPOINT = 2048
 MAX_SENDS_PER_TICK = 100
 SEND_WORKERS = 16
@@ -96,9 +97,10 @@ def send_pending(now=None, post=None):
         return {'ok': True, 'enabled': False}
     now = now_ms() if now is None else now
     post = post or (lambda endpoint, headers: requests.post(endpoint, headers=headers, timeout=(2, 3), allow_redirects=False))
-    pending = Notification.objects.filter(pushed_at__isnull=True, created_at__gte=now - BATCH_WINDOW_MS)
+    Notification.objects.filter(pushed_at__isnull=True, created_at__lt=now - RETENTION_MS).update(pushed_at=now)
+    pending = Notification.objects.filter(pushed_at__isnull=True)
     users = set(pending.values_list('user_id', flat=True)[:500])
-    covered = list(pending.filter(user_id__in=users).values_list('pk', 'user_id')[:5000])
+    covered = list(pending.filter(user_id__in=users).values_list('pk', 'user_id', 'created_at')[:5000])
     subscriptions = list(PushSubscription.objects.filter(user_id__in=users).order_by('user_id', 'pk')[:MAX_SENDS_PER_TICK])
     sent = dropped = 0
     usable = []
@@ -117,18 +119,26 @@ def send_pending(now=None, post=None):
 
     with ThreadPoolExecutor(max_workers=SEND_WORKERS) as pool:
         responses = list(pool.map(deliver, usable))
+    delivered_users = set()
     for subscription, response in zip(usable, responses):
         if response is None:
             continue
         if response.status_code in (404, 410):
             subscription.delete()
             dropped += 1
+            delivered_users.add(subscription.user_id)
         elif response.status_code < 300:
             sent += 1
+            delivered_users.add(subscription.user_id)
         else:
             logger.warning('push refused status=%s', response.status_code)
     # Users whose subscriptions did not all fit in this tick keep their notifications pending.
     deferred = set(PushSubscription.objects.filter(user_id__in=users).exclude(pk__in=[s.pk for s in subscriptions]).values_list('user_id', flat=True))
-    done = users - deferred
-    Notification.objects.filter(pk__in=[pk for pk, user_id in covered if user_id in done]).update(pushed_at=now)
+    # A user whose every send failed stays pending for the next tick, until the notification is an hour old.
+    failed = {s.user_id for s in usable} - delivered_users
+    done = users - deferred - failed
+    stale = now - RETRY_WINDOW_MS
+    Notification.objects.filter(pk__in=[
+        pk for pk, user_id, created_at in covered if user_id in done or (user_id in failed and created_at < stale)
+    ]).update(pushed_at=now)
     return {'ok': True, 'enabled': True, 'sent': sent, 'dropped': dropped}
