@@ -49,11 +49,9 @@ async function forwardMcp(req, readToggle) {
 export function createMiddleware(readToggle) {
   return async function middleware(req) {
     const { pathname } = req.nextUrl;
-    let maintenanceEnabled = false;
     if (pathname === MCP_PATH) return forwardMcp(req, readToggle);
     if (pathname === "/api" || pathname.startsWith("/api/")) {
       const state = await readToggle();
-      maintenanceEnabled = !!state.enabled;
       const responseHeaders = { "Cache-Control": "no-store", "X-Veevee-Maintenance": state.enabled ? "1" : "0" };
       if (pathname === "/api/maintenance" && ["GET", "HEAD"].includes(req.method)) {
         return new NextResponse(req.method === "HEAD" ? null : JSON.stringify(state), {
@@ -72,7 +70,6 @@ export function createMiddleware(readToggle) {
       if (destination) {
         // Acceptance-only server credential: overwrite any caller-supplied value.
         const headers = ingressHeaders(req);
-        if (maintenanceEnabled) headers.set("x-veevee-maintenance", "1");
         const cookie = headers.get("cookie");
         if (cookie) headers.set("cookie", cookie.split(";").filter((part) => !["_vercel_jwt", "_vercel_protection_bypass"].includes(part.trim().split("=")[0])).join(";"));
         return NextResponse.rewrite(destination, { request: { headers } });
