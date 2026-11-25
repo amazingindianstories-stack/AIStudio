@@ -114,7 +114,6 @@ class LoginApiTests(TransactionTestCase):
 
     @override_settings(VEEVEE_ADDRESS_RATE_LIMITS=True)
     def test_address_bucket_limits_rotating_emails(self):
-        from .models import LoginAttempt
         for index in range(50):
             response=self.client.post('/api/auth/login',{'email':f'rotating{index}@example.invalid','password':'wrong'},
                                       content_type='application/json',HTTP_X_FORWARDED_FOR='198.51.100.7')

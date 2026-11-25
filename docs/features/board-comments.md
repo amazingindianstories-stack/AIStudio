@@ -63,9 +63,10 @@ launcher passes them to those two services only (`backend/deploy/legacy_config.p
 `POST /api/push-subscription` answers 409.
 
 - Subscriptions are accepted only for the browsers' own push services (`PUSH_HOST_SUFFIXES`).
-- Every 5 seconds the scheduler's `push` slot sends each person with notifications from the last 10
-  minutes not yet pushed one empty VAPID-signed push, at most 100 subscriptions per tick; people past the cap
-  stay pending. Endpoints answering 404 or 410 are dropped.
+- Every 5 seconds the scheduler's `push` slot sends each person with notifications not yet pushed one empty
+  VAPID-signed push, at most 100 subscriptions per tick; people past the cap stay pending. Endpoints answering
+  404 or 410 are dropped. When every send to a person fails, their notifications stay pending for the next
+  tick until they are an hour old; unpushed notifications older than 7 days are marked pushed without a send.
 - Pushes carry no content. The service worker fetches the newest unread notification from the API and
   shows that, so no comment text passes through a third-party push service. Clicking it opens the board
   thread, in an open window when there is one.

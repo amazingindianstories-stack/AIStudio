@@ -431,6 +431,59 @@ test('Agents runs: a quote of $1.00 or more needs a second confirmation, and a d
   expect(approvals).toEqual([{ stepIndex: 1 }]);
 });
 
+test('Agents runs: a quote shows its expiry, an expired one cannot be approved, and a 409 QUOTE_EXPIRED reads as a re-quote', async ({ page, context, baseURL }) => {
+  test.setTimeout(120000);
+  await openAgents(page, context, baseURL, 'Agents run quote expiry');
+  const { run } = await send(page, 'Make a lantern still life.', 201);
+  const panel = page.getByTestId('studio-chat-feed').getByTestId('agent-run');
+  const fixture = worker(run.id);
+  const prompt = 'A lantern still life.';
+  const iso = (offsetMs) => new Date(Date.now() + offsetMs).toISOString();
+  // The card was rendered while the price was valid, but the stored quote expired before the artist answered.
+  await fixture.write([
+    fixture.quoteStep(1, 'generate_image', { prompt },
+      { costCents: 40, display: '$0.40', expiresAt: iso(-1000), summary: 'One image.', requiresUserConfirmation: false }),
+    fixture.emit('run_started'),
+    fixture.emit('step_started', { stepIndex: 1, kind: 'tool', tool: 'generate_image' }),
+    fixture.emit('quote_required', { stepIndex: 1, tool: 'generate_image', arguments: { prompt }, prompt,
+      quote: { costCents: 40, display: '$0.40', expiresAt: iso(270000), summary: 'One image.', requiresUserConfirmation: false } }),
+    fixture.status('waiting_approval', { steps: 2 }),
+  ]);
+  const card = panel.getByRole('region', { name: 'Quote waiting for approval' });
+  await expect(card).toContainText('Price valid for 5 more minutes.');
+  await card.screenshot({ path: test.info().outputPath('quote-valid.png') });
+  const refused = page.waitForResponse((response) => response.url().endsWith('/approve'));
+  await card.getByRole('button', { name: 'Approve $0.40', exact: true }).click();
+  const refusal = await refused;
+  expect(refusal.status()).toBe(409);
+  expect(await refusal.json()).toEqual({ error: 'This price expired; the agent will ask again.', code: 'QUOTE_EXPIRED' });
+  await expect(card.getByRole('alert')).toHaveText('This price expired; the agent will ask again.');
+  const step = await fixture.db`SELECT outcome, result FROM agent_run_steps WHERE run_id = ${run.id} AND step_index = 1`;
+  expect(step[0].outcome).toBe('quote_declined');
+  expect(step[0].result.approval).toBeUndefined();
+  // The server queued the run so the agent asks again; the card leaves with the quote_declined event.
+  await expect(card).toHaveCount(0);
+  await expandTraces(panel);
+  await expect(panel.getByTestId('agent-run-step').nth(0)).toHaveAttribute('data-status', 'declined');
+  await expect(panel.getByTestId('agent-run-step').nth(0)).toContainText('Declined (expired).');
+  await page.screenshot({ path: test.info().outputPath('quote-after-requote-queued.png') });
+
+  // A quote whose expiry has passed on the card itself: the expiry replaces the countdown and Approve is disabled.
+  await fixture.write([
+    fixture.quoteStep(2, 'generate_image', { prompt },
+      { costCents: 40, display: '$0.40', expiresAt: iso(-1000), summary: 'One image.', requiresUserConfirmation: false }),
+    fixture.emit('step_started', { stepIndex: 2, kind: 'tool', tool: 'generate_image' }),
+    fixture.emit('quote_required', { stepIndex: 2, tool: 'generate_image', arguments: { prompt }, prompt,
+      quote: { costCents: 40, display: '$0.40', expiresAt: iso(-1000), summary: 'One image.', requiresUserConfirmation: false } }),
+    fixture.status('waiting_approval', { steps: 3 }),
+  ]);
+  await expect(card.getByRole('alert')).toHaveText('This price expired; the agent will ask again.');
+  await expect(card.getByText('Price valid for', { exact: false })).toHaveCount(0);
+  await expect(card.getByRole('button', { name: 'Approve $0.40', exact: true })).toBeDisabled();
+  await expect(card.getByRole('button', { name: 'Decline', exact: true })).toBeEnabled();
+  await card.screenshot({ path: test.info().outputPath('quote-expired-disabled.png') });
+});
+
 test('Agents runs: a paused run shows why and when it continues, and Stop and cancel jobs ends it', async ({ page, context, baseURL }) => {
   test.setTimeout(120000);
   await openAgents(page, context, baseURL, 'Agents run pause');

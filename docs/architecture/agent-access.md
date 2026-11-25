@@ -121,7 +121,9 @@ queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed
 - **Approvals.** A `quote_required` result parks the run in `waiting_approval` and emits `quote_required` with the
   price, tool, arguments and prompt. Approving stores the approval on the step; the worker replays the same step with
   `quoteToken`, plus `confirmedByUser` at 100 cents or more. Declining, or sending a new message instead, ends the step
-  unpaid with `QUOTE_DECLINED` for the model. The model can never send `idempotencyKey`, `quoteToken`,
+  unpaid with `QUOTE_DECLINED` for the model. Approving a quote past its `expiresAt` stores no approval: the step is
+  declined as expired (`QUOTE_EXPIRED` for the model, nothing charged) and the run queued, so the model asks for a
+  fresh price. The model can never send `idempotencyKey`, `quoteToken`,
   `confirmedByUser`, `wait` or `maxWaitSeconds` (removed from its schemas and its calls; `declarations.harness_arguments`
   sets them).
 - **Inbox.** A message posted while a run is active goes to `agent_inbox`. At every step boundary, before any bound or
@@ -178,7 +180,7 @@ queued -> running -> waiting_approval | waiting_jobs | paused_limit -> completed
 | `GET .../runs` | The chat's 20 most recent runs |
 | `POST .../runs` `{content, model?, thinkingLevel?, attachments?, images?, composer?}` | Starts a run with the message (201, with the conversation as it now reads, so a new name shows at once), or writes it to the active run's inbox (202). `model` is one of `loop_llm.LOOP_MODELS` and `thinkingLevel` one of `loop_llm.THINKING_LEVELS` for it (`400` otherwise; `MEDIUM` when absent); a run keeps both for every step, and an inbox message does not change them. One active run per conversation is a database constraint. `403 AGENTS_DISABLED` when the Agents tab is off for the caller, even with a run active; when no run is active, `429 AGENT_LIMIT` (with `kind` `active_runs`) at the `agentActiveRuns` cap |
 | `GET .../runs/<run>/events?after=<seq>&limit=` | Up to 100 events after `seq`, with the run, `nextAfter`, `more` and the undelivered messages |
-| `POST .../runs/<run>/approve`, `.../decline` `{stepIndex}` | Answers the waiting quote; `409 NO_PENDING_QUOTE` otherwise |
+| `POST .../runs/<run>/approve`, `.../decline` `{stepIndex}` | Answers the waiting quote; `409 NO_PENDING_QUOTE` otherwise, and `409 QUOTE_EXPIRED` when approving a quote past its expiry |
 | `POST .../runs/<run>/cancel` `{cancelJobs?}` | Stop (202), or stop and cancel the run's active jobs; `409 RUN_FINISHED` once it ended |
 
 Every agent-conversation route (conversations, messages, transcription and runs) needs a session for which
@@ -239,7 +241,9 @@ draft and staged files and shows the API's message (`AGENTS_DISABLED`, `AGENT_GR
 - **Quote card.** Shows the tool, the cost (`display`, else dollars from `costCents`), the summary, the prompt and the
   scalar arguments, with Approve and Decline. Approving is always a click; at 100 cents or more it first asks for
   "Confirm $X" and only then sends `{stepIndex}` (the API needs no confirm field; the worker adds `confirmedByUser`).
-  `409 NO_PENDING_QUOTE` shows "This quote is no longer waiting for approval."
+  `409 NO_PENDING_QUOTE` shows "This quote is no longer waiting for approval." With an `expiresAt`, the card shows
+  "Price valid for N more minutes." and, once it passes, disables Approve and shows "This price expired; the agent
+  will ask again.", as does a `409 QUOTE_EXPIRED` reply.
 - **Pause, failure and stop.** The pause card gives the `pause_reason` in plain words and when the run tries again
   ("in N minutes" within the hour, else the local time). A failed run shows its error message; a cancelled one says
   whether its jobs keep running or how many the stop cancelled. While a run is active the status line offers "Stop"
