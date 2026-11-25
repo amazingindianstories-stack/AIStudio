@@ -859,7 +859,8 @@ Cooperative interruption uses `queue_execution_cancelled` so shutdown does not f
 claim the 30-minute time limit elapsed.
 The Railway generation drain remains 120 seconds. A deploy or restart now lets a synchronous paid
 provider call that is on the wire (no receipt yet) finish for up to 90 seconds before cancelling it;
-anything longer, and any call still preparing, is interrupted. Release only after queued/running work has emptied.
+anything longer, and any call still preparing, is interrupted. No new provider request starts after the stop;
+best-of keeps the candidates that already finished. Release only after queued/running work has emptied.
 Interruption incident, 2026-11-24 (629 `queue_execution_cancelled`, mostly Seedream 5.0 Pro): not a deploy.
 PostgreSQL ran out of connections (max 30), the per-job lease heartbeat could not reconnect, and it cancelled a
 healthy in-flight provider call about 10 seconds in. The heartbeat now retries on database errors and cancels

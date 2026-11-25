@@ -12,7 +12,7 @@ from .services.admission import reap_stale_running_images, record_worker_error, 
 from .services.cancellation import pending_cancellations, settle_pending
 from .services.coordinator import MAX_COORDINATOR_BATCH, select_due_generations, select_unlabelled_short_slot
 from .services.executor import process_generation
-from .services.deadline import Cancellation, QUEUE_EXECUTION_DEADLINE_MS
+from .services.deadline import Cancellation, QueueExecutionCancelledError, QUEUE_EXECUTION_DEADLINE_MS
 
 logger = logging.getLogger('veevee.generation')
 NO_PROGRESS = frozenset(('not_admitted', 'unclaimed', 'worker_error', 'stopped', 'cancel_busy'))
@@ -51,7 +51,8 @@ class WorkerCancellation(Cancellation):
 
     def admit_request(self):
         if self.stop.is_set():
-            self.cancelled.set()
+            self.check()
+            raise QueueExecutionCancelledError()
         super().admit_request()
 
     def wait(self, milliseconds):

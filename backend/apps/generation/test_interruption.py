@@ -2,6 +2,8 @@
 
 Reproduces the 2026-11-24 incident: PostgreSQL ran out of connections, the lease heartbeat of each running
 generation failed to reconnect and cancelled the provider call, and healthy Seedream jobs failed as "interrupted"."""
+import base64
+import io
 import threading
 import time
 from functools import partial
@@ -10,12 +12,17 @@ from uuid import uuid4
 
 from django.db import OperationalError
 from django.test import SimpleTestCase, TransactionTestCase
+from PIL import Image
+
+from apps.integrations.transport import admit_request
+from apps.media.storage import MemoryAdapter, StorageService
 
 from . import failure_copy, worker
 from .failure_copy import INTERRUPTED, NOT_SENT
 from .models import Generation
 from .providers import higgsfield
-from .services import coordinator, executor
+from .prompting import face_judge
+from .services import coordinator, executor, image_execution
 from .services.deadline import Cancellation, NOT_SENT_MESSAGE, QueueExecutionCancelledError
 
 
@@ -87,7 +94,54 @@ class DrainTests(SimpleTestCase):
         signal.check()                       # the finished call's result handling keeps running in the drain
         with self.assertRaises(QueueExecutionCancelledError):
             signal.admit_request()
+        signal.check()                       # refusing a new request does not discard the finished call's work
+
+    def test_stop_before_any_request_was_sent_cancels_the_whole_job(self):
+        stop = threading.Event()
+        signal = worker.WorkerCancellation(stop)
+        signal.shielded = True
+        stop.set()
+        with self.assertRaises(QueueExecutionCancelledError):
+            signal.admit_request()
         self.assertTrue(signal.cancelled.is_set())
+
+
+class BestOfDrainTests(SimpleTestCase):
+    def test_finished_best_of_candidate_is_kept_when_the_next_one_is_refused_by_a_restart(self):
+        stop = threading.Event()
+        signal = worker.WorkerCancellation(stop)
+        signal.shielded = True
+        buffer = io.BytesIO()
+        Image.new('RGB', (400, 300), 'blue').save(buffer, format='PNG')
+        sent = []
+        def generate(payload, *, signal, env):
+            admit_request(signal)            # the transport's pre-send admission
+            sent.append(payload['seed'])
+            stop.set()                       # SIGTERM arrives while candidate 0 is on the wire; it still finishes
+            return {'mimeType': 'image/png', 'base64': base64.b64encode(buffer.getvalue()).decode()}
+        judged = []
+        def vision_request(parts, *, signal, **kwargs):
+            admit_request(signal)
+            judged.append(True)
+        adapter = MemoryAdapter()
+        storage = StorageService(adapter)
+        deps = image_execution.Dependencies()
+        deps.assets, deps.pricing = [], []
+        deps.storage = lambda: storage
+        deps.assemble = lambda *args, **kwargs: {'instruction': 'fixture', 'groups': [],
+            'judgeFace': {'mimeType': 'image/png', 'data': 'face'}}
+        deps.gemini_generate = generate
+        deps.now = lambda: 1234
+        item = type('Item', (), dict(id='fixture', model='Nano Banana Pro', prompt='fixture', aspect_ratio='1:1',
+            resolution='1K', reference_images=[], seed=10, draft_task_id=None, cost_cents=5, cost_basis='estimated',
+            project_id=None, user_id=None, task_id=None))()
+        with patch.object(face_judge, 'vision_request', vision_request):
+            result = image_execution.execute_image(item, signal=signal, dependencies=deps, env={'FACE_BEST_OF': '4'})
+        self.assertEqual((sent, judged), ([10], []))
+        self.assertEqual(result['status'], 'succeeded')
+        self.assertEqual(result['cost_cents'], 5)
+        keys = [key for key in adapter.objects if key.startswith('generations/fixture/') and key.endswith('.png')]
+        self.assertEqual(storage.read(keys[-1]), buffer.getvalue())
 
 
 class InterruptionPersistenceTests(TransactionTestCase):
