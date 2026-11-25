@@ -243,6 +243,84 @@ class ProductionRouteTableTests(SimpleTestCase):
                 self.assertEqual(gateway.upstream_wait('GET', path), 25)
 
 
+KEY = 'k' * 64
+
+
+class ClientAddressForwardingTests(SimpleTestCase):
+    """The gateway is the only hop that vouches for the client address; a caller can never mint a proof."""
+
+    def forward(self, headers, key=KEY, mode='api'):
+        seen = []
+
+        class Upstream(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def do_GET(self):
+                seen.append({k.lower(): v for k, v in self.headers.items()})
+                self.send_response(200)
+                self.send_header('Content-Length', '2')
+                self.end_headers()
+                self.wfile.write(b'ok')
+        upstream = ThreadingHTTPServer(('127.0.0.1', 0), Upstream)
+        server = ThreadingHTTPServer(('127.0.0.1', 0), gateway.handler(SECRET, mode=mode, client_address_key=key))
+        for running in (upstream, server):
+            running.daemon_threads = True
+            self.addCleanup(running.server_close)
+            self.addCleanup(running.shutdown)
+        up_port, port = serve(upstream), serve(server)
+        real = http.client.HTTPConnection
+
+        def connection(host, target, *args, **kwargs):
+            return real(host, up_port if target in (18080, 18082) else target, *args, **kwargs)
+        path = '/mcp' if mode == 'mcp' else '/api/media/uploads/a.png'
+        with patch.object(http.client, 'HTTPConnection', connection):
+            conn = real('127.0.0.1', port, timeout=10)
+            try:
+                conn.request('GET', path, headers={gateway.HEADER: SECRET, **headers})
+                self.assertEqual(conn.getresponse().status, 200)
+            finally:
+                conn.close()
+        return seen[0]
+
+    def test_a_valid_address_is_forwarded_with_a_proof_django_accepts(self):
+        from django.test import RequestFactory
+        from apps.common import client_address
+        seen = self.forward({'x-veevee-client-ip': '8.8.8.8'})
+        self.assertEqual(seen['x-veevee-client-ip'], '8.8.8.8')
+        request = RequestFactory().get('/', headers={'X-Veevee-Client-Ip': seen['x-veevee-client-ip'],
+                                                      'X-Veevee-Client-Ip-Proof': seen['x-veevee-client-ip-proof']})
+        with override_settings(VEEVEE_CLIENT_ADDRESS_KEY=KEY):
+            self.assertEqual(client_address.trusted_address(request), '8.8.8.8')
+        with override_settings(VEEVEE_CLIENT_ADDRESS_KEY='z' * 64):
+            self.assertIsNone(client_address.trusted_address(request))
+
+    def test_the_gateway_proof_equals_the_one_django_computes(self):
+        from apps.common import client_address
+        for address in ('8.8.8.8', '2606:4700:4700::1111'):
+            self.assertEqual(gateway.client_address_proof(KEY, address, now=1_700_000_000),
+                             client_address.sign(KEY, address, now=1_700_000_000))
+
+    def test_a_caller_supplied_proof_or_forged_address_header_never_reaches_django(self):
+        seen = self.forward({'x-veevee-client-ip': '8.8.8.8', 'x-veevee-client-ip-proof': 'v1.1.forged',
+                             'X-Veevee-Client-Ip-Extra': 'x'}, key='')
+        self.assertFalse([name for name in seen if name.startswith('x-veevee-client-ip')])
+
+    def test_a_forged_proof_is_replaced_not_forwarded(self):
+        seen = self.forward({'x-veevee-client-ip': '8.8.8.8', 'x-veevee-client-ip-proof': 'v1.1.forged'})
+        self.assertNotEqual(seen['x-veevee-client-ip-proof'], 'v1.1.forged')
+
+    def test_nothing_is_forwarded_without_a_key_or_with_an_invalid_address(self):
+        for headers, key in (({'x-veevee-client-ip': '8.8.8.8'}, ''), ({'x-veevee-client-ip': 'not-an-address'}, KEY),
+                             ({'x-veevee-client-ip': '8.8.8.8, 1.1.1.1'}, KEY), ({}, KEY)):
+            seen = self.forward(headers, key=key)
+            self.assertFalse([name for name in seen if name.startswith('x-veevee-client-ip')], (headers, key))
+
+    def test_the_mcp_gateway_strips_the_headers_and_signs_nothing(self):
+        seen = self.forward({'x-veevee-client-ip': '8.8.8.8', 'x-veevee-client-ip-proof': 'v1.1.forged'}, key='', mode='mcp')
+        self.assertFalse([name for name in seen if name.startswith('x-veevee-client-ip')])
+
+
 class QuietHandler(WSGIRequestHandler):
     def log_message(self, *args):
         pass

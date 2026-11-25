@@ -242,7 +242,8 @@ class DepthContractTests(TransactionTestCase):
         LoginAttempt.objects.create(identifier='old',created_at=99999)
         LoginAttempt.objects.create(identifier='boundary',created_at=100000)
         LoginAttempt.objects.create(identifier='new',created_at=100001)
-        with patch('apps.workers.maintenance.leases.now_ms',return_value=1000000):
+        # Rows are kept for the longest login tier (24 h) plus an hour, so the boundary sits 90,000,000 ms back.
+        with patch('apps.workers.maintenance.leases.now_ms',return_value=90100000):
             self.assertEqual(maintenance.cleanup_login_attempts(),{'ok':True,'deleted':2})
         self.assertEqual(LoginAttempt.objects.get().identifier,'new')
         self.assertEqual(maintenance.reconcile_depth(),{'reaped':0})

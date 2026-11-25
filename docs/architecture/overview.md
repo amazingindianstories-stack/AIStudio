@@ -64,7 +64,7 @@ recorded in `operations/status.md`. Releases follow `operations/release-runbook.
 | `admin_dashboard` | Admin views, pricing, settings, limits, status checks, provider error log (`/api/admin/errors`) |
 | `mcp_auth` | Agent (MCP) access: hashed tokens, OAuth 2.1 server, per-user opt-in, spend and rate controls (`agent-access.md`) |
 | `mcp` | The MCP server: tools, resources, prompts, quotes and holds over the shared services (`mcp-server.md`) |
-| `common` | Middleware, leases, responses, health, activity log, client address for rate limits (`client_address.py`: last non-loopback `X-Forwarded-For` entry, `X-Real-IP` ignored; only meaningful behind Vercel) |
+| `common` | Middleware, leases, responses, health, activity log, tiered rate-limit policy (`ratelimit.py`), client address for rate limits (`client_address.py`: only an address the gateway vouched for with an HMAC proof counts; `X-Forwarded-For` and `X-Real-IP` are ignored, see status.md) |
 | `integrations` | Model-free outbound HTTP: provider transport and request deadlines, BytePlus client, bounded remote media fetch, DNS resolver |
 
 Provider failures are recorded once, in `generation/provider_errors.py`: every adapter keeps the provider's code,

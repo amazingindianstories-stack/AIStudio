@@ -7,6 +7,8 @@ generation cost_cents.
 """
 from django.conf import settings
 
+from apps.common.ratelimit import Tier, tiers_from_env
+
 SCOPES = {
     'veevee.read': 'See the Veevee library, models and your usage',
     'veevee.generate': 'Create images and videos that cost money, within the daily limit you set',
@@ -44,9 +46,21 @@ RATE_LIMITS = {
     'paid_minute': (10, 60),       # paid submissions, per token
     'paid_day': (200, 86400),      # paid submissions, per token
     'uploads': (30, 3600),         # uploads and imports, per token
-    'register': (20, 3600),        # dynamic client registrations, per client IP
-    'token': (60, 60),             # token endpoint, per client and client IP
 }
+# Address layers of the unauthenticated OAuth endpoints: tiers of ``limit:seconds`` (apps.common.ratelimit), each with an
+# environment variable that overrides it (``off`` switches the layer off). They apply only when the gateway vouches for
+# the client address (apps.common.client_address); there is deliberately no per-client or global ceiling on registration,
+# because a shared client identity would then let one caller lock every agent out.
+ADDRESS_LAYERS = {
+    'oauth_register': ('VEEVEE_RL_OAUTH_REGISTER', (Tier(5, 60), Tier(20, 3600), Tier(60, 86400))),          # dynamic client registrations, per address
+    'oauth_token_address': ('VEEVEE_RL_OAUTH_TOKEN_ADDRESS', (Tier(120, 60), Tier(600, 3600))),              # token endpoint, per address (before the client is looked up)
+    'oauth_token_client': ('VEEVEE_RL_OAUTH_TOKEN_CLIENT', (Tier(60, 60),)),                                  # token endpoint, per client and address
+}
+
+
+def address_tiers(layer):
+    variable, default = ADDRESS_LAYERS[layer]
+    return tiers_from_env(variable, default)
 # Board API: a weighted budget per grant, as credits in a fixed window. A call costs what its kind costs
 # (BOARD_COSTS), whatever the number of objects it carries (bulk calls are capped at BOARD_BULK_MAX).
 BOARD_CREDITS = (6000, 60)         # credits per window, per token

@@ -156,6 +156,28 @@ def media_delivery(transport=http_status):
     return outcome('ok', f'Direct browser media read succeeded (HTTP {status}; object identity redacted)') if status in (200, 206) else outcome('error', f'Direct browser media read returned HTTP {status}')
 
 
+def login_rate_limits():
+    """Whether the per-address limits can see real client addresses, and what the limits blocked (counters: apps.mcp_auth.ratelimits)."""
+    from django.conf import settings
+    from apps.authentication.models import LoginAttempt
+    from apps.mcp_auth.ratelimits import event_totals
+    totals = event_totals()
+    def day(name): return totals.get(name, (0, 0))[1]
+    surfaces = ('login', 'oauth_register', 'oauth_token')
+    trusted, untrusted = sum(day(f'address:trusted:{name}') for name in surfaces), sum(day(f'address:untrusted:{name}') for name in surfaces)
+    blocked = '; '.join(f"{name} {totals.get('blocked:' + name, (0, 0))[0]}/{day('blocked:' + name)}"
+                        for name in ('login_account', 'login_pair', 'login_address', 'oauth_register', 'oauth_token_address', 'oauth_token_client'))
+    buckets = sorted({identifier[3:11] for identifier in LoginAttempt.objects.filter(identifier__startswith='ip:', created_at__gt=now_ms() - 3600000)
+                      .values_list('identifier', flat=True)[:200]})[:10]
+    detail = (f'Requests in 24h with a trusted client address: {trusted}, without: {untrusted}. Blocked this hour/24h: {blocked}.'
+              + (f" Address buckets seen in the last hour: {', '.join(buckets)}." if buckets else ''))
+    if not settings.VEEVEE_ADDRESS_RATE_LIMITS:
+        return outcome('unknown', 'Per-address limits are switched off (VEEVEE_ADDRESS_RATE_LIMITS=0); the per-account login limit still applies. ' + detail)
+    if not trusted:
+        return outcome('unknown', 'No request in the last 24 hours carried a trusted client address, so per-address limits are standing down (per-account limits still apply). ' + detail)
+    return outcome('ok', detail)
+
+
 CHECKS = [
     ('gemini', 'Gemini / Nano Banana Pro', gemini),
     ('gemini-nano-banana-2-1', 'Gemini / Nano Banana 2.1', lambda: gemini(model='Nano Banana 2.1')),
@@ -165,6 +187,7 @@ CHECKS = [
     ('omni', 'Gemini Omni Flash 1.1', omni), ('omnihuman', 'BytePlus Vision / OmniHuman 2.0', omnihuman), ('postgres', 'Postgres', postgres), ('generation-indexes', 'Generation Indexes', generation_indexes),
     ('stuck-generations', 'Stuck Generations', stuck_generations), ('storage', 'Media Storage', storage),
     ('ffmpeg-runtime', 'ffmpeg Runtime', ffmpeg), ('media-delivery', 'Media Delivery', media_delivery),
+    ('login-rate-limits', 'Login Rate Limits', login_rate_limits),
 ]
 
 # A response deadline cannot cancel a running network/storage call. Keep its

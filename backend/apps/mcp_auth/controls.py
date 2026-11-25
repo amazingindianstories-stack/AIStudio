@@ -63,15 +63,17 @@ def dollars(cents):
     return f'${cents / 100:,.2f}'
 
 
-def hit(bucket, limit, window_seconds, *, now=None, weight=1):
-    """Count one event (``weight`` credits) in a fixed window and report whether it is within ``limit``."""
+def hit(bucket, limit, window_seconds, *, now=None, weight=1, retain_seconds=0):
+    """Count one event (``weight`` credits) in a fixed window and report whether it is within ``limit``.
+
+    ``retain_seconds`` keeps the row past the window for counters that are read back later (``ratelimits``)."""
     now = now_ms() if now is None else now
     width = window_seconds * 1000
     start = now - now % width
     with connection.cursor() as cursor:
         cursor.execute('''INSERT INTO mcp_rate_windows (bucket, window_start, count, expires_at) VALUES (%s, %s, %s, %s)
             ON CONFLICT (bucket, window_start) DO UPDATE SET count = mcp_rate_windows.count + EXCLUDED.count
-            RETURNING count''', [bucket, start, weight, start + width])
+            RETURNING count''', [bucket, start, weight, start + max(width, retain_seconds * 1000)])
         count = cursor.fetchone()[0]
     return RateResult(count <= limit, count, limit, max(1, math.ceil((start + width - now) / 1000)))
 

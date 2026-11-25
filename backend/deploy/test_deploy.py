@@ -137,6 +137,39 @@ class GatewayAllowlistTests(SimpleTestCase):
                 entrypoint.run_api(env)
             self.assertIs(captured['config']['magnific_upscale'], expected)
 
+    def test_the_client_address_key_is_derived_and_shared_by_the_gateway_and_gunicorn(self):
+        import hashlib
+        import hmac
+        import json
+        from unittest.mock import patch
+        launched = []
+
+        class Child:
+            def __init__(self, args, **kwargs):
+                self.stdin, self.returncode, self.env = self, 0, kwargs.get('env')
+                launched.append(self)
+            def write(self, data):
+                self.config = json.loads(data)
+            def close(self):
+                pass
+            def poll(self):
+                return 0
+            def wait(self):
+                return 0
+            def terminate(self):
+                pass
+        secret = 's' * 64
+        with patch('subprocess.Popen', Child), patch('signal.signal'):
+            entrypoint.run_api({'VEEVEE_INGRESS_SECRET': secret, 'PORT': '18081', 'VEEVEE_PAID_GUARD': '{}'})
+        server, gate = launched
+        expected = hmac.new(secret.encode(), b'veevee-client-address-v1', hashlib.sha256).hexdigest()
+        self.assertEqual(entrypoint.client_address_key(secret), expected)
+        self.assertEqual(gate.config['client_address_key'], expected)
+        self.assertEqual(server.env['VEEVEE_CLIENT_ADDRESS_KEY'], expected)
+        self.assertNotEqual(expected, secret)
+        self.assertNotIn(secret, json.dumps(server.env))
+        self.assertNotEqual(entrypoint.client_address_key('t' * 64), expected)
+
 
 class McpServiceDeployTests(SimpleTestCase):
     def capture(self, env):
