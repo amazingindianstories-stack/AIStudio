@@ -57,11 +57,16 @@ from datetime import timedelta
 from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
+from apps.common import leases
 from .storage import FileSystemAdapter, GCSAdapter, MediaNotFoundError
 
 logger = logging.getLogger(__name__)
 
 CHUNK_BYTES = 8 * 1024 * 1024
+# A cancel records ``cancelling`` before it touches storage, so the sweep and a retry finish an interrupted one.
+CANCELLED_STATES = ('cancelling', 'cancelled')
+# Covers the 120 s body read of one chunk and the final copy into storage; an expired lease only stops serializing.
+CHUNK_LEASE_MS = 10 * 60 * 1000
 LIMITS = {'image-reference': 256*1024*1024, 'portrait': 256*1024*1024,
           'material': 256*1024*1024, 'canvas': 256*1024*1024,
           'audio-reference': 512*1024*1024, 'video-reference': 2*1024**3,
@@ -85,6 +90,10 @@ def _session_model():
     return UploadSession
 
 
+def _chunk_lease(row):
+    return f'lease:upload-chunk:{row.id}'
+
+
 def _owned_session(actor_id, session_id, *, locked=False):
     queryset = _session_model().objects
     if locked:
@@ -92,7 +101,7 @@ def _owned_session(actor_id, session_id, *, locked=False):
     row = queryset.filter(id=session_id, actor_id=actor_id).first()
     if not row:
         raise UploadError('UPLOAD_NOT_FOUND', 404)
-    if row.state == 'cancelled':
+    if row.state in CANCELLED_STATES:
         raise UploadError('UPLOAD_CANCELLED', 410)
     if not row.finalized_at and row.expires_at <= timezone.now():
         raise UploadError('UPLOAD_EXPIRED', 410)
@@ -309,15 +318,14 @@ def finalize_upload(actor_id, session_id, storage):
     except BaseException:
         _release_verifying(row.id)
         raise
-    # Short transaction 2: commit READY only if the claim is still ours (a cancel moves it away).
+    # Short transaction 2: commit READY unless a cancel is under way or done. A cancel whose storage call failed
+    # puts the session back to ``uploading``; the object it left is the one just hashed.
     with transaction.atomic():
         current = _session_model().objects.select_for_update().filter(id=row.id, actor_id=actor_id).first()
-        if current is None or current.state == 'cancelled':
+        if current is None or current.state in CANCELLED_STATES:
             raise UploadError('UPLOAD_CANCELLED', 410)
         if current.finalized_at:
             return session_result(current, storage)
-        if current.state != 'verifying':
-            raise UploadError('UPLOAD_NOT_FOUND', 404)
         current.sha256, current.state, current.finalized_at = sha256, 'ready', timezone.now()
         current.session_uri = ''
         current.save(update_fields=['sha256', 'state', 'finalized_at', 'session_uri'])
@@ -345,7 +353,7 @@ def resolve_ready_upload(actor_id, reference_id, *, purposes=None):
     except (ValueError, ValidationError):
         shared = None
     if shared is not None and str(shared.actor_id) != str(actor_id):
-        if shared.state == 'cancelled':
+        if shared.state in CANCELLED_STATES:
             raise UploadError('UPLOAD_CANCELLED', 410)
         if not shared.finalized_at or shared.state != 'ready':
             raise UploadError('UPLOAD_NOT_READY', 409)
@@ -363,68 +371,88 @@ def resolve_ready_upload(actor_id, reference_id, *, purposes=None):
 def stream_local_chunk(actor_id, session_id, request, storage):
     if not isinstance(storage.primary, FileSystemAdapter):
         raise UploadError('LOCAL_UPLOAD_UNAVAILABLE', 404)
-    with transaction.atomic():
-        row = _owned_session(actor_id, session_id, locked=True)
+    row = _owned_session(actor_id, session_id)
+    if row.finalized_at:
+        return 200, row.byte_size
+    owner = str(uuid4())
+    # One writer per session. A database lease, not a row lock held across the client's upload: the request body
+    # can take minutes, and no transaction may stay open that long.
+    if not leases.claim(_chunk_lease(row), owner, ttl_ms=CHUNK_LEASE_MS):
+        raise UploadError('UPLOAD_OFFSET_CONFLICT', 409)
+    try:
+        row = _owned_session(actor_id, session_id)      # a cancel may have landed before the lease was ours
         if row.finalized_at:
             return 200, row.byte_size
-        part = _local_path(storage, row)
-        part.parent.mkdir(parents=True, exist_ok=True)
-        offset = part.stat().st_size if part.exists() else 0
-        if not part.exists():
-            try:
-                if _metadata(storage, row.key)['size'] == row.byte_size:
-                    return 200, row.byte_size
-            except MediaNotFoundError:
-                pass
-        value = request.headers.get('Content-Range', '')
-        if value == f'bytes */{row.byte_size}':
-            if offset == row.byte_size:
-                with part.open('rb') as stream:
-                    storage.primary.put_stream(row.key, stream, row.content_type, 'private, no-store')
-                return 200, offset
-            return 308, offset
-        match = re.fullmatch(r'bytes ([0-9]+)-([0-9]+)/([0-9]+)', value)
-        if not match:
-            raise UploadError('INVALID_CONTENT_RANGE')
-        start, end, size = map(int, match.groups())
-        length = end-start+1
-        if size != row.byte_size or start != offset or end >= size or length <= 0:
-            raise UploadError('UPLOAD_OFFSET_CONFLICT', 409)
-        if length > CHUNK_BYTES or (end+1 < size and length % (256*1024)):
-            raise UploadError('INVALID_CHUNK_SIZE', 413)
-        if request.headers.get('Content-Type') != row.content_type:
-            raise UploadError('UPLOAD_CONTENT_TYPE_MISMATCH')
+        return _write_local_chunk(row, request, storage)
+    finally:
+        leases.release(_chunk_lease(row), owner)
+
+
+def _write_local_chunk(row, request, storage):
+    part = _local_path(storage, row)
+    part.parent.mkdir(parents=True, exist_ok=True)
+    offset = part.stat().st_size if part.exists() else 0
+    if not part.exists():
         try:
-            if int(request.headers.get('Content-Length', '0')) != length:
-                raise UploadError('UPLOAD_CHUNK_LENGTH_MISMATCH')
-        except ValueError:
-            raise UploadError('INVALID_CONTENT_LENGTH')
-        with part.open('ab') as output:
-            count = 0
-            deadline = time.monotonic()+120
-            try:
-                while chunk := request.read(min(256*1024, length-count+1)):
-                    if time.monotonic() > deadline:
-                        raise UploadError('UPLOAD_CHUNK_TIMEOUT', 408)
-                    count += len(chunk)
-                    if count > length:
-                        raise UploadError('UPLOAD_CHUNK_LENGTH_MISMATCH')
-                    output.write(chunk)
-                if count != length:
-                    raise UploadError('UPLOAD_CHUNK_LENGTH_MISMATCH')
-            except Exception:
-                output.truncate(offset)
-                raise
-        offset += count
-        if offset == size:
+            if _metadata(storage, row.key)['size'] == row.byte_size:
+                return 200, row.byte_size
+        except MediaNotFoundError:
+            pass
+    value = request.headers.get('Content-Range', '')
+    if value == f'bytes */{row.byte_size}':
+        if offset == row.byte_size:
             with part.open('rb') as stream:
                 storage.primary.put_stream(row.key, stream, row.content_type, 'private, no-store')
-            part.unlink(missing_ok=True)
             return 200, offset
         return 308, offset
+    match = re.fullmatch(r'bytes ([0-9]+)-([0-9]+)/([0-9]+)', value)
+    if not match:
+        raise UploadError('INVALID_CONTENT_RANGE')
+    start, end, size = map(int, match.groups())
+    length = end-start+1
+    if size != row.byte_size or start != offset or end >= size or length <= 0:
+        raise UploadError('UPLOAD_OFFSET_CONFLICT', 409)
+    if length > CHUNK_BYTES or (end+1 < size and length % (256*1024)):
+        raise UploadError('INVALID_CHUNK_SIZE', 413)
+    if request.headers.get('Content-Type') != row.content_type:
+        raise UploadError('UPLOAD_CONTENT_TYPE_MISMATCH')
+    try:
+        if int(request.headers.get('Content-Length', '0')) != length:
+            raise UploadError('UPLOAD_CHUNK_LENGTH_MISMATCH')
+    except ValueError:
+        raise UploadError('INVALID_CONTENT_LENGTH')
+    with part.open('ab') as output:
+        count = 0
+        deadline = time.monotonic()+120
+        try:
+            while chunk := request.read(min(256*1024, length-count+1)):
+                if time.monotonic() > deadline:
+                    raise UploadError('UPLOAD_CHUNK_TIMEOUT', 408)
+                count += len(chunk)
+                if count > length:
+                    raise UploadError('UPLOAD_CHUNK_LENGTH_MISMATCH')
+                output.write(chunk)
+            if count != length:
+                raise UploadError('UPLOAD_CHUNK_LENGTH_MISMATCH')
+        except Exception:
+            output.truncate(offset)
+            raise
+    offset += count
+    if offset == size:
+        with part.open('rb') as stream:
+            storage.primary.put_stream(row.key, stream, row.content_type, 'private, no-store')
+        part.unlink(missing_ok=True)
+        return 200, offset
+    return 308, offset
 
 
 def cancel_upload(actor_id, session_id, storage):
+    """Cancel in three steps so no transaction spans a storage call, as ``finalize_upload`` does for its reads.
+
+    The row is first marked ``cancelling`` under its lock, which makes a concurrent finalize or chunk refuse; the
+    staged object is then deleted with no transaction open; the row ends ``cancelled``. A crash in between leaves
+    ``cancelling``, which a retry and the expiry sweep both resume; a storage failure puts the session back to
+    ``uploading``, never ``verifying``: the finalize that held that claim may already have given up."""
     with transaction.atomic():
         row = _session_model().objects.select_for_update().filter(id=session_id, actor_id=actor_id).first()
         if not row:
@@ -433,6 +461,15 @@ def cancel_upload(actor_id, session_id, storage):
             raise UploadError('UPLOAD_ALREADY_READY', 409)
         if row.state == 'cancelled':
             return {'version': 1, 'uploadId': str(row.id), 'state': 'cancelled'}
+        if row.state != 'cancelling':
+            row.state = 'cancelling'
+            row.save(update_fields=['state'])
+    owner = str(uuid4())
+    local = isinstance(storage.primary, FileSystemAdapter)
+    try:
+        # A chunk still being written would recreate the part file; it keeps the lease until it is done.
+        if local and not leases.claim(_chunk_lease(row), owner, ttl_ms=CHUNK_LEASE_MS):
+            raise UploadError('UPLOAD_CANCEL_UNAVAILABLE', 503)
         if isinstance(storage.primary, GCSAdapter) and row.session_uri:
             import requests
             uri = _cipher().decrypt(row.session_uri.encode()).decode()
@@ -442,13 +479,19 @@ def cancel_upload(actor_id, session_id, storage):
             # GCS uses 499 for successful cancellation; 404/410 are already gone.
             if response.status_code not in (200, 204, 404, 410, 499):
                 raise UploadError('UPLOAD_CANCEL_UNAVAILABLE', 503)
-        if isinstance(storage.primary, FileSystemAdapter):
+        if local:
             _local_path(storage, row).unlink(missing_ok=True)
         # Only this new, unpublished, actor-owned staging object can be deleted.
         storage.primary.delete(row.key)
-        row.state, row.session_uri = 'cancelled', ''
-        row.save(update_fields=['state', 'session_uri'])
-        return {'version': 1, 'uploadId': str(row.id), 'state': 'cancelled'}
+    except BaseException:
+        # A cancel that could not finish leaves the session usable, as it always has; only a crash stays ``cancelling``.
+        _session_model().objects.filter(id=row.id, state='cancelling').update(state='uploading')
+        raise
+    finally:
+        if local:
+            leases.release(_chunk_lease(row), owner)
+    _session_model().objects.filter(id=row.id, finalized_at__isnull=True).update(state='cancelled', session_uri='')
+    return {'version': 1, 'uploadId': str(row.id), 'state': 'cancelled'}
 
 
 def cleanup_expired_uploads(storage, *, limit=100):
@@ -458,7 +501,7 @@ def cleanup_expired_uploads(storage, *, limit=100):
     returns ``{'cleaned': n, 'failed': m}``.
     """
     cleaned = failed = 0
-    candidates = list(_session_model().objects.filter(state__in=('uploading', 'verifying'),
+    candidates = list(_session_model().objects.filter(state__in=('uploading', 'verifying', 'cancelling'),
         finalized_at__isnull=True, expires_at__lte=timezone.now()).order_by('expires_at', 'id').values_list('id', 'actor_id')[:limit])
     for identifier, actor_id in candidates:
         try:
@@ -467,5 +510,5 @@ def cleanup_expired_uploads(storage, *, limit=100):
         except Exception:
             failed += 1
             logger.exception('Expired upload cleanup failed for %s', identifier)
-            _session_model().objects.filter(id=identifier, state__in=('uploading', 'verifying')).update(expires_at=timezone.now() + timedelta(hours=1))
+            _session_model().objects.filter(id=identifier, state__in=('uploading', 'verifying', 'cancelling')).update(expires_at=timezone.now() + timedelta(hours=1))
     return {'cleaned': cleaned, 'failed': failed}

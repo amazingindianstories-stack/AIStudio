@@ -2,13 +2,17 @@
 import hashlib
 import io
 import tempfile
+import threading
 from datetime import timedelta
 from unittest.mock import Mock, patch
 from uuid import uuid4
+from django.db import connection, connections
 from django.test import TransactionTestCase, RequestFactory, override_settings
 from django.utils import timezone
 from apps.authentication.models import User
 from apps.authentication.session import sign_session
+from apps.common import leases
+from . import uploads
 from .models import UploadSession
 from .storage import FileSystemAdapter, GCSAdapter, StorageService
 from .uploads import (initialize_upload, finalize_upload, upload_status, stream_local_chunk, store_upload,
@@ -437,3 +441,122 @@ class ResumableUploadTests(TransactionTestCase):
             initialize_upload(self.user.id, {'purpose':'image-reference', 'contentType':'image/png',
                 'byteSize':len(PNG)}, StorageService(GCSAdapter(client, 'fixture')))
         self.assertEqual(UploadSession.objects.count(), 0)
+
+
+class PoolerSafeUploadTests(TransactionTestCase):
+    """No upload path holds a transaction open across storage or client I/O (PgBouncer transaction pooling)."""
+
+    def setUp(self):
+        ResumableUploadTests.setUp(self)
+
+    begin = ResumableUploadTests.begin
+    chunk = ResumableUploadTests.chunk
+    assertCode = ResumableUploadTests.assertCode
+
+    def watch(self, target, name, seen, wrapper=None):
+        real = getattr(target, name)
+        def spy(*args, **kwargs):
+            seen.append((connection.in_atomic_block, wrapper(args, kwargs) if wrapper else None))
+            return real(*args, **kwargs)
+        return patch.object(target, name, side_effect=spy)
+
+    def test_a_cancel_that_lands_during_verification_wins_over_the_finalize(self):
+        session, _ = self.begin()
+        self.chunk(session, PNG)
+        real = uploads._hash_object
+        def hash_then_cancel(storage, row):
+            digest = real(storage, row)
+            cancel_upload(self.user.id, session['uploadId'], storage)
+            return digest
+        with patch.object(uploads, '_hash_object', hash_then_cancel):
+            self.assertCode('UPLOAD_CANCELLED', finalize_upload, self.user.id, session['uploadId'], self.storage)
+        row = UploadSession.objects.get(id=session['uploadId'])
+        self.assertEqual((row.state, row.finalized_at), ('cancelled', None))
+
+    def test_a_failed_cancel_after_the_finalize_gave_up_leaves_a_session_that_finalizes(self):
+        session, _ = self.begin()
+        self.chunk(session, PNG)
+        hashing, cancel_marked, outcome = threading.Event(), threading.Event(), {}
+        real = uploads._hash_object
+        def hash_until_cancel_is_marked(storage, row):
+            hashing.set()
+            cancel_marked.wait(10)
+            return real(storage, row)
+        def finalize():
+            try:
+                finalize_upload(self.user.id, session['uploadId'], self.storage)
+            except UploadError as error:
+                outcome['code'] = error.code
+            finally:
+                connections.close_all()
+        def delete_after_the_finalize_gave_up(key):
+            cancel_marked.set()
+            finalizer.join(10)
+            raise OSError('storage down')
+        with patch.object(uploads, '_hash_object', hash_until_cancel_is_marked):
+            finalizer = threading.Thread(target=finalize)
+            finalizer.start()
+            self.assertTrue(hashing.wait(10))
+            with patch.object(self.storage.primary, 'delete', side_effect=delete_after_the_finalize_gave_up):
+                with self.assertRaises(OSError):
+                    cancel_upload(self.user.id, session['uploadId'], self.storage)
+        self.assertEqual(outcome, {'code': 'UPLOAD_CANCELLED'})
+        self.assertEqual(UploadSession.objects.get(id=session['uploadId']).state, 'uploading')
+        self.assertEqual(finalize_upload(self.user.id, session['uploadId'], self.storage)['state'], 'ready')
+
+    def test_a_failed_cancel_during_verification_lets_the_finalize_finish(self):
+        session, _ = self.begin()
+        self.chunk(session, PNG)
+        real = uploads._hash_object
+        def hash_then_fail_a_cancel(storage, row):
+            with patch.object(storage.primary, 'delete', side_effect=OSError('storage down')):
+                with self.assertRaises(OSError):
+                    cancel_upload(self.user.id, session['uploadId'], storage)
+            return real(storage, row)
+        with patch.object(uploads, '_hash_object', hash_then_fail_a_cancel):
+            self.assertEqual(finalize_upload(self.user.id, session['uploadId'], self.storage)['state'], 'ready')
+
+    def test_cancel_marks_the_row_first_and_deletes_the_object_outside_any_transaction(self):
+        session, _ = self.begin()
+        self.chunk(session, PNG)
+        seen = []
+        state = lambda args, kwargs: UploadSession.objects.get(id=session['uploadId']).state
+        with self.watch(self.storage.primary, 'delete', seen, state):
+            self.assertEqual(cancel_upload(self.user.id, session['uploadId'], self.storage)['state'], 'cancelled')
+        self.assertEqual(seen, [(False, 'cancelling')])
+        self.assertEqual(UploadSession.objects.get(id=session['uploadId']).state, 'cancelled')
+
+    def test_a_storage_failure_during_cancel_leaves_the_session_usable_and_a_crash_is_swept(self):
+        session, _ = self.begin()
+        with patch.object(self.storage.primary, 'delete', side_effect=OSError('storage down')):
+            with self.assertRaises(OSError):
+                cancel_upload(self.user.id, session['uploadId'], self.storage)
+        self.assertEqual(UploadSession.objects.get(id=session['uploadId']).state, 'uploading')
+        UploadSession.objects.filter(id=session['uploadId']).update(state='cancelling', expires_at=timezone.now()-timedelta(seconds=1))
+        self.assertEqual(cleanup_expired_uploads(self.storage), {'cleaned': 1, 'failed': 0})
+        self.assertEqual(UploadSession.objects.get(id=session['uploadId']).state, 'cancelled')
+        self.assertCode('UPLOAD_CANCELLED', stream_local_chunk, self.user.id, session['uploadId'],
+            self.factory.put('/fixture'), self.storage)
+
+    def test_a_chunk_streams_with_no_transaction_and_one_writer_per_session(self):
+        session, _ = self.begin()
+        seen = []
+        def second_writer(args, kwargs):
+            # Another request for the same session arrives while this chunk's body is being read.
+            request = self.factory.put('/fixture', data=PNG, content_type='image/png',
+                HTTP_CONTENT_RANGE=f'bytes 0-{len(PNG)-1}/{len(PNG)}')
+            with self.assertRaises(UploadError) as caught:
+                stream_local_chunk(self.user.id, session['uploadId'], request, self.storage)
+            return caught.exception.code
+        with self.watch(self.storage.primary, 'put_stream', seen, second_writer):
+            self.assertEqual(self.chunk(session, PNG), (200, len(PNG)))
+        self.assertEqual(seen, [(False, 'UPLOAD_OFFSET_CONFLICT')])
+        self.assertIsNone(leases.read(uploads._chunk_lease(UploadSession.objects.get(id=session['uploadId']))))
+
+    def test_cancel_waits_out_a_chunk_that_is_still_being_written(self):
+        session, _ = self.begin()
+        row = UploadSession.objects.get(id=session['uploadId'])
+        self.assertTrue(leases.claim(uploads._chunk_lease(row), 'writer', ttl_ms=60000))
+        self.assertCode('UPLOAD_CANCEL_UNAVAILABLE', cancel_upload, self.user.id, session['uploadId'], self.storage)
+        row.refresh_from_db()
+        self.assertEqual(row.state, 'uploading')

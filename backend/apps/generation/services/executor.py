@@ -4,11 +4,9 @@ import logging
 import math
 import os
 import secrets
-import threading
-import time
 from uuid import uuid4
 
-from django.db import connections, transaction, OperationalError, InterfaceError
+from django.db import transaction, OperationalError, InterfaceError
 
 from apps.common.leases import now_ms
 from apps.generation.model_registry import capability
@@ -20,6 +18,7 @@ from .deadline import Cancellation, QueueExecutionCancelledError, NOT_SENT_MESSA
 from . import image_execution
 from .video_execution import submit_video
 from . import portrait_prepare
+from .heartbeat import LeaseHeartbeat
 
 logger = logging.getLogger('veevee.generation')
 
@@ -48,57 +47,6 @@ def video_best_of(item, env):
         return math.floor(min(3, max(2, requested)))
     except (ValueError, OverflowError):
         return 2
-
-
-class LeaseHeartbeat:
-    """Renews the row's lease while a worker thread owns it.
-
-    A renewal that cannot reach the database is retried, not treated as a lost lease: the database is the shared
-    resource that runs out of connections under load, and cancelling provider work because a heartbeat could not
-    connect fails a generation that is still healthy. Only a renewal that ran and found the row no longer ours
-    cancels at once; an unverifiable lease cancels once it has been unrenewable for a whole TTL, which is when
-    another worker may legitimately claim the row."""
-    RETRY_SECONDS = 2
-
-    def __init__(self, item, owner, cancellation, *, interval=15, ttl_ms=60000, retry=None):
-        self.item, self.owner, self.cancellation = item, owner, cancellation
-        self.interval, self.ttl_ms = interval, ttl_ms
-        self.retry = self.RETRY_SECONDS if retry is None else retry
-        self.stop = threading.Event()
-
-    def _renew(self):
-        return Generation.objects.filter(pk=self.item.id, worker_lease_id=self.owner,
-            status='running').update(worker_lease_until=now_ms() + self.ttl_ms)
-
-    def __enter__(self):
-        def beat():
-            renewed_at = time.monotonic()
-            wait = self.interval
-            try:
-                while not self.stop.wait(wait):
-                    try:
-                        renewed = self._renew()
-                    except Exception as error:
-                        connections.close_all()     # reconnect on the next try
-                        if time.monotonic() - renewed_at >= self.ttl_ms / 1000:
-                            logger.error('generation lease could not be renewed for a full TTL error_type=%s', type(error).__name__)
-                            self.cancellation.cancelled.set()
-                            return
-                        wait = self.retry
-                        continue
-                    if not renewed:
-                        self.cancellation.cancelled.set()
-                        return
-                    renewed_at, wait = time.monotonic(), self.interval
-            finally:
-                connections.close_all()
-        self.thread = threading.Thread(target=beat, name='generation-lease', daemon=True)
-        self.thread.start()
-        return self
-
-    def __exit__(self, *args):
-        self.stop.set()
-        self.thread.join(timeout=2)
 
 
 def _fenced_update(item, owner, updates):

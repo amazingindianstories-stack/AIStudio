@@ -4,7 +4,7 @@ import json
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
-from threading import Barrier, Event
+from threading import Barrier
 from unittest.mock import patch
 from django.db import connection, connections
 from django.test import SimpleTestCase, TransactionTestCase, override_settings
@@ -13,7 +13,8 @@ from apps.authentication.models import User
 from apps.integrations.transport import HttpResult
 from apps.media.storage import MemoryAdapter, StorageService
 from apps.integrations.byteplus import BytePlusClient, BytePlusAssetError, sign_request, validate_portrait_image
-from . import portrait_db as db
+from apps.common import leases
+from . import portrait_db as db, portrait_sync
 from .portrait_sync import sync_portraits, inventory_portraits, list_all_pages, unlinked_global_candidate, portrait_display_ref
 from .models import PortraitGroup, PortraitAsset
 
@@ -206,27 +207,24 @@ class PortraitReconciliationTests(TransactionTestCase):
 
     def test_concurrent_sync_busy_preserves_local_records(self):
         group = self.group()
-        ready, release = Event(), Event()
-        def holder():
-            try:
-                with connection.cursor() as cursor:
-                    cursor.execute('SELECT pg_advisory_lock(746833219)')
-                    ready.set()
-                    release.wait(10)
-                    cursor.execute('SELECT pg_advisory_unlock(746833219)')
-            finally:
-                connections.close_all()
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(holder)
-            self.assertTrue(ready.wait(10))
-            try:
-                result = self.sync()
-                self.assertTrue(result['syncInProgress'])
-                self.assertEqual(result['groups'][0]['id'], group['id'])
-                self.assertEqual(self.client_remote.calls, [])
-            finally:
-                release.set()
-            future.result(timeout=10)
+        self.assertTrue(leases.claim(portrait_sync.SYNC_LEASE, 'another-process', ttl_ms=60000))
+        result = self.sync()
+        self.assertTrue(result['syncInProgress'])
+        self.assertEqual(result['groups'][0]['id'], group['id'])
+        self.assertEqual(self.client_remote.calls, [])
+        self.assertEqual(leases.read(portrait_sync.SYNC_LEASE)['owner'], 'another-process')
+
+    def test_sync_releases_its_lease_and_uses_no_session_level_lock(self):
+        self.group()
+        self.sync()
+        self.assertIsNone(leases.read(portrait_sync.SYNC_LEASE))
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND granted")
+            self.assertEqual(cursor.fetchone()[0], 0)
+
+    def test_sync_lease_held_by_a_dead_process_expires(self):
+        self.assertTrue(leases.claim(portrait_sync.SYNC_LEASE, 'dead-process', ttl_ms=-1))
+        self.assertNotIn('syncInProgress', self.sync())
 
     def test_image_lookup_exact_query_host_and_default_group_concurrency(self):
         group = self.group()

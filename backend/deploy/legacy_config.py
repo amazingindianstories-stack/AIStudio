@@ -13,11 +13,18 @@ import base64
 import hashlib
 import json
 import re
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit, urlunsplit
+
+from config import db_profile
 
 API_VARIABLE = 'GOAL4_PREVIEW_CONFIGURATION'
 WORKER_VARIABLE = 'GOAL4_PREVIEW_WORKER_CONFIGURATION'
 DATABASE_HOST = 'green-postgres18.railway.internal:5432'
+# Optional transaction-mode PgBouncer (infra/pgbouncer) in front of PostgreSQL: a service variable on the Green service,
+# 'host:port' on Railway's private network. Set, the service connects to its own pooler alias instead of the direct
+# host; unset, it connects directly as before, so the variable is also the instant rollback.
+POOLER_VARIABLE = 'VEEVEE_DB_POOLER'
+POOLER_HOST = re.compile(r'[a-z0-9][a-z0-9-]*\.railway\.internal:[0-9]{2,5}')
 CA_SHA256 = '2779319ac43d325d695cbda0a53256dbde69d681c6b4719b217c2b82ec1e38bb'
 SYSTEM_IDENTIFIER = '7694884166196781094'
 MIGRATION_ROWS = (60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102)  # 67 includes generation.0006 (additive cancellation reconciliation); 68 adds generation.0007 (explicit, audited folder name rename); 69-70 add generation.0008 and mcp_auth.0001 (additive agent access); 71 adds generation.0009 (concurrent generations.url index); 72-73 add canvas.0002 and projects.0002 (additive board and project roles); 74-75 add canvas.0003 and canvas.0004 (board version and saves); 76-78 add generation.0010 (nullable text-job output), canvas.0005 (board activity history) and canvas.0006 (board AI jobs table); 79-80 add canvas.0007 (board save changes) and canvas.0008 (custom shape packs); 81 adds assets.0007 (portrait media kind)
@@ -202,10 +209,29 @@ def _agent(env, out):
 
 def translate(component, env):
     """Return the complete, allowlisted environment for ``component``."""
+    return _pooled(component, env, _translate(component, env))
+
+
+def _pooled(component, env, out):
+    """Point the database URL at the component's pooler alias when ``VEEVEE_DB_POOLER`` names a private-network pooler.
+
+    The host is restricted to ``*.railway.internal`` because the role's password is sent to it."""
+    pooler = env.get(POOLER_VARIABLE)
+    if not pooler:
+        return out
+    need(POOLER_HOST.fullmatch(pooler), POOLER_VARIABLE + ' must be a *.railway.internal host:port')
+    url = urlsplit(out['DATABASE_URL'])
+    credentials = url.netloc.rpartition('@')[0]
+    out['DATABASE_URL'] = urlunsplit(url._replace(netloc=f'{credentials}@{pooler}', path='/' + db_profile.alias(component)))
+    out['VEEVEE_DB_POOLED'] = '1'
+    return out
+
+
+def _translate(component, env):
     if component == 'mcp':
-        return _mcp(env, translate('api', env))
+        return _mcp(env, _translate('api', env))
     if component == 'agent':
-        return _agent(env, translate('api', env))
+        return _agent(env, _translate('api', env))
     if component == 'api':
         cfg = json.loads(env[API_VARIABLE])
         need(cfg.get('role') == API_ROLE, 'unexpected API role')

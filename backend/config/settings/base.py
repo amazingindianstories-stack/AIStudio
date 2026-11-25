@@ -118,6 +118,10 @@ if _paid_guard_raw:
 VEEVEE_RUNTIME_COMPONENT = os.environ.get('VEEVEE_RUNTIME_COMPONENT') or None
 if VEEVEE_RUNTIME_COMPONENT not in (None, 'api', 'generation', 'export', 'scheduler', 'mcp', 'agent'):
     raise ImproperlyConfigured('VEEVEE_RUNTIME_COMPONENT must be api, generation, export, scheduler, mcp or agent')
+# Direct or pooled connection (transaction-mode PgBouncer), timeouts and application_name for this component.
+from config import db_profile as _db_profile
+VEEVEE_DB_POOLED = os.environ.get('VEEVEE_DB_POOLED') == '1'
+_db_profile.apply(DATABASES['default'], VEEVEE_RUNTIME_COMPONENT, VEEVEE_DB_POOLED)
 # The MCP service (apps.mcp, docs/architecture/mcp-server.md): off unless '1'. Quotes are HMACs under their own
 # secret; a held tool call waits at most MCP_MAX_HOLD_SECONDS (clients give up 60 s after the first byte), and at most
 # 45 s, so the result is built inside the gateway's 55 s (apps.mcp.hold.REPLY_SECONDS).

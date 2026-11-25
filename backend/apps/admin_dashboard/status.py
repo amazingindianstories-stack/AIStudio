@@ -106,6 +106,13 @@ def postgres():
     return outcome('ok', 'select 1 ok')
 
 
+def db_connections():
+    from apps.common import db_usage
+    usage = db_usage.snapshot()
+    detail = db_usage.summary(usage)
+    return outcome('error', f'Near the connection limit: {detail}') if db_usage.is_high(usage) else outcome('ok', detail)
+
+
 def generation_indexes():
     names = [index.name for index in Generation._meta.indexes]
     actual = {row['name']: row['valid'] for row in query("SELECT i.relname AS name,x.indisvalid AS valid FROM pg_index x JOIN pg_class i ON i.oid=x.indexrelid JOIN pg_class t ON t.oid=x.indrelid JOIN pg_namespace n ON n.oid=t.relnamespace WHERE n.nspname=current_schema() AND t.relname='generations'")}
@@ -184,7 +191,7 @@ CHECKS = [
     ('higgsfield', 'Higgsfield MCP', higgsfield),
     ('seedance', 'BytePlus ModelArk / Seedance', lambda: configured('ARK_API_KEY')), ('kling', 'KlingAI Image', kling),
     ('openai', 'OpenAI / GPT Image 2.5', openai),
-    ('omni', 'Gemini Omni Flash 1.1', omni), ('omnihuman', 'BytePlus Vision / OmniHuman 2.0', omnihuman), ('postgres', 'Postgres', postgres), ('generation-indexes', 'Generation Indexes', generation_indexes),
+    ('omni', 'Gemini Omni Flash 1.1', omni), ('omnihuman', 'BytePlus Vision / OmniHuman 2.0', omnihuman), ('postgres', 'Postgres', postgres), ('db-connections', 'Database Connections', db_connections), ('generation-indexes', 'Generation Indexes', generation_indexes),
     ('stuck-generations', 'Stuck Generations', stuck_generations), ('storage', 'Media Storage', storage),
     ('ffmpeg-runtime', 'ffmpeg Runtime', ffmpeg), ('media-delivery', 'Media Delivery', media_delivery),
     ('login-rate-limits', 'Login Rate Limits', login_rate_limits),
