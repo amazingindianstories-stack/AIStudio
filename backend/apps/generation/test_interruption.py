@@ -22,7 +22,7 @@ from .failure_copy import INTERRUPTED, NOT_SENT
 from .models import Generation
 from .providers import higgsfield
 from .prompting import face_judge
-from .services import coordinator, executor, image_execution
+from .services import executor, image_execution
 from .services.deadline import Cancellation, NOT_SENT_MESSAGE, QueueExecutionCancelledError
 
 
