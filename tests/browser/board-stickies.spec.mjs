@@ -98,7 +98,9 @@ test('Board stickies: bulk mode, colors, shape, auto size, tags, reactions, auth
     return tops.size;
   });
   expect(gammaLines).toBe(1);
-  // The new stickies arrive selected; start from an empty selection.
+  // The new stickies arrive selected; start from an empty selection. Escape acts on the board, not on the
+  // Sticky options button the closed dialog handed focus back to.
+  await page.evaluate(() => document.activeElement?.blur());
   await page.keyboard.press('Escape');
   await expect(page.getByRole('button', { name: 'Fill', exact: true })).toHaveCount(0);
 
@@ -175,7 +177,9 @@ test('Board stickies: bulk mode, colors, shape, auto size, tags, reactions, auth
   expect(byText(board, 'Beta').x).toBeGreaterThan(byText(board, 'Gamma').x);
   await info.attach('clustered', { body: await page.screenshot(), contentType: 'image/png' });
 
-  // Switch Gamma to a text box; its text stays.
+  // Switch Gamma to a text box; its text stays. Escape clears the select-all from the board, not from the
+  // More button the cluster menu handed focus back to (otherwise every sticky would switch).
+  await page.evaluate(() => document.activeElement?.blur());
   await page.keyboard.press('Escape');
   await node(gamma.id).click();
   await page.getByRole('button', { name: 'More', exact: true }).click();
@@ -184,6 +188,7 @@ test('Board stickies: bulk mode, colors, shape, auto size, tags, reactions, auth
   expect(byText(board, 'Gamma').id).toBe(gamma.id);
 
   // A sticky stack hands out a new sticky in its color each time one is dragged off it.
+  await page.evaluate(() => document.activeElement?.blur());
   await page.keyboard.press('Escape');
   await page.getByRole('button', { name: 'Sticky options' }).click();
   await page.getByRole('menuitem', { name: 'Sticky stack' }).click();
@@ -193,6 +198,9 @@ test('Board stickies: bulk mode, colors, shape, auto size, tags, reactions, auth
   const stackNode = board.data.nodes.find((item) => item.type === 'stack');
   const before = stickies(board).length;
   const box = await stack.boundingBox();
+  // Escape deselects the new stack from the board (a selected stack moves instead of handing out a sticky),
+  // not from the Sticky options button that kept focus.
+  await page.evaluate(() => document.activeElement?.blur());
   await page.keyboard.press('Escape');
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();

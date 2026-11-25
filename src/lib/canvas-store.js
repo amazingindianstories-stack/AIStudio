@@ -7,7 +7,7 @@ import { DRAFT_SYNC_MAX_AGE_MS, clearPendingDraft, readPendingDraft, savePending
 import { apiFetch } from "./api";
 import { canEditRole, canShareRole } from "./board-access";
 import { emptyCanvasState, validateCanvasState } from "./canvas/serialization";
-import { mergeCanvasStates, rebaseHistory, sameValue } from "./canvas/merge";
+import { historyRebaser, mergeCanvasStates, sameValue } from "./canvas/merge";
 import { boardFromChanges, buildBoardPatch } from "./canvas/patch";
 import { carryPayloads, createPayloadLoader, needsPayload, slimGraph, withLoadedPayload, withPayload } from "./canvas/formats/payloads";
 import { unstamped, withNotesStamp, withServerStamps } from "./canvas/stamps";
@@ -70,6 +70,8 @@ export { MAX_ZOOM, MIN_ZOOM };
 export { isLocked };
 
 const DEBOUNCE_MS = 1500;
+/** Quiet time after the last pan or zoom before the new view is saved on its own. */
+const VIEWPORT_SAVE_MS = 10000;
 const MAX_RETRY_MS = 15000;
 const GESTURE_IDLE_MS = 400;
 
@@ -440,8 +442,9 @@ function applyRemoteBoard(set, get, board, base = get().serverState) {
   cropHold = held ? { id: cropped, remote: nodeOf(remote, cropped) } : null;
   // Adopted as the base with the cropped image as it was, so no snapshot absorbs the held version.
   const adopted = held ? withNodeFrom(remote, base, cropped) : remote;
-  const history = rebaseHistory(state.history, base, adopted);
-  if (gestureBaseline) gestureBaseline = rebaseHistory(gestureBaseline, base, adopted);
+  const rebase = historyRebaser(base, adopted);
+  const history = rebase(state.history);
+  if (gestureBaseline) gestureBaseline = rebase(gestureBaseline);
   set({
     history,
     serverVersion: version,
@@ -499,8 +502,9 @@ function reconcileCrop() {
   cropHold = null;
   const state = useCanvasStore.getState();
   const server = withNodeFrom(state.serverState, { nodes: remote ? [remote] : [] }, id);
-  const history = rebaseHistory(state.history, state.serverState, server);
-  if (gestureBaseline) gestureBaseline = rebaseHistory(gestureBaseline, state.serverState, server);
+  const rebase = historyRebaser(state.serverState, server);
+  const history = rebase(state.history);
+  if (gestureBaseline) gestureBaseline = rebase(gestureBaseline);
   useCanvasStore.setState({
     history,
     serverState: server,
@@ -552,8 +556,11 @@ async function settleUnresolvedSave(set, get, boardId) {
   if (!res.ok) throw new Error(`save lookup failed: ${res.status}`);
   const board = await res.json();
   if (get().boardId !== boardId || unresolvedSave !== save) return;
-  applyRemoteBoard(set, get, board, typeof board.saveVersion === "number" ? validateCanvasState(save.data) : undefined);
-  unresolvedSave = null;
+  const landed = typeof board.saveVersion === "number";
+  const applied = applyRemoteBoard(set, get, board, landed ? validateCanvasState(save.data) : undefined);
+  // A landed save stays unresolved while an open text edit holds the merge back: forgetting it would
+  // leave the pre-save base in place. The flush after the edit ends settles it again.
+  if (applied || !landed || !textEditOpen(get())) unresolvedSave = null;
 }
 
 function clearDebounceTimer() {
@@ -571,8 +578,35 @@ function scheduleFlush(get, delay) {
   }, delay);
 }
 
+let viewportSaveTimer = null;
+
+/** Nothing unsaved and nothing in flight: a freshly opened board is "idle", a saved one "saved". */
+const quietStatus = (status) => status === "saved" || status === "idle";
+
+function clearViewportSaveTimer() {
+  if (viewportSaveTimer) {
+    clearTimeout(viewportSaveTimer);
+    viewportSaveTimer = null;
+  }
+}
+
+/**
+ * A pan or zoom is not an edit: it never sets "dirty" (no chip, draft or leave-page prompt). The view
+ * is saved with the next real edit, or alone after a long quiet period when nothing else is pending.
+ */
+function scheduleViewportSave(get) {
+  clearViewportSaveTimer();
+  if (!get().boardId || selectReadOnly(get())) return;
+  viewportSaveTimer = setTimeout(() => {
+    viewportSaveTimer = null;
+    if (quietStatus(get().saveStatus)) void get().flushSave({ viewportOnly: true });
+  }, VIEWPORT_SAVE_MS);
+}
+
 function markDirty(set, get) {
   if (!get().boardId || selectReadOnly(get())) return;
+  // The save this schedules carries the current view.
+  clearViewportSaveTimer();
   set({ saveStatus: "dirty" });
   scheduleFlush(get, DEBOUNCE_MS);
 }
@@ -591,19 +625,31 @@ async function flushSaveImpl(
   if (saveInFlight) return saveInFlight;
   const state = get();
   if (!state.boardId || selectReadOnly(state)) return;
-  if (state.saveStatus !== "dirty" && state.saveStatus !== "error") return;
+  const viewportOnly = Boolean(opts?.viewportOnly) && quietStatus(state.saveStatus) && !unresolvedSave;
+  if (state.saveStatus !== "dirty" && state.saveStatus !== "error" && !viewportOnly) return;
   // Settling an unresolved save merges the board, so it also waits for the edit to end.
-  if (textEditOpen(state) && (unresolvedSave || conflictWaitsForEdit)) return;
+  // An unload skips the lookup, so it has nothing to wait for.
+  const settles = Boolean(unresolvedSave) && !opts?.keepalive;
+  if (textEditOpen(state) && (settles || conflictWaitsForEdit)) return;
 
   clearDebounceTimer();
 
   saveInFlight = (async () => {
     const boardId = state.boardId ;
-    set({ saveStatus: "saving", saveError: null, saveLimitMessage: null });
+    // A view-only save is background work: no "Saving…" chip or pending draft, and a failure is not surfaced or
+    // retried and leaves nothing behind.
+    if (!viewportOnly) set({ saveStatus: "saving", saveError: null, saveLimitMessage: null });
     try {
-      if (unresolvedSave) {
+      // On unload the lookup would outlive the page: send now from the synced base. A 409 is harmless
+      // (the pending draft replays on the next open), a request that never left would lose the edit.
+      if (settles) {
         await settleUnresolvedSave(set, get, boardId);
         if (get().boardId !== boardId) return;
+        if (unresolvedSave && textEditOpen(get())) {
+          // A text edit opened during the lookup: wait for it to end before sending from a stale base.
+          set({ saveStatus: "dirty" });
+          return;
+        }
       }
       const synced = get();
       const sentPresent = synced.history.present;
@@ -626,8 +672,12 @@ async function flushSaveImpl(
         });
       };
       // Durable until the server acknowledges exactly this content.
-      savePendingDraft(boardId, sentPresent, Date.now(), { ...syncOf(synced), save });
-      unresolvedSave = save;
+      // An unload that skipped the lookup keeps the earlier unresolved save as the merge base: it may have
+      // landed, and this save's content is the draft either way.
+      if (!viewportOnly) {
+        unresolvedSave ??= save;
+        savePendingDraft(boardId, sentPresent, Date.now(), { ...syncOf(synced), save: unresolvedSave });
+      }
       let res = await send(Boolean(patch));
       // A patch the server cannot apply (400), or a server without patch saves (405), wrote
       // nothing: the same save goes again as the whole graph.
@@ -635,8 +685,10 @@ async function flushSaveImpl(
         if (res.status === 405) patchSavesUnsupported = true;
         res = await send(false);
       }
-      // Any answer below 500 is definite: applied, or refused before writing.
-      if (unresolvedSave === save && res.status < 500) unresolvedSave = null;
+      // Any answer below 500 is definite: applied, or refused before writing. One applied from the same base
+      // as an earlier unresolved save also shows that one never landed.
+      if (res.ok || (unresolvedSave === save && res.status < 500)) unresolvedSave = null;
+      if (viewportOnly && !res.ok && res.status !== 409) return;
       if (res.status === 401) {
         redirectToLogin();
         set({ saveStatus: "error" });
@@ -664,7 +716,19 @@ async function flushSaveImpl(
         // Someone else saved first: merge their graph under this tab's edits and save the result.
         const { board } = await res.json();
         if (get().boardId !== boardId) throw new Error("board changed during save");
+        if (unresolvedSave) {
+          // Merging now would measure the earlier unresolved save as an unsaved edit: settle it first.
+          retryBackoffMs = DEBOUNCE_MS;
+          set({ saveStatus: "dirty" });
+          scheduleFlush(get, 0);
+          return;
+        }
         const adopted = applyRemoteBoard(set, get, board) && get().serverVersion === board.version;
+        if (viewportOnly) {
+          // Their save is merged under the view; the view goes again after another quiet period.
+          if (adopted) scheduleViewportSave(get);
+          return;
+        }
         if (!adopted) {
           if (!textEditOpen(get())) throw new Error("save conflict without a newer board");
           // The open text edit holds back their change; save once more when it ends.
@@ -687,6 +751,7 @@ async function flushSaveImpl(
         retryBackoffMs = DEBOUNCE_MS;
         if (ownCropEdit && cropHold === hold) cropHold = null;
         applyRemoteBoard(set, get, { version: j.version, data: j.board }, validateCanvasState(cropHold ? sentPresent : sent));
+        if (viewportOnly) return;
         if (sameValue(get().history.present, get().serverState)) set({ saveStatus: "saved" });
         else {
           set({ saveStatus: "dirty" });
@@ -712,10 +777,12 @@ async function flushSaveImpl(
           history: historyWithStamps(get().history, j.stamps, j.notesStamp),
         });
       }
-      if (settled) {
+      if (settled && !viewportOnly) {
         set({ saveStatus: "saved" });
       }
     } catch {
+      // A failure that belongs to a board this tab has left says nothing about the one open now.
+      if (viewportOnly || get().boardId !== boardId) return;
       set({ saveStatus: "error" });
       retryBackoffMs = Math.min(MAX_RETRY_MS, retryBackoffMs * 2);
       scheduleFlush(get, retryBackoffMs);
@@ -726,6 +793,8 @@ async function flushSaveImpl(
     await saveInFlight;
   } finally {
     saveInFlight = null;
+    // An edit made during a view-only save was not in it, and its own flush may have found this one in flight.
+    if (viewportOnly && !debounceTimer && get().saveStatus === "dirty") scheduleFlush(get, DEBOUNCE_MS);
   }
 }
 
@@ -1118,6 +1187,7 @@ export const useCanvasStore = create((set, get) => ({
 
   reset: () => {
     clearDebounceTimer();
+    clearViewportSaveTimer();
     if (gestureEndTimer) {
       clearTimeout(gestureEndTimer);
       gestureEndTimer = null;
@@ -1172,8 +1242,11 @@ export const useCanvasStore = create((set, get) => ({
 
   setViewport: (vp) => {
     const state = get();
-    set({ history: { ...state.history, present: { ...state.history.present, viewport: vp } } });
-    markDirty(set, get);
+    const present = { ...state.history.present, viewport: vp };
+    // A view change is not an edit: a save in flight still counts as covering this graph.
+    loadedInto.set(present, rootGraph(state.history.present));
+    set({ history: { ...state.history, present } });
+    scheduleViewportSave(get);
   },
 
   zoomToFit: () => {
@@ -2021,6 +2094,7 @@ export const useCanvasStore = create((set, get) => ({
     if (selectReadOnly(get())) return;
     finalizePendingGesture(set, get);
     const history = undoHistory(get().history);
+    if (history === get().history) return;
     set({ history, ...pruneSelection(history.present, get()) });
     markDirty(set, get);
   },
@@ -2029,6 +2103,7 @@ export const useCanvasStore = create((set, get) => ({
     if (selectReadOnly(get())) return;
     finalizePendingGesture(set, get);
     const history = redoHistory(get().history);
+    if (history === get().history) return;
     set({ history, ...pruneSelection(history.present, get()) });
     markDirty(set, get);
   },

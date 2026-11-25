@@ -214,6 +214,8 @@ test('Board view: zoom to 2000%, wheel modes, grid, minimap, scroll bars, dimens
   await expect(label).toHaveCount(0);
   await choose(page, 'menuitemcheckbox', 'Object dimensions');
   await expect(label).toBeVisible();
+  // Escape clears the selection from the board, not from the View menu button that kept focus.
+  await page.evaluate(() => document.activeElement?.blur());
   await page.keyboard.press('Escape');
   await expect(label).toHaveCount(0);
 
@@ -319,7 +321,8 @@ test('Board view: zoom to 2000%, wheel modes, grid, minimap, scroll bars, dimens
   // The owner moves on; their own saved view is not the start view any more.
   await page.keyboard.press('ControlOrMeta+0');
   await expect(zoomLabel(page)).toHaveText('100%');
-  await expect.poll(async () => (await boardData()).viewport.zoom).toBe(1);
+  // A view change alone is saved quietly 10 s after the last pan or zoom.
+  await expect.poll(async () => (await boardData()).viewport.zoom, { timeout: 20000 }).toBe(1);
 
   // The teammate joins as a viewer: no background or start view controls, and they open at the start view.
   await page.getByRole('button', { name: 'Share', exact: true }).click();

@@ -30,7 +30,9 @@ merge per node on the client and poll for other people's saves.
   graph.
 - A save that changes nodes, connectors or the board `settings` (background, start view, layers) bumps
   `version`. A save that only changes the viewport (each person's own) keeps the version, so open boards do
-  not refetch the graph.
+  not refetch the graph. A pan or zoom is not an edit in the editor: the view rides along with the next save,
+  or goes alone after 10 s with nothing else pending, without the Saving chip, a local draft or the
+  leave-page prompt; a failed view-only save is not retried.
 - Changes the saver may not make (`backend/apps/canvas/locks.py`: editing or deleting an object under someone
   else's protected lock below co-owner, or setting a protected lock or changing the start view below co-owner,
   `../features/board-roles.md`) are put back on the stored copy while the rest of the save is written. Such a save bumps `version` and its
@@ -123,7 +125,7 @@ masters until `manage.py backfill_thumbnails` has run for it (`../features/board
 
 ## Local drafts (`src/lib/canvas-pending-draft.js`)
 
-Every save attempt and every page hide or unmount stores the unacknowledged graph in localStorage with its
+Every save attempt (except a view-only one) and every page hide or unmount stores the unacknowledged graph in localStorage with its
 base version, base graph and the unsettled save (`{id, data}`). On reopen:
 
 - a draft that is itself a save that landed is discarded; a draft whose unsettled save landed merges with

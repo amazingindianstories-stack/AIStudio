@@ -109,3 +109,19 @@ test("a first visit opens at the start view; a repeat visit keeps the saved view
   store = await open(t, "view", data);
   assert.deepEqual(store.getState().history.present.viewport, { x: 1, y: 1, zoom: 1 });
 });
+
+test("undo and redo with nothing to step to leave the save status alone", async (t) => {
+  useStorage(t);
+  const store = await open(t, "edit");
+  assert.equal(store.getState().saveStatus, "idle");
+  store.getState().undo();
+  store.getState().redo();
+  assert.equal(store.getState().saveStatus, "idle");
+});
+
+test("a pan or zoom does not mark the board unsaved", async (t) => {
+  useStorage(t);
+  const store = await open(t, "edit");
+  store.getState().setViewport({ x: 10, y: 10, zoom: 1 });
+  assert.equal(store.getState().saveStatus, "idle");
+});

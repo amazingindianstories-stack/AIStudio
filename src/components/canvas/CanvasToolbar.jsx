@@ -306,6 +306,7 @@ export function CanvasToolbar({
       <div
         role={viewOnly ? undefined : "toolbar"}
         aria-label={viewOnly ? undefined : "Board tools"}
+        data-board-toolbar={viewOnly ? undefined : ""}
         className="pointer-events-auto flex max-w-full items-center gap-1 overflow-x-auto rounded-2xl border border-line bg-ink-750/95 p-1.5 shadow-pop backdrop-blur-xl max-sm:gap-0.5 max-sm:p-1"
       >
         {!viewOnly && (

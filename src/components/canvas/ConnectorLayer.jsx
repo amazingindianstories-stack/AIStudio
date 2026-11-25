@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { memo, useState } from "react";
 import { cn } from "@/lib/utils";
 
 import { connectorGeometry, resolveEndpoint } from "@/lib/canvas/geometry";
@@ -15,7 +15,7 @@ import { strokeDasharrayFor } from "./nodes/ShapeNode";
  * compute, in WORLD coordinates; `vector-effect="non-scaling-stroke"` keeps
  * strokes a constant on-screen width regardless of zoom.
  */
-export function ConnectorLayer({
+function ConnectorLayerImpl({
   connectors,
   nodesById,
   selectedConnectorIds,
@@ -486,3 +486,5 @@ function simpleBezier(a, b) {
   const midX = (a.x + b.x) / 2;
   return `M ${a.x} ${a.y} C ${midX} ${a.y}, ${midX} ${b.y}, ${b.x} ${b.y}`;
 }
+
+export const ConnectorLayer = memo(ConnectorLayerImpl);

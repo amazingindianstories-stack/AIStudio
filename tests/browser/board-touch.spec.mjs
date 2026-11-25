@@ -415,7 +415,7 @@ async function seedBoard(context, boardPath, data, baseURL) {
   return context.request.put(boardPath, { data: { data, baseVersion: version, saveId: randomUUID() }, headers: { Origin: baseURL } });
 }
 
-test('Board touch: viewing, a keyboard cannot edit, save trouble stays visible, and a double tap or long press switches to Edit', async ({ browser, baseURL }) => {
+test('Board touch: viewing, a keyboard cannot edit, a failed viewport save stays quiet, and a double tap or long press switches to Edit', async ({ browser, baseURL }) => {
   test.setTimeout(150000);
   const db = await seedUsers();
   const project = await createProject(browser, baseURL, 'Board touch view-only');
@@ -464,18 +464,19 @@ test('Board touch: viewing, a keyboard cannot edit, save trouble stays visible, 
   await expect(edit).toBeVisible();
   expect((await boardData(phone.context, boardPath)).nodes).toEqual(original.nodes);
 
-  // Viewing still autosaves the viewport; a failed save shows the error and Retry in place of View only.
+  // Viewing still saves the viewport quietly; a failed viewport save stays silent and View only stays.
   const isBoard = (url) => new URL(url).pathname === boardPath;
   await phone.page.route(isBoard, (route) => (['PUT', 'PATCH'].includes(route.request().method())
     ? route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"down"}' })
     : route.continue()));
+  const viewportSave = phone.page.waitForRequest((request) => isBoard(request.url()) && ['PUT', 'PATCH'].includes(request.method()), { timeout: 20000 });
   await touch.drag(at(300, 500), at(120, 500));
-  await expect(phone.page.getByText(/Could not save/)).toBeVisible({ timeout: 10000 });
-  await expect(viewOnly).toHaveCount(0);
-  await phone.page.unroute(isBoard);
-  await phone.page.getByRole('button', { name: 'Retry', exact: true }).tap();
-  await expect(viewOnly).toBeVisible({ timeout: 10000 });
+  await viewportSave;
+  await phone.page.waitForTimeout(1000);
   await expect(phone.page.getByText(/Could not save/)).toHaveCount(0);
+  await expect(phone.page.getByRole('button', { name: 'Retry', exact: true })).toHaveCount(0);
+  await expect(viewOnly).toBeVisible();
+  await phone.page.unroute(isBoard);
 
   // A double tap on the sticky switches to Edit and opens its text, without zooming.
   await centreNode(touch, sticky, box);
