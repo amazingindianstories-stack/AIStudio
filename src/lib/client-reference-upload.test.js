@@ -153,7 +153,7 @@ test('a finalize retry that meets an earlier verification still running waits fo
     if (url.endsWith('/finalize')) {
       finalize++;
       if (finalize === 1) throw new Error('Upload request timed out.');
-      return finalize <= 6 ? reply(409, { error: 'UPLOAD_VERIFYING' }) : reply(200, ready);
+      return finalize <= 6 ? reply(503, { error: 'UPLOAD_VERIFYING' }) : reply(200, ready);
     }
     return ++storage === 1 ? reply(308, {}, 'bytes=0-8388607') : reply(201);
   } });
@@ -166,7 +166,7 @@ test('a verification that never finishes fails once the verify window ends', asy
   await assert.rejects(uploadFileDirect(file, 'video-reference', { retryDelayMs: 0, verifyPollMs: 0, verifyTimeoutMs: 0,
     fetchImpl: async (url) => {
       if (url === '/api/uploads/init') return reply(200, session);
-      if (url.endsWith('/finalize')) return reply(409, { error: 'UPLOAD_VERIFYING' });
+      if (url.endsWith('/finalize')) return reply(503, { error: 'UPLOAD_VERIFYING' });
       return ++storage === 1 ? reply(308, {}, 'bytes=0-8388607') : reply(201);
     } }), (error) => error.code === 'UPLOAD_VERIFYING');
 });

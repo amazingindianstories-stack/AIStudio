@@ -317,7 +317,7 @@ class ResumableUploadTests(TransactionTestCase):
         self.assertEqual(len(seen), 2)
         self.assertEqual(result['state'], 'ready')
 
-    def test_second_finalize_during_verifying_conflicts_and_the_first_still_succeeds(self):
+    def test_second_finalize_during_verifying_is_retryable_and_the_first_still_succeeds(self):
         session, _ = self.begin()
         self.chunk(session, PNG)
         original = self.storage.primary.open
@@ -326,14 +326,16 @@ class ResumableUploadTests(TransactionTestCase):
             if UploadSession.objects.get(id=session['uploadId']).state != 'verifying':
                 return original(key, *args, **kwargs)  # metadata probe, before the claim
             self.assertEqual(UploadSession.objects.get(id=session['uploadId']).state, 'verifying')
-            try:
-                finalize_upload(self.user.id, session['uploadId'], self.storage)
-            except UploadError as error:
-                second.append((error.code, error.status))
+            with override_settings(VEEVEE_MEDIA_STORAGE=self.storage):
+                reply = self.client.post(f'/api/uploads/{session["uploadId"]}/finalize', {}, content_type='application/json')
+            second.append((reply.status_code, reply.json(), reply['Retry-After']))
+            self.assertEqual(UploadSession.objects.get(id=session['uploadId']).state, 'verifying')
             return original(key, *args, **kwargs)
+        self.client.cookies['veevee_session'] = sign_session(self.user)
+        self.client.defaults['HTTP_SEC_FETCH_SITE'] = 'same-origin'
         with patch.object(self.storage.primary, 'open', open_and_race):
             result = finalize_upload(self.user.id, session['uploadId'], self.storage)
-        self.assertEqual(second, [('UPLOAD_VERIFYING', 409)])
+        self.assertEqual(second, [(503, {'error': 'UPLOAD_VERIFYING'}, '2')])
         self.assertEqual(result['state'], 'ready')
         self.assertEqual(UploadSession.objects.get(id=session['uploadId']).state, 'ready')
 

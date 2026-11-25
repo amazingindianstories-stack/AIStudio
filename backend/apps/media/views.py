@@ -169,6 +169,8 @@ def _upload_reply(request, callback):
         response = JsonResponse(result)
     except UploadError as error:
         response = JsonResponse({'error': error.code}, status=error.status)
+        if error.code == 'UPLOAD_VERIFYING':
+            response['Retry-After'] = '2'
     except Exception:
         response = JsonResponse({'error': 'UPLOAD_SERVICE_UNAVAILABLE'}, status=503)
     response['Cache-Control'] = 'private, no-store'

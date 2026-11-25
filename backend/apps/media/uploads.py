@@ -289,7 +289,7 @@ def finalize_upload(actor_id, session_id, storage):
         if row.finalized_at:
             return session_result(row, storage)
         if row.state == 'verifying':
-            raise UploadError('UPLOAD_VERIFYING', 409)
+            raise UploadError('UPLOAD_VERIFYING', 503)
         try:
             metadata = _metadata(storage, row.key)
         except MediaNotFoundError:
