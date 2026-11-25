@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import {
   AlertCircle,
@@ -98,7 +98,7 @@ function ElapsedTime({ since }) {
  *  (ContextMenu key or Shift+F10) or a long press on touch. The face scales
  *  with the card's rendered width through the container queries on
  *  .media-card-body in globals.css. */
-export function MediaCard({
+export const MediaCard = memo(function MediaCard({
   item,
   selectable = false,
 }
@@ -120,7 +120,9 @@ export function MediaCard({
   const toggleFavorite = useStore((s) => s.toggleFavorite);
   const setActiveProject = useStore((s) => s.setActiveProject);
   const setActiveFolder = useStore((s) => s.setActiveFolder);
-  const libraryTree = useStore((s) => s.libraryTree);
+  // Strings and booleans, so a rename elsewhere in the tree does not re-render this card.
+  const folderLabel = useStore((s) => resolveGenerationFolder(item, s.libraryTree).label);
+  const folderNavigable = useStore((s) => resolveGenerationFolder(item, s.libraryTree).navigable);
   const generating = useStore((s) => s.generating);
   const selected = useStore((s) => s.selectedIds.includes(item.id));
   const focusedAssetId = useStore((s) => s.focusedAssetId);
@@ -305,7 +307,7 @@ export function MediaCard({
 
   // ── menu contents ─────────────────────────────────────────────────────
   const ask = (kind, run) => () => confirmation.ask(kind, run);
-  const folder = resolveGenerationFolder(item, libraryTree || {});
+  const folder = { label: folderLabel, navigable: folderNavigable };
   const finalizeBlocked = isDraft && item.model === "Seedance 2.5" && done
     ? validateDraftForFinalization(item)
     : undefined;
@@ -802,23 +804,41 @@ export function MediaCard({
       <ConfirmActionDialog {...confirmation.dialogProps} />
     </>
   );
+});
+
+// Folder paths per tree object. The store replaces libraryTree immutably, so a
+// WeakMap keyed on it stays correct and makes each card's lookup O(1).
+const folderPathIndexes = new WeakMap();
+
+function folderPathIndex(tree) {
+  let index = folderPathIndexes.get(tree);
+  if (index) return index;
+  index = { global: new Map(), projects: new Map() };
+  const walk = (nodes, parents, into) => {
+    for (const node of nodes || []) {
+      const path = [...parents, node.name];
+      if (!into.has(node.id)) into.set(node.id, path);
+      walk(node.children, path, into);
+    }
+  };
+  walk(tree.globalFolders, [], index.global);
+  for (const project of tree.projects || []) {
+    const into = new Map();
+    walk(project.folders, [], into);
+    index.projects.set(project.id, into);
+  }
+  folderPathIndexes.set(tree, index);
+  return index;
 }
 
 export function resolveGenerationFolder(item, tree) {
+  tree = tree || {};
   const project = item.projectId ? tree.projects?.find((p) => p.id === item.projectId) : null;
   if (item.projectId && !project) return { label: "Project unavailable", navigable: false };
   const root = project ? project.name : "Global";
   if (!item.folderId) return { label: `${root} / Unsorted`, navigable: true };
-  const find = (nodes, parents = []) => {
-    for (const node of nodes || []) {
-      const path = [...parents, node.name];
-      if (node.id === item.folderId) return path;
-      const result = find(node.children, path);
-      if (result) return result;
-    }
-    return null;
-  };
-  const path = find(project ? project.folders : tree.globalFolders);
+  const index = folderPathIndex(tree);
+  const path = (project ? index.projects.get(project.id) : index.global)?.get(item.folderId);
   return { label: `${root} / ${path ? path.join(" / ") : "Folder unavailable"}`, navigable: Boolean(path) };
 }
 

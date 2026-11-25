@@ -21,6 +21,7 @@ function ingressHeaders(req) {
   const headers = new Headers(req.headers);
   headers.delete("x-vercel-protection-bypass");
   headers.delete("x-vercel-set-bypass-cookie");
+  headers.delete("x-veevee-maintenance");
   headers.set("x-veevee-g4-ingress", ingressSecret);
   return headers;
 }
@@ -37,7 +38,6 @@ async function forwardMcp(req, readToggle) {
     const destination = mcpDestination(req.url, { origin: process.env.MCP_API_ORIGIN, allowLocal: process.env.DJANGO_API_ALLOW_LOCAL });
     const headers = ingressHeaders(req);
     headers.delete("cookie");
-    headers.delete("x-veevee-maintenance");
     if (state.enabled) headers.set("x-veevee-maintenance", "1");
     return NextResponse.rewrite(destination, { request: { headers }, headers: noStore });
   } catch {

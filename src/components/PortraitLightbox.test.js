@@ -67,3 +67,28 @@ test("previous and next portrait buttons are named when there is a neighbour", (
   assert.match(html, /aria-label="Previous portrait"/);
   assert.match(html, /aria-label="Next portrait"/);
 });
+
+test("a non-interactive lightbox ignores arrows and Escape so a dialog above it owns the keyboard (FE-014)", async () => {
+  const { JSDOM } = await import("jsdom");
+  const { createRoot } = await import("react-dom/client");
+  const { act } = React;
+  const dom = new JSDOM('<div id="root"></div>', { url: "http://localhost", pretendToBeVisual: true });
+  const names = ["window", "document", "HTMLElement", "React", "IS_REACT_ACT_ENVIRONMENT", "KeyboardEvent"];
+  const prior = Object.fromEntries(names.map((n) => [n, globalThis[n]]));
+  Object.assign(globalThis, { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, React, IS_REACT_ACT_ENVIRONMENT: true, KeyboardEvent: dom.window.KeyboardEvent });
+  const root = createRoot(document.querySelector("#root"));
+  const calls = [];
+  const assets = [portrait, { ...portrait, id: "b" }];
+  const press = (key) => act(async () => { window.dispatchEvent(new window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })); });
+  try {
+    const show = (interactive) => act(async () => root.render(React.createElement(PortraitLightbox, { asset: portrait, assets, interactive, onClose: () => calls.push("close"), onSelectAsset: (p) => calls.push(p.id), onAttach() {}, onDelete() {}, onRename() {} })));
+    await show(false);
+    await press("ArrowRight");
+    await press("Escape");
+    assert.deepEqual(calls, []);
+    await show(true);
+    await press("ArrowRight");
+    await press("Escape");
+    assert.deepEqual(calls, ["b", "close"]);
+  } finally { await act(async () => root.unmount()); Object.assign(globalThis, prior); dom.window.close(); }
+});

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
+import { hasModalLayer } from "@/components/modal-stack";
 import {
   X,
   ChevronLeft,
@@ -122,10 +123,8 @@ export function AssetLightbox({
   // The inspector owns its focus while open; portal confirmations own theirs.
   useModalFocus(dialogRef, { open: Boolean(asset), returnFocusEl: () => handlersRef.current.returnFocusEl });
   useEffect(() => {
-    const childModalOpen = () => Array.from(document.querySelectorAll('[role="alertdialog"][aria-modal="true"]'))
-      .some((element) => !element.hidden && element.getClientRects().length > 0);
     const onKeyDown = (event) => {
-      if (event.defaultPrevented || childModalOpen()) return;
+      if (event.defaultPrevented || hasModalLayer()) return;
       const h = handlersRef.current;
       const inMediaControls = Boolean(event.target?.closest?.("video, audio"));
       if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); h.onClose?.(); }

@@ -25,13 +25,15 @@ const MODELS = IMAGE_UPSCALE_MODELS;
 
 export function UpscalerComposer() {
   const maintenance = useMaintenance((s) => s.enabled);
-  const s = useStore();
-  const upscalerImage = s.upscalerImage;
-  const setUpscalerImage = s.setUpscalerImage;
-  const params = s.upscalerParams;
-  const setParam = s.setUpscalerParam;
-  const generateUpscale = s.generateUpscale;
-  const generating = s.generating;
+  const upscalerImage = useStore((s) => s.upscalerImage);
+  const setUpscalerImage = useStore((s) => s.setUpscalerImage);
+  const params = useStore((s) => s.upscalerParams);
+  const setParam = useStore((s) => s.setUpscalerParam);
+  const generateUpscale = useStore((s) => s.generateUpscale);
+  const generating = useStore((s) => s.generating);
+  const activeProjectId = useStore((s) => s.activeProjectId);
+  const availableModelIds = useStore((s) => s.availableModelIds);
+  const upscalerMedia = useStore((s) => s.upscalerMedia);
 
   const [dragging, setDragging] = useState(false);
   const [dragValid, setDragValid] = useState(true);
@@ -43,13 +45,14 @@ export function UpscalerComposer() {
   const fileInputRef = useRef(null);
   const uploadAttemptRef = useRef(0);
 
-  useEffect(() => { uploadAttemptRef.current += 1; setUploading(false); setLastResult(null); }, [s.activeProjectId]);
+  useEffect(() => { uploadAttemptRef.current += 1; setUploading(false); setLastResult(null); }, [activeProjectId]);
 
-  const resultItem = lastResult ? findItem(s, lastResult.item.id) || lastResult.item : null;
+  const liveResultItem = useStore((s) => (lastResult ? findItem(s, lastResult.item.id) : null));
+  const resultItem = lastResult ? liveResultItem || lastResult.item : null;
   const activeModelId = params.model || "Magnific Creative";
-  const models = MODELS.filter((m) => isModelAvailable(m.id, s.availableModelIds));
+  const models = MODELS.filter((m) => isModelAvailable(m.id, availableModelIds));
   // After every hook above, so hook order is identical across the switch.
-  if (s.upscalerMedia === "video") return <VideoUpscalerComposer />;
+  if (upscalerMedia === "video") return <VideoUpscalerComposer />;
 
   const handleSelectFile = async (file) => {
     if (maintenance || !file) return;
@@ -63,7 +66,7 @@ export function UpscalerComposer() {
       return;
     }
     const attempt = ++uploadAttemptRef.current;
-    const projectId = s.activeProjectId;
+    const projectId = activeProjectId;
     setUploading(true);
     setUploadError("");
     try {
@@ -87,14 +90,14 @@ export function UpscalerComposer() {
     if (dragEnterCountRef.current === 1) {
       setDragging(true);
     }
-    const val = validateUpscalerDrop(e, s);
+    const val = validateUpscalerDrop(e, useStore.getState());
     setDragValid(val.valid);
     setDragMessage(val.reason || "");
   };
 
   const onDragOver = (e) => {
     e.preventDefault();
-    const val = validateUpscalerDrop(e, s);
+    const val = validateUpscalerDrop(e, useStore.getState());
     setDragValid(val.valid);
     setDragMessage(val.reason || "");
     e.dataTransfer.dropEffect = val.valid ? "copy" : "none";
@@ -114,7 +117,7 @@ export function UpscalerComposer() {
     e.preventDefault();
     dragEnterCountRef.current = 0;
     setDragging(false);
-    const val = validateUpscalerDrop(e, s);
+    const val = validateUpscalerDrop(e, useStore.getState());
     if (!val.valid) {
       setUploadError(val.reason || "Magnific accepts images. Video upscaling is unsupported.");
       setDragValid(true);
@@ -125,22 +128,26 @@ export function UpscalerComposer() {
     setDragMessage("");
 
     // Check for internal generation drag (from chat or library)
-    const assetPayload = getAssetDragData(e, s);
+    const assetPayload = getAssetDragData(e, useStore.getState());
     let itemsToProcess = [];
     if (assetPayload.items && assetPayload.items.length > 0) {
       itemsToProcess = [...assetPayload.items];
     } else if (assetPayload.ids && assetPayload.ids.length > 0) {
       itemsToProcess = assetPayload.ids
-        .map((id) => findItem(s, id))
+        .map((id) => findItem(useStore.getState(), id))
         .filter(Boolean);
-    } else if (s.draggedItem) {
-      itemsToProcess = [s.draggedItem];
+    } else if (useStore.getState().draggedItem) {
+      itemsToProcess = [useStore.getState().draggedItem];
     }
 
     if (itemsToProcess.length > 0) {
       const firstItem = itemsToProcess[0];
       if (firstItem.kind !== "image") {
         notify("Upscaler only accepts image generations.");
+        return;
+      }
+      if (firstItem.status !== "succeeded" || !firstItem.url) {
+        notify("Wait for the image to finish first.");
         return;
       }
       setUpscalerImage({
@@ -310,7 +317,7 @@ export function UpscalerComposer() {
 
           <button
             type="button"
-            onClick={async () => { setUploadError(""); const source = upscalerImage; const projectId = s.activeProjectId; const item = await generateUpscale(); if (useStore.getState().activeProjectId !== projectId) return; if (item?.id) setLastResult({ source, item }); else setUploadError("Could not start the upscale. Check the source and retry."); }}
+            onClick={async () => { setUploadError(""); const source = upscalerImage; const projectId = activeProjectId; const item = await generateUpscale(); if (useStore.getState().activeProjectId !== projectId) return; if (item?.id) setLastResult({ source, item }); else setUploadError("Could not start the upscale. Check the source and retry."); }}
             disabled={maintenance || !upscalerImage || generating || uploading}
             className={cn(
               "flex items-center gap-2 rounded-xl px-5 py-2.5 text-xs font-semibold text-ink-950 shadow-md transition duration-200",

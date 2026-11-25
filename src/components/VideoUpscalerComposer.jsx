@@ -29,14 +29,15 @@ function formatSeconds(seconds) {
 
 export function VideoUpscalerComposer() {
   const maintenance = useMaintenance((s) => s.enabled);
-  const s = useStore();
-  const source = s.upscalerVideo;
-  const setSource = s.setUpscalerVideo;
-  const params = s.videoUpscalerParams;
-  const setParam = s.setVideoUpscalerParam;
-  const generating = s.generating;
+  const source = useStore((s) => s.upscalerVideo);
+  const setSource = useStore((s) => s.setUpscalerVideo);
+  const params = useStore((s) => s.videoUpscalerParams);
+  const setParam = useStore((s) => s.setVideoUpscalerParam);
+  const generating = useStore((s) => s.generating);
+  const activeProjectId = useStore((s) => s.activeProjectId);
+  const availableModelIds = useStore((s) => s.availableModelIds);
   const model = params.model || MAGNIFIC_VIDEO_DEFAULTS.model;
-  const models = MODELS.filter((m) => isModelAvailable(m.id, s.availableModelIds));
+  const models = MODELS.filter((m) => isModelAvailable(m.id, availableModelIds));
 
   const [dragging, setDragging] = useState(false);
   const [dragValid, setDragValid] = useState(true);
@@ -50,9 +51,10 @@ export function VideoUpscalerComposer() {
   const fileInputRef = useRef(null);
   const uploadAttemptRef = useRef(0);
 
-  useEffect(() => { uploadAttemptRef.current += 1; setUploading(false); setLastResult(null); }, [s.activeProjectId]);
+  useEffect(() => { uploadAttemptRef.current += 1; setUploading(false); setLastResult(null); }, [activeProjectId]);
 
-  const resultItem = lastResult ? findItem(s, lastResult.item.id) || lastResult.item : null;
+  const liveResultItem = useStore((s) => (lastResult ? findItem(s, lastResult.item.id) : null));
+  const resultItem = lastResult ? liveResultItem || lastResult.item : null;
   const tooLong = Number.isFinite(source?.duration) && source.duration > MAGNIFIC_VIDEO_MAX_SECONDS;
 
   const handleSelectFile = async (file) => {
@@ -67,7 +69,7 @@ export function VideoUpscalerComposer() {
       return;
     }
     const attempt = ++uploadAttemptRef.current;
-    const projectId = s.activeProjectId;
+    const projectId = activeProjectId;
     setUploading(true);
     setProgress(0);
     setError("");
@@ -89,13 +91,13 @@ export function VideoUpscalerComposer() {
   const onDragEnter = (e) => {
     dragEnterCountRef.current += 1;
     if (dragEnterCountRef.current === 1) setDragging(true);
-    const val = validateUpscalerDrop(e, s);
+    const val = validateUpscalerDrop(e, useStore.getState());
     setDragValid(val.valid);
     setDragMessage(val.reason || "");
   };
   const onDragOver = (e) => {
     e.preventDefault();
-    const val = validateUpscalerDrop(e, s);
+    const val = validateUpscalerDrop(e, useStore.getState());
     setDragValid(val.valid);
     setDragMessage(val.reason || "");
     e.dataTransfer.dropEffect = val.valid ? "copy" : "none";
@@ -115,16 +117,16 @@ export function VideoUpscalerComposer() {
     setDragging(false);
     setDragValid(true);
     setDragMessage("");
-    const val = validateUpscalerDrop(e, s);
+    const val = validateUpscalerDrop(e, useStore.getState());
     if (!val.valid) {
       setError(val.reason || "Video upscaling only accepts videos.");
       return;
     }
-    const payload = getAssetDragData(e, s);
+    const payload = getAssetDragData(e, useStore.getState());
     let items = [];
     if (payload.items?.length) items = [...payload.items];
-    else if (payload.ids?.length) items = payload.ids.map((id) => findItem(s, id)).filter(Boolean);
-    else if (s.draggedItem) items = [s.draggedItem];
+    else if (payload.ids?.length) items = payload.ids.map((id) => findItem(useStore.getState(), id)).filter(Boolean);
+    else if (useStore.getState().draggedItem) items = [useStore.getState().draggedItem];
     if (items.length > 0) {
       const first = items[0];
       if (first.kind !== "video" || first.status !== "succeeded" || !first.url) {
@@ -144,9 +146,9 @@ export function VideoUpscalerComposer() {
 
   const submit = async () => {
     setError("");
-    const projectId = s.activeProjectId;
+    const projectId = activeProjectId;
     const original = source;
-    const item = await s.generateVideoUpscale();
+    const item = await useStore.getState().generateVideoUpscale();
     if (useStore.getState().activeProjectId !== projectId) return;
     if (item?.id) setLastResult({ source: original, item });
     else setError("Could not start the video upscale. Check the source and retry.");

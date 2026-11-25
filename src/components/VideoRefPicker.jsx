@@ -22,6 +22,9 @@ import { useModalFocus } from "./useModalFocus";
  * Reads its own scoped query rather than the shared feed, so opening it does
  * not disturb whatever the assets panel is showing.
  */
+/** The name a library clip keeps in the reference strip every time it is toggled on. */
+const clipName = (item) => item.productionMetadata?.originalName || item.prompt?.slice(0, 60) || undefined;
+
 export function VideoRefPicker({ onClose }) {
   const model = useStore((s) => s.model);
   const referenceVideos = useStore((s) => s.referenceVideos);
@@ -154,7 +157,7 @@ export function VideoRefPicker({ onClose }) {
                   return (
                     <button
                       key={item.id}
-                      onClick={() => toggle(item.url)}
+                      onClick={() => toggle(item.url, clipName(item))}
                       disabled={!selected && full}
                       title={item.prompt}
                       className={cn(

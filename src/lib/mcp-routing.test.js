@@ -69,3 +69,22 @@ test('an unconfigured MCP origin fails closed without reaching Django or the log
     assert.equal(response.headers.get('x-middleware-rewrite'), null);
   }, null);
 });
+
+test('/api never forwards a caller-supplied x-veevee-maintenance (FE-026)', async () => {
+  await withMcp(async () => {
+    const saved = process.env.DJANGO_API_ORIGIN;
+    process.env.DJANGO_API_ORIGIN = 'https://django.example';
+    try {
+      const spoofed = { 'x-veevee-maintenance': '1', 'x-vercel-protection-bypass': 'b' };
+      const off = await createMiddleware(async () => ({ enabled: false, available: true }))(request('https://veevee.ai/api/projects', { method: 'GET', headers: spoofed }));
+      assert.equal(off.headers.get('x-middleware-rewrite'), 'https://django.example/api/projects');
+      assert.equal(forwarded(off, 'x-veevee-maintenance'), null);
+      assert.equal(forwarded(off, 'x-vercel-protection-bypass'), null);
+      const on = await createMiddleware(async () => ({ enabled: true, available: true }))(request('https://veevee.ai/api/projects', { method: 'GET', headers: spoofed }));
+      assert.equal(on.headers.get('x-middleware-rewrite'), 'https://django.example/api/projects');
+      assert.equal(forwarded(on, 'x-veevee-maintenance'), null);
+    } finally {
+      if (saved === undefined) delete process.env.DJANGO_API_ORIGIN; else process.env.DJANGO_API_ORIGIN = saved;
+    }
+  });
+});

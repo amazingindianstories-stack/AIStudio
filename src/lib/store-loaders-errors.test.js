@@ -32,13 +32,13 @@ test("loadMe keeps currentUser and does not redirect on 502 JSON error", async (
 test("loadMe still redirects on 200 { user: null }", async () => {
   const prevFetch = globalThis.fetch;
   const prevWindow = globalThis.window;
-  const location = { href: "http://localhost/", pathname: "/" };
+  const location = { href: "http://localhost/", pathname: "/", search: "?board=abc" };
   globalThis.window = { location };
   globalThis.fetch = async () => jsonResponse({ user: null }, 200);
 
   try {
     await useStore.getState().loadMe();
-    assert.equal(location.href, "/login");
+    assert.equal(location.href, "/login?next=%2F%3Fboard%3Dabc");
   } finally {
     globalThis.fetch = prevFetch;
     globalThis.window = prevWindow;
@@ -88,5 +88,28 @@ test("loadCounts, loadThread, and loadLimits retain prior state on 500 JSON erro
     assert.deepEqual(useStore.getState().limits, priorLimits);
   } finally {
     globalThis.fetch = prevFetch;
+  }
+});
+
+test("a 401 from any loader clears currentUser, redirects to login with next", async () => {
+  const prevFetch = globalThis.fetch;
+  const prevWindow = globalThis.window;
+  const location = {
+    href: "http://localhost/library",
+    pathname: "/library",
+    search: "?q=1",
+    replace(url) { this.href = url; },
+  };
+  globalThis.window = { location };
+  useStore.setState({ currentUser: { id: "u1", email: "a@b.com" } });
+  globalThis.fetch = async () => jsonResponse({ error: "expired" }, 401);
+
+  try {
+    await useStore.getState().loadLimits();
+    assert.equal(useStore.getState().currentUser, null);
+    assert.equal(location.href, "/login?next=%2Flibrary%3Fq%3D1");
+  } finally {
+    globalThis.fetch = prevFetch;
+    globalThis.window = prevWindow;
   }
 });

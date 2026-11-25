@@ -336,3 +336,15 @@ test("validateCanvasState: image crop is optional, clamped, and preserves intrin
   assert.equal(state.nodes[0].naturalW, 1920);
   assert.equal(state.nodes[0].naturalH, 1080);
 });
+
+// ---------------------------------------------------------------------------
+// custom shape svg is stored as given
+// ---------------------------------------------------------------------------
+
+test("validateCanvasState: custom shape svg keeps the stored markup unchanged", () => {
+  const svg = '<path d="M0 0"/><g><rect width="1" height="2"/></g>';
+  const state = validateCanvasState({ version: CANVAS_STATE_VERSION, viewport: { x: 0, y: 0, zoom: 1 }, connectors: [],
+    nodes: [{ id: "s1", type: "shape", shape: "custom", x: 0, y: 0, w: 10, h: 10, svg }] });
+  assert.equal(state.nodes[0].svg, svg);
+  assert.deepEqual(validateCanvasState(state), state);
+});

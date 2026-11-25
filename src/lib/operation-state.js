@@ -1,4 +1,5 @@
 /** Independent entities progress concurrently; conflicting operations serialize. */
+import { findItem } from "./store";
 export function installOperationTracking(store) {
   const inflight = new Map();
   const tails = new Map();
@@ -63,7 +64,7 @@ export function installOperationTracking(store) {
             if (name === 'moveGenerationsToDestination' && callArgs[2] === undefined) {
               callArgs[2] = {};
               for (const id of callArgs[0] || []) {
-                const item = current.items?.find(item => item.id === id);
+                const item = findItem(current, id);
                 if (typeof item?.locationVersion === 'number') callArgs[2][id] = item.locationVersion;
               }
             }

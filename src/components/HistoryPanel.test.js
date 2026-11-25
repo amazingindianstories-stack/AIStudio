@@ -133,3 +133,16 @@ test('sidebar buttons are named by their visible text and View settings is a lab
     } finally { await act(async () => {}); }
   });
 });
+
+test('"/" focuses the search input through its ref, even if its aria-label changes', async () => {
+  await harness(async ({ render }) => {
+    await render();
+    const input = document.querySelector('input[aria-label="Search prompts"]');
+    assert.ok(input);
+    input.setAttribute('aria-label', 'Find something');
+    const button = document.querySelector('button');
+    button.focus();
+    await act(async () => button.dispatchEvent(new window.KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true })));
+    assert.equal(document.activeElement, input);
+  });
+});
