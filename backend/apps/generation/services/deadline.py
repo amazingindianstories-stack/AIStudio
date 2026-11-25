@@ -38,13 +38,8 @@ class Cancellation:
         self.timeout_ms = timeout_ms
         self.deadline = time.monotonic() + timeout_ms / 1000
         self.cancelled = threading.Event()
-        self.reason = None      # why cancelled was set: 'shutdown', 'lease_lost' or 'lease_unverified' (None for a bare set)
         self.request_started = False   # set once any provider request has gone on the wire (transport.admit_request)
         self.shielded = False   # a paid provider call with no receipt yet: a worker stop waits for it instead of cutting it off
-
-    def cancel(self, reason):
-        self.reason = self.reason or reason
-        self.cancelled.set()
 
     def admit_request(self):
         self.check()

@@ -70,13 +70,6 @@ class LeaseHeartbeat:
         return Generation.objects.filter(pk=self.item.id, worker_lease_id=self.owner,
             status='running').update(worker_lease_until=now_ms() + self.ttl_ms)
 
-    def _cancel(self, reason):
-        cancel = getattr(self.cancellation, 'cancel', None)
-        if cancel:
-            cancel(reason)
-        else:
-            self.cancellation.cancelled.set()
-
     def __enter__(self):
         def beat():
             renewed_at = time.monotonic()
@@ -89,12 +82,12 @@ class LeaseHeartbeat:
                         connections.close_all()     # reconnect on the next try
                         if time.monotonic() - renewed_at >= self.ttl_ms / 1000:
                             logger.error('generation lease could not be renewed for a full TTL error_type=%s', type(error).__name__)
-                            self._cancel('lease_unverified')
+                            self.cancellation.cancelled.set()
                             return
                         wait = self.retry
                         continue
                     if not renewed:
-                        self._cancel('lease_lost')
+                        self.cancellation.cancelled.set()
                         return
                     renewed_at, wait = time.monotonic(), self.interval
             finally:

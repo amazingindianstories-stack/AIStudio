@@ -43,21 +43,19 @@ class HeartbeatTests(SimpleTestCase):
         self.assertGreater(len(calls), 4)
         self.assertFalse(signal.cancelled.is_set())
 
-    def test_lease_taken_by_another_owner_cancels_with_that_reason(self):
+    def test_lease_taken_by_another_owner_cancels_at_once(self):
         signal = self.run_heartbeat(lambda: 0)
         self.assertTrue(signal.cancelled.is_set())
-        self.assertEqual(signal.reason, 'lease_lost')
 
     def test_a_lease_unrenewable_for_a_whole_ttl_cancels_before_another_worker_can_claim_it(self):
         def renew():
             raise OperationalError('connection refused')
         signal = self.run_heartbeat(renew, ttl_ms=100)
         self.assertTrue(signal.cancelled.is_set())
-        self.assertEqual(signal.reason, 'lease_unverified')
 
 
 class DrainTests(SimpleTestCase):
-    def test_stop_cancels_unshielded_work_at_once_and_records_the_reason(self):
+    def test_stop_cancels_unshielded_work_at_once(self):
         stop = threading.Event()
         signal = worker.WorkerCancellation(stop)
         signal.check()
@@ -65,7 +63,7 @@ class DrainTests(SimpleTestCase):
         with self.assertRaises(Exception) as caught:
             signal.check()
         self.assertEqual(caught.exception.code, 'queue_execution_cancelled')
-        self.assertEqual(signal.reason, 'shutdown')
+        self.assertTrue(signal.cancelled.is_set())
 
     def test_stop_waits_for_a_shielded_provider_call_until_the_drain_ends(self):
         stop = threading.Event()
@@ -76,9 +74,9 @@ class DrainTests(SimpleTestCase):
         signal.check()
         signal.wait(50)
         time.sleep(.25)
-        with self.assertRaises(Exception):
+        with self.assertRaises(QueueExecutionCancelledError):
             signal.check()
-        self.assertEqual(signal.reason, 'shutdown')
+        self.assertTrue(signal.cancelled.is_set())
 
     def test_stop_refuses_a_new_provider_request_after_the_one_on_the_wire_finishes(self):
         stop = threading.Event()
@@ -89,7 +87,7 @@ class DrainTests(SimpleTestCase):
         signal.check()                       # the finished call's result handling keeps running in the drain
         with self.assertRaises(QueueExecutionCancelledError):
             signal.admit_request()
-        self.assertEqual(signal.reason, 'shutdown')
+        self.assertTrue(signal.cancelled.is_set())
 
 
 class InterruptionPersistenceTests(TransactionTestCase):

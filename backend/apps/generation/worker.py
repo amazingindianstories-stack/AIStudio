@@ -46,12 +46,12 @@ class WorkerCancellation(Cancellation):
             now = time.monotonic()
             self.stop_seen = self.stop_seen or now
             if not (self.shielded and self.request_started) or now - self.stop_seen >= self.drain_seconds:
-                self.cancel('shutdown')
+                self.cancelled.set()
         super().check()
 
     def admit_request(self):
         if self.stop.is_set():
-            self.cancel('shutdown')
+            self.cancelled.set()
         super().admit_request()
 
     def wait(self, milliseconds):
