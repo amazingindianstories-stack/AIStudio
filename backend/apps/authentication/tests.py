@@ -75,7 +75,6 @@ class LoginThrottleTests(TransactionTestCase):
 class ThrottleSourceParityTests(TransactionTestCase):
     def test_current_node_configuration_parsing(self):
         import json
-        import subprocess
         from pathlib import Path
         from .throttle import maximum_attempts, retry_after, admits
         values=[None,'','0','5.9','.5','1e1','0x10','0b10','-0x10','Infinity','NaN','1_0','１２','\ufeff2','\u001c2','-1',' 3 ']
