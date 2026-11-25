@@ -8,11 +8,28 @@ on stdin so it never appears in process arguments.
 
 In ``mcp`` mode the same gateway fronts the MCP service (uvicorn on 18082) and
 passes only ``/mcp``: POST, plus GET and DELETE, which the service answers 405.
+
+Client address: the Vercel middleware reports the real client address in ``x-veevee-client-ip``. This gateway is
+the only hop that may vouch for it: it drops every ``x-veevee-client-ip*`` header from the request, and when it holds
+a ``client_address_key`` and the authenticated request carried a valid address, it forwards the address with an
+``X-Veevee-Client-Ip-Proof`` HMAC that ``apps.common.client_address`` verifies. Without the key nothing is forwarded.
 """
-import hmac, http.client, json, re, socket
+import hashlib, hmac, http.client, ipaddress, json, re, socket, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote, urlsplit
 HEADER='x-veevee-g4-ingress'
+CLIENT_ADDRESS_HEADER='x-veevee-client-ip'
+CLIENT_ADDRESS_PROOF_VERSION='v1'
+def client_address_proof(key,address,now=None):
+    # Same construction as apps.common.client_address.sign (a test keeps the two equal).
+    seconds=int(time.time() if now is None else now)
+    return f'{CLIENT_ADDRESS_PROOF_VERSION}.{seconds}.'+hmac.new(key.encode(),f'{CLIENT_ADDRESS_PROOF_VERSION}|{seconds}|{address}'.encode(),hashlib.sha256).hexdigest()
+def client_address_headers(request_headers,key):
+    """The vouched client-address headers for one authenticated request: empty when there is no key or no valid address."""
+    if not key:return {}
+    try:address=ipaddress.ip_address((request_headers.get(CLIENT_ADDRESS_HEADER) or '').strip())
+    except ValueError:return {}
+    return {'X-Veevee-Client-Ip':str(address),'X-Veevee-Client-Ip-Proof':client_address_proof(key,str(address))}
 MAX_BODY=8*1024*1024
 MAX_OPERATIONS=128
 MAX_TOTAL_BYTES=16*1024*1024
@@ -93,7 +110,7 @@ def allowed(method,path,paid_initial_routes=False,new_exports=False,magnific_ups
     return method in ('GET','HEAD','POST','PUT','PATCH','DELETE')
 MEDIA_CACHE_HEADERS=frozenset({'private, max-age=31536000, immutable'})
 
-def handler(secret,paid_initial_routes=False,new_exports=False,magnific_upscale=False,mode='api'):
+def handler(secret,paid_initial_routes=False,new_exports=False,magnific_upscale=False,mode='api',client_address_key=''):
     upstream_port,readiness_path=UPSTREAMS[mode]
     class Gate(BaseHTTPRequestHandler):
         operations=0
@@ -149,7 +166,8 @@ def handler(secret,paid_initial_routes=False,new_exports=False,magnific_upscale=
             self.connection.settimeout(25)
             body=self.rfile.read(n)
             if len(body)!=n: self.send_error(400);return
-            headers={k:v for k,v in self.headers.items() if k.lower() not in {HEADER,'connection','transfer-encoding','content-length','host','upgrade','proxy-authorization','proxy-connection','x-vercel-protection-bypass','x-vercel-set-bypass-cookie'}}
+            headers={k:v for k,v in self.headers.items() if k.lower() not in {HEADER,'connection','transfer-encoding','content-length','host','upgrade','proxy-authorization','proxy-connection','x-vercel-protection-bypass','x-vercel-set-bypass-cookie'} and not k.lower().startswith(CLIENT_ADDRESS_HEADER)}
+            headers.update(client_address_headers(self.headers,client_address_key))
             for key in list(headers):
                 if key.lower()=='cookie':
                     headers[key]=';'.join(part for part in headers[key].split(';') if part.strip().split('=')[0] not in {'_vercel_jwt','_vercel_protection_bypass'})
@@ -195,13 +213,13 @@ def handler(secret,paid_initial_routes=False,new_exports=False,magnific_upscale=
         do_GET=do_HEAD=do_POST=do_PUT=do_PATCH=do_DELETE=run
     return Gate
 
-def serve(secret,port,paid_initial_routes=False,new_exports=False,magnific_upscale=False,mode='api'):
+def serve(secret,port,paid_initial_routes=False,new_exports=False,magnific_upscale=False,mode='api',client_address_key=''):
     if mode not in UPSTREAMS:raise ValueError('Gateway mode rejected')
     if len(secret)<48 or not (1024<=int(port)<=65535) or int(port) in {upstream for upstream,_ in UPSTREAMS.values()}:raise ValueError('Ingress binding invalid')
-    server=ThreadingHTTPServer(('0.0.0.0',port),handler(secret,paid_initial_routes,new_exports,magnific_upscale,mode))
+    server=ThreadingHTTPServer(('0.0.0.0',port),handler(secret,paid_initial_routes,new_exports,magnific_upscale,mode,client_address_key))
     server.daemon_threads=True
     import sys
-    print(json.dumps({'event':'gateway_listening','port':int(port),'mode':mode,'paid_routes':paid_initial_routes,'new_exports':new_exports,'magnific_upscale':magnific_upscale}),file=sys.stderr,flush=True)
+    print(json.dumps({'event':'gateway_listening','port':int(port),'mode':mode,'paid_routes':paid_initial_routes,'new_exports':new_exports,'magnific_upscale':magnific_upscale,'client_address':bool(client_address_key)}),file=sys.stderr,flush=True)
     try:server.serve_forever()
     finally:server.server_close()
 if __name__=='__main__':
@@ -216,4 +234,6 @@ if __name__=='__main__':
         if type(magnific) is not bool:raise ValueError('Magnific activation rejected')
         mode=value.get('mode','api')
         if mode not in UPSTREAMS:raise ValueError('Gateway mode rejected')
-        serve(value['secret'],value['port'],paid,exports,magnific,mode)
+        address_key=value.get('client_address_key','')
+        if type(address_key) is not str or address_key and len(address_key)<32:raise ValueError('Client address key rejected')
+        serve(value['secret'],value['port'],paid,exports,magnific,mode,address_key)

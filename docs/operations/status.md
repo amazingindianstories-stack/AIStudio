@@ -660,11 +660,73 @@ more than one layer blocking it:
   face judge: it is the number of candidates generated per request (spend admission multiplies the estimate by it,
   capped at 4, default 2 when unset or invalid; the image executor bounds the count by image size). The production
   value is not recorded here: the owner must confirm it.
-- **VEEVEE_ADDRESS_RATE_LIMITS** (API env, off unless `1`). Switches on the per-address login bucket (50 failed
-  logins per 15 min across all e-mails) and the OAuth register (20/hour) and token per-address limits. Off by default:
-  they key on the last non-loopback `X-Forwarded-For` entry, and which entry holds the client after the Vercel and
-  Railway hops on Green is not yet confirmed; if it were a proxy address, every artist would share one bucket. The
-  per-account login throttle stays on either way. Turn it on only after the owner confirms that header chain.
+- **Login and OAuth rate limits** (branch `fm/veevee-login-ratelimit`; replaces the off-by-default per-address buckets
+  from this batch). Why the old ones shipped off: Railway's edge appends the address of the peer that connected to it,
+  which on Green is a Vercel egress address, so the last `X-Forwarded-For` entry named no artist and one attacker could
+  have exhausted a shared bucket for everyone. They are now keyed on an address only our own hops can vouch for.
+  - *Trust chain.* `src/middleware.js` writes Vercel's `x-vercel-forwarded-for` (which a caller cannot overwrite) to
+    `x-veevee-client-ip`, replacing any caller value. `deploy/gateway.py` authenticates the ingress secret, drops every
+    `x-veevee-client-ip*` header from the request and, when the value is a valid IP, forwards it with
+    `X-Veevee-Client-Ip-Proof` (`v1.<unix s>.<HMAC-SHA256>`). Django (`apps/common/client_address.py`) accepts the address
+    only with a valid proof under `VEEVEE_CLIENT_ADDRESS_KEY` (at most 120 s old). The key is derived by
+    `deploy/entrypoint.py` from the ingress secret, so **no new Railway or Vercel variable is needed** and Django never
+    holds the secret. `X-Forwarded-For` and `X-Real-IP` are never used. A private, loopback, link-local, CGNAT or
+    documentation address is untrusted; IPv4-mapped IPv6 counts as IPv4 and IPv6 collapses to its /64.
+  - *Untrusted fallback.* When the address is untrusted (no header, bad or stale proof, no key, non-public address, or
+    `VEEVEE_ADDRESS_RATE_LIMITS=0`) every per-address layer stands down and only the per-account login layer applies, so
+    a shared bucket can never block every artist. The MCP service strips the headers and signs nothing.
+  - *Login layers* (`login_attempts`, shared by every API instance, no migration): account (any address), account at
+    one address, and address across accounts. An attempt is reserved before the password is checked, under a per-key
+    PostgreSQL advisory lock, and the reservation stays as the recorded failure unless the password is right. A refused
+    attempt writes nothing, so hammering an account never lengthens its own lockout. After a success the address is
+    remembered for 30 days; from it the account-wide layer stands down, so a stranger guessing at an artist's account
+    cannot lock that artist out at home (the account-at-address and address layers still apply there).
+  - *OAuth layers* (`mcp_rate_windows`): `POST /api/oauth/register` per address; `POST /api/oauth/token` per address
+    (before the client is looked up, so probing unknown client ids is limited) and per client and address. No
+    per-client-only or global ceiling exists on purpose: a shared identity would let one caller lock every agent out.
+  - *Backoff and lockout response.* Every layer is a list of tiers, so persistent guessing earns a longer wait. Login
+    refusals answer 429 with `Retry-After` computed exactly (when the next attempt would be admitted); OAuth refusals
+    answer 429 `slow_down` with `Retry-After`.
+  - *Settings* (API env; each layer is `limit:seconds,...`, shortest window first; `off` or empty switches that layer
+    off; a malformed value logs `ratelimit_config_invalid` and keeps the default; a change needs an API restart):
+
+    | Variable | Default | Notes |
+    |---|---|---|
+    | `VEEVEE_ADDRESS_RATE_LIMITS` | on | `0` switches every per-address layer off; they also need a trusted address |
+    | `LOGIN_MAX_ATTEMPTS` | 5 | First tier of the account layer; `0` switches the whole login throttle off |
+    | `VEEVEE_RL_LOGIN_ACCOUNT` | `5:900,10:3600,20:86400` | Replaces `LOGIN_MAX_ATTEMPTS` when set |
+    | `VEEVEE_RL_LOGIN_PAIR` | `10:900,20:3600,40:86400` | One account at one address |
+    | `VEEVEE_RL_LOGIN_ADDRESS` | `50:900,150:3600,500:86400` | One address across accounts |
+    | `VEEVEE_RL_OAUTH_REGISTER` | `5:60,20:3600,60:86400` | Per address |
+    | `VEEVEE_RL_OAUTH_TOKEN_ADDRESS` | `120:60,600:3600` | Per address, before the client lookup |
+    | `VEEVEE_RL_OAUTH_TOKEN_CLIENT` | `60:60` | Per client and address |
+
+    Failure rows are kept for the longest configured window plus an hour (the scheduler's `cleanup_login_attempts`).
+  - *Visibility.* A lockout logs one JSON line `rate_limit_lockout` (logger `veevee.ratelimit`; layer, a hash of the
+    subject, limit and window; never an address or e-mail) per subject per window. Hourly counters (kept 8 days, bucket
+    `rl:evt:*` in `mcp_rate_windows`) count blocked attempts per layer and requests with and without a trusted address.
+    The admin Status tab shows them as "Login Rate Limits": unknown while no request carried a trusted address or the
+    address layers are off, otherwise ok, with the first 8 hex characters of the address buckets seen in the last hour.
+  - *Rollout order.* API first, then Vercel: with only one side deployed the address is simply untrusted and nothing
+    breaks. During a rolling deploy an API instance still on the old code deletes `login_attempts` rows older than 15
+    minutes and every `known:` row on its cleanup pass, so for that window the longer tiers and remembered addresses
+    can be shortened. That only loosens limits, transiently, and the account layer keeps its 5 per 15 minutes.
+  - *Staging verification (confirms each artist's real address arrives).* Use throwaway e-mails only.
+    1. Deploy the API, then the Vercel build, to staging. In the API gateway startup log, `gateway_listening` must show
+       `"client_address": true`.
+    2. From the network you are on, submit 3 wrong passwords for `ratelimit-check@example.invalid` on the login page.
+    3. Open the admin Status tab, "Login Rate Limits". Expect status ok, "with a trusted client address" of at least 3
+       and an address bucket prefix in the list. `unknown` with 0 trusted means the address is not arriving: the Vercel
+       build lacks the middleware change, the gateway and Django disagree on the key, or the request skipped Vercel.
+    4. Compute the expected prefix for your public IP (for IPv6 use the /64 form, e.g. `2606:4700:4700::/64`) and check
+       it is in the list: `python3 -c "import hashlib,sys;print(hashlib.sha256(sys.argv[1].encode()).hexdigest()[:8])" 203.0.113.7`
+       (use your real address).
+    5. Repeat from a second network (a phone hotspot). A second, different prefix must appear. If both networks show
+       the same prefix, the address is a shared hop address: keep `VEEVEE_ADDRESS_RATE_LIMITS=0` and stop.
+    6. Optional lockout check: set `VEEVEE_RL_LOGIN_ADDRESS=3:900` on staging, restart, submit 4 wrong logins for four
+       different throwaway e-mails; the fourth answers 429 with `Retry-After`, a request from the second network does not.
+  - *Roll back.* `VEEVEE_ADDRESS_RATE_LIMITS=0` (every address layer), or `off` on one `VEEVEE_RL_*` variable. The
+    per-account login layer stays on unless `LOGIN_MAX_ATTEMPTS=0`.
 - **Push cutoff**: migration `canvas.0020_notification_push_cutoff` marks every notification that exists when it runs
   as pushed, so the new push sender (which pushes unpushed notifications up to 7 days old) sends no stale pushes.
 - **Upload keys outside `uploads/canvas/`**: the BE-006 rule hides stored SVG only for the canvas namespace. Older

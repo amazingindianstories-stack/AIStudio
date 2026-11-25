@@ -130,9 +130,13 @@ if VEEVEE_RUNTIME_COMPONENT == 'mcp' and (not VEEVEE_MCP or len(MCP_QUOTE_SECRET
 if VEEVEE_RUNTIME_COMPONENT == 'agent' and len(MCP_QUOTE_SECRET) < 32:
     raise ImproperlyConfigured('The agent component needs a 32+ character MCP_QUOTE_SECRET')
 VEEVEE_EXPORT_ADMISSION = os.environ.get('VEEVEE_EXPORT_ADMISSION') == '1'
-# Per-address login and OAuth register/token rate limits (off unless '1'). They key on the last non-loopback
-# X-Forwarded-For entry, so switch them on only once that entry is confirmed to be the client on Green.
-VEEVEE_ADDRESS_RATE_LIMITS = os.environ.get('VEEVEE_ADDRESS_RATE_LIMITS') == '1'
+# Per-address login and OAuth register/token rate limits (apps.common.client_address, apps.authentication.throttle).
+# On unless '0', but each request is only limited by address when the gateway vouches for the real client address
+# (a valid proof under VEEVEE_CLIENT_ADDRESS_KEY); an untrusted address leaves only the per-account limits.
+VEEVEE_ADDRESS_RATE_LIMITS = os.environ.get('VEEVEE_ADDRESS_RATE_LIMITS') != '0'
+# HMAC key the gateway signs the client address with. deploy.entrypoint derives it from the ingress secret for the
+# API process; there is no Railway variable to set. Empty (workers, local runs) means no address is ever trusted.
+VEEVEE_CLIENT_ADDRESS_KEY = os.environ.get('VEEVEE_CLIENT_ADDRESS_KEY', '')
 # Magnific image/video upscaling through the gateway and paid guard (off unless '1').
 VEEVEE_MAGNIFIC_UPSCALE = os.environ.get('VEEVEE_MAGNIFIC_UPSCALE') == '1'
 # Paid Gemini Omni Flash 1.1 video through the paid guard (off unless '1'; switched on after live acceptance).

@@ -277,9 +277,9 @@ older than 60 s, and the next worker resumes it from its journal. The worker nev
 |---|---|
 | Protected resource metadata (RFC 9728) | `/.well-known/oauth-protected-resource/mcp` (served by Django at `/api/oauth/protected-resource`) |
 | Authorization server metadata (RFC 8414) | `/.well-known/oauth-authorization-server` (served at `/api/oauth/authorization-server`) |
-| Dynamic client registration (RFC 7591) | `POST /api/oauth/register`, 20 per client address per hour |
+| Dynamic client registration (RFC 7591) | `POST /api/oauth/register`, tiered per trusted client address (default 5 per minute, 20 per hour, 60 per day) |
 | Authorization | `/oauth/authorize`, the Next.js consent page, backed by `/api/oauth/authorize/request` and `/decision` |
-| Token | `POST /api/oauth/token`: `authorization_code` with PKCE S256, `refresh_token` with rotation; 60 per client and client address per minute |
+| Token | `POST /api/oauth/token`: `authorization_code` with PKCE S256, `refresh_token` with rotation; per trusted client address (120 per minute, 600 per hour) and per client and address (60 per minute); the tiers and the trusted address are in `docs/operations/status.md` |
 | Revocation (RFC 7009) | `POST /api/oauth/revoke` |
 
 - Public clients only (`token_endpoint_auth_method: none`). A client is either registered (DCR, `vvc_` id)

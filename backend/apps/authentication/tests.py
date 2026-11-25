@@ -49,23 +49,24 @@ class PasswordCompatibilityTests(TransactionTestCase):
 
 class LoginThrottleTests(TransactionTestCase):
     def test_unknown_identifier_failures_expiry_and_retry(self):
-        from .throttle import check, record_failure, WINDOW_MS
+        from .throttle import admit, record_failure, WINDOW_MS
         from .models import LoginAttempt
         now=2000000
         record_failure('  UNKNOWN@example.invalid ',now=now-WINDOW_MS)
         for offset in range(5):
             record_failure('unknown@example.invalid',now=now-1000+offset)
-        self.assertEqual(check(' UNKNOWN@EXAMPLE.INVALID ',now=now),{'allowed':False,'retryAfterMs':WINDOW_MS-1000})
-        self.assertEqual(LoginAttempt.objects.count(),5)
-        self.assertEqual(check('other@example.invalid',now=now),{'allowed':True,'retryAfterMs':0})
-        self.assertTrue(check('unknown@example.invalid',now=now+WINDOW_MS)['allowed'])
-        self.assertEqual(LoginAttempt.objects.count(),0)
+        refused=admit(' UNKNOWN@EXAMPLE.INVALID ',now=now)
+        self.assertEqual((refused['allowed'],refused['retryAfterMs'],refused['layer']),(False,WINDOW_MS-1000,'login_account'))
+        self.assertEqual(LoginAttempt.objects.count(),6)  # a refusal writes nothing; the stale row waits for cleanup
+        other=admit('other@example.invalid',now=now)
+        self.assertTrue(other['allowed'])
+        self.assertTrue(admit('unknown@example.invalid',now=now+WINDOW_MS)['allowed'])
 
-    def test_disabled_gate_does_not_cleanup(self):
-        from .throttle import check, record_failure, maximum_attempts
+    def test_disabled_gate_writes_nothing(self):
+        from .throttle import admit, record_failure, maximum_attempts
         from .models import LoginAttempt
         record_failure('fixture',now=1)
-        self.assertEqual(check('fixture',now=2000000,max_attempts=0),{'allowed':True,'retryAfterMs':0})
+        self.assertEqual(admit('fixture',now=2000000,max_attempts=0),{'allowed':True,'retryAfterMs':0,'layer':None,'reservation':[]})
         self.assertEqual(LoginAttempt.objects.count(),1)
         for raw,expected in [('0',0),('',0),('5.9',5),('0x10',16),('invalid',5),('-1',5)]:
             self.assertEqual(maximum_attempts(raw),expected)
@@ -112,31 +113,56 @@ class LoginApiTests(TransactionTestCase):
         self.assertEqual(response.json(),{'error':'Email is too long.'})
         self.assertEqual(LoginAttempt.objects.count(),0)
 
-    @override_settings(VEEVEE_ADDRESS_RATE_LIMITS=True)
-    def test_address_bucket_limits_rotating_emails(self):
-        for index in range(50):
-            response=self.client.post('/api/auth/login',{'email':f'rotating{index}@example.invalid','password':'wrong'},
-                                      content_type='application/json',HTTP_X_FORWARDED_FOR='198.51.100.7')
-            self.assertEqual(response.status_code,401)
-        response=self.client.post('/api/auth/login',{'email':'rotating-last@example.invalid','password':'wrong'},
-                                  content_type='application/json',HTTP_X_FORWARDED_FOR='198.51.100.7')
-        self.assertEqual(response.status_code,429)
-        self.assertTrue(int(response['Retry-After'])>0)
-        other=self.client.post('/api/auth/login',{'email':'rotating-last@example.invalid','password':'wrong'},
-                               content_type='application/json',HTTP_X_FORWARDED_FOR='198.51.100.8')
-        self.assertEqual(other.status_code,401)
+    def post(self,email,password='wrong',**headers):
+        return self.client.post('/api/auth/login',{'email':email,'password':password},content_type='application/json',**headers)
 
-    def test_address_bucket_is_off_by_default_and_the_account_bucket_stays(self):
+    def test_a_forwarded_address_is_never_trusted(self):
+        # Railway puts a shared Vercel egress address into X-Forwarded-For; keying on it would join every artist into one bucket.
         from .models import LoginAttempt
         for index in range(51):
-            response=self.client.post('/api/auth/login',{'email':f'rotating{index}@example.invalid','password':'wrong'},
-                                      content_type='application/json',HTTP_X_FORWARDED_FOR='198.51.100.7')
-            self.assertEqual(response.status_code,401)
+            self.assertEqual(self.post(f'rotating{index}@example.invalid',HTTP_X_FORWARDED_FOR='8.8.8.8',HTTP_X_REAL_IP='8.8.8.8').status_code,401)
         self.assertFalse(LoginAttempt.objects.filter(identifier__startswith='ip:').exists())
         for _ in range(4):
-            self.client.post('/api/auth/login',{'email':'rotating0@example.invalid','password':'wrong'},content_type='application/json')
-        response=self.client.post('/api/auth/login',{'email':'rotating0@example.invalid','password':'wrong'},content_type='application/json')
+            self.post('rotating0@example.invalid')
+        self.assertEqual(self.post('rotating0@example.invalid').status_code,429)
+
+    @override_settings(VEEVEE_ADDRESS_RATE_LIMITS=True,VEEVEE_CLIENT_ADDRESS_KEY='k'*64)
+    def test_address_layer_limits_rotating_emails_from_a_vouched_address_only(self):
+        from apps.common.client_address import sign
+        def signed(address):
+            return {'HTTP_X_VEEVEE_CLIENT_IP':address,'HTTP_X_VEEVEE_CLIENT_IP_PROOF':sign('k'*64,address)}
+        for index in range(50):
+            self.assertEqual(self.post(f'rotating{index}@example.invalid',**signed('8.8.8.8')).status_code,401)
+        response=self.post('rotating-last@example.invalid',**signed('8.8.8.8'))
         self.assertEqual(response.status_code,429)
+        self.assertTrue(int(response['Retry-After'])>0)
+        self.assertEqual(self.post('rotating-last@example.invalid',**signed('1.1.1.1')).status_code,401)
+        # A forged proof and an unsigned address are untrusted: no address bucket, so nothing is blocked by address.
+        forged={'HTTP_X_VEEVEE_CLIENT_IP':'8.8.8.8','HTTP_X_VEEVEE_CLIENT_IP_PROOF':'v1.1.'+'0'*64}
+        self.assertEqual(self.post('rotating-other@example.invalid',**forged).status_code,401)
+        self.assertEqual(self.post('rotating-other2@example.invalid',HTTP_X_VEEVEE_CLIENT_IP='8.8.8.8').status_code,401)
+
+    @override_settings(VEEVEE_ADDRESS_RATE_LIMITS=True,VEEVEE_CLIENT_ADDRESS_KEY='k'*64)
+    def test_a_correct_password_from_a_known_address_is_not_locked_out_by_a_stranger(self):
+        from apps.common.client_address import sign
+        home={'HTTP_X_VEEVEE_CLIENT_IP':'8.8.8.8','HTTP_X_VEEVEE_CLIENT_IP_PROOF':sign('k'*64,'8.8.8.8')}
+        attacker={'HTTP_X_VEEVEE_CLIENT_IP':'9.9.9.9','HTTP_X_VEEVEE_CLIENT_IP_PROOF':sign('k'*64,'9.9.9.9')}
+        self.assertEqual(self.post('fixture@example.invalid','fixture-password',**home).status_code,200)
+        for _ in range(5):
+            self.assertEqual(self.post('fixture@example.invalid',**attacker).status_code,401)
+        blocked=self.post('fixture@example.invalid','fixture-password',**attacker)
+        self.assertEqual(blocked.status_code,429)
+        self.assertEqual(self.post('fixture@example.invalid','fixture-password',**home).status_code,200)
+
+    def test_the_lockout_response_carries_retry_after_and_the_blocked_counter(self):
+        from apps.mcp_auth import ratelimits
+        for _ in range(5):
+            self.post('missing@example.invalid')
+        response=self.post('missing@example.invalid')
+        self.assertEqual(response.status_code,429)
+        self.assertEqual(response.json(),{'error':'Too many failed attempts. Try again later.'})
+        self.assertTrue(1<=int(response['Retry-After'])<=900)
+        self.assertEqual(ratelimits.event_totals()['blocked:login_account'][0],1)
 
     def test_missing_credentials(self):
         response=self.client.post('/api/auth/login',{},content_type='application/json')

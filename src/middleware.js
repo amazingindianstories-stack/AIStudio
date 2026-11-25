@@ -14,6 +14,16 @@ export function maintenanceToggle(env = process.env, connect = createClient) {
 
 const readMaintenance = createMaintenanceReader(maintenanceToggle());
 
+/**
+ * The real client address as Vercel reports it. Vercel sets x-vercel-forwarded-for itself and a caller cannot
+ * overwrite it (x-forwarded-for can be, through a proxy, so it is not used). Railway's edge only sees the Vercel
+ * egress address, so the gateway needs the value on its own header; it vouches for it with a signature that Django
+ * verifies (backend/apps/common/client_address.py). Absent outside Vercel, which leaves the address untrusted.
+ */
+export function clientAddress(headers) {
+  return (headers.get("x-vercel-forwarded-for") || "").split(",")[0].trim() || null;
+}
+
 /** Server-only ingress for both backends: overwrite caller-supplied values and drop Vercel bypass credentials. */
 function ingressHeaders(req) {
   const ingressSecret = process.env.GOAL4_PRIVATE_INGRESS_SECRET;
@@ -22,6 +32,10 @@ function ingressHeaders(req) {
   headers.delete("x-vercel-protection-bypass");
   headers.delete("x-vercel-set-bypass-cookie");
   headers.delete("x-veevee-maintenance");
+  headers.delete("x-veevee-client-ip");
+  headers.delete("x-veevee-client-ip-proof");
+  const address = clientAddress(headers);
+  if (address) headers.set("x-veevee-client-ip", address);
   headers.set("x-veevee-g4-ingress", ingressSecret);
   return headers;
 }

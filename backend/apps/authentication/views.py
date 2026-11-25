@@ -56,8 +56,8 @@ def login(request):
     from .models import User
     from .password import verify_password
     from .session import sign_session
-    from .throttle import check, record_failure, MAX_IDENTIFIER_LENGTH
-    from apps.common.client_address import address_key
+    from .throttle import admit, succeeded, MAX_IDENTIFIER_LENGTH
+    from apps.mcp_auth.ratelimits import observe_address
     from apps.common.models import ActivityLog
     try:
         body=json.loads(request.body)
@@ -70,11 +70,12 @@ def login(request):
         return Response({'error':'Email and password are required.'},status=400)
     if len(str(email)) > MAX_IDENTIFIER_LENGTH:
         return Response({'error':'Email is too long.'},status=400)
-    address=address_key(request)
-    throttle=check(email,address_key=address)
+    # None unless the gateway vouched for the client address; then only the per-account layer applies.
+    address=observe_address('login',request)
+    throttle=admit(email,address_key=address)
     if not throttle['allowed']:
         return Response({'error':'Too many failed attempts. Try again later.'},status=429,
-                        headers={'Retry-After':str(math.ceil(throttle['retryAfterMs']/1000))})
+                        headers={'Retry-After':str(max(1,math.ceil(throttle['retryAfterMs']/1000)))})
     user=User.objects.filter(email=str(email).lower().strip()).first()
     # Equalize the expensive password work for nonexistent/disabled accounts;
     # the throttle still runs first. This hardens timing without changing JSON.
@@ -82,8 +83,9 @@ def login(request):
     verified = verify_password(str(password), user.password_hash if active else '00' * 64,
                                user.password_salt if active else 'veevee-dummy-scrypt-salt')
     if not active or not verified:
-        record_failure(email,address_key=address)
+        # The reservation made by admit() stays as the recorded failure.
         return Response({'error':'Invalid email or password.'},status=401)
+    succeeded(throttle,email,address_key=address)
     getattr(request, '_request', request).validated_actor_id = str(user.id)
     response=Response({'user':{'id':str(user.id),'email':user.email,'name':user.name,
                                'role':user.role,'color':user.color,'avatarUrl':user.avatar_url}})

@@ -27,6 +27,31 @@ class AdminContractTests(TransactionTestCase):
         User.objects.filter(pk=fixtures.UID).update(role='admin')
         self.cookie()
 
+    def test_login_rate_limits_status_reports_address_trust_and_blocks(self):
+        from apps.authentication import throttle
+        from apps.common.leases import now_ms
+        from apps.mcp_auth import ratelimits
+        self.assertIn(('login-rate-limits', 'Login Rate Limits', status.login_rate_limits), status.CHECKS)
+        with override_settings(VEEVEE_ADDRESS_RATE_LIMITS=True):
+            quiet = status.login_rate_limits()
+            self.assertEqual(quiet['status'], 'unknown')  # nothing ever carried a trusted address: the limits are standing down
+            self.assertIn('without: 0', quiet['detail'])
+            ratelimits.record_event('address:untrusted:login')
+            self.assertEqual(status.login_rate_limits()['status'], 'unknown')
+            ratelimits.record_event('address:trusted:login')
+            ratelimits.record_event('blocked:login_account')
+            throttle.record_failure('a@example.invalid', address_key='abcdef0123456789' * 2, now=now_ms())
+            seen = status.login_rate_limits()
+            self.assertEqual(seen['status'], 'ok')
+            self.assertIn('trusted client address: 1, without: 1', seen['detail'])
+            self.assertIn('login_account 1/1', seen['detail'])
+            self.assertIn('abcdef01', seen['detail'])
+            self.assertNotIn('a@example.invalid', seen['detail'])
+        with override_settings(VEEVEE_ADDRESS_RATE_LIMITS=False):
+            off = status.login_rate_limits()
+            self.assertEqual(off['status'], 'unknown')
+            self.assertIn('switched off', off['detail'])
+
     def post(self,path,data):
         return self.client.post('/api/admin/'+path,json.dumps(data),content_type='application/json')
 

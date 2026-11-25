@@ -3,7 +3,7 @@ import json
 import logging
 import uuid
 from django.db.models import Q
-from apps.authentication.models import LoginAttempt
+from apps.authentication import throttle
 from apps.common import leases
 from apps.generation.models import Generation
 from apps.generation.services.deadline import Cancellation
@@ -14,7 +14,7 @@ logger = logging.getLogger('veevee.maintenance')
 
 def cleanup_login_attempts(now=None):
     now = leases.now_ms() if now is None else now
-    deleted = LoginAttempt.objects.filter(created_at__lte=now-15*60*1000).delete()[0]
+    deleted = throttle.cleanup(now)
     logger.info(json.dumps({'event': 'maintenance_cleanup', 'target': 'login_attempts', 'deleted': deleted}))
     return {'ok': True, 'deleted': deleted}
 

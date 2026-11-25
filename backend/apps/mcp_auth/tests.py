@@ -5,6 +5,7 @@ import hashlib
 import http.client
 import io
 import json
+import os
 import secrets
 import threading
 import time
@@ -23,13 +24,22 @@ from apps.authentication.password import hash_password
 from apps.authentication.session import sign_session
 from apps.common.models import ActivityLog
 from apps.generation.models import Generation
-from . import clients, controls, policy, tokens
+from apps.common.client_address import sign
+from . import clients, controls, policy, ratelimits, tokens
 from .models import McpAuthCode, McpClient, McpRateWindow, McpToken
 from .principal import AgentAccessDisabled, AuthenticationError, InsufficientScope, authenticate_bearer, challenge
 
 SITE = 'https://veevee.test'
 RESOURCE = SITE + '/mcp'
 LOOPBACK = 'http://127.0.0.1:33418/callback'
+ADDRESS_KEY = 'k' * 64
+FROZEN = 10_000_020_000  # a fixed clock, so a fixed-window counter never straddles a window edge mid-test
+frozen_clock = patch('apps.mcp_auth.controls.now_ms', new=lambda: FROZEN)
+
+
+def signed(address):
+    """The headers the gateway adds once it has vouched for a client address."""
+    return {'HTTP_X_VEEVEE_CLIENT_IP': address, 'HTTP_X_VEEVEE_CLIENT_IP_PROOF': sign(ADDRESS_KEY, address)}
 CLAUDE_CODE_CIMD = 'https://claude.ai/oauth/claude-code-client-metadata'
 CHATGPT_CIMD = 'https://chatgpt.com/oauth/client.json'
 # Shapes of the published Claude Code and ChatGPT client metadata documents (fixtures; no network).
@@ -310,43 +320,80 @@ class DiscoveryAndRegistrationTests(AgentAccessCase):
         self.assertFalse(McpClient.objects.exists())
         self.assertFalse(McpRateWindow.objects.exists())
 
-    @override_settings(VEEVEE_ADDRESS_RATE_LIMITS=True)
-    def test_registration_is_rate_limited_per_address_and_unused_clients_expire(self):
+    @override_settings(VEEVEE_ADDRESS_RATE_LIMITS=True, VEEVEE_CLIENT_ADDRESS_KEY=ADDRESS_KEY)
+    @frozen_clock
+    def test_registration_is_rate_limited_per_address_in_tiers_and_unused_clients_expire(self):
         body = {'redirect_uris': [LOOPBACK]}
-        for _ in range(20):
-            self.assertEqual(self.post_json('/api/oauth/register', body, HTTP_X_FORWARDED_FOR='203.0.113.9').status_code, 201)
-        limited = self.post_json('/api/oauth/register', body, HTTP_X_FORWARDED_FOR='203.0.113.9')
+        for _ in range(5):
+            self.assertEqual(self.post_json('/api/oauth/register', body, **signed('8.8.8.8')).status_code, 201)
+        limited = self.post_json('/api/oauth/register', body, **signed('8.8.8.8'))
         self.assertEqual(limited.status_code, 429)
-        self.assertTrue(int(limited['Retry-After']) > 0)
-        self.assertEqual(self.post_json('/api/oauth/register', body, HTTP_X_FORWARDED_FOR='203.0.113.10').status_code, 201)
+        self.assertEqual(limited.json()['error'], 'slow_down')
+        self.assertTrue(1 <= int(limited['Retry-After']) <= 60)
+        self.assertEqual(self.post_json('/api/oauth/register', body, **signed('1.1.1.1')).status_code, 201)
         from .maintenance import purge_expired
         McpClient.objects.update(created_at=1)
         McpClient.objects.filter(pk=McpClient.objects.first().pk).update(last_authorized_at=2)
-        self.assertEqual(purge_expired()['clients'], 20)
+        self.assertEqual(purge_expired()['clients'], 5)
         self.assertEqual(McpClient.objects.count(), 1)
 
-    @override_settings(VEEVEE_ADDRESS_RATE_LIMITS=True)
-    def test_register_rate_limit_ignores_x_real_ip(self):
+    @override_settings(VEEVEE_ADDRESS_RATE_LIMITS=True, VEEVEE_CLIENT_ADDRESS_KEY=ADDRESS_KEY)
+    def test_registration_backs_off_across_tiers(self):
         body = {'redirect_uris': [LOOPBACK]}
-        for index in range(20):
-            response = self.post_json('/api/oauth/register', body, HTTP_X_FORWARDED_FOR='203.0.113.50', HTTP_X_REAL_IP=f'192.0.2.{index}')
-            self.assertEqual(response.status_code, 201)
-        limited = self.post_json('/api/oauth/register', body, HTTP_X_FORWARDED_FOR='203.0.113.50', HTTP_X_REAL_IP='192.0.2.99')
-        self.assertEqual(limited.status_code, 429)
+        with patch.dict(os.environ, {'VEEVEE_RL_OAUTH_REGISTER': '2:60,3:3600'}):
+            start = 10_000_000_000
+            for offset in (0, 1):
+                with patch('apps.mcp_auth.controls.now_ms', return_value=start + offset):
+                    self.assertEqual(self.post_json('/api/oauth/register', body, **signed('8.8.8.8')).status_code, 201)
+            with patch('apps.mcp_auth.controls.now_ms', return_value=start + 2):
+                self.assertEqual(self.post_json('/api/oauth/register', body, **signed('8.8.8.8')).status_code, 429)
+            with patch('apps.mcp_auth.controls.now_ms', return_value=start + 61_000):  # the minute passed; the hour holds two
+                self.assertEqual(self.post_json('/api/oauth/register', body, **signed('8.8.8.8')).status_code, 201)
+            with patch('apps.mcp_auth.controls.now_ms', return_value=start + 122_000):
+                held = self.post_json('/api/oauth/register', body, **signed('8.8.8.8'))
+            self.assertEqual(held.status_code, 429)
+            self.assertGreater(int(held['Retry-After']), 60)
 
-    def test_address_rate_limits_are_off_by_default(self):
+    @override_settings(VEEVEE_ADDRESS_RATE_LIMITS=True, VEEVEE_CLIENT_ADDRESS_KEY=ADDRESS_KEY)
+    def test_forwarded_headers_and_forged_proofs_never_select_an_address_bucket(self):
         body = {'redirect_uris': [LOOPBACK]}
-        for _ in range(21):
-            self.assertEqual(self.post_json('/api/oauth/register', body, HTTP_X_FORWARDED_FOR='203.0.113.9').status_code, 201)
-        self.assertFalse(McpRateWindow.objects.exists())
+        forged = {'HTTP_X_VEEVEE_CLIENT_IP': '8.8.8.8', 'HTTP_X_VEEVEE_CLIENT_IP_PROOF': 'v1.1.' + '0' * 64}
+        for index in range(12):
+            for extra in ({'HTTP_X_FORWARDED_FOR': '8.8.8.8', 'HTTP_X_REAL_IP': '8.8.8.8'}, forged, {'HTTP_X_VEEVEE_CLIENT_IP': '8.8.8.8'}):
+                self.assertEqual(self.post_json('/api/oauth/register', body, **extra).status_code, 201)
+        self.assertFalse(McpRateWindow.objects.filter(bucket__startswith='oauth_register:').exists())
 
-    def test_client_address_takes_the_last_non_loopback_forwarded_entry(self):
-        from django.test import RequestFactory
-        from apps.common.client_address import client_ip
-        factory = RequestFactory()
-        spoofed = factory.get('/', HTTP_X_FORWARDED_FOR='1.1.1.1, 203.0.113.5, 127.0.0.1', HTTP_X_REAL_IP='9.9.9.9')
-        self.assertEqual(client_ip(spoofed), '203.0.113.5')
-        self.assertEqual(client_ip(factory.get('/', REMOTE_ADDR='10.0.0.2')), '10.0.0.2')
+    @override_settings(VEEVEE_ADDRESS_RATE_LIMITS=False, VEEVEE_CLIENT_ADDRESS_KEY=ADDRESS_KEY)
+    def test_address_rate_limits_can_be_switched_off(self):
+        body = {'redirect_uris': [LOOPBACK]}
+        for _ in range(8):
+            self.assertEqual(self.post_json('/api/oauth/register', body, **signed('8.8.8.8')).status_code, 201)
+        self.assertFalse(McpRateWindow.objects.filter(bucket__startswith='oauth_register:').exists())
+
+    @override_settings(VEEVEE_ADDRESS_RATE_LIMITS=True, VEEVEE_CLIENT_ADDRESS_KEY=ADDRESS_KEY)
+    def test_one_layer_can_be_switched_off_on_its_own(self):
+        body = {'redirect_uris': [LOOPBACK]}
+        with patch.dict(os.environ, {'VEEVEE_RL_OAUTH_REGISTER': 'off'}):
+            for _ in range(8):
+                self.assertEqual(self.post_json('/api/oauth/register', body, **signed('8.8.8.8')).status_code, 201)
+
+    @override_settings(VEEVEE_ADDRESS_RATE_LIMITS=True, VEEVEE_CLIENT_ADDRESS_KEY=ADDRESS_KEY)
+    @frozen_clock
+    def test_blocked_requests_and_address_trust_are_counted(self):
+        body = {'redirect_uris': [LOOPBACK]}
+        for _ in range(6):
+            self.post_json('/api/oauth/register', body, **signed('8.8.8.8'))
+        self.post_json('/api/oauth/register', body)
+        totals = ratelimits.event_totals(now=FROZEN)
+        self.assertEqual(totals['blocked:oauth_register'], (1, 1))
+        self.assertEqual(totals['address:trusted:oauth_register'], (6, 6))
+        self.assertEqual(totals['address:untrusted:oauth_register'], (1, 1))
+
+    def test_address_limits_do_not_apply_without_a_trusted_address(self):
+        body = {'redirect_uris': [LOOPBACK]}
+        for _ in range(8):
+            self.assertEqual(self.post_json('/api/oauth/register', body, HTTP_X_FORWARDED_FOR='8.8.8.8').status_code, 201)
+        self.assertFalse(McpRateWindow.objects.filter(bucket__startswith='oauth_register:').exists())
 
     def test_client_metadata_documents_from_fixtures(self):
         claude = clients.resolve(CLAUDE_CODE_CIMD, fetch=fixture_fetch, now=1_000)
@@ -635,18 +682,40 @@ class AuthorizationFlowTests(AgentAccessCase):
         self.assertEqual((unknown_client.status_code, unknown_client.json()['error']), (401, 'invalid_client'))
         self.assertEqual(self.token(grant_type='password').json()['error'], 'unsupported_grant_type')
 
-    @override_settings(VEEVEE_ADDRESS_RATE_LIMITS=True)
+    def refresh_guess(self, **extra):
+        return self.client.post('/api/oauth/token', urlencode({'client_id': self.app['client_id'], 'grant_type': 'refresh_token',
+                                'refresh_token': 'vvr_guess'}), content_type='application/x-www-form-urlencoded', **extra)
+
+    @override_settings(VEEVEE_ADDRESS_RATE_LIMITS=True, VEEVEE_CLIENT_ADDRESS_KEY=ADDRESS_KEY)
+    @frozen_clock
     def test_token_rate_limit_is_per_client_and_address(self):
-        def attempt(address):
-            return self.client.post('/api/oauth/token', urlencode({'client_id': self.app['client_id'], 'grant_type': 'refresh_token',
-                                    'refresh_token': 'vvr_guess'}), content_type='application/x-www-form-urlencoded', HTTP_X_FORWARDED_FOR=address)
-        for _ in range(policy.RATE_LIMITS['token'][0]):
-            self.assertEqual(attempt('203.0.113.9').status_code, 400)
-        limited = attempt('203.0.113.9')
+        limit = policy.address_tiers('oauth_token_client')[0].limit
+        for _ in range(limit):
+            self.assertEqual(self.refresh_guess(**signed('8.8.8.8')).status_code, 400)
+        limited = self.refresh_guess(**signed('8.8.8.8'))
         self.assertEqual((limited.status_code, limited.json()['error']), (429, 'slow_down'))
         self.assertTrue(limited['Retry-After'].isdigit())
-        other = attempt('198.51.100.4')
+        other = self.refresh_guess(**signed('1.1.1.1'))
         self.assertEqual((other.status_code, other.json()['error']), (400, 'invalid_grant'))
+
+    @override_settings(VEEVEE_ADDRESS_RATE_LIMITS=True, VEEVEE_CLIENT_ADDRESS_KEY=ADDRESS_KEY)
+    @frozen_clock
+    def test_token_address_layer_limits_probing_unknown_clients(self):
+        with patch.dict(os.environ, {'VEEVEE_RL_OAUTH_TOKEN_ADDRESS': '3:60'}):
+            def probe(address):
+                return self.client.post('/api/oauth/token', urlencode({'client_id': 'vvc_nobody', 'grant_type': 'refresh_token'}),
+                                        content_type='application/x-www-form-urlencoded', **signed(address))
+            for _ in range(3):
+                self.assertEqual(probe('8.8.8.8').status_code, 401)
+            limited = probe('8.8.8.8')
+            self.assertEqual((limited.status_code, limited.json()['error']), (429, 'slow_down'))
+            self.assertTrue(1 <= int(limited['Retry-After']) <= 60)
+            self.assertEqual(probe('1.1.1.1').status_code, 401)
+
+    def test_token_limits_do_not_apply_without_a_trusted_address(self):
+        limit = policy.address_tiers('oauth_token_client')[0].limit
+        for _ in range(limit + 3):
+            self.assertEqual(self.refresh_guess(HTTP_X_FORWARDED_FOR='8.8.8.8').status_code, 400)
 
     def test_refresh_after_account_change_revokes_the_grant(self):
         grant = self.exchange(self.consent()).json()

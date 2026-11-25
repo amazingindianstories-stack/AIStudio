@@ -13,11 +13,10 @@ from django.http import HttpResponse, JsonResponse
 
 from apps.authentication.models import User
 from apps.authentication.session import lookup
-from apps.common.client_address import address_key
 from apps.common.leases import now_ms
 from apps.common.responses import log_activity
 from apps.generation.history_parameters import UUID_TEXT
-from . import clients, controls, oauth, policy, tokens
+from . import clients, controls, oauth, policy, ratelimits, tokens
 from .models import McpToken
 from .principal import AgentAccessDisabled, AuthenticationError, authenticate_bearer
 
@@ -148,13 +147,12 @@ def register(request):
         clients.clean_metadata(document)
     except clients.ClientError as error:
         return respond({'error': error.error, 'error_description': error.description}, 400)
-    address = address_key(request)
+    address = ratelimits.observe_address('oauth_register', request)
     if address:
-        limit, window = policy.RATE_LIMITS['register']
-        rate = controls.hit('register:' + address, limit, window)
-        if not rate.allowed:
+        refusal = ratelimits.hit_tiers('oauth_register', address, policy.address_tiers('oauth_register'))
+        if refusal:
             return respond({'error': 'slow_down', 'error_description': 'Too many registrations from this address.'}, 429,
-                           {'Retry-After': str(rate.retry_after_seconds)})
+                           {'Retry-After': str(refusal[1])})
     from .maintenance import purge_unused_clients
     purge_unused_clients()
     client = clients.register(document)
@@ -171,15 +169,20 @@ def token(request):
     if not policy.issuer():
         return unconfigured()
     form = read_form(request)
+    # The address layer comes first, so probing unknown client ids is limited too.
+    address = ratelimits.observe_address('oauth_token', request, count=False)
+    if address:
+        refusal = ratelimits.hit_tiers('oauth_token_address', address, policy.address_tiers('oauth_token_address'))
+        if refusal:
+            return respond({'error': 'slow_down', 'error_description': 'Too many token requests.'}, 429, {'Retry-After': str(refusal[1])})
     client = clients.known(form.get('client_id'))
     if client is None:
         return oauth_failure(oauth.OAuthError('invalid_client', 'Unknown client_id.', status=401))
-    address = address_key(request)
+    ratelimits.count_address('oauth_token', request)  # after the client lookup, so malformed requests stay write-free
     if address:
-        limit, window = policy.RATE_LIMITS['token']
-        rate = controls.hit(f'token:{client.id}:{address}', limit, window)
-        if not rate.allowed:
-            return respond({'error': 'slow_down', 'error_description': 'Too many token requests.'}, 429, {'Retry-After': str(rate.retry_after_seconds)})
+        refusal = ratelimits.hit_tiers('oauth_token_client', f'{client.id}:{address}', policy.address_tiers('oauth_token_client'))
+        if refusal:
+            return respond({'error': 'slow_down', 'error_description': 'Too many token requests.'}, 429, {'Retry-After': str(refusal[1])})
     grant = form.get('grant_type')
     try:
         if grant == 'authorization_code':

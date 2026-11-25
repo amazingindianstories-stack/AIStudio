@@ -11,6 +11,8 @@ process model). The MCP service runs the same gateway, in mcp mode, in front of
 one uvicorn process on 127.0.0.1:18082. Workers run their management command
 in this process; the agent worker runs the Agents tab's runs (apps.agents.worker).
 """
+import hashlib
+import hmac
 import json
 import os
 import signal
@@ -75,6 +77,12 @@ def ingress_secret(env):
     return secret
 
 
+def client_address_key(secret):
+    """The HMAC key for the client-address proof: derived, so the API needs no new variable and Django never holds
+    the ingress secret. The gateway signs with it; apps.common.client_address verifies with it."""
+    return hmac.new(secret.encode(), b'veevee-client-address-v1', hashlib.sha256).hexdigest()
+
+
 def start_gateway(env, config):
     gateway = subprocess.Popen([sys.executable, str(Path(__file__).with_name('gateway.py')), '--approved-private-stdin'],
                                env={'PATH': env.get('PATH', '/usr/local/bin:/usr/bin:/bin')}, stdin=subprocess.PIPE)
@@ -87,10 +95,13 @@ def run_api(env):
     secret = ingress_secret(env)
     port = int(env.get('PORT', '18081'))
     env['VEEVEE_API_THREADS'] = str(API_THREADS)  # config.wsgi sizes slow-call admission from it
+    address_key = client_address_key(secret)
+    env['VEEVEE_CLIENT_ADDRESS_KEY'] = address_key
     server = subprocess.Popen([sys.executable, '-m', 'gunicorn', 'config.wsgi:application', *GUNICORN], env=env)
     return supervise([server, start_gateway(env, {
         'secret': secret, 'port': port, 'paid_initial_routes': bool(env.get('VEEVEE_PAID_GUARD')),
-        'new_exports': env.get('VEEVEE_EXPORT_ADMISSION') == '1', 'magnific_upscale': env.get('VEEVEE_MAGNIFIC_UPSCALE') == '1'})])
+        'new_exports': env.get('VEEVEE_EXPORT_ADMISSION') == '1', 'magnific_upscale': env.get('VEEVEE_MAGNIFIC_UPSCALE') == '1',
+        'client_address_key': address_key})])
 
 
 def run_mcp(env):

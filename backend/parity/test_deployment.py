@@ -158,8 +158,10 @@ class ComponentDeploymentParityTests(SimpleTestCase):
         self.assertEqual(children[0].kwargs['env']['VEEVEE_API_THREADS'], '8')
         self.assertNotIn('VEEVEE_INGRESS_SECRET', children[0].kwargs['env'])
         self.assertEqual(children[1].kwargs['env'], {'PATH': '/usr/bin'})
+        key = entrypoint.client_address_key('s' * 64)  # derived from the secret, so Django verifies what the gateway signs
+        self.assertEqual(children[0].kwargs['env']['VEEVEE_CLIENT_ADDRESS_KEY'], key)
         self.assertEqual(json.loads(children[1].stdin.captured), {'secret': 's' * 64, 'port': 18081,
-            'paid_initial_routes': True, 'new_exports': True, 'magnific_upscale': True})
+            'paid_initial_routes': True, 'new_exports': True, 'magnific_upscale': True, 'client_address_key': key})
         self.assertEqual(children[1].returncode, 0)
 
     def test_generation_command_default_override_and_bounds(self):
