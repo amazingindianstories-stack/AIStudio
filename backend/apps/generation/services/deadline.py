@@ -39,7 +39,8 @@ class Cancellation:
         self.deadline = time.monotonic() + timeout_ms / 1000
         self.cancelled = threading.Event()
         self.reason = None      # why cancelled was set: 'shutdown', 'lease_lost' or 'lease_unverified' (None for a bare set)
-        self.request_started = False   # HttpTransport sets it just before a provider request goes on the wire
+        self.request_started = False   # set once any provider request has gone on the wire (transport.on_the_wire)
+        self.requests_in_flight = 0     # provider requests on the wire right now
         self.shielded = False   # a paid provider call with no receipt yet: a worker stop waits for it instead of cutting it off
 
     def cancel(self, reason):

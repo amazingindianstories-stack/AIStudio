@@ -45,7 +45,7 @@ class WorkerCancellation(Cancellation):
         if self.stop.is_set() and not self.cancelled.is_set():
             now = time.monotonic()
             self.stop_seen = self.stop_seen or now
-            if not (self.shielded and self.request_started) or now - self.stop_seen >= self.drain_seconds:
+            if not (self.shielded and self.requests_in_flight) or now - self.stop_seen >= self.drain_seconds:
                 self.cancel('shutdown')
         super().check()
 

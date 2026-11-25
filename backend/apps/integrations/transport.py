@@ -1,4 +1,5 @@
 """Bounded HTTP JSON transport with explicit credentials and no implicit retry."""
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 import json
 import socket
@@ -25,6 +26,22 @@ class HttpResult:
 
     def json(self):
         return json.loads(self.body)
+
+
+@contextmanager
+def on_the_wire(signal):
+    """Marks one provider request on the wire: from here a failure may have reached (and been billed by) the
+    provider. A worker stop shields only a request in flight; the check here refuses to start a new one."""
+    if signal is None:
+        yield
+        return
+    signal.check()
+    signal.request_started = True
+    signal.requests_in_flight = getattr(signal, 'requests_in_flight', 0) + 1
+    try:
+        yield
+    finally:
+        signal.requests_in_flight -= 1
 
 
 class HttpTransport:
@@ -54,9 +71,7 @@ class HttpTransport:
         # No retries on ambiguous POST failure and no redirect credential leak.
         # Session.trust_env=False also avoids checkout proxy/.netrc credentials.
         from .request_deadline import SocketDeadline, deadline_adapter
-        if signal is not None:
-            signal.request_started = True     # from here a failure may have reached (and been billed by) the provider
-        with SocketDeadline(deadline, signal=signal) as guard:
+        with on_the_wire(signal), SocketDeadline(deadline, signal=signal) as guard:
             try:
                 with requests.Session() as session:
                     session.trust_env = False

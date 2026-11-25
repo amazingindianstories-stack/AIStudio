@@ -11,11 +11,14 @@ from uuid import uuid4
 from django.db import OperationalError
 from django.test import SimpleTestCase, TransactionTestCase
 
+from apps.integrations.transport import on_the_wire
+
 from . import failure_copy, worker
 from .failure_copy import INTERRUPTED, NOT_SENT
 from .models import Generation
+from .providers import higgsfield
 from .services import coordinator, executor
-from .services.deadline import Cancellation, NOT_SENT_MESSAGE
+from .services.deadline import Cancellation, NOT_SENT_MESSAGE, QueueExecutionCancelledError
 
 
 def beat(**options):
@@ -69,13 +72,26 @@ class DrainTests(SimpleTestCase):
     def test_stop_waits_for_a_shielded_provider_call_until_the_drain_ends(self):
         stop = threading.Event()
         signal = worker.WorkerCancellation(stop, drain_seconds=.2)
-        signal.shielded = signal.request_started = True
-        stop.set()
-        signal.check()
-        signal.wait(50)
-        time.sleep(.25)
-        with self.assertRaises(Exception):
+        signal.shielded = True
+        with on_the_wire(signal):
+            stop.set()
             signal.check()
+            signal.wait(50)
+            time.sleep(.25)
+            with self.assertRaises(Exception):
+                signal.check()
+        self.assertEqual(signal.reason, 'shutdown')
+
+    def test_stop_refuses_a_new_provider_request_after_the_one_on_the_wire_finishes(self):
+        stop = threading.Event()
+        signal = worker.WorkerCancellation(stop)
+        signal.shielded = True
+        with on_the_wire(signal):
+            stop.set()
+            signal.check()
+        with self.assertRaises(QueueExecutionCancelledError):
+            with on_the_wire(signal):
+                self.fail('a new provider request started after the stop')
         self.assertEqual(signal.reason, 'shutdown')
 
 
@@ -118,10 +134,10 @@ class InterruptionPersistenceTests(TransactionTestCase):
         submitted = []
         def image(job, *, signal, **kwargs):
             submitted.append(True)
-            signal.request_started = True
-            stop.set()                       # SIGTERM arrives while the provider is still rendering
-            time.sleep(.05)
-            signal.check()
+            with on_the_wire(signal):
+                stop.set()                   # SIGTERM arrives while the provider is still rendering
+                time.sleep(.05)
+                signal.check()
             return {'status': 'succeeded', 'url': '/api/media/generations/master.png'}
         outcome = self.run_job(item, image, signal=worker.WorkerCancellation(stop), heartbeat=False)
         self.assertEqual(outcome['kind'], 'succeeded')
@@ -135,10 +151,10 @@ class InterruptionPersistenceTests(TransactionTestCase):
         submitted = []
         def image(job, *, signal, **kwargs):
             submitted.append(True)
-            signal.request_started = True
-            stop.set()
-            time.sleep(.05)
-            signal.check()
+            with on_the_wire(signal):
+                stop.set()
+                time.sleep(.05)
+                signal.check()
             self.fail('the drain should have ended')
         outcome = self.run_job(item, image, signal=worker.WorkerCancellation(stop, drain_seconds=0), heartbeat=False)
         self.assertEqual(outcome['kind'], 'failed')
@@ -159,6 +175,61 @@ class InterruptionPersistenceTests(TransactionTestCase):
         item.refresh_from_db()
         self.assertEqual(item.error, NOT_SENT_MESSAGE)
         self.assertEqual(failure_copy._sentence(item, item.error), NOT_SENT)
+
+    def higgsfield_call(self, signal, read):
+        sent = []
+        class Response:
+            status = 200
+            def read(self, size):
+                return read()
+            def getheaders(self):
+                return []
+        class Connection:
+            def __init__(self, *args):
+                pass
+            def request(self, *args, **kwargs):
+                sent.append(True)
+            def getresponse(self):
+                return Response()
+            def close(self):
+                pass
+        with patch.object(higgsfield, 'validated_target', return_value=('mcp.higgsfield.ai', '192.0.2.1', '/mcp')), \
+                patch.object(higgsfield, 'PinnedHTTPSConnection', Connection):
+            higgsfield.HiggsfieldTransport().request('POST', 'https://mcp.higgsfield.ai/mcp', body={}, signal=signal)
+        return sent
+
+    def test_higgsfield_call_cut_off_mid_request_is_not_reported_as_never_sent(self):
+        item = self.job(model='Nano Banana Pro')
+        stop = threading.Event()
+        def read():
+            stop.set()                       # SIGTERM arrives while Higgsfield is answering the paid call
+            return b'{}'
+        def image(job, *, signal, **kwargs):
+            self.higgsfield_call(signal, read)
+            self.fail('the drain should have ended')
+        outcome = self.run_job(item, image, signal=worker.WorkerCancellation(stop, drain_seconds=0), heartbeat=False)
+        self.assertEqual(outcome['kind'], 'failed')
+        item.refresh_from_db()
+        self.assertIn('It may still have been accepted by the provider', item.error)
+        self.assertEqual(failure_copy._sentence(item, item.error), INTERRUPTED)
+
+    def test_restart_finishes_the_call_on_the_wire_but_starts_no_further_paid_request(self):
+        item = self.job(model='Nano Banana Pro')
+        stop = threading.Event()
+        sent = []
+        def image(job, *, signal, **kwargs):
+            replies = iter([b'{}', b''])
+            def read():
+                stop.set()
+                return next(replies)
+            sent.extend(self.higgsfield_call(signal, read))     # candidate 1 finishes inside the drain
+            sent.extend(self.higgsfield_call(signal, lambda: b''))  # candidate 2 must not be sent
+            self.fail('a second paid request started after the stop')
+        outcome = self.run_job(item, image, signal=worker.WorkerCancellation(stop), heartbeat=False)
+        self.assertEqual(outcome['kind'], 'failed')
+        self.assertEqual(len(sent), 1)
+        item.refresh_from_db()
+        self.assertIn('It may still have been accepted by the provider', item.error)
 
     def test_accepted_task_survives_a_killed_worker_and_is_resumed_by_another_without_a_new_submission(self):
         item = self.job(model='Kling Image 3.0')
