@@ -161,6 +161,9 @@ def store(user_id, body, data):
     try:
         return ready(uploads.store_upload(user_id, body, data, get_storage()))
     except uploads.UploadError as error:
+        if error.code == 'UPLOAD_VERIFYING':
+            raise errors.ToolError(errors.CONCURRENCY_LIMIT, 'This file is still being checked by an earlier call. Repeat '
+                                   'this call with the same idempotencyKey in a few seconds.') from None
         purpose = body['purpose']
         raise from_upload_error(error, type=body['contentType'], limit=megabytes(IMPORT_BYTES.get(purpose, uploads.LIMITS[purpose]))) from None
 

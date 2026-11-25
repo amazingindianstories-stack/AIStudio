@@ -167,6 +167,31 @@ class ResumableUploadTests(TransactionTestCase):
         self.assertNotIn('uploadUrl', session)
         self.assertNotIn('uploadUrl', upload_status(self.user.id, session['uploadId'], gcs))
 
+    def test_server_side_replay_during_verifying_is_retryable_and_keeps_the_first_store(self):
+        body = {'purpose': 'image-reference', 'contentType': 'image/png', 'byteSize': len(PNG), 'filename': 'image.png',
+                'sha256': hashlib.sha256(PNG).hexdigest(), 'requestKey': 'server-side-replay'}
+        original, writes, second = self.storage.primary.open, [], []
+        original_put = self.storage.primary.put_stream
+        def count_put(*args, **kwargs):
+            writes.append(args[0])
+            return original_put(*args, **kwargs)
+        def open_and_replay(key, *args, **kwargs):
+            if UploadSession.objects.get(request_key='server-side-replay').state == 'verifying' and not second:
+                try:
+                    store_upload(self.user.id, body, io.BytesIO(PNG), self.storage)
+                except UploadError as error:
+                    second.append(error.code)
+                self.assertEqual(UploadSession.objects.get(request_key='server-side-replay').state, 'verifying')
+            return original(key, *args, **kwargs)
+        with patch.object(self.storage.primary, 'open', open_and_replay), \
+                patch.object(self.storage.primary, 'put_stream', count_put):
+            result = store_upload(self.user.id, body, io.BytesIO(PNG), self.storage)
+        self.assertEqual(second, ['UPLOAD_VERIFYING'])
+        self.assertEqual(len(writes), 1)
+        self.assertEqual(result['state'], 'ready')
+        self.assertEqual(self.storage.read(result['key']), PNG)
+        self.assertEqual(store_upload(self.user.id, body, io.BytesIO(PNG), self.storage), result)
+
     def test_documents_use_the_same_sessions_and_never_become_generation_references(self):
         docx = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
         for mime, data in (('application/pdf', b'%PDF-1.7\n'), ('text/plain', b'Shot list'),

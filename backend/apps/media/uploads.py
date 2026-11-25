@@ -202,11 +202,14 @@ def store_upload(actor_id, body, stream, storage):
     session = initialize_upload(actor_id, body, storage, server_side=True)
     if session['state'] == 'ready':
         return session
+    if session['state'] == 'verifying':
+        raise UploadError('UPLOAD_VERIFYING', 503)
     storage.primary.put_stream(session['key'], stream, session['contentType'], 'private, no-store')
     try:
         return finalize_upload(actor_id, session['uploadId'], storage)
-    except UploadError:
-        cancel_upload(actor_id, session['uploadId'], storage)
+    except UploadError as error:
+        if error.code != 'UPLOAD_VERIFYING':
+            cancel_upload(actor_id, session['uploadId'], storage)
         raise
 
 
