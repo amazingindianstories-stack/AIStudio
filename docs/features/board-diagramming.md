@@ -34,7 +34,9 @@ external references, `<use>`, `<image>`, `<style>` or `data:` URLs. A placed cus
 node with kind `custom` and the sanitized `svg`, `svgViewBox` and `shapeName` fields. The server
 serializer runs the same sanitizer on every save and stores its output, so a hand-crafted board
 cannot smuggle markup in, and the board draws the markup as an SVG image, which never runs
-scripts or loads subresources.
+scripts or loads subresources. The shapes panel inlines each pack glyph only after
+`sanitizeCustomSvg` (`src/lib/canvas/shapes.js`) re-applies the same allowlist in the browser; the
+stored `svg` string is never rewritten.
 
 ## Structured objects
 
