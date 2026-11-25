@@ -932,7 +932,7 @@ only after a full lease TTL without a renewal or when another owner holds the le
 "nothing was sent and nothing was charged" only when no request had gone on the wire; otherwise it says the
 provider may still have accepted it. A claimed paid job is never resubmitted automatically (one-shot paid-guard ledger).
 Connection pooling (decided, not yet deployed): a transaction-mode PgBouncer (`infra/pgbouncer`, service `green-pgbouncer`)
-in front of PostgreSQL for every service, per-service budgets summing to 18 of the 27 usable connections, shorter idle
+in front of PostgreSQL for every service, per-service budgets summing to 18 per pooler instance, `max_connections` 45 planned (two overlapping pooler instances during a pooler redeploy, 3 reserved, 6 direct headroom), shorter idle
 direct API connections, one shared lease-heartbeat connection per generation worker, an `application_name` and timeouts per
 service, and a `db-connections` admin check and 80% scheduler log. Why, the sizing and the pooler-safety audit are in
 `database-connections.md`; the audit-deploy stage and its rollback (unset `VEEVEE_DB_POOLER` per service) are in

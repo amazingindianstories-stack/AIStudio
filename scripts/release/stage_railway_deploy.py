@@ -22,7 +22,9 @@ Railway's defaults. Generation's 120 s drain is not its 30-minute work deadline:
 interrupts still-running jobs, so drain the queue before deployment. ``agent`` serves no HTTP, so it has no health check, port or domain.
 ``pgbouncer`` (the connection pooler, docs/operations/database-connections.md) is not a Python service: it builds
 ``infra/pgbouncer/Dockerfile`` and starts through the image's entrypoint, so it has no start command, and it speaks
-the PostgreSQL protocol rather than HTTP, so it has no health check, port or domain.
+the PostgreSQL protocol rather than HTTP, so it has no health check, port or domain. It keeps the gateway's 20 s
+overlap and 30 s drain so clients move to the new instance without a reconnect storm; while both run, each may open
+its full 18 server connections, which is why PostgreSQL's ``max_connections`` is 45 (3 reserved + 2 x 18 + 6 direct).
 ``--no-overlap`` (``api`` and ``mcp`` only) stages ``overlapSeconds`` 0 for a release that must not run the old
 and new image together (the runbook's no-overlap section); without it the staged settings are unchanged.
 """

@@ -223,13 +223,21 @@ Separate later single-variable steps: `DEPTH_WORKER_TOKEN` on the API (F-04),
 
 Puts the transaction-mode PgBouncer (`infra/pgbouncer`, why and how big: [database-connections.md](database-connections.md))
 between every service and PostgreSQL. It is a stage of the audit deploy, after the steps above, and it changes nothing
-in PostgreSQL's data or schema. The code already runs both ways: a service connects directly (today) unless its
+in PostgreSQL's data or schema; its one PostgreSQL setting is `max_connections` 45 (P0). The code already runs both ways: a service connects directly (today) unless its
 variable `VEEVEE_DB_POOLER=green-pgbouncer.railway.internal:6432` is set, so **the variable is the switch and unsetting
 it is the instant rollback**. The direct database URL is never removed.
 
 Preconditions: the audit commit (which contains the pooler-safety fixes and `deploy.check_pooler`) is deployed and
-verified on every service (order above), the release gate and local rehearsal passed for that commit, and the 9
-spare PostgreSQL connections are free (the `db-connections` check in the admin status is `ok`).
+verified on every service (order above), and the release gate and local rehearsal passed for that commit.
+
+**P0. Raise `max_connections` to 45 (owner, deploy window, once).** Two pooler instances overlap for up to about 50 s on
+every pooler redeploy and each may open 18 server connections, so PostgreSQL needs 3 reserved + 36 + 6 direct = 45
+([database-connections.md](database-connections.md#sizing-arithmetic)). Before the pooler goes live, in a quiet moment
+(no queued or running generation jobs): confirm the instance's memory limit covers the worst case in that section, set
+`max_connections=45` on `green-postgres18` as the owner (`ALTER SYSTEM SET max_connections = 45`, or the service's
+PostgreSQL configuration if Railway manages it), and restart `green-postgres18` (the setting needs a restart; it is
+short, and the services reconnect through `CONN_HEALTH_CHECKS`). Verify `SHOW max_connections` returns 45 and the
+`db-connections` check in the admin status is `ok` with 42 available. Nothing else in PostgreSQL changes.
 
 **P1. Lookup role for the pooler (owner, once).** As the PostgreSQL owner, in the application database, run
 `psql "$OWNER_URL" -v auth_password="'<new password>'" -f infra/pgbouncer/auth.sql` (the same password goes to the pooler
@@ -291,7 +299,8 @@ direct confirm there are 8 free connections (`db-connections` check; the api nee
 misbehaves while services are still on it, use its admin console (`check_pooler admin`, P3): `RECONNECT veevee_<alias>` (reopens its server
 connections) or `KILL veevee_<alias>` (drops its clients), and unset the variable on the services as above. Removing the `green-pgbouncer` service is
 never part of a rollback: it holds no data and costs nothing idle. Nothing here touches PostgreSQL, so there is nothing to
-restore; never run a destructive migration or change `max_connections` as part of it.
+restore; never run a destructive migration or change `max_connections` as part of it (45 stays: it is harmless with
+services direct). Do not redeploy the pooler while rolling services back.
 
 ## Rollback (per service)
 Primary: dashboard **Rollback** to the recorded previous deployment id, which restores its image.

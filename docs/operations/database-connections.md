@@ -38,31 +38,39 @@ per-service budgets, per-service timeouts or configuration that is reviewed, tes
 
 ## Sizing arithmetic
 
-`max_connections` stays **30**.
+`max_connections` goes from 30 to **45**, once, in the owner's deploy window before the pooler goes live
+([release-runbook.md](release-runbook.md#database-pooler-rollout-audit-deploy-stage), P0). The reason is the pooler's own
+deploys, not demand: `green-pgbouncer` is staged with a 20 s overlap and a 30 s drain
+(`scripts/release/stage_railway_deploy.py`), so for up to about 50 s the old instance (whose clients keep their pooled
+connections) and the new one run together, and each may open its full cap.
 
 | Item | Connections |
 |---|---|
-| `max_connections` | 30 |
+| `max_connections` | 45 |
 | `superuser_reserved_connections` | 3 |
-| Usable by roles | 27 |
-| Pooler cap (sum of the alias budgets below: the most server connections it can ever open) | 18 |
-| Left for direct connections (migrations, `psql`, a service temporarily on its direct URL, monitoring) | 9 |
+| Usable by roles | 42 |
+| Pooler cap per instance (sum of the alias budgets below: the most server connections one instance can ever open) | 18 |
+| Two instances during a pooler redeploy | 36 |
+| Left for direct connections while a pooler redeploy overlaps (migrations, `psql`, monitoring) | 6 |
+| Left for direct connections otherwise (one instance) | 24 |
 
-The 9 spare connections are what makes rollback safe: a service that goes back to its direct URL needs at most its own
-budget. The API is the largest and goes direct with 8 threads, so the runbook checks the headroom before rolling it back.
+Outside a pooler redeploy the 24 spare connections are what makes rollback safe: a service that goes back to its direct
+URL needs at most its own budget. The API is the largest and goes direct with 8 threads, so the runbook checks the
+headroom before rolling it back. Do not redeploy the pooler while services are being rolled back to direct URLs.
 
 Memory: `shared_buffers` 64 MB, `work_mem` 4 MB, `maintenance_work_mem` 64 MB. Worst case with every usable slot
-running two sort or hash nodes is 64 MB + 27 x (10 MB backend + 2 x 4 MB) = about 550 MB. The pooler's 18 server
-connections alone are about 64 MB + 18 x 18 MB = about 390 MB. An idle backend costs only the 10 MB base. The instance
-memory limit is a Railway plan setting that SQL cannot read; there is no reason to raise the number, because the pooler,
-not `max_connections`, is what scales.
+running two sort or hash nodes is 64 MB + 42 x (10 MB backend + 2 x 4 MB) = about 820 MB. One pooler instance's 18 server
+connections are about 64 MB + 18 x 18 MB = about 390 MB, and two overlapping instances about 710 MB for under a minute.
+An idle backend costs only the 10 MB base. The instance memory limit is a Railway plan setting that SQL cannot read;
+check it covers the worst case before the change. Do not raise the number further for demand: the pooler, not
+`max_connections`, is what scales.
 
-Scaling rule: the sum of every alias's `max_db_connections`, plus the 3 reserved, plus the direct headroom you want,
-must stay at or below `max_connections`. To add a replica or a worker slot, raise that service's alias by its
+Scaling rule: twice the sum of every alias's `max_db_connections` (two instances overlap on a pooler redeploy), plus
+the 3 reserved, plus the 6 direct headroom, must stay at or below `max_connections`. To add a replica or a worker slot, raise that service's alias by its
 concurrent database use (API: threads that are inside a transaction at the same time, not one per thread; generation:
 running slots plus one for the shared heartbeat), and raise `max_connections` (and re-check memory above) only if the
 sum no longer fits. `backend/config/test_db_profile.py` fails when the template and `backend/config/db_profile.py`
-disagree or the sum exceeds 18.
+disagree, the sum exceeds 18, or two instances plus the reserve and headroom exceed 45.
 
 ## Per-service budget
 
@@ -143,14 +151,17 @@ connections, and the idle-in-transaction timeout kills it.
 | Higgsfield `persist_rotation` (token rotation write) | a single short write |
 
 If a new feature genuinely needs a session (a long cursor, `LISTEN`, a session lock), connect it directly with its own
-small budget out of the 9 spare connections and record it here. Do not put session state behind the pooler.
+small budget out of the 6 direct connections that stay free during a pooler redeploy and record it here. Do not put session state behind the pooler.
 
 ## Observability
 
-- `apps.common.db_usage.snapshot()` reads `max_connections`, the reserved counts and `pg_stat_activity`
-  (`backend_type='client backend'`) grouped by `application_name`; it calls `pg_stat_clear_snapshot()` first because
-  PostgreSQL caches activity inside a transaction. Rows of other roles appear as `(other roles)` unless the API role
-  holds `pg_read_all_stats`; the total is always exact.
+- `apps.common.db_usage.snapshot()` reads `max_connections`, the reserved counts and the client sessions in
+  `pg_stat_activity` grouped by `application_name`; it calls `pg_stat_clear_snapshot()` first because PostgreSQL caches
+  activity inside a transaction. A role without `pg_read_all_stats` sees other roles' sessions with a NULL
+  `backend_type` (their database, role and `application_name` stay visible), so those rows are counted as client
+  sessions: the scheduler (worker role) and the admin check (API role) both see every role's connections, and no grant
+  is needed. Another role's background process attached to a database (autovacuum, a parallel worker) is counted too, so
+  the total can err high, never low.
 - **Admin status**: the `db-connections` check (`apps/admin_dashboard/status.py`) is `ok` with the per-service split and
   turns to `error` at 80% of usable connections (`WARN_RATIO`).
 - **Logs**: the scheduler logs a warning on `veevee.maintenance` every 60 s while usage is at or above 80%

@@ -10,7 +10,7 @@ from apps.common import db_usage
 from apps.workers import scheduler
 
 
-def usage(used, available=27, **by_application):
+def usage(used, available=42, **by_application):
     return {'maxConnections': available + 3, 'available': available, 'used': used,
             'ratio': used / available, 'byApplication': by_application or {'veevee-api': used}}
 
@@ -40,6 +40,14 @@ class SnapshotTests(TestCase):
         with named_session(''):
             self.assertIn(db_usage.UNNAMED, db_usage.snapshot()['byApplication'])
 
+    def test_a_role_without_pg_read_all_stats_still_counts_other_roles_sessions(self):
+        with connection.cursor() as cursor:
+            cursor.execute('CREATE ROLE veevee_test_usage_observer NOLOGIN')
+            cursor.execute('SET LOCAL ROLE veevee_test_usage_observer')
+        with named_session('veevee-test-other-role'):
+            snapshot = db_usage.snapshot()
+        self.assertGreaterEqual(snapshot['byApplication'].get('veevee-test-other-role', 0), 1)
+
     def test_ratio_is_full_when_nothing_is_available(self):
         with patch.object(connection, 'cursor') as cursor:
             handle = cursor.return_value.__enter__.return_value
@@ -50,22 +58,22 @@ class SnapshotTests(TestCase):
 
 class ThresholdTests(TestCase):
     def test_warns_from_eighty_percent(self):
-        self.assertFalse(db_usage.is_high(usage(21, 27)))
-        self.assertTrue(db_usage.is_high(usage(22, 27)))
-        self.assertTrue(db_usage.is_high(usage(27, 27)))
+        self.assertFalse(db_usage.is_high(usage(33, 42)))
+        self.assertTrue(db_usage.is_high(usage(34, 42)))
+        self.assertTrue(db_usage.is_high(usage(42, 42)))
 
     def test_summary_names_each_application(self):
         text = db_usage.summary(usage(5, **{'veevee-api': 3, 'veevee-generation': 2}))
-        self.assertEqual(text, '5/27 connections (19%): veevee-api=3, veevee-generation=2')
+        self.assertEqual(text, '5/42 connections (12%): veevee-api=3, veevee-generation=2')
 
 
 class SurfaceTests(TestCase):
     def test_scheduler_logs_a_warning_only_when_high(self):
-        with patch.object(db_usage, 'snapshot', return_value=usage(24)):
+        with patch.object(db_usage, 'snapshot', return_value=usage(36)):
             with self.assertLogs('veevee.maintenance', logging.WARNING) as logs:
                 result = scheduler.check_db_connections()
-        self.assertIn('24/27', logs.output[0])
-        self.assertEqual(result, {'ok': True, 'used': 24, 'available': 27})
+        self.assertIn('36/42', logs.output[0])
+        self.assertEqual(result, {'ok': True, 'used': 36, 'available': 42})
         with patch.object(db_usage, 'snapshot', return_value=usage(5)):
             with self.assertNoLogs('veevee.maintenance', logging.WARNING):
                 scheduler.check_db_connections()
@@ -77,5 +85,5 @@ class SurfaceTests(TestCase):
         self.assertIn(('db-connections', 'Database Connections', status.db_connections), status.CHECKS)
         with patch.object(db_usage, 'snapshot', return_value=usage(5)):
             self.assertEqual(status.db_connections()['status'], 'ok')
-        with patch.object(db_usage, 'snapshot', return_value=usage(25)):
+        with patch.object(db_usage, 'snapshot', return_value=usage(36)):
             self.assertEqual(status.db_connections()['status'], 'error')

@@ -1,4 +1,5 @@
-import re
+import configparser
+import shlex
 from pathlib import Path
 
 from django.test import SimpleTestCase
@@ -6,35 +7,63 @@ from django.test import SimpleTestCase
 from config import db_profile
 
 TEMPLATE = Path(__file__).resolve().parents[2] / 'infra/pgbouncer/pgbouncer.ini.template'
-ALIAS = re.compile(r"^(veevee_\w+) = .*? pool_size=(\d+) max_db_connections=(\d+)"
-                   r"(?: connect_query='SET statement_timeout=(\d+); SET idle_in_transaction_session_timeout=(\d+)')?$", re.M)
+# PostgreSQL budget (docs/operations/database-connections.md): a pooler redeploy overlaps the old and new instance, each
+# able to open its full cap, and direct connections keep their headroom while it does.
+MAX_CONNECTIONS = 45
+SUPERUSER_RESERVED = 3
+POOLER_INSTANCES_DURING_DEPLOY = 2
+POOLER_CAP_PER_INSTANCE = 18
+DIRECT_HEADROOM = 6
+
+
+def template():
+    parser = configparser.ConfigParser(interpolation=None, comment_prefixes=(';',), delimiters=('=',))
+    parser.read_string(TEMPLATE.read_text())
+    return parser
+
+
+def connect_query_settings(query):
+    settings = {}
+    for statement in filter(None, (part.strip() for part in query.split(';'))):
+        verb, assignment = statement.split(None, 1)
+        assert verb.upper() == 'SET', statement
+        name, value = (part.strip() for part in assignment.split('=', 1))
+        settings[name] = int(value)
+    return settings
 
 
 def template_aliases():
-    return {name: tuple(int(value) if value else None for value in rest) for name, *rest in ALIAS.findall(TEMPLATE.read_text())}
+    aliases = {}
+    for name, value in template()['databases'].items():
+        parameters = dict(token.split('=', 1) for token in shlex.split(value))
+        aliases[name] = {'pool_size': int(parameters['pool_size']), 'max_db_connections': int(parameters['max_db_connections']),
+                         'settings': connect_query_settings(parameters.get('connect_query', ''))}
+    return aliases
 
 
 class PoolerTemplateTests(SimpleTestCase):
     def test_every_component_has_an_alias_with_the_timeouts_the_application_expects(self):
         aliases = template_aliases()
         for component, (statement, idle) in db_profile.TIMEOUTS_MS.items():
-            pool, cap, template_statement, template_idle = aliases[db_profile.alias(component)]
-            self.assertEqual((template_statement, template_idle), (statement, idle), component)
-            self.assertEqual(pool, cap, 'a pool is capped at its own size')
+            alias = aliases[db_profile.alias(component)]
+            self.assertEqual(alias['settings'], {'statement_timeout': statement, 'idle_in_transaction_session_timeout': idle}, component)
+            self.assertEqual(alias['pool_size'], alias['max_db_connections'], 'a pool is capped at its own size')
 
     def test_the_auth_alias_has_no_timeouts_and_nothing_else_is_unaccounted_for(self):
         aliases = template_aliases()
-        self.assertEqual(aliases.pop('veevee_auth')[2:], (None, None))
+        self.assertEqual(aliases.pop('veevee_auth')['settings'], {})
         self.assertEqual(set(aliases), {db_profile.alias(component) for component in db_profile.TIMEOUTS_MS})
 
-    def test_server_connections_fit_in_the_postgres_budget(self):
-        """30 max_connections - 3 superuser reserve = 27 for roles; the pooler may take at most 18 (docs/operations/database-connections.md)."""
-        self.assertLessEqual(sum(pool for pool, *_ in template_aliases().values()), 18)
+    def test_server_connections_fit_in_the_postgres_budget_even_while_a_pooler_deploy_overlaps(self):
+        cap = sum(alias['max_db_connections'] for alias in template_aliases().values())
+        self.assertLessEqual(cap, POOLER_CAP_PER_INSTANCE)
+        self.assertLessEqual(SUPERUSER_RESERVED + POOLER_INSTANCES_DURING_DEPLOY * POOLER_CAP_PER_INSTANCE + DIRECT_HEADROOM,
+                             MAX_CONNECTIONS)
 
     def test_the_template_runs_in_transaction_mode_with_no_prepared_statements(self):
-        text = TEMPLATE.read_text()
-        self.assertRegex(text, r'(?m)^pool_mode = transaction$')
-        self.assertRegex(text, r'(?m)^max_prepared_statements = 0$')
+        pgbouncer = template()['pgbouncer']
+        self.assertEqual(pgbouncer['pool_mode'], 'transaction')
+        self.assertEqual(int(pgbouncer['max_prepared_statements']), 0)
 
 
 class ApplyTests(SimpleTestCase):

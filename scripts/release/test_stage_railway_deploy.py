@@ -33,7 +33,8 @@ class DeploySettingsTests(unittest.TestCase):
                                     'restartPolicyMaxRetries': 10, 'overlapSeconds': 0})
         self.assertFalse({'healthcheckPath', 'healthcheckTimeout', 'port'} & set(settings))
 
-    def test_pgbouncer_runs_its_image_entrypoint_and_serves_no_http(self):
+    def test_pgbouncer_runs_its_image_entrypoint_serves_no_http_and_overlaps_like_the_gateway(self):
+        # Two pooler instances overlap on every redeploy; max_connections 45 is sized for both (database-connections.md).
         settings = stage.deploy_settings('pgbouncer')
         self.assertEqual(settings, {'restartPolicyType': 'ON_FAILURE', 'restartPolicyMaxRetries': 10,
                                     'overlapSeconds': 20, 'drainingSeconds': 30})
