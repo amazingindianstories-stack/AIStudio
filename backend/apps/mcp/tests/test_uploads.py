@@ -308,6 +308,11 @@ class UploadToolTests(StorageMixin, McpCase):
         self.assert_structured(early, tool.UPLOAD_RESULT)
         self.assertEqual(early.structured_content['outcome'], 'upload_pending')
         self.assertEqual(self.put(body['upload'], wav).status_code, 200)
+        UploadSession.objects.filter(pk=identifier).update(state='verifying')
+        busy = self.assert_tool_error(self.upload({'uploadId': identifier}), 'CONCURRENCY_LIMIT')
+        self.assertIn('again in a few seconds', busy['message'])
+        self.assertEqual(UploadSession.objects.get(pk=identifier).state, 'verifying')
+        UploadSession.objects.filter(pk=identifier).update(state='uploading')
         reference = self.ready(self.upload({'uploadId': identifier}))
         self.assertEqual((reference['id'], reference['bytes'], reference['sha256']), (identifier, len(wav), hashlib.sha256(wav).hexdigest()))
         self.assertEqual(self.ready(self.upload({'uploadId': identifier.upper()}))['id'], identifier)     # finalize is idempotent

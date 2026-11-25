@@ -141,6 +141,7 @@ UPLOAD_ERRORS = {
     'INVALID_UPLOAD_METADATA': (errors.INVALID_INPUT, 'The filename or sha256 is not valid.'),
     'UPLOAD_INFLIGHT_LIMIT': (errors.RATE_LIMITED, 'Too many unfinished uploads. Finish or wait for them, then retry.'),
     'UPLOAD_QUOTA_EXCEEDED': (errors.RATE_LIMITED, 'Your unfinished uploads are too large in total. Finish them, then retry.'),
+    'UPLOAD_VERIFYING': (errors.CONCURRENCY_LIMIT, 'Upload {id} is still being checked by an earlier call. Call upload_reference with this uploadId again in a few seconds.'),
     'UPLOAD_IDEMPOTENCY_CONFLICT': (errors.IDEMPOTENCY_CONFLICT, 'This idempotencyKey was already used for another file. Use a new key.'),
 }
 

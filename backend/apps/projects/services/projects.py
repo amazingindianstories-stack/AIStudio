@@ -70,7 +70,9 @@ def require_level(user, project_id, level):
     except visibility.MALFORMED:
         return
     if restricted and access.project_level(user, project_id) < level:
-        raise OrganizationError('FORBIDDEN', 'Only project owners, co-owners and admins can do this.', 403)
+        message = ('Only project owners, co-owners and admins can do this.' if level >= access.CO_OWNER
+                   else 'Only project editors and above can do this.')
+        raise OrganizationError('FORBIDDEN', message, 403)
 
 
 def require_folder_level(user, folder_id, level):
