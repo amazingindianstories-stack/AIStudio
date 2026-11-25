@@ -134,6 +134,36 @@ class LayerTests(TransactionTestCase):
             self.attempt('a@example.invalid', 4000, A)
         self.assertEqual(self.attempt('a@example.invalid', 4001, A)['layer'], 'login_pair')
 
+    def guess_from_rotating_addresses(self, starts, rotate):
+        addresses = iter(f'{index:032x}' for index in range(1000))
+        for start in starts:
+            for offset in range(5):
+                address = next(addresses) if rotate else None
+                self.assertTrue(self.attempt('a@example.invalid', start + offset, address)['allowed'])
+
+    def test_unknown_or_untrusted_addresses_face_the_hour_and_day_account_tiers(self):
+        for rotate in (True, False):
+            LoginAttempt.objects.all().delete()
+            fresh = 'f' * 32 if rotate else None
+            self.guess_from_rotating_addresses([0, 901_000], rotate)
+            hour = self.attempt('a@example.invalid', 902_000, fresh)
+            self.assertEqual((hour['allowed'], hour['layer'], hour['retryAfterMs']), (False, 'login_account', 3_600_000 - 902_000))
+            LoginAttempt.objects.all().delete()
+            self.guess_from_rotating_addresses([0, 4_000_000, 8_000_000, 12_000_000], rotate)
+            now = 12_900_010  # past the 15-minute and hour tiers of the last batch; twenty failures in the day
+            day = self.attempt('a@example.invalid', now, fresh)
+            self.assertEqual((day['allowed'], day['layer'], day['retryAfterMs']), (False, 'login_account', 86_400_000 - now))
+            self.assertTrue(self.attempt('a@example.invalid', 86_400_000, fresh)['allowed'])
+
+    def test_the_owner_at_a_known_address_is_never_held_by_the_hour_or_day_tiers(self):
+        owner = self.attempt('a@example.invalid', 0, A)
+        throttle.succeeded(owner, 'a@example.invalid', now=0, address_key=A)
+        self.guess_from_rotating_addresses([1000, 4_000_000, 8_000_000, 12_000_000], True)
+        now = 12_900_010
+        self.assertEqual(self.attempt('a@example.invalid', now, B)['retryAfterMs'], 1000 + 86_400_000 - now)
+        self.assertFalse(self.attempt('a@example.invalid', now, None)['allowed'])
+        self.assertTrue(self.attempt('a@example.invalid', now, A)['allowed'])
+
     def test_blocked_attempts_are_counted_and_logged_once_per_window(self):
         for offset in range(5):
             self.attempt('a@example.invalid', 1000 + offset)

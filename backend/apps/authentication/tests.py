@@ -154,6 +154,24 @@ class LoginApiTests(TransactionTestCase):
         self.assertEqual(blocked.status_code,429)
         self.assertEqual(self.post('fixture@example.invalid','fixture-password',**home).status_code,200)
 
+    @override_settings(VEEVEE_ADDRESS_RATE_LIMITS=True,VEEVEE_CLIENT_ADDRESS_KEY='k'*64)
+    def test_a_day_of_guessing_locks_strangers_out_but_not_the_artist_at_home(self):
+        import time
+        from .models import LoginAttempt
+        from apps.common.client_address import sign
+        def signed(address):
+            return {'HTTP_X_VEEVEE_CLIENT_IP':address,'HTTP_X_VEEVEE_CLIENT_IP_PROOF':sign('k'*64,address)}
+        self.assertEqual(self.post('fixture@example.invalid','fixture-password',**signed('8.8.8.8')).status_code,200)
+        now=int(time.time()*1000)
+        oldest=now-20*3600*1000
+        # Twenty failures spread over the last day: under the 15-minute and hour tiers, at the 24 h tier.
+        LoginAttempt.objects.bulk_create([LoginAttempt(identifier='fixture@example.invalid',created_at=oldest+index*3600*1000) for index in range(20)])
+        stranger=self.post('fixture@example.invalid','fixture-password',**signed('9.9.9.9'))
+        self.assertEqual(stranger.status_code,429)
+        self.assertAlmostEqual(int(stranger['Retry-After']),4*3600,delta=60)
+        self.assertEqual(self.post('fixture@example.invalid','fixture-password').status_code,429)
+        self.assertEqual(self.post('fixture@example.invalid','fixture-password',**signed('8.8.8.8')).status_code,200)
+
     def test_the_lockout_response_carries_retry_after_and_the_blocked_counter(self):
         from apps.mcp_auth import ratelimits
         for _ in range(5):

@@ -8,8 +8,9 @@ the account layer applies, so a shared proxy address can never block everyone.
 An attempt is reserved (a failure row per layer) before the password is checked and released on success, under a
 per-key advisory lock: concurrent guesses across instances cannot all slip past a count read just before any of them is
 written. A refused attempt writes nothing, so hammering an account does not lengthen its own lockout. After a success
-the address is remembered for 30 days, and from that address the account-wide layer stands down (the account-at-address
-and address layers still apply), so someone else guessing at a user's password cannot lock that user out of home.
+the address is remembered for 30 days, and from that address every tier of the account-wide layer stands down (the
+account-at-address and address layers still apply), so someone else guessing at a user's password cannot lock that user
+out of home, even for the 24 h tier. From any other address, or with no trusted address, all account tiers apply.
 """
 import hashlib
 import logging

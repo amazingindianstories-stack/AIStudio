@@ -679,8 +679,10 @@ more than one layer blocking it:
     one address, and address across accounts. An attempt is reserved before the password is checked, under a per-key
     PostgreSQL advisory lock, and the reservation stays as the recorded failure unless the password is right. A refused
     attempt writes nothing, so hammering an account never lengthens its own lockout. After a success the address is
-    remembered for 30 days; from it the account-wide layer stands down, so a stranger guessing at an artist's account
-    cannot lock that artist out at home (the account-at-address and address layers still apply there).
+    remembered for 30 days; from it every tier of the account-wide layer stands down (including the 1 h and 24 h tiers),
+    so a stranger guessing at an artist's account cannot lock that artist out at home (the account-at-address and
+    address layers still apply there). From any other address, or with no trusted address, all account tiers apply, so
+    20 failures in a day lock the account there for up to 24 h.
   - *OAuth layers* (`mcp_rate_windows`): `POST /api/oauth/register` per address; `POST /api/oauth/token` per address
     (before the client is looked up, so probing unknown client ids is limited) and per client and address. No
     per-client-only or global ceiling exists on purpose: a shared identity would let one caller lock every agent out.

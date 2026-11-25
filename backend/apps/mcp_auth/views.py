@@ -178,7 +178,7 @@ def token(request):
     client = clients.known(form.get('client_id'))
     if client is None:
         return oauth_failure(oauth.OAuthError('invalid_client', 'Unknown client_id.', status=401))
-    ratelimits.count_address('oauth_token', request)  # after the client lookup, so malformed requests stay write-free
+    ratelimits.count_address('oauth_token', request)  # after the client lookup, so only known clients reach the trusted/untrusted counter
     if address:
         refusal = ratelimits.hit_tiers('oauth_token_client', f'{client.id}:{address}', policy.address_tiers('oauth_token_client'))
         if refusal:
