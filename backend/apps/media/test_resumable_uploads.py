@@ -170,13 +170,15 @@ class ResumableUploadTests(TransactionTestCase):
     def test_server_side_replay_during_verifying_is_retryable_and_keeps_the_first_store(self):
         body = {'purpose': 'image-reference', 'contentType': 'image/png', 'byteSize': len(PNG), 'filename': 'image.png',
                 'sha256': hashlib.sha256(PNG).hexdigest(), 'requestKey': 'server-side-replay'}
-        original, writes, second = self.storage.primary.open, [], []
+        original, writes, second, replayed = self.storage.primary.open, [], [], []
         original_put = self.storage.primary.put_stream
         def count_put(*args, **kwargs):
             writes.append(args[0])
             return original_put(*args, **kwargs)
         def open_and_replay(key, *args, **kwargs):
-            if UploadSession.objects.get(request_key='server-side-replay').state == 'verifying' and not second:
+            # Replay once; the replay's own reads (its session metadata) go straight to storage.
+            if UploadSession.objects.get(request_key='server-side-replay').state == 'verifying' and not replayed:
+                replayed.append(key)
                 try:
                     store_upload(self.user.id, body, io.BytesIO(PNG), self.storage)
                 except UploadError as error:
