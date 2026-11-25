@@ -74,13 +74,13 @@ class DrainTests(SimpleTestCase):
 
     def test_stop_waits_for_a_shielded_provider_call_until_the_drain_ends(self):
         stop = threading.Event()
-        signal = worker.WorkerCancellation(stop, drain_seconds=.2)
+        signal = worker.WorkerCancellation(stop, drain_seconds=1)
         signal.shielded = True
         signal.admit_request()
         stop.set()
         signal.check()
-        signal.wait(50)
-        time.sleep(.25)
+        signal.wait(50)                      # well inside the drain, so a loaded machine cannot end it early
+        time.sleep(1.05)
         with self.assertRaises(QueueExecutionCancelledError):
             signal.check()
         self.assertTrue(signal.cancelled.is_set())
