@@ -318,15 +318,14 @@ def finalize_upload(actor_id, session_id, storage):
     except BaseException:
         _release_verifying(row.id)
         raise
-    # Short transaction 2: commit READY only if the claim is still ours (a cancel moves it away).
+    # Short transaction 2: commit READY unless a cancel is under way or done. A cancel whose storage call failed
+    # puts the session back to ``uploading``; the object it left is the one just hashed.
     with transaction.atomic():
         current = _session_model().objects.select_for_update().filter(id=row.id, actor_id=actor_id).first()
         if current is None or current.state in CANCELLED_STATES:
             raise UploadError('UPLOAD_CANCELLED', 410)
         if current.finalized_at:
             return session_result(current, storage)
-        if current.state != 'verifying':
-            raise UploadError('UPLOAD_NOT_FOUND', 404)
         current.sha256, current.state, current.finalized_at = sha256, 'ready', timezone.now()
         current.session_uri = ''
         current.save(update_fields=['sha256', 'state', 'finalized_at', 'session_uri'])
@@ -452,7 +451,8 @@ def cancel_upload(actor_id, session_id, storage):
 
     The row is first marked ``cancelling`` under its lock, which makes a concurrent finalize or chunk refuse; the
     staged object is then deleted with no transaction open; the row ends ``cancelled``. A crash in between leaves
-    ``cancelling``, which a retry and the expiry sweep both resume; a storage failure puts the session back."""
+    ``cancelling``, which a retry and the expiry sweep both resume; a storage failure puts the session back to
+    ``uploading``, never ``verifying``: the finalize that held that claim may already have given up."""
     with transaction.atomic():
         row = _session_model().objects.select_for_update().filter(id=session_id, actor_id=actor_id).first()
         if not row:
@@ -461,7 +461,6 @@ def cancel_upload(actor_id, session_id, storage):
             raise UploadError('UPLOAD_ALREADY_READY', 409)
         if row.state == 'cancelled':
             return {'version': 1, 'uploadId': str(row.id), 'state': 'cancelled'}
-        resume = row.state if row.state in ('uploading', 'verifying') else 'uploading'
         if row.state != 'cancelling':
             row.state = 'cancelling'
             row.save(update_fields=['state'])
@@ -486,7 +485,7 @@ def cancel_upload(actor_id, session_id, storage):
         storage.primary.delete(row.key)
     except BaseException:
         # A cancel that could not finish leaves the session usable, as it always has; only a crash stays ``cancelling``.
-        _session_model().objects.filter(id=row.id, state='cancelling').update(state=resume)
+        _session_model().objects.filter(id=row.id, state='cancelling').update(state='uploading')
         raise
     finally:
         if local:

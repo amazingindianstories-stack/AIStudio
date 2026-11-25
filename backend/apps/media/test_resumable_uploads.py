@@ -2,10 +2,11 @@
 import hashlib
 import io
 import tempfile
+import threading
 from datetime import timedelta
 from unittest.mock import Mock, patch
 from uuid import uuid4
-from django.db import connection
+from django.db import connection, connections
 from django.test import TransactionTestCase, RequestFactory, override_settings
 from django.utils import timezone
 from apps.authentication.models import User
@@ -471,6 +472,49 @@ class PoolerSafeUploadTests(TransactionTestCase):
             self.assertCode('UPLOAD_CANCELLED', finalize_upload, self.user.id, session['uploadId'], self.storage)
         row = UploadSession.objects.get(id=session['uploadId'])
         self.assertEqual((row.state, row.finalized_at), ('cancelled', None))
+
+    def test_a_failed_cancel_after_the_finalize_gave_up_leaves_a_session_that_finalizes(self):
+        session, _ = self.begin()
+        self.chunk(session, PNG)
+        hashing, cancel_marked, outcome = threading.Event(), threading.Event(), {}
+        real = uploads._hash_object
+        def hash_until_cancel_is_marked(storage, row):
+            hashing.set()
+            cancel_marked.wait(10)
+            return real(storage, row)
+        def finalize():
+            try:
+                finalize_upload(self.user.id, session['uploadId'], self.storage)
+            except UploadError as error:
+                outcome['code'] = error.code
+            finally:
+                connections.close_all()
+        def delete_after_the_finalize_gave_up(key):
+            cancel_marked.set()
+            finalizer.join(10)
+            raise OSError('storage down')
+        with patch.object(uploads, '_hash_object', hash_until_cancel_is_marked):
+            finalizer = threading.Thread(target=finalize)
+            finalizer.start()
+            self.assertTrue(hashing.wait(10))
+            with patch.object(self.storage.primary, 'delete', side_effect=delete_after_the_finalize_gave_up):
+                with self.assertRaises(OSError):
+                    cancel_upload(self.user.id, session['uploadId'], self.storage)
+        self.assertEqual(outcome, {'code': 'UPLOAD_CANCELLED'})
+        self.assertEqual(UploadSession.objects.get(id=session['uploadId']).state, 'uploading')
+        self.assertEqual(finalize_upload(self.user.id, session['uploadId'], self.storage)['state'], 'ready')
+
+    def test_a_failed_cancel_during_verification_lets_the_finalize_finish(self):
+        session, _ = self.begin()
+        self.chunk(session, PNG)
+        real = uploads._hash_object
+        def hash_then_fail_a_cancel(storage, row):
+            with patch.object(storage.primary, 'delete', side_effect=OSError('storage down')):
+                with self.assertRaises(OSError):
+                    cancel_upload(self.user.id, session['uploadId'], storage)
+            return real(storage, row)
+        with patch.object(uploads, '_hash_object', hash_then_fail_a_cancel):
+            self.assertEqual(finalize_upload(self.user.id, session['uploadId'], self.storage)['state'], 'ready')
 
     def test_cancel_marks_the_row_first_and_deletes_the_object_outside_any_transaction(self):
         session, _ = self.begin()

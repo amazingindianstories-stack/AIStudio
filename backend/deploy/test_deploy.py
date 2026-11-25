@@ -624,6 +624,16 @@ class CheckPoolerTests(SimpleTestCase):
             self.assertEqual(check_pooler.main(['check_pooler', 'api', 'green-pgbouncer.railway.internal:6432'], {}), 0)
         self.assertTrue(output.getvalue().rstrip().endswith('OK'))
 
+    def test_a_session_under_another_role_fails(self):
+        from deploy import check_pooler
+        output = io.StringIO()
+        with mock.patch.object(check_pooler, 'database_url', return_value='postgresql://veevee_worker:pw@h:1/x'), \
+                mock.patch.object(check_pooler, 'observed', return_value=('veevee_api', check_pooler.expected('scheduler'))), \
+                contextlib.redirect_stdout(output):
+            self.assertEqual(check_pooler.main(['check_pooler', 'scheduler', 'green-pgbouncer.railway.internal:6432'], {}), 1)
+        self.assertIn('role=veevee_api expected=veevee_worker MISMATCH', output.getvalue())
+        self.assertTrue(output.getvalue().rstrip().endswith('FAILED'))
+
     def test_the_admin_form_only_runs_a_show_or_one_alias_reset_on_a_private_pooler(self):
         from deploy import check_pooler
         for pooler, command in (('green-pgbouncer.railway.internal:6432', 'DROP TABLE x'), ('example.com:6432', 'SHOW POOLS'),

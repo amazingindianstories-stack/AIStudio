@@ -11,6 +11,7 @@ on the pooler (the application image has no ``psql``); only ``SHOW`` and ``RECON
 import os
 import re
 import sys
+from urllib.parse import unquote, urlsplit
 
 import psycopg
 
@@ -63,10 +64,13 @@ def main(argv, env=os.environ, stdin=sys.stdin):
     if len(argv) != 3 or argv[1] not in db_profile.TIMEOUTS_MS:
         raise SystemExit('usage: python -m deploy.check_pooler {' + '|'.join(db_profile.TIMEOUTS_MS) + '} <host:port>')
     component = argv[1]
-    role, settings = observed(database_url(component, argv[2], dict(env)), component)
+    url = database_url(component, argv[2], dict(env))
+    role, settings = observed(url, component)
     wanted = expected(component)
-    print(f'{component}: role={role}')
-    failed = False
+    expected_role = unquote(urlsplit(url).username or '')
+    failed = role != expected_role
+    print(f'{component}:')
+    print(f'  role={role} expected={expected_role} {"MISMATCH" if failed else "ok"}')
     for name in SETTINGS:
         match = settings.get(name) == wanted[name]
         failed = failed or not match
