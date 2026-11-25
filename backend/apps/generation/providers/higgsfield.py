@@ -17,7 +17,7 @@ from apps.generation.prompting.legacy_templates import T as LEGACY
 from apps.media.storage import get_storage
 from apps.integrations.remote import validated_target,PinnedHTTPSConnection
 from apps.generation import provider_errors
-from apps.integrations.transport import HttpTransport,HttpResult,ProviderError,on_the_wire
+from apps.integrations.transport import HttpTransport,HttpResult,ProviderError,admit_request
 from .seedance import legacy_directive
 from apps.generation.services.deadline import Cancellation
 
@@ -115,25 +115,26 @@ class HiggsfieldTransport(HttpTransport):
         raw = json.dumps(body,separators=(',',':')).encode() if isinstance(body,(dict,list)) else body
         guard = SocketDeadline(time.monotonic() + timeout, signal=signal)
         connection.deadline_guard = guard
+        admit_request(signal)
+        guard.__enter__()
         try:
-            with on_the_wire(signal), guard:
-                try:
-                    connection.request(method,path,body=raw,headers=headers or {})
-                    response = connection.getresponse()
-                    chunks,total = [],0
-                    while chunk := response.read(65536):
-                        if signal:
-                            signal.check()
-                        total += len(chunk)
-                        if total > 32*1024*1024:
-                            raise ProviderError('Higgsfield response exceeds the configured limit.')
-                        chunks.append(chunk)
-                    guard.check()
-                    return HttpResult(response.status,b''.join(chunks),dict(response.getheaders()))
-                except Exception:
-                    guard.check()
-                    raise
+            connection.request(method,path,body=raw,headers=headers or {})
+            response = connection.getresponse()
+            chunks,total = [],0
+            while chunk := response.read(65536):
+                if signal:
+                    signal.check()
+                total += len(chunk)
+                if total > 32*1024*1024:
+                    raise ProviderError('Higgsfield response exceeds the configured limit.')
+                chunks.append(chunk)
+            guard.check()
+            return HttpResult(response.status,b''.join(chunks),dict(response.getheaders()))
+        except Exception:
+            guard.check()
+            raise
         finally:
+            guard.__exit__(None, None, None)
             connection.close()
 
 
