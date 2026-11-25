@@ -26,8 +26,7 @@ def _post(path, value):
 
 def _patch_transport(module):
     def request(self, method, url, *, headers=None, body=None, raw_body=None, signal=None):
-        if signal is not None:
-            signal.check()
+        module.admit_request(signal)   # as the real _send: a worker stop refuses new requests, and request_started is set
         payload = body
         if payload is None and raw_body is not None:
             try:

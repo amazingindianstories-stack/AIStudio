@@ -29,11 +29,21 @@ class QueueExecutionCancelledError(QueueExecutionDeadlineError):
         TimeoutError.__init__(self, 'The server process was interrupted before this generation finished.')
 
 
+NOT_SENT_MESSAGE = ('The server process was interrupted before this generation reached the provider. '
+                    'Nothing was sent and nothing was charged.')
+
+
 class Cancellation:
     def __init__(self, timeout_ms=QUEUE_EXECUTION_DEADLINE_MS):
         self.timeout_ms = timeout_ms
         self.deadline = time.monotonic() + timeout_ms / 1000
         self.cancelled = threading.Event()
+        self.request_started = False   # set once any provider request has gone on the wire (transport.admit_request)
+        self.shielded = False   # a paid provider call with no receipt yet: a worker stop waits for it instead of cutting it off
+
+    def admit_request(self):
+        self.check()
+        self.request_started = True
 
     def check(self):
         if self.cancelled.is_set():

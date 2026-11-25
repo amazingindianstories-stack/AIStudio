@@ -27,6 +27,13 @@ class HttpResult:
         return json.loads(self.body)
 
 
+def admit_request(signal):
+    """Admits one provider request onto the wire: from here a failure may have reached (and been billed by) the
+    provider. A worker stop refuses a new request here even while it lets one already sent finish."""
+    if signal is not None:
+        getattr(signal, 'admit_request', signal.check)()
+
+
 class HttpTransport:
     def __init__(self, *, allowed_hosts, timeout=60, max_response_bytes=32 * 1024 * 1024):
         self.allowed_hosts = frozenset(allowed_hosts)
@@ -54,6 +61,7 @@ class HttpTransport:
         # No retries on ambiguous POST failure and no redirect credential leak.
         # Session.trust_env=False also avoids checkout proxy/.netrc credentials.
         from .request_deadline import SocketDeadline, deadline_adapter
+        admit_request(signal)
         with SocketDeadline(deadline, signal=signal) as guard:
             try:
                 with requests.Session() as session:
