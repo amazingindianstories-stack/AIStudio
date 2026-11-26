@@ -11,7 +11,8 @@ its own allowlist instead: POST generateContent on a pinned model (``LOOP_MODELS
 declarations that each equal the registry-derived one for an Agents tab tool or the harness's own ``design_prompt``
 (``design.DESIGN_DECLARATION``), exactly the ``generation_config`` of the run's thinking level (bounded output; the
 levels the model takes are ``THINKING_LEVELS``), user and model turns of text, media
-(``MEDIA_MIME`` inline or as a Files API ``fileData``), function calls and function responses for those tools, and a
+(``MEDIA_MIME`` inline, or as ``fileData``: a Files API file, or on Vertex AI only an ``ai-inputs/`` copy in the
+media bucket, ``google_media.vertex_uri_allowed``), function calls and function responses for those tools, and a
 bounded body. The usage purpose picks the body: 'media' is only a ``media_body`` sub-call, 'transcribe' only a
 ``transcribe_body`` and 'design_prompt' only a ``design.design_body`` sub-call, each with its own fixed prompt and config
 and no tools. Every answered call writes one ``agent_llm_usage`` row from its ``usageMetadata``, priced from ``PRICES``.
@@ -177,8 +178,11 @@ def _part_allowed(role, part):
         return (isinstance(value, dict) and set(value) == {'mimeType', 'data'} and value['mimeType'] in MEDIA_MIME
                 and isinstance(value['data'], str))
     if kind == 'fileData':
+        from apps.integrations.google_media import vertex_uri_allowed
         return (isinstance(value, dict) and set(value) == {'mimeType', 'fileUri'} and value['mimeType'] in MEDIA_MIME
-                and isinstance(value['fileUri'], str) and FILE_URI.fullmatch(value['fileUri']) is not None)
+                and isinstance(value['fileUri'], str)
+                and (FILE_URI.fullmatch(value['fileUri']) is not None
+                     or (google_genai.is_vertex() and vertex_uri_allowed(value['fileUri']))))
     payload = 'args' if kind == 'functionCall' else 'response'
     return (isinstance(value, dict) and {'name', payload} <= set(value) <= {'name', payload, 'id'}
             and value['name'] in LOOP_TOOLS and isinstance(value[payload], dict))

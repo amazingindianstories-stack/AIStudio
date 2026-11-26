@@ -136,6 +136,34 @@ class MediaToolTests(StorageMixin, McpCase):
                     self.assertEqual(sent[-1][:2], ('DELETE', FILE))
         self.assertEqual(list(AgentLlmUsage.objects.values_list('purpose', flat=True)), ['media', 'media'])   # every answered call
 
+    def test_vertex_view_media_reads_a_large_file_through_a_task_scoped_copy_without_files_api(self):
+        from apps.media.storage import GCSAdapter
+        from apps.media.test_prefixed_storage import FakeClient
+        self.storage.primary = GCSAdapter(FakeClient(), 'fixture-bucket')
+        image = png_bytes(8, 8)
+        made = self.generation('image', image, 'image/png', 'png')
+        original = dict(self.storage.primary.client.objects)
+        vertex = {'GOOGLE_GENAI_BACKEND': 'vertex', 'GCP_PROJECT_ID': 'fixture-project'}
+        with patch.dict(os.environ, vertex), patch('apps.integrations.google_genai._access_token', return_value='fixture-token'), \
+                patch.object(media, 'INLINE_BYTES', len(image) - 1):
+            done, sent = self.call('view_media', {'assetId': made}, [answer('An orange fox.')])
+        self.assertEqual(self.ok(done)['text'], media.untrusted('An orange fox.'))
+        self.assertEqual(len(sent), 1)
+        self.assertIn('aiplatform.googleapis.com', sent[0][1])
+        part = sent[0][3]['contents'][0]['parts'][0]['fileData']
+        self.assertEqual(part['mimeType'], 'image/png')
+        self.assertRegex(part['fileUri'], r'^gs://fixture-bucket/ai-inputs/[0-9a-f-]{36}$')
+        self.assertEqual(AgentLlmUsage.objects.get().purpose, 'media')
+        self.assertEqual(self.storage.primary.client.objects, original)
+
+        with patch.dict(os.environ, vertex), patch('apps.integrations.google_genai._access_token', return_value='fixture-token'), \
+                patch.object(media, 'INLINE_BYTES', len(image) - 1), \
+                patch.object(GCSAdapter, 'put', side_effect=PermissionError('bucket refused')):
+            done, sent = self.call('view_media', {'assetId': made}, [answer('An orange fox.')])
+        self.assertEqual(done.error.code, errors.INTERNAL_ERROR)
+        self.assertEqual(sent, [])
+        self.assertEqual(self.storage.primary.client.objects, original)
+
     def test_read_document_returns_text_files_directly_and_reads_a_pdf_with_one_call(self):
         cases = {'text/plain': b'Shot list: fox, snow.', 'text/markdown': b'# Shot list\n- fox', DOCX: docx('<w:p><w:r><w:t>Fox in snow</w:t></w:r></w:p>')}
         texts = {'text/plain': 'Shot list: fox, snow.', 'text/markdown': '# Shot list\n- fox', DOCX: 'Fox in snow'}

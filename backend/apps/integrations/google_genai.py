@@ -15,7 +15,7 @@ Vertex AI REST (docs.cloud.google.com/vertex-ai/generative-ai/docs, read 2026-11
 POST https://{host}/v1/projects/{project}/locations/{location}/publishers/google/models/{model}:generateContent with a
 bearer token, where the host is aiplatform.googleapis.com for global and {location}-aiplatform.googleapis.com for a
 region. Request and response bodies are the Gemini API's (contents, systemInstruction, tools, generationConfig;
-candidates, usageMetadata). Vertex has no Files API (apps.agents.media refuses the files that would need one) and no
+candidates, usageMetadata). Vertex has no Files API (google_media hands large files over through Cloud Storage) and no
 `-latest` model aliases, hence the pinned Vertex defaults below. Credentials and tokens never appear in an error, log
 or URL.
 """

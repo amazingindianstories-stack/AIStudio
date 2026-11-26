@@ -3,6 +3,7 @@ import base64
 import contextlib
 import io
 import json
+import re
 import subprocess
 import tempfile
 import uuid
@@ -186,20 +187,22 @@ class InlineAndFilesTests(MediaCase):
         self.assertEqual(parts[3], {'fileData': {'mimeType': 'image/png', 'fileUri': FILE}})
         self.assertEqual([call[0] for call in sent], ['POST', 'POST', 'DELETE'])
 
-    def test_vertex_has_no_files_api_so_a_file_that_does_not_fit_inline_is_refused_before_any_call(self):
+    def test_vertex_large_attachments_hand_over_task_scoped_copies_without_files_api_calls(self):
+        from apps.media.storage import GCSAdapter
+        from apps.media.test_prefixed_storage import FakeClient
+        self.storage.primary = GCSAdapter(FakeClient(), 'fixture-bucket')
         first, second = png_bytes(8, 8), png_bytes(9, 9)
         ids = [self.upload('image/png', first), self.upload('image/png', second)]
         vertex = {'GOOGLE_GENAI_BACKEND': 'vertex', 'GCP_PROJECT_ID': 'veevee-project'}
-        for limits, message in (({'INLINE_BYTES': len(first) - 1}, f'File {ids[0]} is larger than the '),
-                                ({'INLINE_TOTAL': len(first) + len(second) - 1}, f'File {ids[1]} does not fit: the agent reads at most ')):
-            sent = []
-            with self.subTest(limits=limits), patch.dict('os.environ', vertex), patch.multiple(media, **limits), \
-                    provider([], sent), self.assertRaises(errors.ToolError) as raised:
-                media.attachment_parts(self.user, ids, credentials={'x-goog-api-key': 'fixture-key'})
-            self.assertEqual(raised.exception.code, errors.INVALID_INPUT)
-            self.assertTrue(raised.exception.message.startswith(message), raised.exception.message)
-            self.assertTrue(raised.exception.message.endswith('on Vertex AI.'), raised.exception.message)
+        for limits in ({'INLINE_BYTES': len(first) - 1}, {'INLINE_TOTAL': len(first) + len(second) - 1}):
+            with self.subTest(limits=limits), patch.dict('os.environ', vertex), patch.multiple(media, **limits):
+                parts, sent = self.parts(ids)
+            file_parts = [part['fileData'] for part in parts if 'fileData' in part]
+            self.assertTrue(file_parts)
+            self.assertTrue(all(re.fullmatch(r'gs://fixture-bucket/ai-inputs/[0-9a-f-]{36}', part['fileUri'])
+                                for part in file_parts))
             self.assertEqual(sent, [])
+            self.assertEqual(len(self.storage.primary.client.objects), 2)
         with patch.dict('os.environ', vertex):
             parts, sent = self.parts(ids)
         self.assertEqual([part.get('inlineData', {}).get('data') for part in parts[1::2]],

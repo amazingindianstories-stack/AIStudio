@@ -33,11 +33,14 @@ docker network create "$NET" >/dev/null
 docker run -d --name "$DB" --network "$NET" -e POSTGRES_PASSWORD=gate -e POSTGRES_DB=veevee_django_migration postgres:18.6 >/dev/null
 until docker exec "$DB" pg_isready -U postgres >/dev/null 2>&1; do sleep 1; done
 GATE_ENV="-e MIGRATION_TEST_ISOLATED=1 -e DJANGO_SETTINGS_MODULE=config.settings.test -e DATABASE_URL=postgresql://postgres:gate@127.0.0.1:5432/veevee_django_migration -e DJANGO_SECRET_KEY=gate-secret-key-000000000000000000000000000000 -e AUTH_SECRET=gate-auth-secret-0000000000000000000000000000000"
-# The image carries only backend/; the pooler template tests read infra/pgbouncer/ from the repository root (/ here),
-# so mount that one file read-only where they look instead of adding it to the production image.
+# The image carries only backend/; the pooler template tests read infra/pgbouncer/pgbouncer.ini.template and the
+# storage lifecycle tests read infra/gcp/storage-lifecycle.json from the repository root (/ here), so mount those two
+# files read-only where they look instead of adding infra/ to the production image.
 POOLER_TEMPLATE="$WORK/infra/pgbouncer/pgbouncer.ini.template"
+STORAGE_LIFECYCLE="$WORK/infra/gcp/storage-lifecycle.json"
 # shellcheck disable=SC2086
-docker run --rm --network "container:$DB" $GATE_ENV -v "$POOLER_TEMPLATE:/infra/pgbouncer/pgbouncer.ini.template:ro" "$IMAGE" python manage.py test --noinput --parallel 1 2>&1 | grep -v '^{"event"' | tail -5 | tee "$WORK/backend.txt"
+docker run --rm --network "container:$DB" $GATE_ENV -v "$POOLER_TEMPLATE:/infra/pgbouncer/pgbouncer.ini.template:ro" \
+  -v "$STORAGE_LIFECYCLE:/infra/gcp/storage-lifecycle.json:ro" "$IMAGE" python manage.py test --noinput --parallel 1 2>&1 | grep -v '^{"event"' | tail -5 | tee "$WORK/backend.txt"
 grep -q '^OK' "$WORK/backend.txt"
 
 step "Migrations: no model changes"

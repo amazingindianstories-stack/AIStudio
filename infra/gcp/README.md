@@ -54,8 +54,10 @@ certificates are tied to that hostname.
 
 ## Storage lifecycle
 
-The lifecycle file deletes database migration snapshots after 30 days and
-temporary ZIP exports after seven days. It does not expire permanent user media.
+The lifecycle file deletes database migration snapshots after 30 days,
+temporary ZIP exports after seven days, and leftover Vertex AI inference copies
+at the bucket-root `ai-inputs/` namespace (outside any media prefix) after two
+days. It does not expire permanent user media.
 
 ```bash
 gcloud storage buckets update gs://aistudio-media-bucket \
