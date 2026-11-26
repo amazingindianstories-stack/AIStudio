@@ -5,12 +5,16 @@ import re
 from apps.generation.model_registry import model_definition
 from apps.generation import provider_errors
 from apps.generation.services.deadline import Cancellation, QUEUE_EXECUTION_DEADLINE_MS
-from apps.integrations.transport import HttpTransport, ProviderError, required_key
+from apps.integrations import google_genai
+from apps.integrations.transport import HttpTransport, ProviderError
 
-API_ROOT = 'https://generativelanguage.googleapis.com/v1beta'
 # Callers without a registry model (the hidden Higgsfield video auto-frame) keep Nano Banana Pro.
 DEFAULT_MODEL = 'Nano Banana Pro'
 MAX_IMAGES = 14
+# Vertex AI refuses these sampling fields for Nano Banana 2.1 ("Setting any of these parameters returns an API error",
+# docs.cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/nano-banana-2-1, read 2026-11-26), so the seed the job
+# records is not sent there.
+VERTEX_NO_SEED = frozenset({'gemini-nano-banana-2.1'})
 
 
 def definition(display=None):
@@ -21,8 +25,8 @@ def definition(display=None):
     return found
 
 
-def endpoint(display=None):
-    return f"{API_ROOT}/models/{definition(display)['providerModelId']}:generateContent"
+def endpoint(display=None, env=None):
+    return google_genai.model_url(definition(display)['providerModelId'], env=env)
 
 
 def build_parts(assembled, display=None):
@@ -67,12 +71,13 @@ def retry_delay_ms(text):
     return None
 
 
-def build_payload(input):
+def build_payload(input, env=None):
     config = {'responseModalities': ['TEXT', 'IMAGE'],
               'imageConfig': {'aspectRatio': input.get('aspectRatio') or '1:1', 'imageSize': input.get('imageSize') or '1K'}}
-    if type(input.get('seed')) in (int, float):
+    model = definition(input.get('modelDisplay'))
+    if type(input.get('seed')) in (int, float) and not (model['providerModelId'] in VERTEX_NO_SEED and google_genai.is_vertex(env)):
         config['seed'] = input['seed']
-    return {'contents': [{'role': 'user', 'parts': build_parts(input['assembled'], definition(input.get('modelDisplay'))['name'])}], 'generationConfig': config}
+    return {'contents': [{'role': 'user', 'parts': build_parts(input['assembled'], model['name'])}], 'generationConfig': config}
 
 
 # Rate limit and overload reject the request before any generation, so nothing was billed.
@@ -81,15 +86,16 @@ UNPROCESSED_STATUSES = frozenset({429, 503})
 
 def generate_image(input, *, transport=None, env=None, signal=None):
     env = os.environ if env is None else env
-    key = required_key(env, 'GOOGLE_API_KEY')
-    url = endpoint(input.get('modelDisplay'))
-    body = build_payload(input)
-    transport = transport or HttpTransport(allowed_hosts=['generativelanguage.googleapis.com'],
+    credentials = google_genai.auth_headers(env)
+    url = endpoint(input.get('modelDisplay'), env)
+    body = build_payload(input, env)
+    model = definition(input.get('modelDisplay'))['providerModelId']
+    transport = transport or HttpTransport(allowed_hosts=[google_genai.host(env, model)],
         timeout=QUEUE_EXECUTION_DEADLINE_MS // 1000)
     signal = signal or Cancellation()
     signal.check()
     response = transport.request('POST', url,
-        headers={'Content-Type': 'application/json', 'x-goog-api-key': key}, body=body, signal=signal)
+        headers={'Content-Type': 'application/json', **credentials}, body=body, signal=signal)
     if not response.ok:
         error = ProviderError(f'Gemini image error ({response.status}): {response.text[:400]}', status=response.status,
                               provider_response=provider_errors.capture('gemini', phase='create', status=response.status,

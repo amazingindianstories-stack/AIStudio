@@ -62,6 +62,9 @@ def effective_range(row):
 
 
 def transcription_available():
+    from apps.integrations import google_genai
+    if google_genai.is_vertex():
+        return google_genai.configured()
     return bool(getattr(settings, 'GOOGLE_API_KEY', None) or __import__('os').environ.get('GOOGLE_API_KEY'))
 
 

@@ -41,12 +41,29 @@ def provider_status(url, headers=None, timeout=5):
                          max_response_bytes=1024 * 1024).request('GET', url, headers=headers or {}).status
 
 
-def gemini(transport=provider_status, model='Nano Banana Pro'):
+def gemini(transport=provider_status, model='Nano Banana Pro', vertex_check=None):
+    from apps.integrations import google_genai
+    if google_genai.is_vertex():
+        return (vertex_check or vertex)()
     # Model metadata read (models.get); no generation is requested.
     key = os.environ.get('GOOGLE_API_KEY')
     if not key: return outcome('unknown', 'GOOGLE_API_KEY not set')
     status = transport('https://generativelanguage.googleapis.com/v1beta/models/' + provider_model_id(model, {}), {'x-goog-api-key': key})
     return outcome('ok' if 200 <= status < 300 else 'error', 'HTTP 200' if 200 <= status < 300 else f'HTTP {status}')
+
+
+def vertex():
+    """Vertex AI has no models.get to read without a model call, so the check is the credential itself: Application
+    Default Credentials (as the impersonated service account, when set) must mint an access token, one OAuth call."""
+    from apps.integrations import google_genai
+    from apps.integrations.errors import ProviderError
+    if not google_genai.configured():
+        return outcome('unknown', google_genai.VERTEX_MISSING)
+    try:
+        google_genai.auth_headers()
+    except ProviderError as error:
+        return outcome('error', 'Vertex AI: ' + str(error))
+    return outcome('ok', 'Vertex AI: access token minted (no model call)')
 
 
 def higgsfield():

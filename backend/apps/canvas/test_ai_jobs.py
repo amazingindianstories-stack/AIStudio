@@ -4,6 +4,7 @@ Provider calls reach only ``testsupport.fake_providers`` (``HttpTransport._send`
 """
 import contextlib
 import json
+import os
 import threading
 import time
 import uuid
@@ -14,7 +15,7 @@ from django.test import Client, SimpleTestCase, TransactionTestCase, override_se
 
 from apps.admin_dashboard import tests as session_fixtures
 from apps.agents import board as board_formats
-from apps.agents.llm import BoardTextTransport, agent_endpoint, board_payload_allowed
+from apps.agents.llm import BoardTextTransport, advanced_agent_model, agent_endpoint, agent_model, board_payload_allowed
 from apps.generation.models import Generation
 from apps.generation.services import admission, paid_guard, reads
 from apps.generation.services.deadline import Cancellation
@@ -122,6 +123,25 @@ class BoardPayloadAllowlistTests(SimpleTestCase):
                 advanced.request('POST', ENDPOINT, body=stickies_body())
             advanced.request('POST', agent_endpoint(ADVANCED_MODEL), body=stickies_body())
         self.assertEqual(sent, [ENDPOINT, agent_endpoint(ADVANCED_MODEL)])
+
+    def test_on_vertex_board_text_runs_on_served_models_at_the_vertex_host_and_the_guard_follows(self):
+        vertex = {'GOOGLE_GENAI_BACKEND': 'vertex', 'GCP_PROJECT_ID': 'veevee-project'}
+        # Vertex serves no `-latest` aliases: the defaults are pinned models it lists; explicit choices still win.
+        self.assertEqual((agent_model(vertex), advanced_agent_model(vertex)), ('gemini-3.8-flash', 'gemini-3.1-pro-preview'))
+        self.assertEqual((agent_model({}), advanced_agent_model({})), (MODEL, ADVANCED_MODEL))
+        self.assertEqual(agent_model({**vertex, 'AGENT_LLM_MODEL': 'gemini-2.5-pro'}), 'gemini-2.5-pro')
+        endpoint = ('https://aiplatform.googleapis.com/v1/projects/veevee-project/locations/global/publishers/google/models/'
+                    'gemini-3.8-flash:generateContent')
+        sent = []
+        with patch.dict(os.environ, vertex), patch.object(HttpTransport, '_send', lambda self, method, url, **kwargs: sent.append(url)):
+            self.assertEqual(agent_endpoint('gemini-3.8-flash'), endpoint)
+            transport = BoardTextTransport('gemini-3.8-flash')
+            self.assertEqual((transport.endpoint, transport.allowed_hosts), (endpoint, frozenset({'aiplatform.googleapis.com'})))
+            value = board_formats.submission_input('stickies', 'gemini-3.8-flash', board_formats.conversation('ideas'))
+            transport.request('POST', endpoint, body=board_formats.build_body(value))
+            contract = text_contract(model='Gemini (gemini-3.8-flash)', submission_input=value)
+            self.assertEqual(paid_guard.quote_for(contract, UNLIMITED)['allowed_paid_endpoints'], [endpoint])
+        self.assertEqual(sent, [endpoint])
 
     def test_the_paid_guard_pins_a_text_job_to_its_model_endpoint_and_exact_request(self):
         contract = text_contract()

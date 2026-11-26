@@ -1,8 +1,9 @@
 """Gemini endpoints and the board text transport; no automatic retries of billed calls."""
-from urllib.parse import quote
+from apps.integrations import google_genai
 from apps.integrations.transport import HttpTransport, ProviderError
 
-API_ROOT = 'https://generativelanguage.googleapis.com/v1beta'
+# The Gemini API root: the Files API lives only there (``loop_llm``); model calls go to ``agent_endpoint``.
+API_ROOT = google_genai.GEMINI_ROOT
 DEFAULT_MODEL = 'gemini-flash-latest'
 # The stronger model board "Create with AI" text jobs run on with advanced processing.
 DEFAULT_ADVANCED_MODEL = 'gemini-pro-latest'
@@ -12,15 +13,15 @@ PART_METADATA = frozenset(('thoughtSignature', 'thought'))
 
 
 def agent_model(env):
-    return env.get('AGENT_LLM_MODEL') or DEFAULT_MODEL
+    return env.get('AGENT_LLM_MODEL') or google_genai.vertex_default(env, DEFAULT_MODEL)
 
 
 def advanced_agent_model(env):
-    return env.get('AGENT_LLM_MODEL_ADVANCED') or DEFAULT_ADVANCED_MODEL
+    return env.get('AGENT_LLM_MODEL_ADVANCED') or google_genai.vertex_default(env, DEFAULT_ADVANCED_MODEL, google_genai.VERTEX_PRO)
 
 
 def agent_endpoint(model):
-    return API_ROOT + '/models/' + quote(model, safe='') + ':generateContent'
+    return google_genai.model_url(model)
 
 
 def board_payload_allowed(body):
@@ -37,7 +38,7 @@ class BoardTextTransport(HttpTransport):
     the guard on, the POST must also be the job's claimed, quoted request (``paid_guard.text_payload_matches``)."""
 
     def __init__(self, model, *, timeout=90):
-        super().__init__(allowed_hosts={'generativelanguage.googleapis.com'}, timeout=timeout)
+        super().__init__(allowed_hosts={google_genai.host(model=model)}, timeout=timeout)
         self.endpoint = agent_endpoint(model)
 
     def request(self, method, url, *, headers=None, body=None, raw_body=None, signal=None):

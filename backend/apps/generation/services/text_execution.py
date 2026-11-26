@@ -8,8 +8,8 @@ import os
 
 from apps.common.leases import now_ms
 from apps.generation import provider_errors
+from apps.integrations import google_genai
 from apps.integrations.errors import ProviderError
-from apps.integrations.transport import required_key
 
 # Rate limit and overload reject the request before any generation, so nothing was billed.
 UNPROCESSED_STATUSES = frozenset({429, 503})
@@ -56,11 +56,11 @@ def execute_text(item, *, signal, env=None, transport=None, on_task=None):
     if env.get('MOCK_GENERATION') == '1':
         signal.wait(300)
         return {'status': 'succeeded', 'output': mock_output(value), 'updated_at': now_ms()}
-    key = required_key(env, 'GOOGLE_API_KEY')
+    credentials = google_genai.auth_headers(env)
     body = build_body(value)
     transport = transport or BoardTextTransport(value['model'])
     response = transport.request('POST', agent_endpoint(value['model']),
-                                 headers={'Content-Type': 'application/json', 'x-goog-api-key': key}, body=body, signal=signal)
+                                 headers={'Content-Type': 'application/json', **credentials}, body=body, signal=signal)
     if not response.ok:
         error = ProviderError(f'Gemini text error ({response.status}): {response.text[:400]}', status=response.status,
                               provider_response=provider_errors.capture('gemini', phase='create', status=response.status,

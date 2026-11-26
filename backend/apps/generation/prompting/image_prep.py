@@ -4,11 +4,9 @@ import json
 import math
 import os
 import time
-from urllib.parse import quote
 from .vision_templates import T
+from apps.integrations import google_genai
 from apps.integrations.transport import HttpTransport
-
-API_ROOT = 'https://generativelanguage.googleapis.com/v1beta'
 
 
 def prep_reference(mime_type,data):
@@ -44,16 +42,17 @@ def crispen(mime_type,data):
 
 def vision_request(parts,*,env=None,transport=None,signal=None,thinking=False):
     env = os.environ if env is None else env
-    key = env.get('GOOGLE_API_KEY')
-    if not key:
+    if not google_genai.configured(env):
         return None
-    model = env.get('GEMINI_DETECT_MODEL') or 'gemini-2.5-flash'
+    credentials = google_genai.auth_headers(env)
+    model = env.get('GEMINI_DETECT_MODEL') or google_genai.vertex_default(env,'gemini-2.5-flash')
     config = {'responseMimeType':'application/json','temperature':0}
     if thinking:
-        config['thinkingConfig'] = {'thinkingBudget':0}
-    transport = transport or HttpTransport(allowed_hosts=['generativelanguage.googleapis.com'])
-    return transport.request('POST',f'{API_ROOT}/models/{quote(model,safe="")}:generateContent',
-        headers={'Content-Type':'application/json','x-goog-api-key':key},
+        # Gemini 2.x turns thinking off with a zero budget; Gemini 3 models take a level instead, LOW the least they all take.
+        config['thinkingConfig'] = {'thinkingBudget':0} if model.startswith('gemini-2') else {'thinkingLevel':'LOW'}
+    transport = transport or HttpTransport(allowed_hosts=[google_genai.host(env,model)])
+    return transport.request('POST',google_genai.model_url(model,env=env),
+        headers={'Content-Type':'application/json',**credentials},
         body={'contents':[{'role':'user','parts':parts}],'generationConfig':config},signal=signal)
 
 

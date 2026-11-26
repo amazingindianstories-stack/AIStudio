@@ -258,6 +258,28 @@ class PrimitiveTests(SimpleTestCase):
         self.assertEqual(payload['contents'][0]['parts'][0],{'inlineData':{'mimeType':'audio/wav','data':'YWJj'}})
         self.assertEqual(payload['generationConfig'],{'temperature':0.1})
 
+    @override_settings(VEEVEE_AUDIO_TRANSCRIBER=None)
+    def test_transcribers_on_vertex_post_to_vertex_with_a_per_call_credential(self):
+        from apps.integrations.transport import HttpResult, HttpTransport
+        sent=[]
+        def send(transport,method,url,**kwargs):
+            sent.append((url,kwargs['headers'],transport.allowed_hosts))
+            return HttpResult(200,json.dumps({'candidates':[{'content':{'parts':[{'text':'words'}]}}]}).encode())
+        account={'GOOGLE_GENAI_BACKEND':'vertex','GCP_PROJECT_ID':'veevee-project'}
+        tokens=iter(['first','second'])
+        with patch.dict('os.environ',account),patch.object(HttpTransport,'_send',send),\
+                patch('apps.integrations.google_genai._access_token',side_effect=lambda raw:next(tokens)):
+            self.assertEqual(audio.get_transcriber().transcribe('YWJj','audio/wav','gemini-3.8-flash'),'words')
+            self.assertEqual(audio.configured_transcriber().transcribe('YWJj','audio/wav','gemini-3.8-flash'),'words')
+        url=('https://aiplatform.googleapis.com/v1/projects/veevee-project/locations/global/publishers/google/models/'
+             'gemini-3.8-flash:generateContent')
+        self.assertEqual(sent,[(url,{'Content-Type':'application/json','Authorization':f'Bearer {token}'},
+                                frozenset({'aiplatform.googleapis.com'})) for token in ('first','second')])
+        for build in (audio.get_transcriber,audio.configured_transcriber):
+            with self.subTest(build=build.__name__),patch.dict('os.environ',{'GOOGLE_GENAI_BACKEND':'vertex','GOOGLE_API_KEY':'k'}),\
+                    self.assertRaisesMessage(ValueError,audio.VERTEX_MISSING):
+                build()
+
     def test_audio_snapshot_preserves_each_accepted_mime_and_original_bytes(self):
         from .audio_inputs import AUDIO_EXTENSIONS, capture_audio_input, transcribe_audio_input
         from types import SimpleNamespace

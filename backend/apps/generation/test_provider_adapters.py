@@ -167,6 +167,34 @@ class ProviderAdapterTests(SimpleTestCase):
             env={'GOOGLE_API_KEY': 'fixture'}, transport=transport)
         self.assertEqual(transport.calls[0][1]['body']['generationConfig'], {'responseModalities': ['TEXT', 'IMAGE'], 'imageConfig': {'aspectRatio': '1:1', 'imageSize': '1K'}})
 
+    def test_gemini_images_on_vertex_use_its_endpoint_token_and_host_and_drop_the_2_1_seed(self):
+        response = {'candidates': [{'content': {'parts': [{'inlineData': {'data': 'master', 'mimeType': 'image/png'}}]}}]}
+        request = {'assembled': {'groups': [], 'instruction': 'literal'}, 'aspectRatio': '16:9', 'imageSize': '4K', 'seed': 7}
+        # A region moves other calls; Vertex serves both image models only from global.
+        vertex = {'GOOGLE_GENAI_BACKEND': 'vertex', 'GCP_PROJECT_ID': 'veevee-project', 'GOOGLE_VERTEX_LOCATION': 'us-central1',
+                  'GOOGLE_VERTEX_IMPERSONATE_SA': 'veevee-vertex@veevee-project.iam.gserviceaccount.com', 'GOOGLE_API_KEY': 'gemini-fixture'}
+        root = 'https://aiplatform.googleapis.com/v1/projects/veevee-project/locations/global/publishers/google/models'
+        for display, model, config in (
+                ('Nano Banana Pro', 'gemini-3-pro-image', {'responseModalities': ['TEXT', 'IMAGE'], 'imageConfig': {'aspectRatio': '16:9', 'imageSize': '4K'}, 'seed': 7}),
+                ('Nano Banana 2.1', 'gemini-nano-banana-2.1', {'responseModalities': ['TEXT', 'IMAGE'], 'imageConfig': {'aspectRatio': '16:9', 'imageSize': '4K'}})):
+            transport = ScriptedTransport(result(response))
+            with patch.object(gemini, 'HttpTransport', return_value=transport) as made, \
+                    patch('apps.integrations.google_genai._access_token', return_value='minted') as minted:
+                value = gemini.generate_image({**request, 'modelDisplay': display}, env=vertex)
+            self.assertEqual(value, {'base64': 'master', 'mimeType': 'image/png'})
+            minted.assert_called_once_with('veevee-vertex@veevee-project.iam.gserviceaccount.com')
+            self.assertEqual(made.call_args.kwargs['allowed_hosts'], ['aiplatform.googleapis.com'])
+            (method, url), options = transport.calls[0]
+            self.assertEqual((method, url), ('POST', f'{root}/{model}:generateContent'))
+            self.assertEqual(options['headers'], {'Content-Type': 'application/json', 'Authorization': 'Bearer minted'})
+            self.assertEqual(options['body']['generationConfig'], config)
+            self.assertEqual(gemini.endpoint(display, vertex), url)
+        # Vertex without a project refuses before any call, even with a Gemini API key present.
+        transport = ScriptedTransport()
+        with self.assertRaisesRegex(ProviderError, 'Vertex AI has no project'):
+            gemini.generate_image(request, env={'GOOGLE_GENAI_BACKEND': 'vertex', 'GOOGLE_API_KEY': 'gemini-fixture'}, transport=transport)
+        self.assertEqual(transport.calls, [])
+
     def test_gemini_reference_limit_names_the_model_and_unconfigured_models_never_submit(self):
         image = {'mimeType': 'image/png', 'data': 'x'}
         many = {'instruction': 'scene', 'groups': [{'tag': '@img1', 'header': 'h', 'images': [image] * 15, 'tiles': []}]}

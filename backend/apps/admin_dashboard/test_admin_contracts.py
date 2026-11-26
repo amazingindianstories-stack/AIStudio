@@ -344,6 +344,22 @@ class AdminPureParityTests(SimpleTestCase):
         self.assertEqual(seen,[('GET','https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image',{'x-goog-api-key':'fixture'},
                                 frozenset({'generativelanguage.googleapis.com'}))])
 
+    def test_gemini_status_on_vertex_mints_a_token_without_a_model_call(self):
+        from apps.integrations.errors import ProviderError
+        def transport(url,headers):
+            raise AssertionError('no Gemini API probe on Vertex')
+        vertex={'GOOGLE_GENAI_BACKEND':'vertex','GCP_PROJECT_ID':'veevee-project'}
+        with patch.dict('os.environ',{'GOOGLE_GENAI_BACKEND':'vertex','GOOGLE_API_KEY':'fixture'},clear=True):
+            self.assertEqual(status.gemini(transport),{'status':'unknown','detail':'Vertex AI has no project: set GCP_PROJECT_ID or GOOGLE_CLOUD_PROJECT.'})
+        with patch.dict('os.environ',vertex,clear=True),patch('apps.integrations.google_genai._access_token',return_value='minted') as minted:
+            self.assertEqual(status.gemini(transport,model='Nano Banana 2.1'),{'status':'ok','detail':'Vertex AI: access token minted (no model call)'})
+        minted.assert_called_once_with(None)
+        failed=ProviderError('Vertex AI access token could not be minted.',code='vertex_auth',may_have_submitted=False)
+        with patch.dict('os.environ',vertex,clear=True),patch('apps.integrations.google_genai._access_token',side_effect=failed):
+            self.assertEqual(status.gemini(transport),{'status':'error','detail':'Vertex AI: Vertex AI access token could not be minted.'})
+        with patch.dict('os.environ',{**vertex,'GOOGLE_VERTEX_LOCATION':'Not A Region'},clear=True):
+            self.assertEqual(status.gemini(transport),{'status':'error','detail':'Vertex AI: GOOGLE_VERTEX_LOCATION is not a Google Cloud region.'})
+
     def test_status_timeout_error_and_fixed_shape_without_external_calls(self):
         checks=[('success','Success',lambda:{'status':'ok','detail':'fixture'}),('slow','Slow',lambda:time.sleep(.04))]
         result=status.run_all_checks(checks,timeout_ms=5)

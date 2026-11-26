@@ -240,6 +240,31 @@ class OneClaimPerPostTests(TransactionTestCase):
             self.assertEqual(sent, [('POST', url, payload)] if allowed else [])
             self.assertEqual(ledger[row['id']], 'SUBMITTING' if allowed else 'ATTEMPTING')
 
+    def test_on_vertex_an_image_claim_allows_only_its_own_vertex_endpoint(self):
+        from apps.generation.providers import gemini
+        from apps.integrations.transport import HttpTransport, ProviderError
+        vertex = {'GOOGLE_GENAI_BACKEND': 'vertex', 'GCP_PROJECT_ID': 'veevee-project'}
+        row = contract(kind='image', model='Nano Banana 2.1', resolution='2K')
+        with patch.dict(os.environ, vertex):
+            body = gemini.build_payload({'assembled': {'groups': [], 'instruction': 'literal'}, 'aspectRatio': '1:1', 'imageSize': '2K',
+                                         'modelDisplay': 'Nano Banana 2.1', 'seed': 5})
+            vertex_url, gemini_url = gemini.endpoint('Nano Banana 2.1'), gemini.endpoint('Nano Banana 2.1', {})
+        self.assertEqual(vertex_url, 'https://aiplatform.googleapis.com/v1/projects/veevee-project/locations/global/publishers/google/'
+                                     'models/gemini-nano-banana-2.1:generateContent')
+        self.assertNotIn('seed', body['generationConfig'])
+        for url, allowed in ((gemini_url, False), (vertex_url, True)):
+            ledger, sent = {row['id']: 'ATTEMPTING'}, []
+            with self.subTest(url=url), patch.dict(os.environ, vertex), self.guarded(ledger, sent):
+                paid_guard.STATE.active = {'id': row['id'], 'contract': row, 'quote': paid_guard.quote_for(row, UNLIMITED)}
+                transport = HttpTransport(allowed_hosts=['generativelanguage.googleapis.com', 'aiplatform.googleapis.com'])
+                if allowed:
+                    transport.request('POST', url, body=body)
+                else:
+                    with self.assertRaises(ProviderError) as caught:
+                        transport.request('POST', url, body=body)
+                    self.assertEqual(caught.exception.code, 'preview_paid_scope')
+            self.assertEqual(sent, [('POST', url, body)] if allowed else [])
+
     def test_nano_banana_2_1_claim_allows_only_its_own_endpoint(self):
         from apps.generation.providers import gemini
         from apps.integrations.transport import HttpTransport, ProviderError

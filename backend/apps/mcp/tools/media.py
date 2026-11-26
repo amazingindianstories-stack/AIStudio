@@ -4,9 +4,10 @@ One bounded Gemini sub-call per call (``apps.agents.media.describe``, usage purp
 plain text, markdown or docx, which returns the file's own text. Either way the text comes back as quoted untrusted
 data, cut to a budget.
 """
-import os
 import uuid
 
+from apps.integrations import google_genai
+from apps.integrations.errors import ProviderError
 from .. import errors, results
 from ..registry import ToolResult, obj, register
 from ..runtime import db
@@ -43,14 +44,17 @@ def look(principal, tags, asset_id, question, kinds, other):
     text = media.document_text(asset)
     if text is not None:
         return asset, text
-    key = os.environ.get('GOOGLE_API_KEY')
-    if not key:
-        raise errors.ToolError(errors.INTERNAL_ERROR, 'Veevee cannot read files for the agent: GOOGLE_API_KEY is not set. '
-                                                      'Ask a Veevee admin.')
+    if not google_genai.configured():
+        raise errors.ToolError(errors.INTERNAL_ERROR, f'Veevee cannot read files for the agent: {google_genai.credential_name()} '
+                                                      'is not set. Ask a Veevee admin.')
+    try:
+        credentials = google_genai.auth_headers()
+    except ProviderError:
+        raise errors.ToolError(errors.INTERNAL_ERROR, 'Veevee could not reach the model to read this file. Try again in a minute.') from None
     conversation, run = run_of(tags)
     usage = UsageContext(user_id=principal.user.id, grant_id=principal.token_id, conversation_id=conversation, run_id=run,
                          step_index=tags.get('stepIndex'), purpose='media')
-    return asset, media.describe(asset, question, api_key=key, usage=usage)
+    return asset, media.describe(asset, question, credentials=credentials, usage=usage)
 
 
 async def answer(call, kinds, other):

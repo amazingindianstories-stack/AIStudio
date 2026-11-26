@@ -95,7 +95,7 @@ class MediaCase(StorageMixin, TestCase):
     def parts(self, ids, responses=(), sent=None):
         sent = [] if sent is None else sent
         with provider(list(responses), sent):
-            parts, release = media.attachment_parts(self.user, ids, api_key='fixture-key')
+            parts, release = media.attachment_parts(self.user, ids, credentials={'x-goog-api-key': 'fixture-key'})
             release()
         return parts, sent
 
@@ -186,6 +186,26 @@ class InlineAndFilesTests(MediaCase):
         self.assertEqual(parts[3], {'fileData': {'mimeType': 'image/png', 'fileUri': FILE}})
         self.assertEqual([call[0] for call in sent], ['POST', 'POST', 'DELETE'])
 
+    def test_vertex_has_no_files_api_so_a_file_that_does_not_fit_inline_is_refused_before_any_call(self):
+        first, second = png_bytes(8, 8), png_bytes(9, 9)
+        ids = [self.upload('image/png', first), self.upload('image/png', second)]
+        vertex = {'GOOGLE_GENAI_BACKEND': 'vertex', 'GCP_PROJECT_ID': 'veevee-project'}
+        for limits, message in (({'INLINE_BYTES': len(first) - 1}, f'File {ids[0]} is larger than the '),
+                                ({'INLINE_TOTAL': len(first) + len(second) - 1}, f'File {ids[1]} does not fit: the agent reads at most ')):
+            sent = []
+            with self.subTest(limits=limits), patch.dict('os.environ', vertex), patch.multiple(media, **limits), \
+                    provider([], sent), self.assertRaises(errors.ToolError) as raised:
+                media.attachment_parts(self.user, ids, credentials={'x-goog-api-key': 'fixture-key'})
+            self.assertEqual(raised.exception.code, errors.INVALID_INPUT)
+            self.assertTrue(raised.exception.message.startswith(message), raised.exception.message)
+            self.assertTrue(raised.exception.message.endswith('on Vertex AI.'), raised.exception.message)
+            self.assertEqual(sent, [])
+        with patch.dict('os.environ', vertex):
+            parts, sent = self.parts(ids)
+        self.assertEqual([part.get('inlineData', {}).get('data') for part in parts[1::2]],
+                         [base64.b64encode(first).decode(), base64.b64encode(second).decode()])
+        self.assertEqual(sent, [])
+
     def test_a_failed_or_stuck_upload_is_still_deleted(self):
         identifier = self.upload('image/png', png_bytes(8, 8))
         cases = {'failed state': [started(), uploaded('FAILED'), HttpResult(200, b'{}')],
@@ -195,7 +215,7 @@ class InlineAndFilesTests(MediaCase):
             with self.subTest(label):
                 sent = []
                 with patch.object(media, 'INLINE_BYTES', 16), provider(responses, sent), self.assertRaises(errors.ToolError) as raised:
-                    media.attachment_parts(self.user, [identifier], api_key='fixture-key')
+                    media.attachment_parts(self.user, [identifier], credentials={'x-goog-api-key': 'fixture-key'})
                 self.assertEqual(raised.exception.code, errors.INTERNAL_ERROR)
                 self.assertEqual(sent[-1][:2], ('DELETE', FILE))
                 self.assertEqual(responses, [])
@@ -205,7 +225,7 @@ class InlineAndFilesTests(MediaCase):
         sent = []
         with patch.object(media, 'INLINE_BYTES', 16), provider([started(), uploaded(), HttpResult(200, b'{}')], sent), \
                 self.assertRaises(errors.ToolError) as raised:
-            media.attachment_parts(self.user, ids, api_key='fixture-key')
+            media.attachment_parts(self.user, ids, credentials={'x-goog-api-key': 'fixture-key'})
         self.assertEqual(raised.exception.code, errors.NOT_FOUND)
         self.assertEqual([call[:2] for call in sent], [('POST', FILES_UPLOAD), ('POST', UPLOAD), ('DELETE', FILE)])
 
@@ -218,7 +238,7 @@ class InlineAndFilesTests(MediaCase):
             with self.subTest(label):
                 sent = []
                 with patch.object(media, 'INLINE_BYTES', 16), provider(responses, sent), self.assertRaises(errors.ToolError):
-                    media.attachment_parts(self.user, [identifier], api_key='fixture-key')
+                    media.attachment_parts(self.user, [identifier], credentials={'x-goog-api-key': 'fixture-key'})
                 self.assertNotIn('DELETE', [call[0] for call in sent])
 
     def test_a_failed_delete_is_logged_and_never_raised(self):
@@ -234,7 +254,7 @@ class InlineAndFilesTests(MediaCase):
                     return outcome if method == 'DELETE' else responses.pop(0)
                 with patch.object(media, 'INLINE_BYTES', 16), patch.object(HttpTransport, '_send', send), \
                         self.assertLogs('apps.agents.media', 'WARNING') if label != 'gone' else contextlib.nullcontext() as logs:
-                    parts, release = media.attachment_parts(self.user, [identifier], api_key='fixture-key')
+                    parts, release = media.attachment_parts(self.user, [identifier], credentials={'x-goog-api-key': 'fixture-key'})
                     release()
                     release()                                        # a second release deletes nothing twice
                 self.assertEqual(sent, ['POST', 'POST', 'DELETE'])

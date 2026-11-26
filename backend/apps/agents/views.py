@@ -1,5 +1,4 @@
 import math
-import os
 import uuid
 from django.conf import settings
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
@@ -8,6 +7,8 @@ from apps.authentication.session import lookup
 from apps.common.responses import renew_session
 from apps.generation.models import Generation
 from apps.generation.watermark import WHITESPACE
+from apps.integrations import google_genai
+from apps.integrations.errors import ProviderError
 from apps.library.views import body_or_empty
 from apps.mcp import errors
 from apps.media.keys import media_key_from_ref
@@ -231,12 +232,14 @@ def transcribe(request, id):
         return Response({'error': 'The voice note is empty.'}, status=400)
     if len(audio) > media.VOICE_SLACK + seconds * media.VOICE_BYTE_RATE:
         return Response({'error': 'The voice note is longer than its reported duration.'}, status=400)
-    key = os.environ.get('GOOGLE_API_KEY')
-    if not key:
-        return Response({'error': 'Voice input is not configured: GOOGLE_API_KEY is not set. Ask a Veevee admin.'}, status=503)
+    if not google_genai.configured():
+        return Response({'error': f'Voice input is not configured: {google_genai.credential_name()} is not set. Ask a Veevee admin.'},
+                        status=503)
     usage = UsageContext(user_id=user.id, conversation_id=uuid.UUID(id), purpose='transcribe')
     try:
-        transcript = media.transcribe(mime, audio, api_key=key, usage=usage)
+        transcript = media.transcribe(mime, audio, credentials=google_genai.auth_headers(), usage=usage)
+    except ProviderError:
+        transcript = None
     except errors.ToolError as error:
         return renew_session(request, Response({'error': error.message}, status=ATTACHMENT_STATUS.get(error.code, 502)))
     if transcript is None:

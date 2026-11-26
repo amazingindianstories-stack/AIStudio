@@ -30,6 +30,7 @@ from urllib.parse import parse_qs, urlsplit
 from django.db import IntegrityError, transaction
 
 from apps.common.leases import now_ms
+from apps.integrations import google_genai
 from apps.integrations.transport import HttpTransport, ProviderError
 from apps.mcp.registry import AGENT_TOOLS, REGISTRY
 from .declarations import function_declarations, model_schema
@@ -300,7 +301,7 @@ class AgentLoopTransport(HttpTransport):
             raise ValueError(f'Agents tab model {model!r} is not one of {", ".join(LOOP_MODELS)}.')
         if thinking_level not in THINKING_LEVELS[model]:
             raise ValueError(f'{model} does not think at {thinking_level!r}; it takes {", ".join(THINKING_LEVELS[model])}.')
-        super().__init__(allowed_hosts={'generativelanguage.googleapis.com'}, timeout=timeout)
+        super().__init__(allowed_hosts={google_genai.host(model=model)}, timeout=timeout)
         self.model, self.usage = model, usage
         self.endpoint = agent_endpoint(model)
         self.allowed = PAYLOADS.get(usage.purpose) or (lambda body: loop_payload_allowed(body, thinking_level))

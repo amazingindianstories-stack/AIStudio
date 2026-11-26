@@ -14,6 +14,19 @@ preview build first. Production only receives a release after it has passed ther
 
 Legend: PASS · FAIL · NOT VERIFIED · PENDING (not started) · BLOCKED (needs owner approval)
 
+## Not deployed yet - Vertex AI switch (branch `fm/veevee-vertex-switch`)
+
+On 2026-11-25 Google paused the Gemini API for the billing account after its monthly spend cap was reached, so every
+Gemini call fails with `RESOURCE_EXHAUSTED`. Vertex AI is the production target from here on. This branch adds `GOOGLE_GENAI_BACKEND=vertex`,
+which moves every Gemini call except Gemini Omni video to Vertex AI. It authenticates with the Application Default
+Credentials every service already holds (`GCP_ADC_JSON`), impersonating a Vertex-only service account named by
+`GOOGLE_VERTEX_IMPERSONATE_SA`; the IAM grants for that are in place. `providers/vertex-ai.md` lists the variables,
+which Railway services need them (the switch on all six; the impersonation target and region on api, generation and
+agent only, never mcp), the model changes and the limits.
+
+With the switch unset, behavior is unchanged. Offline tests pass, and no live Vertex call has been made. Deploying it,
+setting the Railway variables and the canary calls each need owner approval.
+
 ## Production incident 2026-11-09 - database TLS certificate renewal
 
 At 03:59:07 UTC the Green Postgres server certificate expired. The database stayed running and its

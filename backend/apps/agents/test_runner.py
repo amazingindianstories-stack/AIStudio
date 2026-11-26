@@ -177,6 +177,25 @@ class LoopTests(RunnerCase):
             self.assertEqual(self.advance(run), 'failed')
         self.assertEqual(self.refresh(run).error['code'], 'llm_unconfigured')
 
+    def test_on_vertex_each_step_calls_vertex_with_a_current_credential_or_fails_unconfigured(self):
+        sent = []
+
+        def send(transport, method, url, **kwargs):
+            sent.append((url, kwargs['headers'], transport.allowed_hosts))
+            return reply(text('Done.'))
+        regional = {'GOOGLE_GENAI_BACKEND': 'vertex', 'GCP_PROJECT_ID': 'veevee-project', 'GOOGLE_VERTEX_LOCATION': 'us-central1'}
+        run = self.start_run()
+        with patch.dict(os.environ, regional), patch.object(HttpTransport, '_send', send), \
+                patch('apps.integrations.google_genai._access_token', return_value='minted'):
+            self.assertEqual(self.advance(run), 'completed')
+        self.assertEqual(sent, [('https://us-central1-aiplatform.googleapis.com/v1/projects/veevee-project/locations/us-central1/publishers/'
+                                 f'google/models/{run.model}:generateContent', {'Content-Type': 'application/json', 'Authorization': 'Bearer minted'},
+                                 frozenset({'us-central1-aiplatform.googleapis.com'}))])
+        run = self.start_run()
+        with patch.dict(os.environ, {'GOOGLE_GENAI_BACKEND': 'vertex'}):
+            self.assertEqual(self.advance(run), 'failed')
+        self.assertEqual(self.refresh(run).error['code'], 'llm_unconfigured')
+
     def test_transient_model_errors_are_retried_then_fail_the_run(self):
         self.gemini(HttpResult(503, b'{}'), [text('Done.')])
         run = self.start_run()

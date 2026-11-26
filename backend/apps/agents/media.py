@@ -1,7 +1,7 @@
 """Library files as Gemini parts for the Agents tab: an attachment, view_media or read_document names an asset by id
 (an upload session id or a generation id) and gets parts the agent's transports accept.
 
-    parts, release = attachment_parts(user_id, asset_ids, api_key=key)
+    parts, release = attachment_parts(user_id, asset_ids, credentials=google_genai.auth_headers())
     try:
         ...  # the loop step that carries the parts
     finally:
@@ -11,7 +11,7 @@ An upload resolves for the user who made it; a generation under the shared libra
 (``apps.generation.services.reads``), so a teammate's succeeded generation does too. Another user's upload, a deleted,
 unfinished or protected file and an unknown id are the same NOT_FOUND. Images, video, audio and PDFs go inline up to ``INLINE_BYTES`` (``INLINE_TOTAL`` per call, so the base64
 body stays under ``loop_llm.MAX_BODY_BYTES``), else through the Files API, and ``release`` deletes those files
-whatever happened. Plain text, markdown and docx become text parts. Every text from a file is ``untrusted``: a fixed
+whatever happened. Vertex AI has no Files API, so there a file that does not fit inline is refused. Plain text, markdown and docx become text parts. Every text from a file is ``untrusted``: a fixed
 delimiter block, cut to a character budget. Size and duration caps are admin limit keys read at call time.
 
 ``describe`` is the view_media/read_document sub-call (``apps.mcp.tools.media``): one media call about one file, its
@@ -34,6 +34,7 @@ from apps.generation.models import Generation
 from apps.media.audio_duration import audio_seconds
 from apps.media.keys import is_protected_key, media_key_from_ref
 from apps.media.models import UploadSession
+from apps.integrations import google_genai
 from apps.integrations.transport import ProviderError
 from apps.media.storage import MediaNotFoundError, get_storage
 from apps.mcp import errors
@@ -227,15 +228,15 @@ def docx_text(data, budget=TEXT_CHARS):
 class Files:
     """The Files API uploads of one call; ``release`` deletes them all and records, never raises, what it could not."""
 
-    def __init__(self, api_key, transport=None):
-        self.key, self.transport, self.uris = api_key, transport or GeminiFilesTransport(), []
+    def __init__(self, credentials, transport=None):
+        self.credentials, self.transport, self.uris = credentials, transport or GeminiFilesTransport(), []
 
     def upload(self, mime, data, signal=None):
         """A ``fileData`` part once the file is ACTIVE, every call and wait within ``signal`` (a ``Deadline``) when
         given. An upload whose answer is lost cannot be named, so it cannot be deleted here; Gemini deletes every file
         after 48 hours."""
         start = self.transport.request('POST', FILES_UPLOAD, headers={
-            'Content-Type': 'application/json', 'x-goog-api-key': self.key, 'X-Goog-Upload-Protocol': 'resumable',
+            'Content-Type': 'application/json', **self.credentials, 'X-Goog-Upload-Protocol': 'resumable',
             'X-Goog-Upload-Command': 'start', 'X-Goog-Upload-Header-Content-Length': str(len(data)),
             'X-Goog-Upload-Header-Content-Type': mime}, body={'file': {'display_name': FILES_DISPLAY_NAME}}, signal=signal)
         target = next((value for name, value in start.headers.items() if name.lower() == 'x-goog-upload-url'), None)
@@ -253,7 +254,7 @@ class Files:
             if state != 'PROCESSING':
                 break
             sleep(min(FILE_POLL_SECONDS, signal.remaining()) if signal else FILE_POLL_SECONDS)
-            response = self.transport.request('GET', uri, headers={'x-goog-api-key': self.key}, signal=signal)
+            response = self.transport.request('GET', uri, headers=dict(self.credentials), signal=signal)
             state = self.state(response, top=True) if response.ok else 'FAILED'
         if state != 'ACTIVE':
             raise self.failed(f'file state {state}')
@@ -284,7 +285,7 @@ class Files:
         uris, self.uris = self.uris, []
         for uri in uris:
             try:
-                response = self.transport.request('DELETE', uri, headers={'x-goog-api-key': self.key},
+                response = self.transport.request('DELETE', uri, headers=dict(self.credentials),
                                                   signal=Deadline(RELEASE_SECONDS))
                 if not response.ok and response.status != 404:
                     logger.warning('agent_file_delete_failed file=%s status=%s', uri.rsplit('/', 1)[-1], response.status)
@@ -307,13 +308,18 @@ def asset_part(asset, files, inline_total=0, signal=None):
     if len(asset.data) <= INLINE_BYTES and inline_total + len(asset.data) <= INLINE_TOTAL:
         part = {'inlineData': {'mimeType': asset.mime, 'data': base64.b64encode(asset.data).decode()}}
         return part, inline_total + len(asset.data)
+    if google_genai.is_vertex():
+        # Vertex AI has no Files API, so a file that does not fit inline cannot reach the model there.
+        if len(asset.data) > INLINE_BYTES:
+            raise invalid(f'File {asset.id} is larger than the {INLINE_BYTES / MB:g} MB the agent can read on Vertex AI.')
+        raise invalid(f'File {asset.id} does not fit: the agent reads at most {INLINE_TOTAL / MB:g} MB of files at once on Vertex AI.')
     return files.upload(asset.mime, asset.data, signal), inline_total
 
 
-def attachment_parts(user_id, asset_ids, *, api_key, storage=None, transport=None):
+def attachment_parts(user_id, asset_ids, *, credentials, storage=None, transport=None):
     """``(parts, release)`` for one user message's attachments: each file after a line naming its id and kind.
     ``release`` deletes the Files API uploads; a failure part way releases those already made before raising."""
-    files, parts, inline_total = Files(api_key, transport), [], 0
+    files, parts, inline_total = Files(credentials, transport), [], 0
     try:
         for asset_id in asset_ids:
             asset = load(user_id, asset_id, storage=storage)
@@ -342,16 +348,16 @@ def require_budget(usage):
         raise errors.ToolError(errors.BUDGET_EXCEEDED, hit.message)
 
 
-def describe(asset, question=None, *, api_key, usage, transport=None, files_transport=None, signal=None):
+def describe(asset, question=None, *, credentials, usage, transport=None, files_transport=None, signal=None):
     """One media sub-call about an image, video, audio or PDF ``asset``: ``MEDIA_PROMPT``, the file and the question
     quoted as data, on ``LOOP_MODEL`` under ``usage`` (purpose 'media'), within ``signal`` (a ``Deadline``) when given.
     The answer comes back ``untrusted`` and cut to ``ANSWER_CHARS``; the Files API upload, if any, is deleted whatever
     happened. Raises BUDGET_EXCEEDED, calling nothing, when the agent daily budget is spent."""
     require_budget(usage)
-    files, transport = Files(api_key, files_transport), transport or AgentLoopTransport(LOOP_MODEL, usage)
+    files, transport = Files(credentials, files_transport), transport or AgentLoopTransport(LOOP_MODEL, usage)
     try:
         part, _ = asset_part(asset, files, signal=signal)
-        response = transport.request('POST', transport.endpoint, headers={'Content-Type': 'application/json', 'x-goog-api-key': api_key},
+        response = transport.request('POST', transport.endpoint, headers={'Content-Type': 'application/json', **credentials},
                                      body=media_body([part], question), signal=signal)
     except ProviderError as error:
         response = None
@@ -366,14 +372,14 @@ def describe(asset, question=None, *, api_key, usage, transport=None, files_tran
     return untrusted(text, ANSWER_CHARS)
 
 
-def transcribe(mime, data, *, api_key, usage, transport=None):
+def transcribe(mime, data, *, credentials, usage, transport=None):
     """A voice note's words: ``TRANSCRIBE_PROMPT`` and the inline audio on ``LOOP_MODEL`` under ``usage`` (purpose
     'transcribe'); '' when Gemini hears no speech. Neither the audio nor the transcript is stored or logged. Raises
     BUDGET_EXCEEDED, calling nothing, when the agent daily budget is spent."""
     require_budget(usage)
     transport = transport or AgentLoopTransport(LOOP_MODEL, usage)
     try:
-        response = transport.request('POST', transport.endpoint, headers={'Content-Type': 'application/json', 'x-goog-api-key': api_key},
+        response = transport.request('POST', transport.endpoint, headers={'Content-Type': 'application/json', **credentials},
                                      body=transcribe_body(mime, base64.b64encode(data).decode()))
     except ProviderError as error:
         logger.warning('agent_transcribe_failed code=%s', error.code)

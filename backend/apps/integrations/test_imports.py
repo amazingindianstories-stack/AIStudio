@@ -27,6 +27,7 @@ importlib.import_module('apps.integrations.remote')
 importlib.import_module('apps.integrations.transport')
 importlib.import_module('apps.integrations.request_deadline')
 importlib.import_module('apps.integrations.errors')
+importlib.import_module('apps.integrations.google_genai')
 assert not any('models' in name.split('.') for name in sys.modules)
 upward = sorted(name for name in sys.modules if name.startswith('apps.') and not name.startswith('apps.integrations'))
 assert not upward, upward
