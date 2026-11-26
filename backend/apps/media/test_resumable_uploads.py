@@ -256,6 +256,27 @@ class ResumableUploadTests(TransactionTestCase):
         self.assertEqual(stuck.state, 'uploading')
         self.assertGreater(stuck.expires_at, timezone.now())
 
+    def test_cleanup_settles_a_gcs_session_sealed_under_an_earlier_key(self):
+        client = Mock()
+        client.bucket.return_value.blob.return_value.create_resumable_upload_session.return_value = \
+            'https://storage.googleapis.com/private-bearer'
+        gcs = StorageService(GCSAdapter(client, 'fixture-bucket'))
+        session, _ = self.begin()
+        with override_settings(AUTH_SECRET='an-earlier-key'):
+            sealed = uploads._cipher().encrypt(b'https://storage.googleapis.com/old').decode()
+        UploadSession.objects.filter(id=session['uploadId']).update(
+            session_uri=sealed, expires_at=timezone.now()-timedelta(seconds=1))
+        with patch('requests.delete') as delete, self.assertLogs('apps.media.uploads', 'WARNING') as logs:
+            result = cleanup_expired_uploads(gcs)
+        self.assertEqual(result, {'cleaned': 1, 'failed': 0})
+        delete.assert_not_called()
+        self.assertEqual(len(logs.records), 1)
+        self.assertIsNone(logs.records[0].exc_info)
+        client.bucket.return_value.blob.return_value.delete.assert_called()
+        row = UploadSession.objects.get(id=session['uploadId'])
+        self.assertEqual((row.state, row.session_uri), ('cancelled', ''))
+        self.assertEqual(cleanup_expired_uploads(gcs), {'cleaned': 0, 'failed': 0})
+
     def test_endpoints_metadata_authenticated_no_store_and_finalize(self):
         token = sign_session(self.user)
         self.client.cookies['veevee_session'] = token
