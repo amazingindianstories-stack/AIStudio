@@ -177,8 +177,11 @@ def _part_allowed(role, part):
         return (isinstance(value, dict) and set(value) == {'mimeType', 'data'} and value['mimeType'] in MEDIA_MIME
                 and isinstance(value['data'], str))
     if kind == 'fileData':
+        from apps.integrations.google_media import vertex_uri_allowed
         return (isinstance(value, dict) and set(value) == {'mimeType', 'fileUri'} and value['mimeType'] in MEDIA_MIME
-                and isinstance(value['fileUri'], str) and FILE_URI.fullmatch(value['fileUri']) is not None)
+                and isinstance(value['fileUri'], str)
+                and (FILE_URI.fullmatch(value['fileUri']) is not None
+                     or (google_genai.is_vertex() and vertex_uri_allowed(value['fileUri']))))
     payload = 'args' if kind == 'functionCall' else 'response'
     return (isinstance(value, dict) and {'name', payload} <= set(value) <= {'name', payload, 'id'}
             and value['name'] in LOOP_TOOLS and isinstance(value[payload], dict))

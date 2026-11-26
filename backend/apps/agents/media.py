@@ -11,7 +11,8 @@ An upload resolves for the user who made it; a generation under the shared libra
 (``apps.generation.services.reads``), so a teammate's succeeded generation does too. Another user's upload, a deleted,
 unfinished or protected file and an unknown id are the same NOT_FOUND. Images, video, audio and PDFs go inline up to ``INLINE_BYTES`` (``INLINE_TOTAL`` per call, so the base64
 body stays under ``loop_llm.MAX_BODY_BYTES``), else through the Files API, and ``release`` deletes those files
-whatever happened. Vertex AI has no Files API, so there a file that does not fit inline is refused. Plain text, markdown and docx become text parts. Every text from a file is ``untrusted``: a fixed
+whatever happened. On Vertex AI, large files use authorized Cloud Storage objects or inference derivatives instead.
+Plain text, markdown and docx become text parts. Every text from a file is ``untrusted``: a fixed
 delimiter block, cut to a character budget. Size and duration caps are admin limit keys read at call time.
 
 ``describe`` is the view_media/read_document sub-call (``apps.mcp.tools.media``): one media call about one file, its
@@ -25,7 +26,7 @@ import time
 import uuid
 import xml.etree.ElementTree as ET
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from django.conf import settings
 
@@ -102,6 +103,8 @@ class Asset:
     kind: str                           # 'image', 'video', 'audio' or 'document'
     mime: str
     data: bytes
+    key: str | None = field(default=None, compare=False, repr=False)
+    storage: object = field(default=None, compare=False, repr=False)
 
 
 def not_found(asset_id):
@@ -175,7 +178,8 @@ def load(user_id, asset_id, *, storage=None):
         if not key or is_protected_key(key):
             raise not_found(asset_id)
         declared = None
-    stored, data = _read(storage or get_storage(), key, limit(user_id, 'agentAttachmentMaxBytes'), asset_id)
+    storage = storage or get_storage()
+    stored, data = _read(storage, key, limit(user_id, 'agentAttachmentMaxBytes'), asset_id)
     mime = normalize(declared or stored)
     if mime not in MEDIA_MIME and mime != DOCX:
         raise invalid(f'File {asset_id} is {mime or "of an unknown type"}, which the agent cannot read. It reads JPEG, PNG, WebP '
@@ -185,7 +189,7 @@ def load(user_id, asset_id, *, storage=None):
         seconds, most = audio_seconds(data), limit(user_id, 'agentAttachmentMaxSeconds')
         if seconds is not None and seconds > most:          # unmeasurable is left to the byte cap
             raise invalid(f'File {asset_id} is {seconds:.0f} s long; the agent reads {kind} up to {most} s.')
-    return Asset(str(identifier), kind, mime, data)
+    return Asset(str(identifier), kind, mime, data, key, storage)
 
 
 def docx_text(data, budget=TEXT_CHARS):
@@ -230,6 +234,8 @@ class Files:
 
     def __init__(self, credentials, transport=None):
         self.credentials, self.transport, self.uris = credentials, transport or GeminiFilesTransport(), []
+        from apps.integrations.google_media import MediaInputs
+        self.vertex_inputs = MediaInputs()
 
     def upload(self, mime, data, signal=None):
         """A ``fileData`` part once the file is ACTIVE, every call and wait within ``signal`` (a ``Deadline``) when
@@ -282,6 +288,7 @@ class Files:
         return errors.ToolError(errors.INTERNAL_ERROR, 'Veevee could not hand this file to the agent. Try again in a minute.')
 
     def release(self):
+        self.vertex_inputs.release()
         uris, self.uris = self.uris, []
         for uri in uris:
             try:
@@ -301,7 +308,7 @@ def document_text(asset):
 
 
 def asset_part(asset, files, inline_total=0, signal=None):
-    """``(part, inline bytes used)``: text for plain text, markdown and docx; inline or a Files API upload otherwise."""
+    """``(part, inline bytes used)``: text, inline, or a backend-specific file handoff."""
     text = document_text(asset)
     if text is not None:
         return {'text': text}, inline_total
@@ -309,10 +316,11 @@ def asset_part(asset, files, inline_total=0, signal=None):
         part = {'inlineData': {'mimeType': asset.mime, 'data': base64.b64encode(asset.data).decode()}}
         return part, inline_total + len(asset.data)
     if google_genai.is_vertex():
-        # Vertex AI has no Files API, so a file that does not fit inline cannot reach the model there.
-        if len(asset.data) > INLINE_BYTES:
-            raise invalid(f'File {asset.id} is larger than the {INLINE_BYTES / MB:g} MB the agent can read on Vertex AI.')
-        raise invalid(f'File {asset.id} does not fit: the agent reads at most {INLINE_TOTAL / MB:g} MB of files at once on Vertex AI.')
+        files.vertex_inputs.storage = asset.storage
+        part = files.vertex_inputs.part(asset.mime, asset.data, key=asset.key, signal=signal,
+                                       inline_budget=min(INLINE_BYTES, max(1, INLINE_TOTAL - inline_total)))
+        used = len(base64.b64decode(part['inlineData']['data'])) if 'inlineData' in part else 0
+        return part, inline_total + used
     return files.upload(asset.mime, asset.data, signal), inline_total
 
 
@@ -360,6 +368,8 @@ def describe(asset, question=None, *, credentials, usage, transport=None, files_
         response = transport.request('POST', transport.endpoint, headers={'Content-Type': 'application/json', **credentials},
                                      body=media_body([part], question), signal=signal)
     except ProviderError as error:
+        if error.code == 'media_preparation':
+            raise errors.ToolError(errors.INVALID_INPUT, str(error)) from None
         response = None
         logger.warning('agent_media_call_failed code=%s', error.code)
     finally:

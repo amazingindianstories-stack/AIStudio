@@ -83,8 +83,7 @@ stack keeps its fake Gemini provider and does not pass them through.
 
 - **Gemini Omni video stays on the Gemini API.** Vertex does not document the Interactions API that Omni uses. While
   the Gemini API is unavailable, Omni jobs fail as before.
-- **Large Agents attachments are refused.** Vertex has no Files API, so the agent reads only files that fit inline: one
-  file up to 4 MB, and 9 MB per call. A larger file gets a clear refusal instead of an upload.
+- **Large media use Cloud Storage.** The Vertex handoff below replaces inline-size refusals; Vertex has no Files API.
 - **Nano Banana 2.1 sends no seed.** Vertex rejects `seed` (and `temperature`, `topP`, `topK`) for this model. The seed
   a job records is shown but not sent.
 - **The admin status row cannot read a model for free.** It mints an access token and reports "access token minted"
@@ -98,6 +97,59 @@ stack keeps its fake Gemini provider and does not pass them through.
   makes a billed submission; retry the job after the switch.
 - **Pricing is unverified.** Usage rows and the Agents tab budget use the Gemini API rates. Vertex pricing was not
   checked.
+
+## Media handoff and reader permissions
+
+`backend/apps/integrations/google_media.py` prepares Vertex `generateContent` inputs after the original request
+passes its authorization and paid guard. Inputs stay inline up to Veevee's conservative 4 MiB per file and 9 MiB
+combined budgets. Larger inputs use `fileData` with a private `gs://` URI in the existing `GCP_MEDIA_BUCKET` storage
+adapter. This covers agent attachments and media tools, reference generation and judging, image prep and audio
+transcription. Board text requests remain text; media reads reached from a board use the same handoff.
+
+Authorized agent assets reuse their existing object, including legacy bare keys and the production prefix. Other
+inputs get a random `ai-inputs/<uuid>` object under the configured storage prefix, written with `private, no-store`
+and deleted in `finally`, including failed submissions and cancellation. Originals and generated masters are never
+modified. No public URLs, signed URLs, or new credentials are needed. The ordinary storage ADC identity writes and
+deletes these objects. A process crash can leave an inference object behind; an owner-managed bucket lifecycle
+rule on the exact prefixed `ai-inputs/` namespace can remove abandoned copies. Do not apply that rule to originals.
+
+If GCS is unavailable as a configured storage backend, or a media input exceeds the URI limit, the server prepares
+an inference derivative: JPEG resizing/recompression, AAC audio, or H.264/AAC video. Audio/video encoding preserves
+the full timeline; no silent trimming. Subprocesses are bounded and accept local files only. Corrupt media, a document
+that cannot fit its available transport, or a timeline that cannot fit without discarding content gets a preparation
+error. Storage permission/network errors retain their error rather than being mistaken for a missing object.
+Existing product upload, duration, context and media-count limits still apply. The Gemini API branch keeps its
+existing inline/Files API behavior; Omni and other providers do not enter this handoff.
+
+Google's current limits, checked 2026-11-26 for Veevee's Gemini 3 models:
+
+| Input | Inline part | One Cloud Storage object | Other content limits |
+|---|---|---|---|
+| Images, including Nano Banana Pro and 2.1 | 256 MB | 2 GiB minus 500 KiB | Image generation: 14 references |
+| Audio | 256 MB | 2 GiB minus 500 KiB | Approximately 8.4 hours, subject to model context |
+| Video | 256 MB | 2 GiB minus 500 KiB | Approximately 45 minutes with audio, 1 hour without |
+| PDF | 256 MB | 2 GiB minus 500 KiB | Subject to model context |
+
+These are API limits, not the smaller console local-upload or public HTTPS URL limits. Non-migrated Gemini 2.5
+endpoints retain legacy image/PDF restrictions; this transport targets the pinned Gemini 3 defaults. Sources:
+[image limits](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/capabilities/image-understanding),
+[audio limits](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/capabilities/audio-understanding),
+[video limits](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/capabilities/video-understanding),
+[document limits](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/capabilities/document-understanding).
+
+The authenticated Vertex caller is the account named by `GOOGLE_VERTEX_IMPERSONATE_SA` (the production
+`veevee-vertex-ai` account), or ADC without impersonation. Google's current documentation distinguishes that caller
+from the **object-fetch identity**: `generateContent` reads through the calling project's Vertex AI service agent,
+`service-PROJECT_NUMBER@gcp-sa-aiplatform.iam.gserviceaccount.com`. The bucket must be in the calling project for
+the documented private-object path. Firstmate must verify/grant **Storage Object Viewer**
+(`roles/storage.objectViewer`, including `storage.objects.get`) on the media bucket to that service agent, and to
+the impersonated caller where bucket IAM requires caller checks. Neither identity needs object write access for
+this feature. This task makes no IAM changes. See Google's
+[Cloud Storage access troubleshooting](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/capabilities/design-multimodal-prompts#troubleshoot-cloud-storage-access-and-permissions).
+
+Offline tests use a fake bucket and disposable PostgreSQL. Owner acceptance must include a real input over 4 MiB,
+a batch over 9 MiB, image references, audio transcription and a video media read, verifying storage-reader IAM and
+deletion of the inference copy after each call. Synthetic test success does not establish live Vertex acceptance.
 
 ## Verification and rollback
 
