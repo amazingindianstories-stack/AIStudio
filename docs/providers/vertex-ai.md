@@ -93,6 +93,9 @@ stack keeps its fake Gemini provider and does not pass them through.
   paid rehearsals. On Vertex they refuse, which is fail-closed.
 - **Board text jobs queued before the switch** carry `gemini-flash-latest` or `gemini-pro-latest`, which Vertex does
   not serve. Such a job fails if a Vertex worker runs it; retry it after the switch.
+- **Audio transcription jobs queued before the switch** record `gemini-2.5-flash`, which Vertex retired. A Vertex
+  worker refuses such a job: the paid guard rejects its quote, or, with the guard off, Vertex rejects the model. Neither
+  makes a billed submission; retry the job after the switch.
 - **Pricing is unverified.** Usage rows and the Agents tab budget use the Gemini API rates. Vertex pricing was not
   checked.
 

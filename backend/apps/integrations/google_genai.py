@@ -53,6 +53,8 @@ GLOBAL_ONLY = frozenset({'gemini-3-pro-image', 'gemini-nano-banana-2.1'})
 # (gemini-3.8-flash GA, gemini-3.1-pro-preview preview; read 2026-11-26), and they are the Agents tab's own models.
 VERTEX_FLASH = 'gemini-3.8-flash'
 VERTEX_PRO = 'gemini-3.1-pro-preview'
+# Seconds each token-minting HTTP call may take; google-auth's own default is 120 and refreshes hold the process lock.
+REFRESH_TIMEOUT = 30
 
 
 def _env(env):
@@ -166,6 +168,13 @@ def _load(target):
     return credentials
 
 
+def _bounded(request):
+    """``request`` with every call's timeout forced to ``REFRESH_TIMEOUT``."""
+    def call(*args, timeout=None, **kwargs):
+        return request(*args, timeout=REFRESH_TIMEOUT, **kwargs)
+    return call
+
+
 def _access_token(target):
     """A current OAuth access token for Application Default Credentials, as ``target`` when given: one credentials
     object per target, refreshed under a lock shortly before it expires. A failure logs and says only its kind."""
@@ -186,7 +195,7 @@ def _access_token(target):
             try:
                 with requests.Session() as session:
                     session.trust_env = False
-                    credentials.refresh(Request(session))
+                    credentials.refresh(_bounded(Request(session)))
             except Exception as error:
                 logger.warning('vertex_token_refresh_failed error_type=%s', type(error).__name__)
                 raise ProviderError('Vertex AI access token could not be minted.', code='vertex_auth',

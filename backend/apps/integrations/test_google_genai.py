@@ -1,5 +1,7 @@
 """The Gemini API / Vertex AI switch (``google_genai``): endpoints, host pins, and Application Default Credentials tokens."""
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+
+import requests
 
 from django.test import SimpleTestCase
 
@@ -17,9 +19,12 @@ class FakeCredentials:
 
     def __init__(self, source=None, **options):
         self.source, self.options, self.token, self.valid, self.refreshes, self.fail = source, options, None, False, 0, None
+        self.http = None
         FakeCredentials.made.append(self)
 
     def refresh(self, request):
+        if self.http:
+            self.http(request)
         if self.fail:
             raise self.fail
         self.refreshes += 1
@@ -146,3 +151,21 @@ class GoogleGenaiTests(SimpleTestCase):
                          ('Vertex AI access token could not be minted.', 'vertex_auth', False))
         self.assertIsNone(raised.exception.__cause__)
         self.assertEqual(logs.output, ['WARNING:apps.integrations.google_genai:vertex_token_refresh_failed error_type=RuntimeError'])
+
+    def test_every_token_mint_request_is_bounded_and_ignores_proxy_environment(self):
+        google_genai.auth_headers(VERTEX)
+        (credentials,) = FakeCredentials.made
+        sent = []
+
+        def send(session, method, url, **kwargs):
+            sent.append((session.trust_env, method, url, kwargs['timeout']))
+            return Mock(status_code=200, headers={}, content=b'{}')
+
+        def mint(request):
+            request(url='https://oauth2.googleapis.com/token', method='POST', body=b'grant', headers={})
+            request(url='https://iamcredentials.googleapis.com/v1/x:generateAccessToken', method='POST', timeout=120)
+        credentials.valid, credentials.http = False, mint
+        with patch.object(requests.Session, 'request', autospec=True, side_effect=send):
+            self.assertEqual(google_genai.auth_headers(VERTEX), {'Authorization': 'Bearer token-2'})
+        self.assertEqual(sent, [(False, 'POST', 'https://oauth2.googleapis.com/token', 30),
+                                (False, 'POST', 'https://iamcredentials.googleapis.com/v1/x:generateAccessToken', 30)])
