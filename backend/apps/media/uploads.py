@@ -472,13 +472,21 @@ def cancel_upload(actor_id, session_id, storage):
             raise UploadError('UPLOAD_CANCEL_UNAVAILABLE', 503)
         if isinstance(storage.primary, GCSAdapter) and row.session_uri:
             import requests
-            uri = _cipher().decrypt(row.session_uri.encode()).decode()
+            from cryptography.fernet import InvalidToken
             from .storage import validate_gcs_session_uri
-            validate_gcs_session_uri(uri)
-            response = requests.delete(uri, timeout=15, allow_redirects=False)
-            # GCS uses 499 for successful cancellation; 404/410 are already gone.
-            if response.status_code not in (200, 204, 404, 410, 499):
-                raise UploadError('UPLOAD_CANCEL_UNAVAILABLE', 503)
+            try:
+                uri = _cipher().decrypt(row.session_uri.encode()).decode()
+            except InvalidToken:
+                # Sealed under a key that is gone: the GCS session cannot be cancelled and expires on its own,
+                # so settle the row rather than retry it forever. The staged object is still deleted below.
+                uri = None
+                logger.warning('Upload session %s has an undecryptable session URI; cancelling without it', row.id)
+            if uri:
+                validate_gcs_session_uri(uri)
+                response = requests.delete(uri, timeout=15, allow_redirects=False)
+                # GCS uses 499 for successful cancellation; 404/410 are already gone.
+                if response.status_code not in (200, 204, 404, 410, 499):
+                    raise UploadError('UPLOAD_CANCEL_UNAVAILABLE', 503)
         if local:
             _local_path(storage, row).unlink(missing_ok=True)
         # Only this new, unpublished, actor-owned staging object can be deleted.
