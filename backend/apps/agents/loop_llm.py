@@ -11,7 +11,8 @@ its own allowlist instead: POST generateContent on a pinned model (``LOOP_MODELS
 declarations that each equal the registry-derived one for an Agents tab tool or the harness's own ``design_prompt``
 (``design.DESIGN_DECLARATION``), exactly the ``generation_config`` of the run's thinking level (bounded output; the
 levels the model takes are ``THINKING_LEVELS``), user and model turns of text, media
-(``MEDIA_MIME`` inline or as a Files API ``fileData``), function calls and function responses for those tools, and a
+(``MEDIA_MIME`` inline, or as ``fileData``: a Files API file, or on Vertex AI only an ``ai-inputs/`` copy in the
+media bucket, ``google_media.vertex_uri_allowed``), function calls and function responses for those tools, and a
 bounded body. The usage purpose picks the body: 'media' is only a ``media_body`` sub-call, 'transcribe' only a
 ``transcribe_body`` and 'design_prompt' only a ``design.design_body`` sub-call, each with its own fixed prompt and config
 and no tools. Every answered call writes one ``agent_llm_usage`` row from its ``usageMetadata``, priced from ``PRICES``.
