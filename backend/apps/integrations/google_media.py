@@ -42,10 +42,6 @@ def vertex_endpoint(url):
             and '/publishers/google/models/' in parsed.path and parsed.path.endswith(':generateContent'))
 
 
-def object_name(adapter, key):
-    return getattr(adapter, 'prefix', '') + key
-
-
 def staging_failed():
     return ProviderError('Veevee could not stage this file for AI reading. Try again in a minute.',
                          code='media_staging', may_have_submitted=False)
@@ -128,7 +124,10 @@ class MediaInputs:
             except Exception as error:
                 raise staging_failed() from error
         primary = self.storage.primary
-        return primary if isinstance(primary, GCSAdapter) else None
+        if not isinstance(primary, GCSAdapter):
+            return None
+        # Copies live at the bucket root, outside any media prefix, so one lifecycle rule and IAM condition cover them.
+        return GCSAdapter(primary.client, primary.bucket, timeout=primary.timeout)
 
     def part(self, mime, data, *, signal=None, inline_budget=INLINE_BYTES):
         """Every Cloud Storage handoff is a fresh ``ai-inputs/`` copy; Vertex never reads another object."""
@@ -149,7 +148,7 @@ class MediaInputs:
             raise staging_failed() from error
         if signal:
             signal.check()
-        return {'fileData': {'mimeType': mime, 'fileUri': f'gs://{adapter.bucket}/{object_name(adapter, key)}'}}
+        return {'fileData': {'mimeType': mime, 'fileUri': f'gs://{adapter.bucket}/{key}'}}
 
     def release(self):
         temporary, self.temporary = self.temporary, []
@@ -166,7 +165,7 @@ def vertex_uri_allowed(uri):
     adapter = get_storage().primary
     if not isinstance(adapter, GCSAdapter) or not isinstance(uri, str):
         return False
-    root = f'gs://{adapter.bucket}/{object_name(adapter, AI_INPUTS)}'
+    root = f'gs://{adapter.bucket}/{AI_INPUTS}'
     return re.fullmatch(re.escape(root) + UUID, uri) is not None
 
 

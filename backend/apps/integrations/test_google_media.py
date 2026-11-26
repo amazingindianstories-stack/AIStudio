@@ -2,6 +2,7 @@
 import base64
 import copy
 import json
+from pathlib import Path
 from unittest.mock import patch
 
 from django.test import SimpleTestCase, override_settings
@@ -138,11 +139,31 @@ class GoogleMediaTests(SimpleTestCase):
                     stored = dict(self.client.objects)
                     inputs = media.MediaInputs(StorageService(adapter))
                     uri = inputs.part('image/png', b'original')['fileData']['fileUri']
-                    self.assertRegex(uri, rf'^gs://fixture-bucket/{prefix}ai-inputs/[0-9a-f-]{{36}}$')
+                    self.assertRegex(uri, r'^gs://fixture-bucket/ai-inputs/[0-9a-f-]{36}$')
                     self.assertNotIn(key, uri)
                     self.assertEqual(self.client.objects[uri.removeprefix('gs://fixture-bucket/')], (b'original', 'image/png'))
                     inputs.release()
                     self.assertEqual(self.client.objects, stored)
+
+    def test_bucket_lifecycle_expires_inference_copies_but_not_originals_in_both_storage_layouts(self):
+        policy = json.loads((Path(__file__).resolve().parents[3] / 'infra/gcp/storage-lifecycle.json').read_text())
+
+        def deleted_after(name):
+            ages = [rule['condition']['age'] for rule in policy['rule'] if rule['action']['type'] == 'Delete'
+                    and any(name.startswith(prefix) for prefix in rule['condition'].get('matchesPrefix', []))]
+            return min(ages, default=None)
+
+        for prefix in ('', 'private-fixture/'):
+            with self.subTest(prefix=prefix):
+                self.client.objects = {}
+                adapter = PrefixedGCSAdapter(self.client, 'fixture-bucket', prefix=prefix) if prefix else self.adapter
+                adapter.put('uploads/original', b'original', 'image/png', 'private')
+                inputs = media.MediaInputs(StorageService(adapter))
+                inputs.part('image/png', b'inference copy')
+                staged, = set(self.client.objects) - {prefix + 'uploads/original'}
+                self.assertEqual(deleted_after(staged), 2)
+                self.assertIsNone(deleted_after(prefix + 'uploads/original'))
+                inputs.release()
 
     def test_upload_timeout_and_cancellation_release_staged_objects(self):
         payload = body(inline('image/png', b'x' * (media.INLINE_BYTES + 1)))
@@ -152,7 +173,7 @@ class GoogleMediaTests(SimpleTestCase):
             put(*args)
             raise TimeoutError('upload answer lost')
 
-        with patch.object(self.adapter, 'put', side_effect=timed_out), self.assertRaises(ProviderError) as raised:
+        with patch.object(GCSAdapter, 'put', side_effect=timed_out), self.assertRaises(ProviderError) as raised:
             with media.prepared_request(VERTEX, payload):
                 self.fail('request must not be submitted')
         self.assertEqual(self.client.objects, {})
@@ -162,7 +183,7 @@ class GoogleMediaTests(SimpleTestCase):
 
         transport = HttpTransport(allowed_hosts={'aiplatform.googleapis.com'})
         with patch('apps.generation.services.paid_guard.enabled', return_value=False), \
-                patch.object(self.adapter, 'put', side_effect=PermissionError('bucket refused')), \
+                patch.object(GCSAdapter, 'put', side_effect=PermissionError('bucket refused')), \
                 patch.object(transport, '_send') as send, self.assertRaises(ProviderError) as raised:
             transport.request('POST', VERTEX, body=payload)
         send.assert_not_called()
@@ -226,8 +247,8 @@ class GoogleMediaTests(SimpleTestCase):
                     self.assertEqual(_part_allowed('user', {'fileData': {'mimeType': 'image/png', 'fileUri': uri}}), allowed)
             prefixed = PrefixedGCSAdapter(self.client, 'fixture-bucket', prefix='private-fixture/')
             with override_settings(VEEVEE_MEDIA_STORAGE=StorageService(prefixed)):
-                for uri, allowed in ((f'gs://fixture-bucket/private-fixture/ai-inputs/{copy_id}', True),
-                                     (f'gs://fixture-bucket/ai-inputs/{copy_id}', False),
+                for uri, allowed in ((f'gs://fixture-bucket/ai-inputs/{copy_id}', True),
+                                     (f'gs://fixture-bucket/private-fixture/ai-inputs/{copy_id}', False),
                                      ('gs://fixture-bucket/private-fixture/uploads/example', False)):
                     with self.subTest(uri=uri):
                         self.assertEqual(_part_allowed('user', {'fileData': {'mimeType': 'image/png', 'fileUri': uri}}), allowed)

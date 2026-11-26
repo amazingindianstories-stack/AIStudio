@@ -158,7 +158,7 @@ class MediaToolTests(StorageMixin, McpCase):
 
         with patch.dict(os.environ, vertex), patch('apps.integrations.google_genai._access_token', return_value='fixture-token'), \
                 patch.object(media, 'INLINE_BYTES', len(image) - 1), \
-                patch.object(self.storage.primary, 'put', side_effect=PermissionError('bucket refused')):
+                patch.object(GCSAdapter, 'put', side_effect=PermissionError('bucket refused')):
             done, sent = self.call('view_media', {'assetId': made}, [answer('An orange fox.')])
         self.assertEqual(done.error.code, errors.INTERNAL_ERROR)
         self.assertEqual(sent, [])

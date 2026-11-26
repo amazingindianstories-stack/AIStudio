@@ -107,8 +107,8 @@ adapter. This covers agent attachments and media tools, reference generation and
 transcription. Board text requests remain text; media reads reached from a board use the same handoff.
 
 Every input that leaves the inline budget, including authorized agent assets, is copied to a random
-`ai-inputs/<uuid>` object under the configured storage prefix, written with `private, no-store` and deleted in
-`finally`, including failed submissions and cancellation. Vertex never receives a URI for an original, a generated
+`ai-inputs/<uuid>` object at the media bucket root, outside the configured storage prefix that originals keep,
+written with `private, no-store` and deleted in `finally`, including failed submissions and cancellation. Vertex never receives a URI for an original, a generated
 master, or the protected `settings/`, `migrations/` and `exports/` namespaces; the agent request allowlist accepts
 only `ai-inputs/<uuid>` URIs in the media bucket. Originals and generated masters are never modified. No public URLs,
 signed URLs, or new credentials are needed. The ordinary storage ADC identity writes and deletes these objects. A
@@ -150,10 +150,10 @@ caller where bucket IAM requires caller checks, as a bucket IAM binding with an 
 inference namespace, never bucket-wide:
 
 ```
-resource.name.startsWith("projects/_/buckets/<bucket>/objects/<prefix>ai-inputs/")
+resource.name.startsWith("projects/_/buckets/<bucket>/objects/ai-inputs/")
 ```
 
-`<prefix>` is the configured storage prefix (empty when there is none). Neither identity needs object write access
+The condition does not depend on the configured storage prefix. Neither identity needs object write access
 for this feature, and neither may read originals, `settings/`, `migrations/` or `exports/`. This task makes no IAM
 changes. See Google's
 [Cloud Storage access troubleshooting](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/capabilities/design-multimodal-prompts#troubleshoot-cloud-storage-access-and-permissions).
