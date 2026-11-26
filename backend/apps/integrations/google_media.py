@@ -10,6 +10,7 @@ import io
 import json
 import logging
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 from urllib.parse import urlsplit
@@ -21,6 +22,8 @@ MB = 1024 ** 2
 INLINE_BYTES = 4 * MB
 INLINE_TOTAL = 9 * MB
 URI_BYTES = 2 * 1024 ** 3 - 500 * 1024
+AI_INPUTS = 'ai-inputs/'
+UUID = r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
 DEMUXERS = {
     'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/wave': 'wav', 'audio/mpeg': 'mp3', 'audio/mp3': 'mp3',
     'audio/ogg': 'ogg', 'audio/flac': 'flac', 'audio/aac': 'aac', 'audio/x-aac': 'aac',
@@ -37,6 +40,15 @@ def vertex_endpoint(url):
     return (parsed.scheme == 'https' and not parsed.username and not parsed.password
             and (host == 'aiplatform.googleapis.com' or host.endswith('-aiplatform.googleapis.com'))
             and '/publishers/google/models/' in parsed.path and parsed.path.endswith(':generateContent'))
+
+
+def object_name(adapter, key):
+    return getattr(adapter, 'prefix', '') + key
+
+
+def staging_failed():
+    return ProviderError('Veevee could not stage this file for AI reading. Try again in a minute.',
+                         code='media_staging', may_have_submitted=False)
 
 
 def unusable():
@@ -111,11 +123,15 @@ class MediaInputs:
     def adapter(self):
         from apps.media.storage import GCSAdapter, get_storage
         if self.storage is None:
-            self.storage = get_storage()
+            try:
+                self.storage = get_storage()
+            except Exception as error:
+                raise staging_failed() from error
         primary = self.storage.primary
         return primary if isinstance(primary, GCSAdapter) else None
 
-    def part(self, mime, data, *, key=None, signal=None, inline_budget=INLINE_BYTES):
+    def part(self, mime, data, *, signal=None, inline_budget=INLINE_BYTES):
+        """Every Cloud Storage handoff is a fresh ``ai-inputs/`` copy; Vertex never reads another object."""
         if signal:
             signal.check()
         adapter = self.adapter()
@@ -124,19 +140,16 @@ class MediaInputs:
             return {'inlineData': {'mimeType': mime, 'data': base64.b64encode(data).decode()}}
         if len(data) > URI_BYTES:
             mime, data = shrink(mime, data, URI_BYTES, signal)
-            key = None
-        if key and adapter.exists(key):
-            # Prefixed storage reads legacy bare keys first and new prefixed keys second.
-            actual = adapter.read_key(key) if hasattr(adapter, 'read_key') else key
-        else:
-            key = f'ai-inputs/{uuid4()}'
-            actual = adapter.private_key(key) if hasattr(adapter, 'private_key') else key
-            # Register before writing: a timeout may have committed the upload.
-            self.temporary.append((adapter, key))
+        key = f'{AI_INPUTS}{uuid4()}'
+        # Register before writing: a timeout may have committed the upload.
+        self.temporary.append((adapter, key))
+        try:
             adapter.put(key, data, mime, 'private, no-store')
+        except Exception as error:
+            raise staging_failed() from error
         if signal:
             signal.check()
-        return {'fileData': {'mimeType': mime, 'fileUri': f'gs://{adapter.bucket}/{actual}'}}
+        return {'fileData': {'mimeType': mime, 'fileUri': f'gs://{adapter.bucket}/{object_name(adapter, key)}'}}
 
     def release(self):
         temporary, self.temporary = self.temporary, []
@@ -148,20 +161,13 @@ class MediaInputs:
 
 
 def vertex_uri_allowed(uri):
-    """Only this deployment's media bucket, never an arbitrary bucket or a protected object."""
-    from apps.media.keys import validate_key, is_export_key
+    """Only a task-scoped ``ai-inputs/`` copy in this deployment's media bucket, never an original or another bucket."""
     from apps.media.storage import GCSAdapter, get_storage
-    try:
-        parsed = urlsplit(uri)
-        adapter = get_storage().primary
-        key = parsed.path.lstrip('/')
-        prefix = getattr(adapter, 'prefix', '')
-        if prefix and key.startswith(prefix):
-            key = key[len(prefix):]
-        return (isinstance(adapter, GCSAdapter) and parsed.scheme == 'gs' and parsed.netloc == adapter.bucket
-                and not parsed.query and not parsed.fragment and not is_export_key(key) and bool(validate_key(key)))
-    except ValueError:
+    adapter = get_storage().primary
+    if not isinstance(adapter, GCSAdapter) or not isinstance(uri, str):
         return False
+    root = f'gs://{adapter.bucket}/{object_name(adapter, AI_INPUTS)}'
+    return re.fullmatch(re.escape(root) + UUID, uri) is not None
 
 
 @contextmanager

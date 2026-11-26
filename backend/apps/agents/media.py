@@ -11,7 +11,7 @@ An upload resolves for the user who made it; a generation under the shared libra
 (``apps.generation.services.reads``), so a teammate's succeeded generation does too. Another user's upload, a deleted,
 unfinished or protected file and an unknown id are the same NOT_FOUND. Images, video, audio and PDFs go inline up to ``INLINE_BYTES`` (``INLINE_TOTAL`` per call, so the base64
 body stays under ``loop_llm.MAX_BODY_BYTES``), else through the Files API, and ``release`` deletes those files
-whatever happened. On Vertex AI, large files use authorized Cloud Storage objects or inference derivatives instead.
+whatever happened. On Vertex AI, large files use task-scoped Cloud Storage copies or inference derivatives instead.
 Plain text, markdown and docx become text parts. Every text from a file is ``untrusted``: a fixed
 delimiter block, cut to a character budget. Size and duration caps are admin limit keys read at call time.
 
@@ -103,7 +103,6 @@ class Asset:
     kind: str                           # 'image', 'video', 'audio' or 'document'
     mime: str
     data: bytes
-    key: str | None = field(default=None, compare=False, repr=False)
     storage: object = field(default=None, compare=False, repr=False)
 
 
@@ -189,7 +188,7 @@ def load(user_id, asset_id, *, storage=None):
         seconds, most = audio_seconds(data), limit(user_id, 'agentAttachmentMaxSeconds')
         if seconds is not None and seconds > most:          # unmeasurable is left to the byte cap
             raise invalid(f'File {asset_id} is {seconds:.0f} s long; the agent reads {kind} up to {most} s.')
-    return Asset(str(identifier), kind, mime, data, key, storage)
+    return Asset(str(identifier), kind, mime, data, storage)
 
 
 def docx_text(data, budget=TEXT_CHARS):
@@ -317,8 +316,8 @@ def asset_part(asset, files, inline_total=0, signal=None):
         return part, inline_total + len(asset.data)
     if google_genai.is_vertex():
         files.vertex_inputs.storage = asset.storage
-        part = files.vertex_inputs.part(asset.mime, asset.data, key=asset.key, signal=signal,
-                                       inline_budget=min(INLINE_BYTES, max(1, INLINE_TOTAL - inline_total)))
+        part = files.vertex_inputs.part(asset.mime, asset.data, signal=signal,
+                                        inline_budget=min(INLINE_BYTES, max(1, INLINE_TOTAL - inline_total)))
         used = len(base64.b64decode(part['inlineData']['data'])) if 'inlineData' in part else 0
         return part, inline_total + used
     return files.upload(asset.mime, asset.data, signal), inline_total

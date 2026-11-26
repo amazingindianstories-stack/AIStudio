@@ -13,6 +13,7 @@ from apps.agents.test_media import wav_bytes
 from apps.agents.media import audio_seconds
 from . import google_media as media
 from .transport import HttpTransport, HttpResult, ProviderError
+from apps.generation.services.executor import submission_uncertain
 
 VERTEX = 'https://aiplatform.googleapis.com/v1/projects/fixture-project/locations/global/publishers/google/models/gemini-3.8-flash:generateContent'
 GEMINI = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent'
@@ -127,18 +128,21 @@ class GoogleMediaTests(SimpleTestCase):
             self.assertEqual(self.client.objects, {})
         self.assertEqual(len(sent), 3)
 
-    def test_original_objects_are_reused_in_both_storage_layouts_and_never_deleted(self):
-        for prefixed in (False, True):
-            adapter = PrefixedGCSAdapter(self.client, 'fixture-bucket', prefix='private-fixture/') if prefixed else self.adapter
-            for legacy in (False, True):
-                key = f'uploads/{prefixed}-{legacy}'
-                actual = key if legacy or not prefixed else 'private-fixture/' + key
-                self.client.objects[actual] = (b'original', 'image/png')
-                inputs = media.MediaInputs(StorageService(adapter))
-                sent = inputs.part('image/png', b'original', key=key)
-                self.assertEqual(sent['fileData']['fileUri'], 'gs://fixture-bucket/' + actual)
-                inputs.release()
-                self.assertIn(actual, self.client.objects)
+    def test_originals_and_protected_objects_are_copied_never_referenced_in_both_storage_layouts(self):
+        keys = ('uploads/original', 'generations/master.png', 'settings/secret', 'migrations/state', 'exports/archive.zip')
+        for prefix in ('', 'private-fixture/'):
+            adapter = PrefixedGCSAdapter(self.client, 'fixture-bucket', prefix=prefix) if prefix else self.adapter
+            for key in keys:
+                with self.subTest(prefix=prefix, key=key):
+                    self.client.objects = {key: (b'original', 'image/png'), prefix + key: (b'original', 'image/png')}
+                    stored = dict(self.client.objects)
+                    inputs = media.MediaInputs(StorageService(adapter))
+                    uri = inputs.part('image/png', b'original')['fileData']['fileUri']
+                    self.assertRegex(uri, rf'^gs://fixture-bucket/{prefix}ai-inputs/[0-9a-f-]{{36}}$')
+                    self.assertNotIn(key, uri)
+                    self.assertEqual(self.client.objects[uri.removeprefix('gs://fixture-bucket/')], (b'original', 'image/png'))
+                    inputs.release()
+                    self.assertEqual(self.client.objects, stored)
 
     def test_upload_timeout_and_cancellation_release_staged_objects(self):
         payload = body(inline('image/png', b'x' * (media.INLINE_BYTES + 1)))
@@ -148,10 +152,21 @@ class GoogleMediaTests(SimpleTestCase):
             put(*args)
             raise TimeoutError('upload answer lost')
 
-        with patch.object(self.adapter, 'put', side_effect=timed_out), self.assertRaises(TimeoutError):
+        with patch.object(self.adapter, 'put', side_effect=timed_out), self.assertRaises(ProviderError) as raised:
             with media.prepared_request(VERTEX, payload):
                 self.fail('request must not be submitted')
         self.assertEqual(self.client.objects, {})
+        self.assertEqual(raised.exception.code, 'media_staging')
+        self.assertIsInstance(raised.exception.__cause__, TimeoutError)
+        self.assertFalse(submission_uncertain(raised.exception))
+
+        transport = HttpTransport(allowed_hosts={'aiplatform.googleapis.com'})
+        with patch('apps.generation.services.paid_guard.enabled', return_value=False), \
+                patch.object(self.adapter, 'put', side_effect=PermissionError('bucket refused')), \
+                patch.object(transport, '_send') as send, self.assertRaises(ProviderError) as raised:
+            transport.request('POST', VERTEX, body=payload)
+        send.assert_not_called()
+        self.assertEqual((raised.exception.code, raised.exception.may_have_submitted), ('media_staging', False))
 
         class Cancelled:
             def check(inner):
@@ -193,12 +208,26 @@ class GoogleMediaTests(SimpleTestCase):
         with self.assertRaises(ProviderError):
             inputs.part('image/png', b'corrupt', inline_budget=10)
 
-    def test_vertex_file_allowlist_rejects_other_buckets_and_protected_namespaces(self):
+    def test_vertex_file_allowlist_accepts_only_task_scoped_copies_in_this_bucket(self):
+        copy_id = '0f8e2b1c-3d4a-4b5c-8d6e-7f8091a2b3c4'
         with patch.dict('os.environ', GOOGLE_GENAI_BACKEND='vertex'):
             from apps.agents.loop_llm import _part_allowed
-            for uri, allowed in (('gs://fixture-bucket/uploads/example', True),
-                                 ('gs://other-bucket/uploads/example', False),
+            for uri, allowed in ((f'gs://fixture-bucket/ai-inputs/{copy_id}', True),
+                                 (f'gs://other-bucket/ai-inputs/{copy_id}', False),
+                                 (f'gs://fixture-bucket/ai-inputs/{copy_id}?generation=1', False),
+                                 ('gs://fixture-bucket/ai-inputs/not-a-copy', False),
+                                 ('gs://fixture-bucket/ai-inputs/../settings/secret', False),
+                                 ('gs://fixture-bucket/uploads/example', False),
+                                 ('gs://fixture-bucket/generations/master.png', False),
                                  ('gs://fixture-bucket/settings/secret', False),
-                                 ('gs://fixture-bucket/exports/archive.zip', False),
-                                 ('gs://fixture-bucket/uploads/../settings/secret', False)):
-                self.assertEqual(_part_allowed('user', {'fileData': {'mimeType': 'image/png', 'fileUri': uri}}), allowed)
+                                 ('gs://fixture-bucket/migrations/state', False),
+                                 ('gs://fixture-bucket/exports/archive.zip', False)):
+                with self.subTest(uri=uri):
+                    self.assertEqual(_part_allowed('user', {'fileData': {'mimeType': 'image/png', 'fileUri': uri}}), allowed)
+            prefixed = PrefixedGCSAdapter(self.client, 'fixture-bucket', prefix='private-fixture/')
+            with override_settings(VEEVEE_MEDIA_STORAGE=StorageService(prefixed)):
+                for uri, allowed in ((f'gs://fixture-bucket/private-fixture/ai-inputs/{copy_id}', True),
+                                     (f'gs://fixture-bucket/ai-inputs/{copy_id}', False),
+                                     ('gs://fixture-bucket/private-fixture/uploads/example', False)):
+                    with self.subTest(uri=uri):
+                        self.assertEqual(_part_allowed('user', {'fileData': {'mimeType': 'image/png', 'fileUri': uri}}), allowed)

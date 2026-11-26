@@ -106,18 +106,22 @@ combined budgets. Larger inputs use `fileData` with a private `gs://` URI in the
 adapter. This covers agent attachments and media tools, reference generation and judging, image prep and audio
 transcription. Board text requests remain text; media reads reached from a board use the same handoff.
 
-Authorized agent assets reuse their existing object, including legacy bare keys and the production prefix. Other
-inputs get a random `ai-inputs/<uuid>` object under the configured storage prefix, written with `private, no-store`
-and deleted in `finally`, including failed submissions and cancellation. Originals and generated masters are never
-modified. No public URLs, signed URLs, or new credentials are needed. The ordinary storage ADC identity writes and
-deletes these objects. A process crash can leave an inference object behind; an owner-managed bucket lifecycle
-rule on the exact prefixed `ai-inputs/` namespace can remove abandoned copies. Do not apply that rule to originals.
+Every input that leaves the inline budget, including authorized agent assets, is copied to a random
+`ai-inputs/<uuid>` object under the configured storage prefix, written with `private, no-store` and deleted in
+`finally`, including failed submissions and cancellation. Vertex never receives a URI for an original, a generated
+master, or the protected `settings/`, `migrations/` and `exports/` namespaces; the agent request allowlist accepts
+only `ai-inputs/<uuid>` URIs in the media bucket. Originals and generated masters are never modified. No public URLs,
+signed URLs, or new credentials are needed. The ordinary storage ADC identity writes and deletes these objects. A
+process crash can leave an inference copy behind; an owner-managed bucket lifecycle rule (for example, delete after
+one day) on the exact prefixed `ai-inputs/` namespace should remove abandoned copies. Do not apply that rule to
+originals.
 
 If GCS is unavailable as a configured storage backend, or a media input exceeds the URI limit, the server prepares
 an inference derivative: JPEG resizing/recompression, AAC audio, or H.264/AAC video. Audio/video encoding preserves
 the full timeline; no silent trimming. Subprocesses are bounded and accept local files only. Corrupt media, a document
 that cannot fit its available transport, or a timeline that cannot fit without discarding content gets a preparation
-error. Storage permission/network errors retain their error rather than being mistaken for a missing object.
+error. A Cloud Storage write or permission failure is a `media_staging` error marked as never submitted, so it
+is not treated as a possibly billed submission.
 Existing product upload, duration, context and media-count limits still apply. The Gemini API branch keeps its
 existing inline/Files API behavior; Omni and other providers do not enter this handoff.
 
@@ -142,9 +146,17 @@ The authenticated Vertex caller is the account named by `GOOGLE_VERTEX_IMPERSONA
 from the **object-fetch identity**: `generateContent` reads through the calling project's Vertex AI service agent,
 `service-PROJECT_NUMBER@gcp-sa-aiplatform.iam.gserviceaccount.com`. The bucket must be in the calling project for
 the documented private-object path. Firstmate must verify/grant **Storage Object Viewer**
-(`roles/storage.objectViewer`, including `storage.objects.get`) on the media bucket to that service agent, and to
-the impersonated caller where bucket IAM requires caller checks. Neither identity needs object write access for
-this feature. This task makes no IAM changes. See Google's
+(`roles/storage.objectViewer`, including `storage.objects.get`) to that service agent, and to the impersonated
+caller where bucket IAM requires caller checks, as a bucket IAM binding with an IAM condition limited to the
+inference namespace, never bucket-wide:
+
+```
+resource.name.startsWith("projects/_/buckets/<bucket>/objects/<prefix>ai-inputs/")
+```
+
+`<prefix>` is the configured storage prefix (empty when there is none). Neither identity needs object write access
+for this feature, and neither may read originals, `settings/`, `migrations/` or `exports/`. This task makes no IAM
+changes. See Google's
 [Cloud Storage access troubleshooting](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/capabilities/design-multimodal-prompts#troubleshoot-cloud-storage-access-and-permissions).
 
 Offline tests use a fake bucket and disposable PostgreSQL. Owner acceptance must include a real input over 4 MiB,
