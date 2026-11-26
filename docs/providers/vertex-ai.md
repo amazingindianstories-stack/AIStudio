@@ -112,9 +112,8 @@ Every input that leaves the inline budget, including authorized agent assets, is
 master, or the protected `settings/`, `migrations/` and `exports/` namespaces; the agent request allowlist accepts
 only `ai-inputs/<uuid>` URIs in the media bucket. Originals and generated masters are never modified. No public URLs,
 signed URLs, or new credentials are needed. The ordinary storage ADC identity writes and deletes these objects. A
-process crash can leave an inference copy behind; an owner-managed bucket lifecycle rule (for example, delete after
-one day) on the exact prefixed `ai-inputs/` namespace should remove abandoned copies. Do not apply that rule to
-originals.
+process crash can leave an inference copy behind; the bucket lifecycle rule in `infra/gcp/storage-lifecycle.json`
+deletes leftover `ai-inputs/` copies automatically after two days and does not touch originals.
 
 If GCS is unavailable as a configured storage backend, or a media input exceeds the URI limit, the server prepares
 an inference derivative: JPEG resizing/recompression, AAC audio, or H.264/AAC video. Audio/video encoding preserves
