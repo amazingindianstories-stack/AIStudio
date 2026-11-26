@@ -50,7 +50,8 @@ The two kinds of format are chosen differently.
 
 **Text formats** (sticky notes and the other text formats) carry `processing`: `basic` (the default) or `advanced`.
 Basic runs `AGENT_LLM_MODEL` (default `gemini-flash-latest`), priced at `Board AI text`. Advanced runs
-`AGENT_LLM_MODEL_ADVANCED` (default `gemini-pro-latest`), priced at `Board AI text (advanced)` (default 1000). The
+`AGENT_LLM_MODEL_ADVANCED` (default `gemini-pro-latest`), priced at `Board AI text (advanced)` (default 1000). On
+Vertex AI the defaults differ (`../providers/vertex-ai.md`). The
 text model is stored in the job's `submission_input`, so the worker, the payload allowlist and the paid guard all use
 the model the job was quoted and priced for. The quote returns the processing, the model and the cost.
 

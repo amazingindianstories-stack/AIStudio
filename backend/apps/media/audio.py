@@ -20,24 +20,31 @@ from apps.generation.services.audio_submission import AUDIO_READY
 TRANSCRIPTION_PROMPT = 'Transcribe this audio for use as a video-generation prompt. Return only a clean, timestamped transcript in this exact format, one line per segment: [MM:SS.mmm - MM:SS.mmm] Speaker or sound: words or description. Include meaningful music, ambience, sound effects, pauses, and speaker changes. Do not add a title, markdown fence, commentary, or invented content.'
 
 
+MISSING_KEY = 'GOOGLE_API_KEY is not configured.'
+VERTEX_MISSING = 'Vertex AI is not configured.'
+
+
 def transcription_endpoint(model):
-    return f'https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent'
+    from apps.integrations import google_genai
+    return google_genai.model_url(model)
 
 
 class GeminiTranscriber:
-    """Explicit API key and HTTP transport, allowing golden request qualification."""
-    def __init__(self, api_key, transport):
-        self.api_key, self.transport = api_key, transport
+    """Explicit credentials and HTTP transport, allowing golden request qualification. ``auth`` returns a request's
+    credential header (Vertex AI mints its bearer token per call); without it the API key is sent."""
+    def __init__(self, api_key, transport, *, auth=None):
+        self.api_key, self.transport, self.auth = api_key, transport, auth
 
     def transcribe(self, data, mime_type, model, *, signal=None):
-        if not self.api_key:
-            raise ValueError('GOOGLE_API_KEY is not configured.')
+        if not self.api_key and self.auth is None:
+            raise ValueError(MISSING_KEY)
         payload = {'contents':[{'role':'user','parts':[{'inlineData':{'mimeType':mime_type,'data':data}},
             {'text':TRANSCRIPTION_PROMPT}]}], 'generationConfig':{'temperature':0.1}}
         if signal:
             signal.check()
+        credentials = self.auth() if self.auth is not None else {'x-goog-api-key':self.api_key}
         arguments=(transcription_endpoint(model),
-            payload, {'Content-Type':'application/json','x-goog-api-key':self.api_key})
+            payload, {'Content-Type':'application/json',**credentials})
         result = self.transport(*arguments,signal=signal) if signal is not None else self.transport(*arguments)
         parts = ((result.get('candidates') or [{}])[0].get('content') or {}).get('parts') or []
         transcript = '\n'.join(part.get('text','') for part in parts).strip()
@@ -60,31 +67,39 @@ def get_transcriber():
     if isinstance(provider,str):
         provider = import_string(provider)
     if provider is None:
+        from apps.integrations import google_genai
+        if google_genai.is_vertex():
+            if not google_genai.configured():
+                raise ValueError(VERTEX_MISSING)
+            return _http_transcriber(None, timeout=120, auth=google_genai.auth_headers)
         key = getattr(settings,'GOOGLE_API_KEY',None) or os.environ.get('GOOGLE_API_KEY')
         if not key:
-            raise ValueError('GOOGLE_API_KEY is not configured.')
-        from apps.integrations.transport import HttpTransport
-        client = HttpTransport(allowed_hosts=['generativelanguage.googleapis.com'],timeout=120)
-        def transport(url,payload,headers,*,signal=None):
-            response = client.request('POST',url,headers=headers,body=payload,signal=signal)
-            if not response.ok:
-                raise transcription_error(response)
-            return response.json()
-        return GeminiTranscriber(key,transport)
+            raise ValueError(MISSING_KEY)
+        return _http_transcriber(key, timeout=120)
     return provider if hasattr(provider, 'transcribe') and not isinstance(provider, type) else provider()
 
 
 def configured_transcriber():
-    import os
-    from apps.integrations.transport import HttpTransport, required_key
-    key = required_key(os.environ, 'GOOGLE_API_KEY', 'GOOGLE_API_KEY is not configured.')
-    client = HttpTransport(allowed_hosts=['generativelanguage.googleapis.com'])
-    def request(url, payload, headers, *, signal=None):
-        response = client.request('POST', url, headers=headers, body=payload, signal=signal)
+    from apps.integrations import google_genai
+    from apps.integrations.transport import required_key
+    if google_genai.is_vertex():
+        if not google_genai.configured():
+            raise ValueError(VERTEX_MISSING)
+        return _http_transcriber(None, auth=google_genai.auth_headers)
+    return _http_transcriber(required_key(os.environ, 'GOOGLE_API_KEY', MISSING_KEY))
+
+
+def _http_transcriber(key, *, timeout=60, auth=None):
+    """A ``GeminiTranscriber`` posting through the provider transport to the active backend's host."""
+    from apps.integrations import google_genai
+    from apps.integrations.transport import HttpTransport
+    client = HttpTransport(allowed_hosts=google_genai.hosts(),timeout=timeout)
+    def request(url,payload,headers,*,signal=None):
+        response = client.request('POST',url,headers=headers,body=payload,signal=signal)
         if not response.ok:
             raise transcription_error(response)
         return response.json()
-    return GeminiTranscriber(key, request)
+    return GeminiTranscriber(key,request,auth=auth)
 
 
 @transaction.non_atomic_requests
@@ -131,7 +146,8 @@ def transcribe(request):
         # Provider exceptions may include tokens/URLs; preserve known public validation only.
         public = 'Transcription failed.'
         if isinstance(error, ValueError) and str(error) in {
-            'GOOGLE_API_KEY is not configured.',
+            MISSING_KEY,
+            VERTEX_MISSING,
             'Gemini returned an empty transcription.',
         }:
             public = str(error)

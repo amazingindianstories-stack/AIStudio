@@ -14,7 +14,7 @@ from jsonschema import Draft202012Validator
 from apps.admin_dashboard.models import AppSetting
 from apps.common.leases import now_ms
 from apps.generation.models import Generation
-from apps.integrations.transport import HttpResult
+from apps.integrations.transport import HttpResult, ProviderError
 from apps.mcp import errors, server
 from apps.mcp.registry import AGENT_ONLY, REGISTRY, exposed, visible
 from apps.mcp.tests.support import McpCase
@@ -176,6 +176,15 @@ class MediaToolTests(StorageMixin, McpCase):
             done, sent = self.call('view_media', {'assetId': mine})
         self.assertEqual((done.error.code, sent), (errors.INTERNAL_ERROR, []))
         self.assertIn('GOOGLE_API_KEY is not set', done.error.message)
+        with patch.dict(os.environ, GOOGLE_GENAI_BACKEND='vertex', GCP_PROJECT_ID=''):
+            done, sent = self.call('view_media', {'assetId': mine})
+        self.assertEqual((done.error.code, done.error.message, sent), (errors.INTERNAL_ERROR, 'Veevee cannot read files for the agent: '
+                         'GCP_PROJECT_ID or GOOGLE_CLOUD_PROJECT is not set. Ask a Veevee admin.', []))
+        failed = ProviderError('Vertex AI access token could not be minted.', code='vertex_auth', may_have_submitted=False)
+        with patch.dict(os.environ, GOOGLE_GENAI_BACKEND='vertex', GCP_PROJECT_ID='veevee-project'), patch('apps.integrations.google_genai._access_token', side_effect=failed):
+            done, sent = self.call('view_media', {'assetId': mine})
+        self.assertEqual((done.error.code, done.error.message, sent),
+                         (errors.INTERNAL_ERROR, 'Veevee could not reach the model to read this file. Try again in a minute.', []))
         for arguments in ({}, {'assetId': 'not-an-id'}, {'assetId': mine, 'question': ''}, {'assetId': mine, 'question': 'x' * 1001},
                           {'assetId': mine, 'quoteToken': 'q-1'}):
             self.assertEqual(self.call('view_media', arguments)[0].error.code, errors.INVALID_INPUT)

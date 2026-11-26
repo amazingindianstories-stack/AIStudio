@@ -43,7 +43,13 @@ PUBLIC_APP_URL = os.environ.get('PUBLIC_APP_URL', os.environ.get('NEXT_PUBLIC_AP
 GCP_MEDIA_CDN_URL = os.environ.get('GCP_MEDIA_CDN_URL', '').rstrip('/')
 VEEVEE_PROVIDER_MEDIA_HOSTS = tuple(host.strip() for host in os.environ.get('VEEVEE_PROVIDER_MEDIA_HOSTS', '').split(',') if host.strip())
 FFMPEG_BINARY = os.environ.get('FFMPEG_BINARY', 'ffmpeg')
-AUDIO_TRANSCRIPTION_MODEL = os.environ.get('AUDIO_TRANSCRIPTION_MODEL', 'gemini-2.5-flash')
+# Vertex AI (GOOGLE_GENAI_BACKEND=vertex) has retired gemini-2.5-flash, so there the default is its pinned Flash model.
+# An unknown GOOGLE_GENAI_BACKEND stops startup here.
+from apps.integrations import google_genai as _genai  # noqa: E402
+try:
+    AUDIO_TRANSCRIPTION_MODEL = os.environ.get('AUDIO_TRANSCRIPTION_MODEL', _genai.vertex_default(os.environ, 'gemini-2.5-flash'))
+except _genai.ProviderError as _error:
+    raise ImproperlyConfigured(str(_error)) from None
 VEEVEE_AUDIO_TRANSCRIBER = 'apps.media.audio.configured_transcriber'
 # Explicit backend selection; importing settings never opens storage or loads
 # cloud credentials. Tests inject memory/filesystem services on disposable paths.

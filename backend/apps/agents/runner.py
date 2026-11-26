@@ -30,7 +30,6 @@ import asyncio
 import hashlib
 import json
 import logging
-import os
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -41,6 +40,7 @@ from apps.authentication.models import User
 from apps.common.leases import now_ms
 from apps.generation.models import Generation
 from apps.generation.services import cancellation
+from apps.integrations import google_genai
 from apps.integrations.transport import ProviderError
 from apps.mcp import errors, paid, server
 from apps.mcp.registry import REGISTRY, visible
@@ -416,16 +416,20 @@ def finished_jobs(run, steps):
     return [{'id': str(row['id']), 'kind': row['kind'], 'status': row['status']} for row in rows if str(row['id']) not in told]
 
 
-def ask(run, step, key, body, *, purpose='step'):
+def ask(run, step, body, *, purpose='step'):
     """``(payload, retryable)`` for one Gemini call of the run's step through ``AgentLoopTransport``; ``payload`` is
-    None when Gemini gave no answer."""
+    None when Gemini gave no answer. The credential is read per call, so a Vertex AI token is always current; reading it
+    also checks the Vertex project and location before the transport is pinned to them."""
+    try:
+        credentials = google_genai.auth_headers()
+    except ProviderError:
+        return None, True
     transport = AgentLoopTransport(run.model, UsageContext(user_id=run.user_id, grant_id=run.grant_id,
                                                            conversation_id=run.conversation_id, run_id=run.id,
                                                            step_index=step.step_index, purpose=purpose),
                                    thinking_level=run.thinking_level)
     try:
-        response = transport.request('POST', transport.endpoint, headers={'Content-Type': 'application/json', 'x-goog-api-key': key},
-                                     body=body)
+        response = transport.request('POST', transport.endpoint, headers={'Content-Type': 'application/json', **credentials}, body=body)
         if response.ok:
             return response.json(), False
         return None, response.status in RETRYABLE_STATUS
@@ -487,12 +491,11 @@ def llm_step(run, principal, action, stop, *, now=now_ms):
         step = action.step
     body = loop_body(principal, build_contents(run, steps, step), run.thinking_level)
     AgentRunStep.objects.filter(pk=step.pk).update(input_hash=digest(body), started_at=now())
-    key = os.environ.get('GOOGLE_API_KEY')
-    if not key:
+    if not google_genai.configured():
         return fail(run.id, 'llm_unconfigured', 'The Agents tab is not configured on this server.')
     if cancel_requested(run.id):
         return None
-    payload, retryable = ask(run, step, key, body)
+    payload, retryable = ask(run, step, body)
     if payload is None:
         if retry(step, retryable, stop):
             return None
@@ -554,12 +557,11 @@ def design_step(run, step, stop, *, now=now_ms):
     problem, brief = design_brief(step.result['call']['args'])
     if problem is not None:
         return finish_tool_result(run, step, problem['code'], problem, problem['message'], now=now())
-    key = os.environ.get('GOOGLE_API_KEY')
-    if not key:
+    if not google_genai.configured():
         return fail(run.id, 'llm_unconfigured', 'The Agents tab is not configured on this server.')
     if cancel_requested(run.id):
         return None
-    payload, retryable = ask(run, step, key, design_body(brief), purpose=DESIGN_TOOL)
+    payload, retryable = ask(run, step, design_body(brief), purpose=DESIGN_TOOL)
     prompt = read_prompt(payload) if payload is not None else ''
     if prompt:
         return finish_tool_result(run, step, 'ok', {'prompt': prompt}, prompt, ok=True, now=now())

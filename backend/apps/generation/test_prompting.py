@@ -2,7 +2,7 @@ import base64
 import hashlib
 import io
 import json
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from django.test import SimpleTestCase
 from apps.generation.prompting.golden_fixtures import GOLDENS
 from apps.generation.prompting.shot_spec import build_cast_policy,build_shot_instruction,parse_ref_roles
@@ -158,6 +158,24 @@ class PromptingTests(SimpleTestCase):
         self.assertEqual(transport.request.call_args.kwargs['body']['generationConfig']['thinkingConfig'],{'thinkingBudget':0})
         with Image.open(io.BytesIO(base64.b64decode(value['crops'][0]['data']))) as image:
             self.assertEqual(image.size,(380,380))
+
+    def test_vision_request_on_vertex_uses_a_served_model_its_thinking_level_and_its_credential(self):
+        from apps.generation.prompting.image_prep import vision_request
+        transport=Mock();transport.request.return_value=HttpResult(200,b'{}')
+        vertex={'GOOGLE_GENAI_BACKEND':'vertex','GCP_PROJECT_ID':'veevee-project','GOOGLE_API_KEY':'gemini-mock'}
+        with patch('apps.integrations.google_genai._access_token',return_value='minted'):
+            vision_request([{'text':'look'}],env=vertex,transport=transport,thinking=True)
+            (method,url),options=transport.request.call_args
+            self.assertEqual((method,url),('POST','https://aiplatform.googleapis.com/v1/projects/veevee-project/locations/global/'
+                                                  'publishers/google/models/gemini-3.8-flash:generateContent'))
+            self.assertEqual(options['headers'],{'Content-Type':'application/json','Authorization':'Bearer minted'})
+            self.assertEqual(options['body']['generationConfig']['thinkingConfig'],{'thinkingLevel':'LOW'})
+            # An explicit Gemini 2.x model keeps its zero thinking budget; Vertex without a project skips the read.
+            vision_request([{'text':'look'}],env={**vertex,'GEMINI_DETECT_MODEL':'gemini-2.5-flash-lite'},transport=transport,thinking=True)
+        self.assertEqual(transport.request.call_args.kwargs['body']['generationConfig']['thinkingConfig'],{'thinkingBudget':0})
+        transport.reset_mock()
+        self.assertIsNone(vision_request([{'text':'look'}],env={'GOOGLE_GENAI_BACKEND':'vertex','GOOGLE_API_KEY':'gemini-mock'},transport=transport))
+        transport.request.assert_not_called()
 
     def test_judge_score_clamp_and_identity_floor(self):
         transport=Mock();transport.request.return_value=HttpResult(200,json.dumps({'candidates':[{'content':{'parts':[{'text':'{"identity":120,"prominence":40,"sharpness":-4}'}]}}]}).encode())

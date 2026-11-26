@@ -15,6 +15,7 @@ import json
 import re
 from urllib.parse import quote, urlsplit, urlunsplit
 
+from apps.integrations import google_genai
 from config import db_profile
 
 API_VARIABLE = 'GOAL4_PREVIEW_CONFIGURATION'
@@ -54,17 +55,28 @@ MAGNIFIC_MEDIA_HOSTS = ('cdn-magnific.freepik.com', 'ai-statics.magnific.com')
 KLING_MEDIA_HOSTS = ('h1.inkwai.com', 'cdn.klingai.com')
 # OmniHuman result host, observed in the approved live canary (task 2072219181, 2026-10-26); signed, expiring links.
 OMNIHUMAN_MEDIA_HOSTS = ('v16m-default.tiktokcdn.com',)
+# Vertex AI for every Gemini call (apps.integrations.google_genai), from Railway service variables. The switch
+# GOOGLE_GENAI_BACKEND=vertex reaches every service, so the default models a job records (audio transcription, board
+# text) agree with the worker that runs it and with its paid-guard quote. Vertex authenticates with the service account
+# every service already holds (GCP_ADC_JSON, the GCS identity) in the project every service already names
+# (GCP_PROJECT_ID). The optional impersonation target and region (VERTEX_KEYS) reach only the services that call Gemini -
+# the API (voice notes, talktrack, admin status), the generation worker and the agent worker - and only while the switch
+# is on; each of those refuses to start on Vertex with an unusable project, region or impersonation target.
+GENAI_SWITCH = google_genai.SWITCH
+VERTEX_KEYS = frozenset({google_genai.IMPERSONATE, google_genai.LOCATION})
+VERTEX_COMPONENTS = ('api', 'generation', 'agent')
 # The MCP service runs as the API role with the API's storage, never with provider credentials: only the generation
 # worker calls providers. These keys never reach it, whatever the API configuration carries.
-MCP_DENIED = PROVIDER_KEYS | BYTEPLUS_KEYS | {'MAGNIFIC_API_KEY', 'KLING_API', 'OPENAI_API_KEY'}
+MCP_DENIED = PROVIDER_KEYS | BYTEPLUS_KEYS | VERTEX_KEYS | {'MAGNIFIC_API_KEY', 'KLING_API', 'OPENAI_API_KEY'}
 MCP_KEYS = ('VEEVEE_MCP', 'MCP_QUOTE_SECRET', 'MCP_MAX_HOLD_SECONDS')
 # Board notification Web Push (apps.canvas.push): the API offers subscriptions and the scheduler sends the pushes.
 WEB_PUSH_KEYS = ('VEEVEE_WEB_PUSH_PUBLIC_KEY', 'VEEVEE_WEB_PUSH_PRIVATE_KEY', 'VEEVEE_WEB_PUSH_SUBJECT')
 # The agent worker (apps.agents.worker) runs like the MCP service, as the API role with the API's storage, flags and
-# paid-guard policy, and calls the same tools in-process. Its own LLM calls need Gemini, so GOOGLE_API_KEY is the one
-# provider credential it receives (AGENT_KEYS); every other provider key, the portrait lifecycle and pool, Web Push and
-# the ingress secret (it serves no HTTP) stay out. It signs and checks its quotes with its own MCP_QUOTE_SECRET variable.
-AGENT_KEYS = frozenset({'GOOGLE_API_KEY'})
+# paid-guard policy, and calls the same tools in-process. Its own LLM calls need Gemini, so GOOGLE_API_KEY and, on
+# Vertex AI, the Vertex settings are the provider configuration it receives (AGENT_KEYS); every other provider key, the
+# portrait lifecycle and pool, Web Push and the ingress secret (it serves no HTTP) stay out. It signs and checks its
+# quotes with its own MCP_QUOTE_SECRET variable.
+AGENT_KEYS = frozenset({'GOOGLE_API_KEY'}) | VERTEX_KEYS
 AGENT_DENIED = (MCP_DENIED - AGENT_KEYS) | set(WEB_PUSH_KEYS) | {'VEEVEE_PORTRAIT_LIFECYCLE', 'VEEVEE_MANAGED_PORTRAITS',
                                                                  'VEEVEE_INGRESS_SECRET', 'PORT'}
 AGENT_SERVICE_KEYS = ('MCP_QUOTE_SECRET', 'VEEVEE_AGENT_WORKER_SLOTS')
@@ -209,7 +221,27 @@ def _agent(env, out):
 
 def translate(component, env):
     """Return the complete, allowlisted environment for ``component``."""
-    return _pooled(component, env, _translate(component, env))
+    return _pooled(component, env, _vertex(component, env, _translate(component, env)))
+
+
+def _vertex(component, env, out):
+    """``GOOGLE_GENAI_BACKEND`` reaches every component; on ``vertex`` the impersonation target and region reach the
+    ``VERTEX_COMPONENTS``, which refuse to start without Application Default Credentials or with a project, region or
+    target ``google_genai`` cannot use. Unset, nothing changes."""
+    backend = env.get(GENAI_SWITCH)
+    if not backend:
+        return out
+    need(backend in google_genai.BACKENDS, GENAI_SWITCH + ' must be gemini or vertex')
+    out = {**out, GENAI_SWITCH: backend}
+    if backend != 'vertex' or component not in VERTEX_COMPONENTS:
+        return out
+    out.update({key: env[key] for key in VERTEX_KEYS if env.get(key)})
+    need(out.get('GCP_ADC_JSON'), f'{GENAI_SWITCH}=vertex needs the GCP_ADC_JSON service account on this service')
+    try:
+        google_genai.check(out)
+    except google_genai.ProviderError as error:
+        need(False, str(error))
+    return out
 
 
 def _pooled(component, env, out):

@@ -512,8 +512,9 @@ class LegacyConfigTests(SimpleTestCase):
         self.assertEqual(agent['DATABASE_URL'], api['DATABASE_URL'])
         self.assertEqual(self.legacy.preflight_contract('agent', env), {'role': 'goal4_green_preview_api'})
         self.assertEqual((agent['VEEVEE_MEDIA_PREFIX'], agent['GCP_ADC_JSON']), (api['VEEVEE_MEDIA_PREFIX'], api['GCP_ADC_JSON']))
-        # GOOGLE_API_KEY is the only provider credential; nothing the agent loop never uses reaches it.
-        self.assertEqual(self.legacy.AGENT_KEYS, frozenset({'GOOGLE_API_KEY'}))
+        # GOOGLE_API_KEY (on Vertex AI, GCP_ADC_JSON plus its optional target and region) is the only provider credential;
+        # nothing the agent loop never uses reaches it.
+        self.assertEqual(self.legacy.AGENT_KEYS, frozenset({'GOOGLE_API_KEY', 'GOOGLE_VERTEX_IMPERSONATE_SA', 'GOOGLE_VERTEX_LOCATION'}))
         self.assertEqual(agent['GOOGLE_API_KEY'], 'google')
         providers = self.legacy.PROVIDER_KEYS | self.legacy.BYTEPLUS_KEYS | {'MAGNIFIC_API_KEY', 'KLING_API'}
         self.assertEqual(providers & set(agent), {'GOOGLE_API_KEY'})
@@ -536,6 +537,39 @@ class LegacyConfigTests(SimpleTestCase):
         self.assertEqual(unpaid['MOCK_GENERATION'], '1')
         with self.assertRaises(SystemExit):
             self.legacy.translate('agent', self.api_env(role='goal4_green_preview_worker'))
+
+    def test_vertex_switch_reaches_every_service_and_its_target_and_region_only_the_gemini_callers(self):
+        target = 'veevee-vertex@veevee-project.iam.gserviceaccount.com'
+        vertex = {'GOOGLE_GENAI_BACKEND': 'vertex', 'GOOGLE_VERTEX_IMPERSONATE_SA': target, 'GOOGLE_VERTEX_LOCATION': 'us-central1'}
+        keys = {key: value for key, value in vertex.items() if key != 'GOOGLE_GENAI_BACKEND'}
+        for component in ('api', 'agent', 'mcp'):
+            out = self.legacy.translate(component, {**self.api_env(), **vertex})
+            self.assertEqual(out['GOOGLE_GENAI_BACKEND'], 'vertex', component)
+            held = {key: out[key] for key in keys if key in out}
+            self.assertEqual(held, {} if component == 'mcp' else keys, component)
+            if component != 'mcp':
+                # Application Default Credentials are the GCS service account every service already holds, in its project.
+                self.assertTrue(out['GCP_ADC_JSON'] and out['GCP_PROJECT_ID'], component)
+        for kind in ('generation', 'scheduler', 'export'):
+            out = self.legacy.translate(kind, {**self.worker_env(kind), **vertex})
+            self.assertEqual(out['GOOGLE_GENAI_BACKEND'], 'vertex', kind)
+            self.assertEqual({key: out[key] for key in keys if key in out}, keys if kind == 'generation' else {}, kind)
+        # Unset, nothing reaches Django, whatever the service holds; 'gemini' passes only the switch.
+        self.assertEqual(self.legacy.translate('api', {**self.api_env(), **keys}), self.legacy.translate('api', self.api_env()))
+        gemini = self.legacy.translate('generation', {**self.worker_env('generation'), **vertex, 'GOOGLE_GENAI_BACKEND': 'gemini'})
+        self.assertEqual(gemini['GOOGLE_GENAI_BACKEND'], 'gemini')
+        self.assertFalse(set(keys) & set(gemini))
+        # The switch alone is enough (the ADC identity itself, the global location); a bad target or region, or an
+        # unknown backend, refuses to start.
+        for component, env in (('api', self.api_env()), ('generation', self.worker_env('generation'))):
+            alone = self.legacy.translate(component, {**env, 'GOOGLE_GENAI_BACKEND': 'vertex'})
+            self.assertEqual((alone['GOOGLE_GENAI_BACKEND'], set(keys) & set(alone)), ('vertex', set()), component)
+        for component, env in (('agent', {**self.api_env(), **vertex, 'GOOGLE_VERTEX_LOCATION': 'us central'}),
+                               ('api', {**self.api_env(), **vertex, 'GOOGLE_VERTEX_IMPERSONATE_SA': 'someone@example.com'}),
+                               ('generation', {**self.worker_env('generation'), **vertex, 'GOOGLE_VERTEX_IMPERSONATE_SA': 'not-an-email'}),
+                               ('scheduler', {**self.worker_env('scheduler'), 'GOOGLE_GENAI_BACKEND': 'Vertex'})):
+            with self.subTest(component=component, env=sorted(env)), self.assertRaises(SystemExit):
+                self.legacy.translate(component, env)
 
     def test_refuses_mismatched_or_unsafe_configuration(self):
         for component, env in (('generation', self.worker_env('export')),

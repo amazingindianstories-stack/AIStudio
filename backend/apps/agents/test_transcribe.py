@@ -168,6 +168,25 @@ class TranscribeTests(TestCase):
         self.assertEqual((response.status_code, response.json(), sent),
                          (503, {'error': 'Voice input is not configured: GOOGLE_API_KEY is not set. Ask a Veevee admin.'}, []))
 
+    def test_on_vertex_the_note_goes_to_vertex_with_a_token_or_names_the_project_variables(self):
+        vertex = {'GOOGLE_GENAI_BACKEND': 'vertex', 'GCP_PROJECT_ID': 'veevee-project'}
+        with patch.dict(os.environ, vertex), patch('apps.integrations.google_genai._access_token', return_value='minted'):
+            response, sent = self.post(responses=[answer(WORDS)])
+        self.assertEqual((response.status_code, response.json()), (200, {'transcript': WORDS}))
+        body = transcribe_body('audio/webm', base64.b64encode(NOTE).decode())
+        self.assertEqual(sent, [('POST', 'https://aiplatform.googleapis.com/v1/projects/veevee-project/locations/global/publishers/google/'
+                                 'models/gemini-3.8-flash:generateContent', {'Content-Type': 'application/json', 'Authorization': 'Bearer minted'},
+                                 body, None)])
+        with patch.dict(os.environ, {**vertex, 'GCP_PROJECT_ID': ''}):
+            response, sent = self.post()
+        self.assertEqual((response.status_code, response.json(), sent), (503, {'error': 'Voice input is not configured: '
+                         'GCP_PROJECT_ID or GOOGLE_CLOUD_PROJECT is not set. Ask a Veevee admin.'}, []))
+        # A token that cannot be minted is a retryable failure that called nothing.
+        failed = ProviderError('Vertex AI access token could not be minted.', code='vertex_auth', may_have_submitted=False)
+        with patch.dict(os.environ, vertex), patch('apps.integrations.google_genai._access_token', side_effect=failed):
+            response, sent = self.post()
+        self.assertEqual((response.status_code, response.json(), sent), (502, {'error': 'Veevee could not transcribe the voice note. Try again.'}, []))
+
     def test_a_tool_error_keeps_its_own_status_instead_of_rate_limited(self):
         from apps.mcp import errors
         cases = {errors.MODEL_UNAVAILABLE: 503, errors.BUDGET_EXCEEDED: 429, errors.INVALID_INPUT: 400}
