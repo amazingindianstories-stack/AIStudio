@@ -58,7 +58,13 @@ def _patch_media(module):
     module.SafeMediaFetcher.open_file = open_file
 
 
-PATCHES = {'apps.integrations.transport': _patch_transport, 'apps.integrations.remote': _patch_media}
+def _patch_vertex_auth(module):
+    # Gemini Omni always calls Vertex AI; the fake server answers it, so no Application Default Credentials are read.
+    module._access_token = lambda target: 'local-fake-vertex-token'
+
+
+PATCHES = {'apps.integrations.transport': _patch_transport, 'apps.integrations.remote': _patch_media,
+           'apps.integrations.google_genai': _patch_vertex_auth}
 
 
 class _Hook(importlib.abc.MetaPathFinder):

@@ -11,7 +11,7 @@ from .availability import SWITCHES, availability, available
 from .model_registry import MODEL_REGISTRY
 
 ALWAYS = ['seedream-5-pro', 'seedream-5-5', 'nano-banana-pro', 'nano-banana-2-1', 'seedance', 'seedance-25', 'depth-anything-local']
-SWITCHED = {'omnihuman': ['omnihuman-2'], 'kling': ['kling-image-3', 'kling-image-21'], 'omni': ['gemini-omni-1-1-flash'],
+SWITCHED = {'omnihuman': ['omnihuman-2'], 'kling': ['kling-image-3', 'kling-image-21'], 'omni': ['gemini-omni-1-2-flash'],
             'magnific': ['magnific-creative', 'magnific-precision-v2', 'magnific-precision-v1', 'magnific-video-creative',
                          'magnific-video-creative-turbo', 'magnific-video-precision', 'magnific-video-topaz'],
             'openai': ['gpt-image-2-5-sunburst', 'gpt-image-2-5-flare', 'gpt-image-2-6-sunburst', 'gpt-image-2-6-flare']}
@@ -70,7 +70,7 @@ class AvailabilityTests(TransactionTestCase):
                 continue
             for settings in (ALL_OFF, ALL_ON):
                 with self.subTest(model=model['id'], on=settings is ALL_ON), override_settings(**settings), \
-                        patch.dict(os.environ, {}, clear=False) as environ:
+                        patch.dict(os.environ, {'GCP_PROJECT_ID': 'fixture-project'}, clear=False) as environ:
                     environ.pop('KLING_API_HOST', None)
                     try:
                         paid_guard.quote_for(valid_contract(model), UNLIMITED)

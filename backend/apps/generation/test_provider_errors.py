@@ -123,8 +123,9 @@ class CaptureTests(SimpleTestCase):
 
     def test_omni_create_rejection(self, _):
         status, body = PROVIDER_ERRORS['omni']
-        error = self.raised(lambda: omni.create_video_task({'modelDisplay': 'Gemini Omni Flash 1.1', 'duration': 4, 'aspectRatio': '16:9',
-            'resolution': '720p', 'assembled': {'instruction': 'x', 'groups': []}}, env={'GOOGLE_API_KEY': 'fixture'},
+        with patch('apps.integrations.google_genai._access_token', return_value='fixture-token'):
+            error = self.raised(lambda: omni.create_video_task({'modelDisplay': 'Gemini Omni Flash 1.2', 'duration': 4, 'aspectRatio': '16:9',
+            'resolution': '720p', 'assembled': {'instruction': 'x', 'groups': []}}, env={'GCP_PROJECT_ID': 'veevee-fixture'},
             transport=Transport(answer(status, body))))
         self.assertEqual({key: error.provider_response.get(key) for key in ('provider', 'phase', 'httpStatus', 'code')},
                          {'provider': 'omni', 'phase': 'create', 'httpStatus': 429, 'code': 'RESOURCE_EXHAUSTED'})
@@ -240,9 +241,9 @@ class UserMessageTests(SimpleTestCase):
              'Gemini image error (400): API key not valid.', failure_copy.UNAVAILABLE + ' Provider code: API_KEY_INVALID.'),
             ('image', 'Nano Banana Pro', provider_errors.capture('gemini', status=200, code='PROHIBITED_CONTENT', request_id='resp-1'),
              'Gemini returned no image (PROHIBITED_CONTENT).', failure_copy.POLICY + ' Provider code: PROHIBITED_CONTENT. Request id: resp-1.'),
-            ('video', 'Gemini Omni Flash 1.1', provider_errors.capture('omni', status=429, body=json.dumps(google_error(429))),
+            ('video', 'Gemini Omni Flash 1.2', provider_errors.capture('omni', status=429, body=json.dumps(google_error(429))),
              'Omni create error (429): {}', failure_copy.BUSY + ' Provider code: RESOURCE_EXHAUSTED.'),
-            ('video', 'Gemini Omni Flash 1.1', provider_errors.capture('omni', phase='task', message='Generation stopped.', task_id='v1_x'),
+            ('video', 'Gemini Omni Flash 1.2', provider_errors.capture('omni', phase='task', message='Generation stopped.', task_id='v1_x'),
              'Generation stopped.', failure_copy.PROVIDER_ERROR['video'] + ' Provider message: Generation stopped. Task id: v1_x.'),
             ('image', 'Kling Image 3.0', provider_errors.capture('kling', status=429, body=json.dumps(kling_error(1102, 'Account balance not enough'))),
              'Kling /v1/images/generations failed (http 429, code 1102): Account balance not enough',
@@ -285,7 +286,7 @@ class UserMessageTests(SimpleTestCase):
         self.assertEqual(failure_copy.public_message(row(responses=[record]), 'x'), failure_copy.PROVIDER_ERROR['video'] + ' Provider HTTP status: 400.')
 
 
-ENV = {'ARK_API_KEY': 'fake-ark-key', 'GOOGLE_API_KEY': 'fake-google-key', 'KLING_API': 'fake-kling-key',
+ENV = {'ARK_API_KEY': 'fake-ark-key', 'GOOGLE_API_KEY': 'fake-google-key', 'GCP_PROJECT_ID': 'fixture-project', 'KLING_API': 'fake-kling-key',
        'MOCK_GENERATION': '0', 'MOCK_ASSET_PROVIDER': '0'}
 
 
@@ -366,11 +367,12 @@ class EndToEndTests(TransactionTestCase):
         self.assertEqual(sum(1 for call in fake.calls if call[0] == 'POST'), 1, 'exactly one paid submission')
 
     @override_settings(VEEVEE_GEMINI_OMNI=True)
-    def test_omni_task_failure(self):
+    @patch('apps.integrations.google_genai.auth_headers', return_value={'Authorization': 'Bearer fixture'})
+    def test_omni_task_failure(self, _):
         def configure(fake):
             fake.omni_task_error = {'code': 'SAFETY', 'message': 'The output was blocked by safety filters.'}
             fake.omni_running_polls = 0
-        current, item, _ = self.run_case('video', {'prompt': 'a lantern', 'model': 'Gemini Omni Flash 1.1', 'aspectRatio': '16:9',
+        current, item, _ = self.run_case('video', {'prompt': 'a lantern', 'model': 'Gemini Omni Flash 1.2', 'aspectRatio': '16:9',
                                                    'resolution': '360p', 'duration': 4}, configure, polls=1)
         self.assertEqual((current.status, current.moderation_blocked), ('failed', True))
         self.assertEqual(item['error'], failure_copy.POLICY + f' Provider code: SAFETY. Task id: {current.task_id}.')

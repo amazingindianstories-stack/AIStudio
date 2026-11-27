@@ -2201,7 +2201,7 @@ const STATUS_ROWS_FALLBACK = [
   { id: "higgsfield", name: "Higgsfield MCP" },
   { id: "seedance", name: "BytePlus ModelArk / Seedance" },
   { id: "kling", name: "KlingAI Image" },
-  { id: "omni", name: "Gemini Omni Flash 1.1" },
+  { id: "omni", name: "Gemini Omni Flash 1.2" },
   { id: "postgres", name: "Postgres" },
   { id: "storage", name: "Media Storage" },
 ];

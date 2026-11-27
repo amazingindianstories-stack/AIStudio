@@ -86,9 +86,9 @@ class PollerTests(TransactionTestCase):
     def test_moderation_missing_output_and_omni_terminal(self):
         for result, model, phrase in [({'status': 'failed', 'error': 'SensitiveContent'}, 'Seedance 2.5', 'BytePlus rejected'),
             ({'status': 'succeeded'}, 'Seedance 2.5', 'no video'),
-            ({'status': 'failed', 'error': 'blocked', 'moderationBlocked': True}, 'Gemini Omni Flash', 'blocked'),
-            ({'status': 'failed', 'error': 'blocked', 'moderationBlocked': True}, 'Gemini Omni Flash 1.1', 'blocked'),
-            ({'status': 'succeeded'}, 'Gemini Omni Flash 1.1', 'Omni reported success but returned no video.')]:
+            ({'status': 'failed', 'error': 'blocked', 'moderationBlocked': True}, 'Gemini Omni Flash 1.2', 'blocked'),
+            ({'status': 'failed', 'error': 'blocked', 'moderationBlocked': True}, 'Gemini Omni Flash 1.2', 'blocked'),
+            ({'status': 'succeeded'}, 'Gemini Omni Flash 1.2', 'Omni reported success but returned no video.')]:
             with self.subTest(result=result):
                 item = self.job(model=model)
                 deps = self.deps(get_video=lambda *args, **kwargs: result, get_omni=lambda *args, **kwargs: result)
@@ -97,7 +97,7 @@ class PollerTests(TransactionTestCase):
                 self.assertIn(phrase, outcome['item'].error)
 
     def test_omni_save_retry_preserves_base64_master(self):
-        for model in ('Gemini Omni Flash', 'Gemini Omni Flash 1.1'):
+        for model in ('Gemini Omni Flash 1.2',):
             with self.subTest(model=model):
                 self.omni_save_retry_preserves_base64_master(model)
 

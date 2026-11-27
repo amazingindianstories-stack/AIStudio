@@ -218,7 +218,7 @@ class CoordinatorTests(TransactionTestCase):
 
     def test_gemini_omni_flash_1_1_and_retired_omni_spend_share_the_gemini_window(self):
         # Retired Gemini Omni Flash rows stay billed in the window they were made in; 1.1 is held by them and holds images.
-        self.assertEqual(admission.gemini_video_models(), ['Gemini Omni Flash', 'Gemini Omni Flash 1.1', 'gemini-omni-1-1-flash', 'gemini-omni-flash'])
+        self.assertEqual(admission.gemini_video_models(), ['Gemini Omni Flash', 'Gemini Omni Flash 1.1', 'Gemini Omni Flash 1.2', 'gemini-omni-1-1-flash', 'gemini-omni-1-2-flash', 'gemini-omni-flash'])
         old = self.job(kind='video', status='succeeded', model='Gemini Omni Flash', cost_cents=140)
         new = self.job(kind='video', model='Gemini Omni Flash 1.1', cost_cents=37, created_at=1000001)
         self.assertTrue(admission.bills_gemini(new))

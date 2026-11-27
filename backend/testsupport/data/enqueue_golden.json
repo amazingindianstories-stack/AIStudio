@@ -76,7 +76,7 @@
    "headers": {
     "Content-Type": "application/json"
    },
-   "body": "{\"kind\":\"video\",\"prompt\":\"lantern river\",\"model\":\"Gemini Omni Flash 1.1\",\"aspectRatio\":\"9:16\",\"resolution\":\"360p\",\"duration\":6,\"generateAudio\":false,\"sourceGenerationId\":null,\"draftTaskId\":null,\"costCents\":22,\"id\":\"0000001f-0000-4000-8000-000000000000\",\"status\":\"queued\",\"createdAt\":1793145600000,\"updatedAt\":1793145600000,\"userId\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"filename\":\"unsorted_0011.mp4\"}"
+   "body": "{\"kind\":\"video\",\"prompt\":\"lantern river\",\"model\":\"Gemini Omni Flash 1.2\",\"aspectRatio\":\"9:16\",\"resolution\":\"360p\",\"duration\":6,\"generateAudio\":false,\"sourceGenerationId\":null,\"draftTaskId\":null,\"costCents\":14,\"id\":\"0000001f-0000-4000-8000-000000000000\",\"status\":\"queued\",\"createdAt\":1793145600000,\"updatedAt\":1793145600000,\"userId\":\"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa\",\"filename\":\"unsorted_0011.mp4\"}"
   },
   {
    "status": 200,
@@ -146,14 +146,14 @@
    "headers": {
     "Content-Type": "application/json"
    },
-   "body": "{\"error\":\"Gemini Omni Flash 1.1 supports 16:9/9:16 aspect ratios only (got 21:9).\"}"
+   "body": "{\"error\":\"Gemini Omni Flash 1.2 supports 16:9/9:16 aspect ratios only (got 21:9).\"}"
   },
   {
    "status": 400,
    "headers": {
     "Content-Type": "application/json"
    },
-   "body": "{\"error\":\"Gemini Omni Flash has been retired. Choose Gemini Omni Flash 1.1 instead.\"}"
+   "body": "{\"error\":\"Gemini Omni Flash has been retired. Choose Gemini Omni Flash 1.2 instead.\"}"
   },
   {
    "status": 400,

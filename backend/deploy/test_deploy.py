@@ -340,6 +340,21 @@ class LegacyConfigTests(SimpleTestCase):
             self.assertNotIn('VEEVEE_GEMINI_OMNI', self.legacy.translate(component, env))
             self.assertEqual(self.legacy.translate(component, {**env, 'VEEVEE_GEMINI_OMNI': '1'})['VEEVEE_GEMINI_OMNI'], '1')
 
+    def test_vertex_paid_services_do_not_require_or_expose_the_retired_gemini_key(self):
+        import copy
+        old = self.paid
+        self.paid = copy.deepcopy(old)
+        self.addCleanup(lambda: setattr(self, 'paid', old))
+        self.paid['provider_environment'].pop('GOOGLE_API_KEY')
+        for component, env in (('api', self.api_env()), ('generation', self.worker_env('generation')),
+                               ('scheduler', self.worker_env('scheduler')), ('agent', self.api_env())):
+            with self.subTest(component=component):
+                translated = self.legacy.translate(component, {**env, 'GOOGLE_GENAI_BACKEND': 'vertex'})
+                self.assertEqual(translated['GOOGLE_GENAI_BACKEND'], 'vertex')
+                self.assertNotIn('GOOGLE_API_KEY', translated)
+                with self.assertRaisesRegex(SystemExit, 'provider environment'):
+                    self.legacy.translate(component, {**env, 'GOOGLE_GENAI_BACKEND': 'gemini'})
+
     def test_omnihuman_reuses_the_byteplus_pair_on_the_enabled_generation_worker_only(self):
         import json
         portrait = {'GOAL4_PREVIEW_PORTRAIT_CONFIGURATION': json.dumps({'read_environment': {

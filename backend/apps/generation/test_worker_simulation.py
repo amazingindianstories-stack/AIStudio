@@ -16,7 +16,7 @@ from testsupport.fake_providers import FakeProviders
 from .models import Generation
 from .services import executor
 
-ENV = {'ARK_API_KEY': 'fake-ark-key', 'GOOGLE_API_KEY': 'fake-google-key', 'MOCK_GENERATION': '0', 'MOCK_ASSET_PROVIDER': '0'}
+ENV = {'ARK_API_KEY': 'fake-ark-key', 'GOOGLE_API_KEY': 'fake-google-key', 'GCP_PROJECT_ID': 'fixture-project', 'MOCK_GENERATION': '0', 'MOCK_ASSET_PROVIDER': '0'}
 
 
 class WorkerSimulationTests(TransactionTestCase):
@@ -117,31 +117,32 @@ class WorkerSimulationTests(TransactionTestCase):
         self.assertEqual(len(posts), 1, 'the final is one paid submission')
 
     @override_settings(VEEVEE_GEMINI_OMNI=True)
-    def test_gemini_omni_flash_1_1_submits_once_polls_and_stores_the_native_mp4(self):
-        row, first, fake, storage = self.run_case('video', {'prompt': 'a lantern drifting over a night river', 'model': 'Gemini Omni Flash 1.1',
+    @patch('apps.integrations.google_genai.auth_headers', return_value={'Authorization': 'Bearer fixture'})
+    def test_gemini_omni_flash_1_2_submits_once_polls_and_stores_the_native_mp4(self, _):
+        row, first, fake, storage = self.run_case('video', {'prompt': 'a lantern drifting over a night river', 'model': 'Gemini Omni Flash 1.2',
                                                             'aspectRatio': '9:16', 'resolution': '360p', 'duration': 10}, polls=2)
         self.assert_stored(row, storage, 'video/mp4' if fake.mp4 else 'video/quicktime')
         key = row.url[len('/api/media/'):]
         self.assertEqual(storage.primary.objects[key][0], fake.mp4 or fake.mov, 'master bytes preserved exactly')
-        # 11 estimator cents/s at 720p, a third at 360p: 11 x 10 / 3 = 36.67 -> 37. The stored ratio is measured from
+        # 7 estimator cents/s at 720p, a third at 360p: 7 x 10 / 3 = 23.34 -> 23. The stored ratio is measured from
         # the master (the fake returns a 160x90 clip); the request below carries the requested 9:16.
         self.assertEqual((row.model, row.aspect_ratio, row.resolution, row.duration, row.cost_cents, row.task_id),
-                         ('Gemini Omni Flash 1.1', '16:9', '360p', 10, 37, 'v1_omni-sim-1'))
+                         ('Gemini Omni Flash 1.2', '16:9', '360p', 10, 23, 'v1_omni-sim-1'))
         posts = [call for call in fake.calls if call[0] == 'POST']
-        self.assertEqual(posts, [('POST', 'generativelanguage.googleapis.com/v1beta/interactions')], 'exactly one paid submission')
+        self.assertEqual(posts, [('POST', 'aiplatform.googleapis.com/v1beta1/projects/fixture-project/locations/global/interactions')], 'exactly one paid submission')
         self.assertEqual([call for call in fake.calls if call[0] == 'GET'],
-                         [('GET', 'generativelanguage.googleapis.com/v1beta/interactions/v1_omni-sim-1')] * 2)
+                         [('GET', 'aiplatform.googleapis.com/v1beta1/projects/fixture-project/locations/global/interactions/v1_omni-sim-1')] * 2)
         [body] = fake.omni_payloads
         self.assertEqual({key: value for key, value in body.items() if key != 'input'}, {
-            'model': 'gemini-omni-1.1-flash', 'background': True,
-            'response_format': {'type': 'video', 'aspect_ratio': '9:16', 'duration': '10s', 'resolution': '360p'}})
+            'model': 'gemini-omni-1.2-flash', 'background': True,
+            'response_format': [{'type': 'video', 'delivery': 'inline', 'aspect_ratio': '9:16', 'duration': '10s', 'resolution': '360p'}]})
         self.assertEqual(body['input'], [{'type': 'text', 'text': 'a lantern drifting over a night river'}])
 
     def test_retired_gemini_omni_flash_takes_no_new_job_and_a_stale_queued_one_fails_unsubmitted(self):
         from apps.generation.failure_copy import public_message
         self.cookie()
         storage = StorageService(MemoryAdapter())
-        message = 'Gemini Omni Flash has been retired. Choose Gemini Omni Flash 1.1 instead.'
+        message = 'Gemini Omni Flash has been retired. Choose Gemini Omni Flash 1.2 instead.'
         with override_settings(VEEVEE_MEDIA_STORAGE=storage), patch.dict(os.environ, ENV), FakeProviders() as fake:
             for model in ('Gemini Omni Flash', 'gemini-omni-flash'):
                 response = self.client.post('/api/generate/video', {'prompt': 'a lantern', 'model': model, 'aspectRatio': '16:9',
@@ -157,7 +158,7 @@ class WorkerSimulationTests(TransactionTestCase):
         self.assertEqual(public_message(stale, stale.error), message)
         self.assertEqual(fake.calls, [])
 
-    def test_historical_gemini_omni_flash_row_still_polls_stores_downloads_and_keeps_its_label(self):
+    def test_historical_gemini_omni_flash_row_never_polls_vertex_and_keeps_its_label(self):
         from apps.generation.serialization import generation_item
         self.cookie()
         storage = StorageService(MemoryAdapter())
@@ -168,13 +169,11 @@ class WorkerSimulationTests(TransactionTestCase):
                 submitted_at=1, next_poll_at=0, created_at=1, updated_at=1)
             executor.process_generation(str(row.id), heartbeat=False)
             row.refresh_from_db()
-            self.assertEqual(row.status, 'succeeded', row.error)
-            download = self.client.get(f'/api/generations/{row.id}/download')
-            self.assertEqual(download.status_code, 200)
-            self.assertEqual(b''.join(download.streaming_content), fake.mp4 or fake.mov)
-        self.assertEqual([call[0] for call in fake.calls], ['GET'], 'polling an accepted task never submits again')
+            self.assertEqual(row.status, 'failed')
+            self.assertIn('retired Gemini API', row.error)
+        self.assertEqual(fake.calls, [], 'a Gemini API interaction id must not reach Vertex')
         item = generation_item(row)
-        self.assertEqual((item['model'], item['costCents'], item['status']), ('Gemini Omni Flash', 80, 'succeeded'))
+        self.assertEqual((item['model'], item['costCents'], item['status']), ('Gemini Omni Flash', 80, 'failed'))
 
 
 MAGNIFIC_ENV = {**ENV, 'MAGNIFIC_API_KEY': 'fake-magnific-key'}

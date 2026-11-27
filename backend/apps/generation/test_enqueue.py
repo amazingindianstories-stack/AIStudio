@@ -121,7 +121,7 @@ const results=[];for(const value of JSON.parse(s)){try{const r=await fn(...Objec
                 with self.subTest(value=value):
                     if value.get('model') == 'Gemini Omni Flash':
                         # Retired 2026-10-18 (Google shuts the preview down 2026-10-22): refused before anything else.
-                        self.assertEqual(actual,{'status':400,'body':{'error':'Gemini Omni Flash has been retired. Choose Gemini Omni Flash 1.1 instead.'}})
+                        self.assertEqual(actual,{'status':400,'body':{'error':'Gemini Omni Flash has been retired. Choose Gemini Omni Flash 1.2 instead.'}})
                     elif value.get('model') in ('Higgsfield Seedance 2.0','unknown'):
                         # Unoffered and unknown models are refused before anything else (the Node route took them).
                         self.assertEqual(actual,{'status':400,'body':{'error':f"{value['model']} is not enabled. Choose another video model."}})
@@ -419,10 +419,10 @@ class EnqueueContractTests(TransactionTestCase):
 
     @override_settings(VEEVEE_GEMINI_OMNI=True)
     def test_gemini_omni_flash_1_1_enqueue_stores_its_controls_and_estimate_and_refuses_the_retired_model(self):
-        # Default row: 11 estimator cents per second at 720p, a third of that at 360p; no audio field.
+        # Default row: 7 estimator cents per second at 720p, a third of that at 360p; no audio field.
         self.cookie()
-        cases=[('Gemini Omni Flash 1.1','720p',4,'16:9',44),('Gemini Omni Flash 1.1','720p',10,'9:16',110),
-               ('Gemini Omni Flash 1.1','360p',6,'16:9',22),('gemini-omni-1-1-flash','360p',10,'9:16',37)]
+        cases=[('Gemini Omni Flash 1.2','720p',4,'16:9',28),('Gemini Omni Flash 1.2','720p',10,'9:16',70),
+               ('Gemini Omni Flash 1.2','360p',6,'16:9',14),('gemini-omni-1-2-flash','360p',10,'9:16',23)]
         for index,(model,resolution,duration,ratio,cents) in enumerate(cases):
             with self.subTest(model=model,resolution=resolution,duration=duration):
                 response=self.post('video',dict(prompt=f'lantern river {index}',model=model,aspectRatio=ratio,resolution=resolution,
@@ -431,17 +431,17 @@ class EnqueueContractTests(TransactionTestCase):
                 row=Generation.objects.get(pk=response.json()['id'])
                 self.assertEqual((row.kind,row.status,row.model,row.resolution,row.duration,row.aspect_ratio,row.cost_cents,row.generate_audio,row.seed),
                                  ('video','queued',model,resolution,duration,ratio,cents,False,None))
-        self.assertEqual(Pricing.objects.get(pk='Gemini Omni Flash 1.1').unit_cost_cents,11)
+        self.assertEqual(Pricing.objects.get(pk='Gemini Omni Flash 1.2').unit_cost_cents,7)
         before=Generation.objects.count()
-        for change,error in [({'resolution':'1080p'},'Gemini Omni Flash 1.1 supports 360p/720p only (got 1080p).'),
-                             ({'resolution':'4k'},'Gemini Omni Flash 1.1 supports 360p/720p only (got 4k).'),
-                             ({'duration':3},'Gemini Omni Flash 1.1 supports 4/6/8/10s durations (got 3).'),
-                             ({'duration':12},'Gemini Omni Flash 1.1 supports 4/6/8/10s durations (got 12).'),
-                             ({'aspectRatio':'21:9'},'Gemini Omni Flash 1.1 supports 16:9/9:16 aspect ratios only (got 21:9).'),
-                             ({'model':'Gemini Omni Flash'},'Gemini Omni Flash has been retired. Choose Gemini Omni Flash 1.1 instead.'),
-                             ({'model':'gemini-omni-flash'},'Gemini Omni Flash has been retired. Choose Gemini Omni Flash 1.1 instead.')]:
+        for change,error in [({'resolution':'1080p'},'Gemini Omni Flash 1.2 supports 360p/720p only (got 1080p).'),
+                             ({'resolution':'4k'},'Gemini Omni Flash 1.2 supports 360p/720p only (got 4k).'),
+                             ({'duration':3},'Gemini Omni Flash 1.2 supports 4/6/8/10s durations (got 3).'),
+                             ({'duration':12},'Gemini Omni Flash 1.2 supports 4/6/8/10s durations (got 12).'),
+                             ({'aspectRatio':'21:9'},'Gemini Omni Flash 1.2 supports 16:9/9:16 aspect ratios only (got 21:9).'),
+                             ({'model':'Gemini Omni Flash'},'Gemini Omni Flash has been retired. Choose Gemini Omni Flash 1.2 instead.'),
+                             ({'model':'gemini-omni-flash'},'Gemini Omni Flash has been retired. Choose Gemini Omni Flash 1.2 instead.')]:
             with self.subTest(change=change):
-                body={**dict(prompt='lantern river',model='Gemini Omni Flash 1.1',aspectRatio='16:9',resolution='720p',duration=8),**change}
+                body={**dict(prompt='lantern river',model='Gemini Omni Flash 1.2',aspectRatio='16:9',resolution='720p',duration=8),**change}
                 response=self.post('video',body)
                 self.assertEqual((response.status_code,response.json()),(400,{'error':error}))
         self.assertEqual(Generation.objects.count(),before)
@@ -451,8 +451,8 @@ class EnqueueContractTests(TransactionTestCase):
         old.refresh_from_db()
         self.assertEqual((old.model,old.cost_cents),('Gemini Omni Flash',80))
         # An admin price edit is the estimate from then on, without a deploy.
-        Pricing.objects.filter(pk='Gemini Omni Flash 1.1').update(unit_cost_cents=12)
-        response=self.post('video',dict(prompt='lantern river again',model='Gemini Omni Flash 1.1',aspectRatio='16:9',resolution='360p',duration=8))
+        Pricing.objects.filter(pk='Gemini Omni Flash 1.2').update(unit_cost_cents=12)
+        response=self.post('video',dict(prompt='lantern river again',model='Gemini Omni Flash 1.2',aspectRatio='16:9',resolution='360p',duration=8))
         self.assertEqual(Generation.objects.get(pk=response.json()['id']).cost_cents,32)
 
     def test_seedream_no_reference_admission_preserved_without_native_runtime(self):
