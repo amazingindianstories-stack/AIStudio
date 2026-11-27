@@ -66,7 +66,7 @@ The backend reads these values from **Railway service variables**. Vercel holds 
 | Railway service | `GOOGLE_GENAI_BACKEND` | `GOOGLE_VERTEX_IMPERSONATE_SA`, `GOOGLE_VERTEX_LOCATION` |
 |---|---|---|
 | green-django-api | yes | yes: voice notes, talktrack transcription, admin status |
-| green-django-generation | yes | yes: images, reference prep, board text, audio transcription |
+| green-django-generation | yes | yes: images, reference prep, board text, audio transcription, Omni video |
 | green-django-agent | yes | yes: the Agents tab loop and its media reads |
 | green-django-scheduler | yes | no |
 | green-django-export | yes | no |
@@ -175,5 +175,8 @@ caching. No live Vertex call has been made. After deploying with the switch on, 
 3. One Nano Banana 2.1 image.
 4. One board text job.
 5. One voice note.
+6. One Gemini Omni Flash 1.2 video, with `VEEVEE_GEMINI_OMNI=1`.
 
-To roll back, unset `GOOGLE_GENAI_BACKEND` (or set it to `gemini`) on every service and redeploy.
+To roll back the `generateContent` calls, unset `GOOGLE_GENAI_BACKEND` (or set it to `gemini`) on every service and
+redeploy. Gemini Omni has no Gemini API path to roll back to; on Railway without the switch, `legacy_config` does
+not forward `GOOGLE_VERTEX_IMPERSONATE_SA`, so Omni calls Vertex as the ADC identity.
