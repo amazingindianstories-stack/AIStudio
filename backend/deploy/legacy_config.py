@@ -315,8 +315,9 @@ def preflight_contract(component, env):
 def preflight(database_url, contract, connect=None):
     """Fail closed unless the connection is the expected database, role and job visibility."""
     if connect is None:
+        from functools import partial
         import psycopg
-        connect = psycopg.connect
+        connect = partial(psycopg.connect, prepare_threshold=None)
     from psycopg import sql
     with connect(database_url) as db:
         identity = db.execute('SELECT current_database(), current_user, system_identifier::text FROM pg_control_system()').fetchone()

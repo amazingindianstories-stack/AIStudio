@@ -614,6 +614,10 @@ class LegacyConfigTests(SimpleTestCase):
                 ('relrowsecurity', (True,)), ('held_generations', (0,))]
         contract = {'role': 'goal4_green_preview_worker', 'rls_tables': ['generations'], 'hidden_job_contracts': {'generations': ['id']}}
         self.legacy.preflight('url', contract, connect=lambda url: Connection(good))
+        repeated_contract = {**contract, 'rls_tables': ['generations'] * 6}
+        with mock.patch('psycopg.connect', return_value=Connection(good)) as connect:
+            self.legacy.preflight('url', repeated_contract)
+        connect.assert_called_once_with('url', prepare_threshold=None)
         for index, bad in ((0, ('railway', 'someone_else', self.legacy.SYSTEM_IDENTIFIER)), (1, (False,)), (2, (59,)),
                            (3, (False, True, False, False, False, False)), (4, (False,)), (5, (3,))):
             answers = list(good)
