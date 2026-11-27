@@ -17,15 +17,16 @@ def case(model, kind='image', **body):
 class PaidAdmissionParityTests(ParityCase):
     def run_cases(self, cases, guard=UNLIMITED, **flags):
         return self.scenario('paid', {'VEEVEE_PAID_GUARD': json.dumps(guard) if guard else '',
-            'VEEVEE_RUNTIME_COMPONENT': 'api', **flags}, cases=cases)
+            'VEEVEE_RUNTIME_COMPONENT': 'api',
+            'GCP_PROJECT_ID': 'veevee-parity', **flags}, cases=cases)
 
     def test_switched_off_and_unknown_models_are_refused_at_submission(self):
         # The paid guard's own wording, now given at submission (400) before the guard is reached, with or without it.
         cases = [case('Kling Image 3.0'), case('Kling Image 2.1'),
-                 case('Gemini Omni Flash 1.1', 'video', duration=8), case('Veo 3.1', 'video')]
+                 case('Gemini Omni Flash 1.2', 'video', duration=8), case('Veo 3.1', 'video')]
         messages = ['Kling Image 3.0 is not enabled. Choose another image model.',
                     'Kling Image 2.1 is not enabled. Choose another image model.',
-                    'Gemini Omni Flash 1.1 is not enabled', 'Veo 3.1 is not enabled. Choose another video model.']
+                    'Gemini Omni Flash 1.2 is not enabled', 'Veo 3.1 is not enabled. Choose another video model.']
         for guard in (UNLIMITED, None):
             with self.subTest(guard=bool(guard)):
                 result = self.run_cases(cases, guard=guard, VEEVEE_KLING='0', VEEVEE_GEMINI_OMNI='0')
@@ -34,7 +35,7 @@ class PaidAdmissionParityTests(ParityCase):
 
     def test_limited_scope_refuses_unquoted_models(self):
         result = self.run_cases([case('Seedream 5.0 Pro'), case('Kling Image 3.0'),
-            case('Seedance 2.0', 'video'), case('Gemini Omni Flash 1.1', 'video', duration=8)], guard=LIMITED,
+            case('Seedance 2.0', 'video'), case('Gemini Omni Flash 1.2', 'video', duration=8)], guard=LIMITED,
             VEEVEE_KLING='1', VEEVEE_GEMINI_OMNI='1')
         self.assertEqual(result['responses'], [{'status': 409, 'body': {
             'error': 'No verified maximum charge quote for this model',
@@ -45,7 +46,7 @@ class PaidAdmissionParityTests(ParityCase):
         cases = [case(m) for m in ('Nano Banana Pro', 'Nano Banana 2.1', 'Seedream 5.0 Pro',
                                   'Kling Image 3.0', 'Kling Image 2.1')]
         cases += [case('Seedance 2.5', 'video'), case('Seedance 2.0', 'video'),
-                  case('Gemini Omni Flash 1.1', 'video', duration=8)]
+                  case('Gemini Omni Flash 1.2', 'video', duration=8)]
         result = self.run_cases(cases, VEEVEE_KLING='1', VEEVEE_GEMINI_OMNI='1')
         self.assertEqual([r['status'] for r in result['responses']], [200] * len(cases), result)
         self.assertTrue(all(r['body'].get('id') for r in result['responses']))
@@ -55,7 +56,7 @@ class PaidAdmissionParityTests(ParityCase):
 
     def test_guard_off_accepts_models_without_reservations(self):
         cases = [case('Nano Banana Pro'), case('Kling Image 3.0'), case('Seedance 2.5', 'video'),
-                 case('Gemini Omni Flash 1.1', 'video', duration=8)]
+                 case('Gemini Omni Flash 1.2', 'video', duration=8)]
         result = self.run_cases(cases, guard=None, VEEVEE_KLING='1', VEEVEE_GEMINI_OMNI='1')
         self.assertEqual([r['status'] for r in result['responses']], [200] * len(cases), result)
         self.assertEqual(result['reservations'], 0)
@@ -70,7 +71,7 @@ class PaidAdmissionParityTests(ParityCase):
                 # The old default video model, used when a request names none.
                 'Higgsfield Seedance 2.0 is not enabled. Choose another video model.',
                 'Higgsfield Seedance 2.0 is not enabled. Choose another video model.',
-                'Gemini Omni Flash has been retired. Choose Gemini Omni Flash 1.1 instead.',
+                'Gemini Omni Flash has been retired. Choose Gemini Omni Flash 1.2 instead.',
                 'Upscale models run from the Upscale composer.', 'Upscale models run from the Upscale composer.')])
         self.assertEqual(result['reservations'], 0)
 

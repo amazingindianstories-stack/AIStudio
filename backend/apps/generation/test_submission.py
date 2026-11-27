@@ -39,9 +39,9 @@ class AvailabilityRefusalTests(TransactionTestCase):
                 name = enqueue.model_definition(model)['name']
                 with self.subTest(model=model):
                     self.assertRefused('image', {**image, 'model': model}, f'{name} is not enabled. Choose another image model.')
-            with self.subTest(model='Gemini Omni Flash 1.1'):
-                self.assertRefused('video', dict(prompt='river', model='Gemini Omni Flash 1.1', aspectRatio='16:9', resolution='720p', duration=8),
-                                   'Gemini Omni Flash 1.1 is not enabled')
+            with self.subTest(model='Gemini Omni Flash 1.2'):
+                self.assertRefused('video', dict(prompt='river', model='Gemini Omni Flash 1.2', aspectRatio='16:9', resolution='720p', duration=8),
+                                   'Gemini Omni Flash 1.2 is not enabled')
             with self.subTest(model='OmniHuman 2.0'):
                 self.assertRefused('video', dict(model='OmniHuman 2.0', referenceImages=['/api/media/a.png'], referenceAudios=['/api/media/a.wav']),
                                    'OmniHuman is not enabled. Choose another video model.')
@@ -79,7 +79,7 @@ class AvailabilityRefusalTests(TransactionTestCase):
     def test_retired_models_keep_the_retirement_message(self):
         self.cookie()
         self.assertRefused('video', dict(prompt='river', model='Gemini Omni Flash', aspectRatio='16:9', resolution='720p', duration=8),
-                           'Gemini Omni Flash has been retired. Choose Gemini Omni Flash 1.1 instead.')
+                           'Gemini Omni Flash has been retired. Choose Gemini Omni Flash 1.2 instead.')
 
     def test_the_service_names_the_refusal(self):
         actor = User.objects.get(pk=session_fixtures.UID)
@@ -128,7 +128,7 @@ class QuoteTests(TransactionTestCase):
                  ('image', dict(prompt='lantern', model='Kling Image 2.1', resolution='1K', referenceImages=[data_url()])),
                  ('video', dict(prompt='river', model='Seedance 2.0', resolution='720p', duration=5, generateAudio=True)),
                  ('video', dict(prompt='river', model='Seedance 2.5', resolution='480p', duration=10, draftMode=True)),
-                 ('video', dict(prompt='river', model='Gemini Omni Flash 1.1', aspectRatio='9:16', resolution='360p', duration=6))]
+                 ('video', dict(prompt='river', model='Gemini Omni Flash 1.2', aspectRatio='9:16', resolution='360p', duration=6))]
         with override_settings(VEEVEE_MEDIA_STORAGE=self.storage, VEEVEE_KLING=True, VEEVEE_GEMINI_OMNI=True):
             for kind, body in cases:
                 with self.subTest(model=body['model']):

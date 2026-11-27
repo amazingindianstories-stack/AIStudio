@@ -26,7 +26,7 @@ async function freshProject(context, page, label) {
 test('switched-off Kling leaves the pickers, while its history still shows and Clone & try says what it uses instead', async ({ page, context, baseURL }, testInfo) => {
   await authenticate(context, baseURL);
   const me = await (await context.request.get('/api/auth/me')).json();
-  expect(me.availability.models).toContain('gemini-omni-1-1-flash');
+  expect(me.availability.models).toContain('gemini-omni-1-2-flash');
   expect(me.availability.models).toContain('magnific-creative');
   expect(me.availability.models.filter(id => id.startsWith('kling'))).toEqual([]);
 
@@ -53,12 +53,12 @@ test('switched-off Kling leaves the pickers, while its history still shows and C
     await page.screenshot({ path: testInfo.outputPath('image-picker-without-kling.png') });
     await page.keyboard.press('Escape');
 
-    // Switched-on features stay: Gemini Omni Flash 1.1 in the video picker, Upscale in the sections.
+    // Switched-on features stay: Gemini Omni Flash 1.2 in the video picker, Upscale in the sections.
     const sections = page.getByRole('navigation', { name: 'Sections' });
     await expect(sections.getByRole('button', { name: 'Upscale', exact: true })).toBeVisible();
     await sections.getByRole('button', { name: 'Video', exact: true }).click();
     await picker.click();
-    await expect(page.getByRole('menuitem', { name: /^Gemini Omni Flash 1\.1(?:\s|$)/ })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: /^Gemini Omni Flash 1\.2(?:\s|$)/ })).toBeVisible();
     await page.keyboard.press('Escape');
 
     // The Kling row reads normally in the project thread, model label included.

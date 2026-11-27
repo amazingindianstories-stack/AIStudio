@@ -203,8 +203,10 @@ class ResultTests(StorageMixin, McpCase):
         row, _ = self.image_row()
         before = time.time()
         output = self.get(row.id).structured_content['generation']['outputs'][0]
+        after = time.time()
         expires = calendar.timegm(time.strptime(output['urlsExpireAt'], '%Y-%m-%dT%H:%M:%SZ'))
-        self.assertLessEqual(abs(expires - (before + 300)), 2)        # the 5-minute original wins over 14-minute reads
+        # The 5-minute original wins over 14-minute reads; the call's own duration bounds when it was signed.
+        self.assertTrue(int(before) + 300 <= expires <= after + 300, (before, expires, after))
 
     def test_video_uses_its_poster_and_streams_the_master(self):
         master = mov_bytes()

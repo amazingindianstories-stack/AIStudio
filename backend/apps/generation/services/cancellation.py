@@ -40,9 +40,8 @@ class CancelError(Exception):
 
 def provider_for(item, env=None):
     provider = (model_definition(item.model) or {}).get('provider')
-    env = os.environ if env is None else env
-    if provider == 'omni' and env.get('OMNI_USE_VERTEX') == '1':
-        return None  # No verified official Vertex cancellation contract.
+    if provider == 'omni' and item.task_id and (model_definition(item.model) or {}).get('interactionsBackend') == 'gemini':
+        return None  # Historical Gemini API interaction ids must never be sent to Vertex.
     return provider if provider in ADAPTERS and item.kind == 'video' else None
 
 

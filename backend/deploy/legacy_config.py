@@ -132,9 +132,12 @@ def _common(cfg, env, *, browser_origins, app_origin):
     paid = cfg.get('paid')
     if paid:
         provider = paid['provider_environment']
-        need(set(provider) <= PROVIDER_KEYS and provider.get('ARK_API_KEY') and provider.get('GOOGLE_API_KEY'), 'provider environment')
+        backend = env.get(GENAI_SWITCH) or 'gemini'
+        need(backend in google_genai.BACKENDS, GENAI_SWITCH + ' must be gemini or vertex')
+        need(set(provider) <= PROVIDER_KEYS and provider.get('ARK_API_KEY') and
+             (backend == 'vertex' or provider.get('GOOGLE_API_KEY')), 'provider environment')
         guard = {key: value for key, value in paid['configuration'].items() if key != 'authorization'}
-        out.update(provider)
+        out.update({key: value for key, value in provider.items() if key != 'GOOGLE_API_KEY' or backend == 'gemini'})
         out.update({'MOCK_GENERATION': '0', 'MOCK_ASSET_PROVIDER': '0', 'VEEVEE_PAID_GUARD': json.dumps(guard)})
     return out
 

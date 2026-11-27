@@ -149,7 +149,7 @@ VEEVEE_ADDRESS_RATE_LIMITS = os.environ.get('VEEVEE_ADDRESS_RATE_LIMITS') != '0'
 VEEVEE_CLIENT_ADDRESS_KEY = os.environ.get('VEEVEE_CLIENT_ADDRESS_KEY', '')
 # Magnific image/video upscaling through the gateway and paid guard (off unless '1').
 VEEVEE_MAGNIFIC_UPSCALE = os.environ.get('VEEVEE_MAGNIFIC_UPSCALE') == '1'
-# Paid Gemini Omni Flash 1.1 video through the paid guard (off unless '1'; switched on after live acceptance).
+# Paid Gemini Omni Flash 1.2 video through the paid guard (off unless '1'; switched on after live acceptance).
 VEEVEE_GEMINI_OMNI = os.environ.get('VEEVEE_GEMINI_OMNI') == '1'
 # Paid Kling Image 3.0 / 2.1 through the paid guard (off unless '1'; the API and generation worker both need it).
 VEEVEE_KLING = os.environ.get('VEEVEE_KLING') == '1'

@@ -1,10 +1,9 @@
 # Vertex AI for Gemini calls
 
-Veevee's Gemini calls are moving from the Gemini API (`generativelanguage.googleapis.com`, `GOOGLE_API_KEY`) to Vertex
-AI (`aiplatform.googleapis.com`), billed to the Google Cloud project. Vertex AI is the production target. The move is
-behind one switch, `GOOGLE_GENAI_BACKEND=vertex`, so deploying the code changes nothing until the switch is set, and
-unsetting it is the rollback. The variable is read when each call is made. With it unset, or set to `gemini`, requests
-are byte-for-byte what they were before the switch existed. The code is `backend/apps/integrations/google_genai.py`.
+Veevee's Gemini calls use Vertex AI (`aiplatform.googleapis.com`), billed to the Google Cloud project. The
+`GOOGLE_GENAI_BACKEND=vertex` switch selects Vertex for `generateContent` calls; Gemini Omni video always uses Vertex
+Interactions. The retired AI Studio key must not be restored. The shared credential code is
+`backend/apps/integrations/google_genai.py`.
 
 ## What moves to Vertex AI
 
@@ -17,6 +16,7 @@ are byte-for-byte what they were before the switch existed. The code is `backend
 | Audio transcription (composer, talktrack) | `media/audio.py` | `gemini-2.5-flash` | `gemini-3.8-flash` |
 | Agents tab loop, design, view_media, read_document, voice notes | `agents/*`, `mcp/tools/media.py` | `gemini-3.8-flash`, `gemini-3.1-pro-preview` | same |
 | Admin status row "Gemini / Nano Banana" | `admin_dashboard/status.py` | `models.get` read | mints an access token, no model call |
+| Gemini Omni Flash 1.2 video | `generation/providers/omni.py` | none | global Interactions API, inline MP4 |
 
 Vertex AI has no `-latest` aliases and retired `gemini-2.5-flash` on 2026-10-20, so the switch replaces only those
 defaults. An explicit `AGENT_LLM_MODEL`, `AGENT_LLM_MODEL_ADVANCED`, `AUDIO_TRANSCRIPTION_MODEL` or
@@ -66,7 +66,7 @@ The backend reads these values from **Railway service variables**. Vercel holds 
 | Railway service | `GOOGLE_GENAI_BACKEND` | `GOOGLE_VERTEX_IMPERSONATE_SA`, `GOOGLE_VERTEX_LOCATION` |
 |---|---|---|
 | green-django-api | yes | yes: voice notes, talktrack transcription, admin status |
-| green-django-generation | yes | yes: images, reference prep, board text, audio transcription |
+| green-django-generation | yes | yes: images, reference prep, board text, audio transcription, Omni video |
 | green-django-agent | yes | yes: the Agents tab loop and its media reads |
 | green-django-scheduler | yes | no |
 | green-django-export | yes | no |
@@ -81,22 +81,25 @@ stack keeps its fake Gemini provider and does not pass them through.
 
 ## Limits on Vertex AI
 
-- **Gemini Omni video stays on the Gemini API.** Vertex does not document the Interactions API that Omni uses. While
-  the Gemini API is unavailable, Omni jobs fail as before.
+- **Gemini Omni Flash 1.2 uses Vertex Interactions.** The global `/v1beta1/projects/{project}/locations/global/interactions`
+  endpoint receives `background: true` and an array `response_format` with `delivery: inline`. The adapter stores the
+  returned MP4 bytes and MIME unchanged. The currently offered choices remain 360p/720p and 4/6/8/10 seconds, with
+  at most 10 total reference images including selected tiles. Historical 1.1 rows keep their labels; active old
+  Gemini API interaction IDs are never sent to Vertex. Project access and billing need a paid canary before release.
 - **Large media use Cloud Storage.** The Vertex handoff below replaces inline-size refusals; Vertex has no Files API.
 - **Nano Banana 2.1 sends no seed.** Vertex rejects `seed` (and `temperature`, `topP`, `topK`) for this model. The seed
   a job records is shown but not sent.
 - **The admin status row cannot read a model for free.** It mints an access token and reports "access token minted"
   without making a model call, so it proves the credentials, not model access.
-- **Limited-scope operator quotes stay pinned to the Gemini API.** These are `paid_guard.operator_quotes`, used for
-  paid rehearsals. On Vertex they refuse, which is fail-closed.
+- **Limited-scope operator quotes follow the selected image backend.** `paid_guard.operator_quotes` computes image
+  endpoints through `google_genai.model_url`.
 - **Board text jobs queued before the switch** carry `gemini-flash-latest` or `gemini-pro-latest`, which Vertex does
   not serve. Such a job fails if a Vertex worker runs it; retry it after the switch.
 - **Audio transcription jobs queued before the switch** record `gemini-2.5-flash`, which Vertex retired. A Vertex
   worker refuses such a job: the paid guard rejects its quote, or, with the guard off, Vertex rejects the model. Neither
   makes a billed submission; retry the job after the switch.
-- **Pricing is unverified.** Usage rows and the Agents tab budget use the Gemini API rates. Vertex pricing was not
-  checked.
+- **Pricing remains an estimate.** Omni 1.2 uses the published 720p guide price of $0.07/s; invoice reconciliation
+  and a paid canary are needed before treating it as measured spend.
 
 ## Media handoff and reader permissions
 
@@ -172,5 +175,8 @@ caching. No live Vertex call has been made. After deploying with the switch on, 
 3. One Nano Banana 2.1 image.
 4. One board text job.
 5. One voice note.
+6. One Gemini Omni Flash 1.2 video, with `VEEVEE_GEMINI_OMNI=1`.
 
-To roll back, unset `GOOGLE_GENAI_BACKEND` (or set it to `gemini`) on every service and redeploy.
+To roll back the `generateContent` calls, unset `GOOGLE_GENAI_BACKEND` (or set it to `gemini`) on every service and
+redeploy. Gemini Omni has no Gemini API path to roll back to; on Railway without the switch, `legacy_config` does
+not forward `GOOGLE_VERTEX_IMPERSONATE_SA`, so Omni calls Vertex as the ADC identity.

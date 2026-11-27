@@ -213,6 +213,10 @@ DEFAULT_PRICING = [{'model': 'OmniHuman 2.0', 'unitCostCents': 0, 'unit': 'per_s
   'notes': 'gemini-omni-1.1-flash (Interactions API); base = 720p. Published (2026-10): 5,792 video output tokens per '
            'second at $17.50 per 1M = $0.1014/s, rounded up to whole cents; 360p x1/3 (Google blog); input and '
            'thinking tokens not included'},
+ {'model': 'Gemini Omni Flash 1.2',
+  'unitCostCents': 7,
+  'unit': 'per_second',
+  'notes': 'gemini-omni-1.2-flash on Vertex AI; published guide price $0.07/s for 720p. Estimate only; 360p x1/3 and input charges need invoice reconciliation.'},
  {'model': 'Magnific Creative',
   'unitCostCents': 20,
   'unit': 'per_image',

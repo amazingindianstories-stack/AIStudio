@@ -312,15 +312,16 @@ class FakeProviders:
             return 200, {'name': 'models/' + model[1], 'supportedGenerationMethods': ['generateContent']}
         # Gemini Omni Flash (Interactions API, background): create returns an id; GET returns the documented REST shape,
         # the video inline in steps[].content[] (ai.google.dev/gemini-api/docs/omni, read 2026-10-18).
-        if host == 'generativelanguage.googleapis.com' and path == '/v1beta/interactions' and method == 'POST':
+        vertex_omni = re.fullmatch(r'/v1beta1/projects/[a-z0-9-]+/locations/global/interactions', path)
+        if host == 'aiplatform.googleapis.com' and vertex_omni and method == 'POST':
             with self.lock:
                 self.task_counter += 1
                 interaction = f'v1_omni-sim-{self.task_counter}'
                 self.omni_payloads.append(data)
                 self.omni_polls[interaction] = 0
             return 200, {'id': interaction, 'status': 'in_progress', 'model': data.get('model'), 'object': 'interaction'}
-        omni = re.fullmatch(r'/v1beta/interactions/(v1_omni-sim-\d+)', path)
-        if host == 'generativelanguage.googleapis.com' and omni and method == 'GET' and omni[1] in self.omni_polls:
+        omni = re.fullmatch(r'/v1beta1/projects/[a-z0-9-]+/locations/global/interactions/(v1_omni-sim-\d+)', path)
+        if host == 'aiplatform.googleapis.com' and omni and method == 'GET' and omni[1] in self.omni_polls:
             with self.lock:
                 self.omni_polls[omni[1]] += 1
                 done = self.omni_polls[omni[1]] > self.omni_running_polls

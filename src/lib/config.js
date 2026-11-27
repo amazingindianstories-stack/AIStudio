@@ -72,7 +72,7 @@ export const HISTORY_PAGE_SIZE = 20;
 /** Valid durations per model. Higgsfield's Seedance/DoP cap at 12s, so don't
  *  offer 15s for them (it would be silently clamped — wasted/confusing).
  *  Omni's duration IS a real request field (response_format.duration, a
- *  string like "4s" - see backend providers/omni.py). Gemini Omni Flash 1.1
+ *  string like "4s" - see backend providers/omni.py). Gemini Omni Flash 1.2
  *  outputs 3-10s; [4,6,8,10] here is the UI's offered set. */
 export function durationsForModel(model) {
   return capability(model, "durations", DURATIONS);
@@ -92,7 +92,7 @@ export function durationRangeForModel(model) {
 }
 
 /** Valid resolutions per model. Seedance 2.0 Mini supports 480p/720p only
- *  (per its MCP schema - no 1080p/4k SKU on the mini). Gemini Omni Flash 1.1
+ *  (per its MCP schema - no 1080p/4k SKU on the mini). Gemini Omni Flash 1.2
  *  sends response_format.resolution: 360p (a third of the 720p price) or 720p;
  *  its upscaled 1080p/4k have no published price yet, so they are not offered. */
 export function resolutionsForModel(model, kind, hasReference = false) {

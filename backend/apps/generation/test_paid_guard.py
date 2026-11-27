@@ -64,18 +64,27 @@ class AdmissionTests(SimpleTestCase):
         with self.assertRaises(ValueError):
             paid_guard.quote_for(contract(kind='image', model='Nano Banana 2.1', resolution='512'), limited)
 
+    def test_limited_operator_image_urls_follow_each_backend(self):
+        for backend, root in (('gemini', 'https://generativelanguage.googleapis.com/v1beta/models/'),
+                              ('vertex', 'https://aiplatform.googleapis.com/v1/projects/fixture-project/locations/global/publishers/google/models/')):
+            with self.subTest(backend=backend), patch.dict(os.environ, {'GOOGLE_GENAI_BACKEND': backend, 'GCP_PROJECT_ID': 'fixture-project'}):
+                quotes = paid_guard.operator_quotes('a' * 64)
+                self.assertEqual(quotes['Nano Banana Pro']['allowed_paid_endpoints'], [root + 'gemini-3-pro-image:generateContent'])
+                self.assertEqual(quotes['Nano Banana 2.1']['allowed_paid_endpoints'], [root + 'gemini-nano-banana-2.1:generateContent'])
+
     @override_settings(VEEVEE_GEMINI_OMNI=True)
+    @patch.dict(os.environ, {'GCP_PROJECT_ID': 'fixture-project'})
     def test_gemini_omni_flash_1_1_is_pinned_to_the_interactions_endpoint_and_its_own_payload(self):
-        for model in ('Gemini Omni Flash 1.1', 'gemini-omni-1-1-flash'):
+        for model in ('Gemini Omni Flash 1.2', 'gemini-omni-1-2-flash'):
             for resolution, duration, ratio in (('360p', 4, '16:9'), ('720p', 10, '9:16')):
                 quote = paid_guard.quote_for(contract(kind='video', model=model, resolution=resolution, duration=duration, aspect_ratio=ratio), UNLIMITED)
                 self.assertEqual(quote, {'maximum_cents': 0, 'pricing_status': 'UNLIMITED_NEW_JOB_REGISTRATION_NOT_PRICE_GATE',
-                    'allowed_paid_endpoints': ['https://generativelanguage.googleapis.com/v1beta/interactions'],
-                    'provider_payload_allowed_values': {'model': ['gemini-omni-1.1-flash'], 'background': [True], 'response_format.type': ['video'],
-                        'response_format.aspect_ratio': [ratio], 'response_format.resolution': [resolution], 'response_format.duration': [f'{duration}s']}})
-        valid = dict(kind='video', model='Gemini Omni Flash 1.1', resolution='720p', duration=8, aspect_ratio='16:9')
-        refusals = [({'model': 'Gemini Omni Flash'}, 'Gemini Omni Flash has been retired. Choose Gemini Omni Flash 1.1 instead.'),
-                    ({'model': 'gemini-omni-flash'}, 'Gemini Omni Flash has been retired. Choose Gemini Omni Flash 1.1 instead.'),
+                    'allowed_paid_endpoints': ['https://aiplatform.googleapis.com/v1beta1/projects/fixture-project/locations/global/interactions'],
+                    'provider_payload_allowed_values': {'model': ['gemini-omni-1.2-flash'], 'background': [True], 'response_format.0.type': ['video'], 'response_format.0.delivery': ['inline'],
+                        'response_format.0.aspect_ratio': [ratio], 'response_format.0.resolution': [resolution], 'response_format.0.duration': [f'{duration}s']}})
+        valid = dict(kind='video', model='Gemini Omni Flash 1.2', resolution='720p', duration=8, aspect_ratio='16:9')
+        refusals = [({'model': 'Gemini Omni Flash'}, 'Gemini Omni Flash has been retired. Choose Gemini Omni Flash 1.2 instead.'),
+                    ({'model': 'gemini-omni-flash'}, 'Gemini Omni Flash has been retired. Choose Gemini Omni Flash 1.2 instead.'),
                     ({'resolution': '1080p'}, 'Request outside the Omni contract'), ({'resolution': '4k'}, 'Request outside the Omni contract'),
                     ({'duration': 12}, 'Request outside the Omni contract'), ({'duration': '8'}, 'Request outside the Omni contract'),
                     ({'aspect_ratio': '1:1'}, 'Request outside the Omni contract'), ({'draft_task_id': 'v1_x'}, 'New Omni generation only'),
@@ -90,8 +99,8 @@ class AdmissionTests(SimpleTestCase):
             paid_guard.quote_for(contract(**valid), limited)
 
     def test_gemini_omni_flash_1_1_needs_its_switch(self):
-        with override_settings(VEEVEE_GEMINI_OMNI=False), self.assertRaisesRegex(ValueError, 'Gemini Omni Flash 1.1 is not enabled'):
-            paid_guard.quote_for(contract(kind='video', model='Gemini Omni Flash 1.1', resolution='720p', duration=8, aspect_ratio='16:9'), UNLIMITED)
+        with override_settings(VEEVEE_GEMINI_OMNI=False), self.assertRaisesRegex(ValueError, 'Gemini Omni Flash 1.2 is not enabled'):
+            paid_guard.quote_for(contract(kind='video', model='Gemini Omni Flash 1.2', resolution='720p', duration=8, aspect_ratio='16:9'), UNLIMITED)
 
     def test_unauthenticated_and_unsupported_jobs_are_rejected(self):
         with self.assertRaises(ValueError):
@@ -215,23 +224,24 @@ class OneClaimPerPostTests(TransactionTestCase):
         self.assertEqual(ledger[row.id], 'ATTEMPTING')
 
     @override_settings(VEEVEE_GEMINI_OMNI=True)
+    @patch.dict(os.environ, {'GCP_PROJECT_ID': 'fixture-project'})
     def test_gemini_omni_flash_1_1_claim_allows_only_its_own_endpoint_and_payload(self):
         from apps.generation.providers import omni
         from apps.integrations.transport import HttpTransport, ProviderError
-        row = contract(kind='video', model='Gemini Omni Flash 1.1', resolution='360p', duration=6, aspect_ratio='9:16')
-        body = omni.build_payload([{'type': 'text', 'text': 'literal'}], '9:16', 6, {}, model='Gemini Omni Flash 1.1', resolution='360p')
-        endpoint = 'https://generativelanguage.googleapis.com/v1beta/interactions'
+        row = contract(kind='video', model='Gemini Omni Flash 1.2', resolution='360p', duration=6, aspect_ratio='9:16')
+        body = omni.build_payload([{'type': 'text', 'text': 'literal'}], '9:16', 6, {}, model='Gemini Omni Flash 1.2', resolution='360p')
+        endpoint = 'https://aiplatform.googleapis.com/v1beta1/projects/fixture-project/locations/global/interactions'
         cases = [(endpoint, body, True),
                  ('https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent', body, False),
                  (endpoint, {**body, 'model': 'gemini-omni-flash-preview'}, False),
-                 (endpoint, {**body, 'response_format': {**body['response_format'], 'resolution': '4k'}}, False),
-                 (endpoint, {**body, 'response_format': {**body['response_format'], 'duration': '10s'}}, False),
+                 (endpoint, {**body, 'response_format': [{**body['response_format'][0], 'resolution': '4k'}]}, False),
+                 (endpoint, {**body, 'response_format': [{**body['response_format'][0], 'duration': '10s'}]}, False),
                  (endpoint, {**body, 'background': False}, False)]
         for url, payload, allowed in cases:
             ledger, sent = {row['id']: 'ATTEMPTING'}, []
             with self.subTest(url=url, payload=payload), self.guarded(ledger, sent):
                 paid_guard.STATE.active = {'id': row['id'], 'contract': row, 'quote': paid_guard.quote_for(row, UNLIMITED)}
-                transport = HttpTransport(allowed_hosts=['generativelanguage.googleapis.com'])
+                transport = HttpTransport(allowed_hosts=['aiplatform.googleapis.com'])
                 if allowed:
                     transport.request('POST', url, body=payload)
                 else:

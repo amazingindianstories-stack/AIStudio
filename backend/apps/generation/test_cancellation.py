@@ -96,7 +96,7 @@ class CancellationTests(TransactionTestCase):
             self.assertIn('started', message)
 
     def test_retry_after_refusal_reports_this_attempt_not_the_earlier_refusal(self):
-        row = self.job(model='Gemini Omni Flash 1.1', task_id='omni-task', cancellation_state='refused')
+        row = self.job(model='Gemini Omni Flash 1.2', task_id='omni-task', cancellation_state='refused')
         current, message, cancel = self.run_cancel(row, Mock(return_value={'status': 'succeeded'}))
         cancel.assert_not_called()
         self.assertEqual((current.status, current.cancellation_state), ('running', 'refused'))
@@ -164,7 +164,7 @@ class CancellationTests(TransactionTestCase):
 
     def test_unsubmitted_omni_cancel_costs_nothing_and_leaves_the_gemini_spend_window(self):
         from .services import admission
-        row = self.job(model='Gemini Omni Flash 1.1', status='queued', task_id=None, created_at=1000, updated_at=2000)
+        row = self.job(model='Gemini Omni Flash 1.2', status='queued', task_id=None, created_at=1000, updated_at=2000)
         current, message, _ = self.run_cancel(row, Mock())
         self.assertIsNone(message)
         self.assertEqual((current.status, current.cost_cents, current.cost_basis),
@@ -181,9 +181,9 @@ class CancellationTests(TransactionTestCase):
         for model in ('Nano Banana Pro', 'Higgsfield Seedance 2.0', 'Seedream 5.0 Pro', 'Magnific Video Topaz'):
             row.model = model
             self.assertFalse(cancellation.can_cancel(row, {}))
-        row.model = 'Gemini Omni Flash 1.1'
+        row.model = 'Gemini Omni Flash 1.2'
         self.assertTrue(cancellation.can_cancel(row, {}))
-        self.assertFalse(cancellation.can_cancel(row, {'OMNI_USE_VERTEX': '1'}))
+        self.assertTrue(cancellation.can_cancel(row, {'GOOGLE_GENAI_BACKEND': 'vertex'}))
 
     def test_best_of_cancellation_waits_for_all_candidates_and_keeps_a_completed_winner(self):
         for statuses, expected in ((['cancelled', 'cancelled'], 'cancelled'),
@@ -199,7 +199,7 @@ class CancellationTests(TransactionTestCase):
     def test_cancelled_cost_remains_in_gemini_spend_window(self):
         from .services import admission
         row = self.job()
-        Generation.objects.filter(pk=row.id).update(model='Gemini Omni Flash 1.1', status='cancelled',
+        Generation.objects.filter(pk=row.id).update(model='Gemini Omni Flash 1.2', status='cancelled',
             cost_basis=cancellation.COST_UNCONFIRMED, created_at=1000, updated_at=2000)
         waiting = self.job()
         snapshot = admission.snapshot(waiting, now=3000, best_of=2)
@@ -207,7 +207,7 @@ class CancellationTests(TransactionTestCase):
 
     def test_missing_omni_record_during_cancel_stays_uncertain(self):
         row = self.job()
-        row.model = 'Gemini Omni Flash 1.1'
+        row.model = 'Gemini Omni Flash 1.2'
         row.cancellation_state = 'requested'
         row.save()
         deps = poller.Dependencies(mock=lambda: False, get_omni=Mock(return_value={
@@ -216,11 +216,31 @@ class CancellationTests(TransactionTestCase):
         row.refresh_from_db()
         self.assertEqual(row.status, 'running')
 
+    def test_only_gemini_api_omni_task_ids_are_kept_from_vertex_even_after_a_vertex_model_retires(self):
+        from .model_registry import model_definition
+        with patch.dict(model_definition('gemini-omni-1-2-flash'), {'offered': False, 'retiredFor': 'gemini-omni-1-1-flash'}):
+            vertex = self.job(model='Gemini Omni Flash 1.2', task_id='vertex-task')
+            get_omni = Mock(return_value={'status': 'running'})
+            self.assertEqual(cancellation.provider_for(vertex), 'omni')
+            poller.advance(vertex, dependencies=poller.Dependencies(mock=lambda: False, get_omni=get_omni, publish=lambda row: None))
+            get_omni.assert_called_once()
+            self.assertEqual(get_omni.call_args.args, ('vertex-task',))
+            vertex.refresh_from_db()
+            self.assertEqual(vertex.status, 'running')
+        for model in ('Gemini Omni Flash 1.1', 'Gemini Omni Flash'):
+            historical = self.job(model=model, task_id='gemini-api-task')
+            get_omni = Mock(return_value={'status': 'running'})
+            self.assertIsNone(cancellation.provider_for(historical))
+            poller.advance(historical, dependencies=poller.Dependencies(mock=lambda: False, get_omni=get_omni, publish=lambda row: None))
+            get_omni.assert_not_called()
+            historical.refresh_from_db()
+            self.assertEqual(historical.status, 'failed')
+
     def test_paid_guard_lets_only_a_requested_cancel_reach_the_real_adapters(self):
         from django.test import override_settings
         from apps.integrations.transport import HttpTransport
         from .test_paid_guard import SEEDANCE_ENDPOINT, UNLIMITED
-        interactions = 'https://generativelanguage.googleapis.com/v1beta/interactions/'
+        interactions = 'https://aiplatform.googleapis.com/v1beta1/projects/fixture-project/locations/global/interactions/'
         seedance_task = SEEDANCE_ENDPOINT + '/'
         statuses = {seedance_task + 'seedance-task': ['queued', 'cancelled'], interactions + 'omni-task': ['in_progress', 'cancelled']}
         sent = []
@@ -230,11 +250,12 @@ class CancellationTests(TransactionTestCase):
             return result({'status': statuses[url].pop(0)} if method == 'GET' else {})
 
         seedance_row = self.job(task_id='seedance-task')
-        omni_row = self.job(task_id='omni-task', model='Gemini Omni Flash 1.1')
+        omni_row = self.job(task_id='omni-task', model='Gemini Omni Flash 1.2')
         self.job(task_id='held-task', cancellation_state='requested')
         actor = SimpleNamespace(id=None, role='admin')
         with override_settings(VEEVEE_PAID_GUARD=UNLIMITED), patch.object(HttpTransport, '_send', send), \
-                patch.dict('os.environ', {'ARK_API_KEY': 'mock', 'GOOGLE_API_KEY': 'mock', 'MOCK_GENERATION': '0'}):
+                patch('apps.integrations.google_genai._access_token', return_value='fixture'), \
+                patch.dict('os.environ', {'ARK_API_KEY': 'mock', 'GCP_PROJECT_ID': 'fixture-project', 'MOCK_GENERATION': '0'}):
             for row in (seedance_row, omni_row):
                 current, message = cancellation.cancel_generation(row.id, actor, env={})
                 self.assertEqual((current.status, current.cancellation_state, message), ('cancelled', 'confirmed', None))
@@ -252,7 +273,7 @@ class CancellationTests(TransactionTestCase):
                                       ('POST', SEEDANCE_ENDPOINT, {'model': 'seedance', 'output_format': 'mov'}),
                                       ('PUT', seedance_task + 'held-task', None)):
                 with self.subTest(method=method, url=url), self.assertRaises(ProviderError) as caught:
-                    HttpTransport(allowed_hosts=['ark.ap-southeast.bytepluses.com', 'generativelanguage.googleapis.com']).request(
+                    HttpTransport(allowed_hosts=['ark.ap-southeast.bytepluses.com', 'aiplatform.googleapis.com']).request(
                         method, url, body=body)
                 self.assertEqual(caught.exception.code, 'preview_paid_scope')
             self.assertEqual(sent, [])
@@ -341,8 +362,9 @@ class CancellationTests(TransactionTestCase):
         seedance.cancel_video_task('id/quoted', env={'ARK_API_KEY': 'mock'}, transport=transport)
         self.assertEqual(transport.calls[0][0], ('DELETE', 'https://ark.ap-southeast.bytepluses.com/api/v3/contents/generations/tasks/id%2Fquoted'))
         transport = ScriptedTransport(result({'status': 'cancelled'}))
-        omni.cancel_video_task('id/quoted', env={'GOOGLE_API_KEY': 'mock'}, transport=transport)
-        self.assertEqual(transport.calls[0][0], ('POST', 'https://generativelanguage.googleapis.com/v1beta/interactions/id%2Fquoted/cancel'))
+        with patch('apps.integrations.google_genai._access_token', return_value='fixture'):
+            omni.cancel_video_task('id/quoted', env={'GCP_PROJECT_ID': 'fixture-project'}, transport=transport)
+        self.assertEqual(transport.calls[0][0], ('POST', 'https://aiplatform.googleapis.com/v1beta1/projects/fixture-project/locations/global/interactions/id%2Fquoted/cancel'))
         self.assertEqual(omni.map_status('cancelled'), 'cancelled')
 
     def test_api_auth_cancel_history_filter_realtime_and_delete(self):

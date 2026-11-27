@@ -17,7 +17,7 @@ class PureProviderParityTests(SimpleTestCase):
         # the frozen Node registry; compare the frozen entries and assert the additions explicitly.
         # Gemini Omni Flash 1.1 (2026-10-18) postdates it as well.
         added = [item for item in MODEL_REGISTRY if item.get('capabilities', {}).get('upscaleMedia') == 'video'
-                 or item['id'] in ('seedream-5-5', 'nano-banana-2-1', 'gemini-omni-1-1-flash', 'omnihuman-2', 'gpt-image-2-5-sunburst', 'gpt-image-2-5-flare', 'gpt-image-2-6-sunburst', 'gpt-image-2-6-flare')]
+                 or item['id'] in ('seedream-5-5', 'nano-banana-2-1', 'gemini-omni-1-1-flash', 'gemini-omni-1-2-flash', 'omnihuman-2', 'gpt-image-2-5-sunburst', 'gpt-image-2-5-flare', 'gpt-image-2-6-sunburst', 'gpt-image-2-6-flare')]
         # GPT Image 2.5 Sunburst and Flare (2026-11-04) and Seedream 5.5 (2026-11-14) postdate it too.
         self.assertEqual([(item['name'], item['provider'], item['kind'], item['pricingKey']) for item in added], [
             ('Seedream 5.5', 'seedream', 'image', 'Seedream 5.5'),
@@ -27,6 +27,7 @@ class PureProviderParityTests(SimpleTestCase):
             ('GPT Image 2.6 Sunburst', 'openai', 'image', 'GPT Image 2.6 Sunburst'),
             ('GPT Image 2.6 Flare', 'openai', 'image', 'GPT Image 2.6 Flare'),
             ('OmniHuman 2.0', 'omnihuman', 'video', 'OmniHuman 2.0'),
+            ('Gemini Omni Flash 1.2', 'omni', 'video', 'Gemini Omni Flash 1.2'),
             ('Gemini Omni Flash 1.1', 'omni', 'video', 'Gemini Omni Flash 1.1'),
             *[(name, 'magnific', 'upscale', name) for name in ('Magnific Video Creative', 'Magnific Video Creative Turbo', 'Magnific Video Precision', 'Magnific Video Topaz')]])
         self.assertEqual(provider_model_id('Nano Banana 2.1', {}), 'gemini-nano-banana-2.1')
@@ -40,11 +41,11 @@ class PureProviderParityTests(SimpleTestCase):
         omni_frozen = {'providerModelEnv': 'OMNI_MODEL', 'offered': True, 'badge': 'NEW',
                        'hint': 'Google Interactions API \u2014 full NBP-style reference scaffolding, 16:9/9:16 only'}
         retired = next(item for item in MODEL_REGISTRY if item['id'] == 'gemini-omni-flash')
-        self.assertEqual((retired['offered'], retired['retiredFor']), (False, 'gemini-omni-1-1-flash'))
+        self.assertEqual((retired['offered'], retired['retiredFor'], retired['interactionsBackend']), (False, 'gemini-omni-1-2-flash', 'gemini'))
         self.assertFalse({'providerModelEnv', 'badge', 'hint'} & set(retired))
         frozen = [{key: value for key, value in item.items() if not (item['id'] == pro[0] and key == 'providerModelId')}
                   for item in MODEL_REGISTRY if item not in added]
-        frozen = [{**{key: value for key, value in item.items() if key != 'retiredFor'}, **omni_frozen}
+        frozen = [{**{key: value for key, value in item.items() if key not in ('retiredFor', 'interactionsBackend')}, **omni_frozen}
                   if item['id'] == retired['id'] else item for item in frozen]
         # The Kling picker hints lost their em dash on 2026-10-19 (user-facing copy); the frozen Node entries keep it.
         kling_frozen = {'kling-image-3': 'Strong prompt adherence, 1K/2K — takes a single reference image',

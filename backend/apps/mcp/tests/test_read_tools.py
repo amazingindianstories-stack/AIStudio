@@ -99,7 +99,7 @@ class ListModelsTests(Library):
                                  ('1080p', 5, True, False, 'high', 'generate'))
                 self.assertEqual((seedance['durationSeconds']['min'], seedance['durationSeconds']['max']), (4, 30))
                 self.assertEqual(models['seedance-25']['cancel'], 'queued_only')
-                omni = models['gemini-omni-1-1-flash']
+                omni = models['gemini-omni-1-2-flash']
                 self.assertEqual((omni['inputs']['resolution']['default'], omni['inputs']['durationSeconds']['default'],
                                   omni['cancel']), ('720p', 6, 'until_finished'))
                 human = models['omnihuman-2']['inputs']

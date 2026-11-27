@@ -45,7 +45,7 @@ FAKE_MEDIA = 'https://fake-media.invalid/'
 # Only the processes that call providers (generation worker, scheduler) are routed to the fake provider server and
 # hold these fixed fake credentials (never real keys). Django and the MCP service keep the real SSRF-safe URL fetcher.
 PROVIDER_ENV = {'VEEVEE_LOCAL_PROVIDERS': 'fake', 'ARK_API_KEY': 'local-fake-ark-key', 'GOOGLE_API_KEY': 'local-fake-google-key',
-                 'BYTEPLUS_ACCESS_KEY_ID': 'local-fake-ak', 'BYTEPLUS_SECRET_ACCESS_KEY': 'local-fake-sk', 'KLING_API': 'local-fake-kling-key',
+                 'GCP_PROJECT_ID': 'veevee-local-fake', 'BYTEPLUS_ACCESS_KEY_ID': 'local-fake-ak', 'BYTEPLUS_SECRET_ACCESS_KEY': 'local-fake-sk', 'KLING_API': 'local-fake-kling-key',
                  'MAGNIFIC_API_KEY': 'local-fake-magnific-key'}
 MCP_PORT = 18082                       # deploy.entrypoint's fixed uvicorn port (loopback only)
 USER_ID = 'b0b5a7e2-6d1c-4c3e-9f57-3c1d2a8e0001'

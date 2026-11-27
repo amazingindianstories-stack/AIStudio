@@ -171,7 +171,7 @@ class AdminContractTests(TransactionTestCase):
         self.assertEqual(result['users'][0]['genCount'],4)
         self.assertEqual(result['users'][0]['costCents'],50)
         self.assertEqual(result['limits'],{'maxPromptLength':30000,'maxConcurrentJobs':8,'seedanceConcurrency':3,'mcpDailyCapCents':2000,'mcpActiveJobs':4,'boardAiMonthlyCapCents':10000000,'boardAiEnabled':1,'agentActiveRuns':2,'agentMaxStepsPerRun':40,'agentMaxRunCostCents':1000,'agentGlobalDailyCapCents':20000,'agentMaxConcurrentRuns':8,'agentAttachMaxMb':20,'agentAttachMaxVideoSeconds':300,'agentAttachMaxAudioSeconds':600,'agentAttachImages':1,'agentAttachDocuments':1,'agentAttachVideo':1,'agentAttachAudio':1})
-        self.assertEqual(len(result['pricing']),51)  # 23 frozen rows + 4 Magnific video rows + Nano Banana 2.1 + Gemini Omni Flash 1.1 + 2 Board AI text + Board AI web search + 8 GPT Image 2.5 + 8 GPT Image 2.6 + 2 Seedream 5.5
+        self.assertEqual(len(result['pricing']),52)  # Includes both historical Omni 1.1 and current Omni 1.2 pricing.
         self.assertNotIn('private',json.dumps(result))
         self.assertEqual(Pricing.objects.get(pk='Nano Banana Pro').unit_cost_cents,777)
 
@@ -284,16 +284,18 @@ class AdminPureParityTests(SimpleTestCase):
         from .default_pricing import DEFAULT_PRICING
         # Magnific video upscaler rates (2026-10-14), Nano Banana 2.1 (2026-10-16), Gemini Omni Flash 1.1 (2026-10-18) and
         # Board AI text rows (2026-10-29), GPT Image 2.5 (2026-11-04) GPT Image 2.6 and Seedream 5.5 (2026-11-14) postdate the frozen Node table. The retired Gemini Omni Flash row stays for its historical rows.
-        added = [row for row in DEFAULT_PRICING if row['unit'] == 'per_1000_frames' or row['model'].startswith(('GPT Image 2.5 ', 'GPT Image 2.6 ')) or row['model'] in ('Seedream 5.5', 'Seedream 5.5 · input image', 'Nano Banana 2.1', 'Gemini Omni Flash 1.1', 'OmniHuman 2.0', 'Board AI text', 'Board AI text (advanced)', 'Board AI web search')]
+        added = [row for row in DEFAULT_PRICING if row['unit'] == 'per_1000_frames' or row['model'].startswith(('GPT Image 2.5 ', 'GPT Image 2.6 ')) or row['model'] in ('Seedream 5.5', 'Seedream 5.5 · input image', 'Nano Banana 2.1', 'Gemini Omni Flash 1.1', 'Gemini Omni Flash 1.2', 'OmniHuman 2.0', 'Board AI text', 'Board AI text (advanced)', 'Board AI web search')]
         self.assertEqual([row['model'] for row in added], ['OmniHuman 2.0', 'Seedream 5.5', 'Seedream 5.5 · input image', 'Nano Banana 2.1',
                                                            *[f'GPT Image {version} {name}{suffix}' for version in ('2.5', '2.6') for name in ('Sunburst', 'Flare')
                                                              for suffix in ('', ' · text input', ' · image input', ' · image output')],
-                                                           'Gemini Omni Flash 1.1', 'Magnific Video Creative',
+                                                           'Gemini Omni Flash 1.1', 'Gemini Omni Flash 1.2', 'Magnific Video Creative',
                                                            'Magnific Video Creative Turbo', 'Magnific Video Precision', 'Magnific Video Topaz',
                                                            'Board AI text', 'Board AI text (advanced)', 'Board AI web search'])
         self.assertEqual(json.loads(result.stdout), [row for row in DEFAULT_PRICING if row not in added])
         omni = next(row for row in added if row['model'] == 'Gemini Omni Flash 1.1')
         self.assertEqual((omni['unitCostCents'], omni['unit']), (11, 'per_second'))
+        current = next(row for row in added if row['model'] == 'Gemini Omni Flash 1.2')
+        self.assertEqual((current['unitCostCents'], current['unit']), (7, 'per_second'))
 
     def test_kling_status_names_where_the_key_lives(self):
         from django.test import override_settings
@@ -317,6 +319,15 @@ class AdminPureParityTests(SimpleTestCase):
             with patch.dict('os.environ', env, clear=True):
                 self.assertEqual(status.omnihuman(), {'status': 'unknown', 'detail': 'BytePlus AK/SK not set'})
         self.assertIn(('omnihuman', 'BytePlus Vision / OmniHuman 2.0', status.omnihuman), status.CHECKS)
+
+    def test_omni_status_uses_vertex_credentials_even_in_gemini_mode(self):
+        env = {'GOOGLE_GENAI_BACKEND': 'gemini', 'GCP_PROJECT_ID': 'fixture-project'}
+        with patch.dict('os.environ', env, clear=True), patch('apps.integrations.google_genai._access_token', return_value='fixture') as token:
+            self.assertEqual(status.omni(), {'status': 'ok', 'detail': 'Vertex AI: access token minted for Omni (model access needs a canary)'})
+            token.assert_called_once_with(None)
+        with patch.dict('os.environ', {'GOOGLE_API_KEY': 'retired'}, clear=True):
+            self.assertEqual(status.omni()['status'], 'error')
+        self.assertIn(('omni', 'Gemini Omni Flash 1.2', status.omni), status.CHECKS)
 
     def test_gemini_status_probes_read_each_image_model_without_generating(self):
         seen=[]

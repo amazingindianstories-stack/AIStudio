@@ -7,7 +7,7 @@ import { composerChoice, restoreComposerDraft, useStore } from "./store";
 
 // What GET /api/auth/me reports with VEEVEE_KLING and VEEVEE_MAGNIFIC_UPSCALE off and Gemini Omni on.
 const KLING_AND_MAGNIFIC_OFF = ["seedream-5-pro", "nano-banana-pro", "nano-banana-2-1", "seedance", "seedance-25",
-  "gemini-omni-1-1-flash", "depth-anything-local"];
+  "gemini-omni-1-2-flash", "depth-anything-local"];
 const ALL_ON = MODELS.map((model) => model.id);
 const names = (models) => models.map((model) => model.name);
 
@@ -43,7 +43,7 @@ test("until the server answers, every offered model is available and the pickers
 
 test("the registry filter hides switched-off models from every picker by name or id", () => {
   assert.deepEqual(names(pickerModels(KLING_AND_MAGNIFIC_OFF, "image")), ["Seedream 5.0 Pro", "Nano Banana Pro", "Nano Banana 2.1"]);
-  assert.deepEqual(names(pickerModels(KLING_AND_MAGNIFIC_OFF, "video")), ["Seedance 2.0", "Seedance 2.5", "Gemini Omni Flash 1.1"]);
+  assert.deepEqual(names(pickerModels(KLING_AND_MAGNIFIC_OFF, "video")), ["Seedance 2.0", "Seedance 2.5", "Gemini Omni Flash 1.2"]);
   assert.deepEqual(pickerModels(KLING_AND_MAGNIFIC_OFF, "upscale"), []);
   assert.equal(modeAvailable("upscale", KLING_AND_MAGNIFIC_OFF), false);
   assert.equal(modeAvailable("depth", KLING_AND_MAGNIFIC_OFF), true);
@@ -69,7 +69,7 @@ test("the fallback is the mode default when available, otherwise the first model
   assert.equal(fallbackModel("upscale", KLING_AND_MAGNIFIC_OFF, "image"), null);
   assert.deepEqual(composerChoice("Kling Image 3.0", "image", KLING_AND_MAGNIFIC_OFF),
     { model: "Nano Banana Pro", notice: "Kling Image 3.0 isn't available right now. Using Nano Banana Pro instead." });
-  assert.deepEqual(composerChoice("Gemini Omni Flash", "video", KLING_AND_MAGNIFIC_OFF), { model: "Gemini Omni Flash 1.1", notice: null },
+  assert.deepEqual(composerChoice("Gemini Omni Flash", "video", KLING_AND_MAGNIFIC_OFF), { model: "Gemini Omni Flash 1.2", notice: null },
     "a retired model still reopens on its replacement without a notice");
 });
 
@@ -218,9 +218,9 @@ test("Clone & try on a switched-off model opens the composer on the fallback wit
 
 test("a fallback clone keeps the job's own aspect ratio, resolution and duration wherever the fallback offers them", () =>
   withStore({ availableModelIds: ["seedance", "seedance-25", "nano-banana-pro"], mode: "image", model: "Nano Banana Pro" }, async () => {
-    useStore.setState({ items: [{ id: "o-1", kind: "video", status: "succeeded", prompt: "a tide", model: "Gemini Omni Flash 1.1",
+    useStore.setState({ items: [{ id: "o-1", kind: "video", status: "succeeded", prompt: "a tide", model: "Gemini Omni Flash 1.2",
       aspectRatio: "16:9", resolution: "720p", duration: 6 }] });
-    const notice = "Gemini Omni Flash 1.1 isn't available right now. Using Seedance 2.0 instead.";
+    const notice = "Gemini Omni Flash 1.2 isn't available right now. Using Seedance 2.0 instead.";
     assert.deepEqual(await useStore.getState().cloneToComposer("o-1"), { ok: true, notice });
     const state = useStore.getState();
     assert.deepEqual([state.mode, state.model, state.aspectRatio, state.resolution, state.duration],

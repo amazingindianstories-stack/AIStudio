@@ -295,6 +295,19 @@ export const MODEL_REGISTRY = [
     },
   },
   {
+    // Vertex AI Interactions, global endpoint. Current Veevee choices remain 360p/720p and 4-10s.
+    id: "gemini-omni-1-2-flash",
+    name: "Gemini Omni Flash 1.2",
+    kind: "video",
+    provider: "omni",
+    providerModelId: "gemini-omni-1.2-flash",
+    offered: true,
+    badge: "NEW",
+    hint: "Vertex AI Interactions API · 360p draft or 720p · 4-10s · 16:9/9:16 · sound from the prompt",
+    pricingKey: "Gemini Omni Flash 1.2",
+    capabilities: { aspectRatios: ["16:9", "9:16"], resolutions: ["360p", "720p"], durations: [4, 6, 8, 10], maxReferenceImages: 10 },
+  },
+  {
     // ai.google.dev/gemini-api/docs/models/gemini-omni-flash and /docs/omni (read 2026-10-18): stable
     // model code, output 3-10s, 16:9/9:16, 360p/720p (1080p/4k are upscaled and their price is not
     // published in text, so they are not offered). Audio comes from the prompt; there is no audio field.
@@ -303,7 +316,9 @@ export const MODEL_REGISTRY = [
     kind: "video",
     provider: "omni",
     providerModelId: "gemini-omni-1.1-flash",
-    offered: true,
+    offered: false,
+    retiredFor: "gemini-omni-1-2-flash",
+    interactionsBackend: "gemini",
     badge: "NEW",
     hint: "Google Interactions API · 360p draft or 720p · 4-10s · 16:9/9:16 · sound from the prompt",
     pricingKey: "Gemini Omni Flash 1.1",
@@ -318,7 +333,8 @@ export const MODEL_REGISTRY = [
     provider: "omni",
     providerModelId: "gemini-omni-flash-preview",
     offered: false,
-    retiredFor: "gemini-omni-1-1-flash",
+    retiredFor: "gemini-omni-1-2-flash",
+    interactionsBackend: "gemini",
     pricingKey: "Gemini Omni Flash",
     capabilities: { aspectRatios: ["16:9", "9:16"], resolutions: ["720p"], durations: [4, 6, 8] },
   },

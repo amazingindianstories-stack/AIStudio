@@ -90,20 +90,20 @@ def omnihuman_quote(contract):
   'provider_payload_allowed_values':{'req_key':[omnihuman.REQ_KEY]}}
 
 def omni_quote(contract):
- """Gemini Omni Flash 1.1 (VEEVEE_GEMINI_OMNI, unlimited scope only): the one Interactions create endpoint, with the
+ """Gemini Omni Flash 1.2 (VEEVEE_GEMINI_OMNI, unlimited scope only): the one Interactions create endpoint, with the
  model code and this job's own ratio, size and length pinned in the payload. Retired Omni models are refused."""
  from apps.generation.availability import switched_on
  from apps.generation.model_registry import capability,provider_model_id
  from apps.generation.providers import omni
- require(switched_on('omni'),'Gemini Omni Flash 1.1 is not enabled')
+ require(switched_on('omni'),'Gemini Omni Flash 1.2 is not enabled')
  model=omni.submission_model(contract['model'])
  require(not contract['draft_task_id'],'New Omni generation only')
  for field,key in (('resolution','resolutions'),('duration','durations'),('aspect_ratio','aspectRatios')):
   require(contract.get(field) in capability(model['id'],key,[]),'Request outside the Omni contract')
  return {'maximum_cents':0,'pricing_status':'UNLIMITED_NEW_JOB_REGISTRATION_NOT_PRICE_GATE','allowed_paid_endpoints':[omni.build_endpoint()],
-  'provider_payload_allowed_values':{'model':[provider_model_id(model['id'],{})],'background':[True],'response_format.type':['video'],
-   'response_format.aspect_ratio':[contract['aspect_ratio']],'response_format.resolution':[contract['resolution']],
-   'response_format.duration':[str(contract['duration'])+'s']}}
+  'provider_payload_allowed_values':{'model':[provider_model_id(model['id'],{})],'background':[True],'response_format.0.type':['video'],
+   'response_format.0.delivery':['inline'],'response_format.0.aspect_ratio':[contract['aspect_ratio']],
+   'response_format.0.resolution':[contract['resolution']],'response_format.0.duration':[str(contract['duration'])+'s']}}
 def kling_quote(contract,definition):
  """Kling Image 3.0 / 2.1 (VEEVEE_KLING, unlimited scope only): the one create endpoint on the configured Kling host,
  with this job's registry model code, a single image and its own ratio and size pinned in the payload."""
@@ -190,9 +190,10 @@ def magnific_quote(contract):
  allowed={} if contract['model']=='Magnific Video Topaz' else {'output_format':list(magnific.VIDEO_OUTPUT_FORMATS)}
  return {'maximum_cents':0,'pricing_status':'UNLIMITED_NEW_JOB_REGISTRATION_NOT_PRICE_GATE','allowed_paid_endpoints':[magnific.video_create_url(contract['model'])],'provider_payload_allowed_values':allowed}
 def operator_quotes(pricing_evidence_sha256):
+ from apps.integrations import google_genai
  base={'pricing_status':'OPERATOR_CONSERVATIVE_RESERVATION_NOT_HARD_CAP','pricing_evidence_sha256':pricing_evidence_sha256,'maximum_charge_verified':False}
- image={**base,'maximum_cents':600,'allowed_input_values':{'kind':['image'],'resolution':['1K','2K','4K']},'allowed_paid_endpoints':['https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image:generateContent'],'provider_payload_allowed_values':{'generationConfig.candidateCount':[1]},'provider_payload_numeric_maxima':{'generationConfig.maxOutputTokens':32768}}
- image_21={**image,'allowed_paid_endpoints':['https://generativelanguage.googleapis.com/v1beta/models/gemini-nano-banana-2.1:generateContent']}
+ image={**base,'maximum_cents':600,'allowed_input_values':{'kind':['image'],'resolution':['1K','2K','4K']},'allowed_paid_endpoints':[google_genai.model_url('gemini-3-pro-image')],'provider_payload_allowed_values':{'generationConfig.candidateCount':[1]},'provider_payload_numeric_maxima':{'generationConfig.maxOutputTokens':32768}}
+ image_21={**image,'allowed_paid_endpoints':[google_genai.model_url('gemini-nano-banana-2.1')]}
  video={**base,'maximum_cents':300,'reservation_formula':'seedance_current_token_estimate_times_two_floor_300','allowed_input_values':{'kind':['video'],'resolution':['480p','720p','1080p']},'allowed_paid_endpoints':['https://ark.ap-southeast.bytepluses.com/api/v3/contents/generations/tasks'],'provider_payload_allowed_values':{'model':['dreamina-seedance-2-5-260628'],'output_format':['mov']},'provider_payload_numeric_maxima':{'duration':15}}
  return {'nano-banana-pro':image,'Nano Banana Pro':image,'nano-banana-2-1':image_21,'Nano Banana 2.1':image_21,'seedance-25':video,'Seedance 2.5':video}
 
@@ -297,7 +298,8 @@ def check_request(transport,method,url,body):
    generation=body.setdefault('generationConfig',{});generation.setdefault('maxOutputTokens',32768);generation.setdefault('candidateCount',1)
   for key,values in active['quote'].get('provider_payload_allowed_values',{}).items():
    value=body
-   for part in key.split('.'):value=value.get(part) if isinstance(value,dict) else None
+   for part in key.split('.'):
+    value=value.get(part) if isinstance(value,dict) else value[int(part)] if isinstance(value,list) and part.isdecimal() and int(part)<len(value) else None
    require(value in values,'Provider payload outside quote')
   for path,maximum in active['quote'].get('provider_payload_numeric_maxima',{}).items():
    value=body
@@ -305,8 +307,7 @@ def check_request(transport,method,url,body):
    require(type(value) in (int,float) and 0<=value<=maximum,'Missing or excessive priced token/output bound')
   require(connection.get_autocommit(),'Paid submit claim must be durable')
   with connection.cursor() as cursor:cursor.execute('SELECT goal4_preview_paid_budget.transition(%s,%s,%s,%s)',[active['id'],fingerprint(active['contract']),'ATTEMPTING','SUBMITTING'])
-CANCEL_ENDPOINTS={'DELETE':('byteplus','https://ark.ap-southeast.bytepluses.com/api/v3/contents/generations/tasks/',''),
- 'POST':('omni','https://generativelanguage.googleapis.com/v1beta/interactions/','/cancel')}
+CANCEL_ENDPOINTS={'DELETE':('byteplus','https://ark.ap-southeast.bytepluses.com/api/v3/contents/generations/tasks/','')}
 def vision_task(url,body,action):
  """The task id of an exact OmniHuman Vision request for ``action`` (a {req_key, task_id} body only), else None."""
  from apps.generation.providers import omnihuman
@@ -326,7 +327,8 @@ def cancel_allowed(method,url,body=None):
  if body is not None:
   provider,task_id='omnihuman',method=='POST' and vision_task(url,body,omnihuman.CANCEL)
  else:
-  provider,prefix,suffix=CANCEL_ENDPOINTS.get(method,(None,'',''))
+  from apps.generation.providers import omni
+  provider,prefix,suffix=('omni',omni.build_endpoint()+'/', '/cancel') if method=='POST' and url.startswith('https://aiplatform.googleapis.com/v1beta1/projects/') else CANCEL_ENDPOINTS.get(method,(None,'',''))
   if not provider or not url.startswith(prefix) or not url.endswith(suffix):return False
   task_id=unquote(url[len(prefix):len(url)-len(suffix)])
   if prefix+quote(task_id,safe='')+suffix!=url:return False

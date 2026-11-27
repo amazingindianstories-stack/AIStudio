@@ -113,9 +113,13 @@ def omnihuman():
 
 
 def omni():
-    if os.environ.get('OMNI_USE_VERTEX') == '1':
-        return outcome('ok', 'Vertex configured (config-presence only)') if os.environ.get('GOOGLE_CLOUD_PROJECT') else outcome('unknown', 'OMNI_USE_VERTEX=1 but GOOGLE_CLOUD_PROJECT not set')
-    return outcome('ok', 'generativelanguage configured (config-presence only)') if os.environ.get('GOOGLE_API_KEY') else outcome('unknown', 'GOOGLE_API_KEY not set')
+    from apps.generation.providers import omni as provider
+    from apps.integrations.errors import ProviderError
+    try:
+        provider.authentication(os.environ)
+    except ProviderError as error:
+        return outcome('error', 'Vertex AI Omni: ' + str(error))
+    return outcome('ok', 'Vertex AI: access token minted for Omni (model access needs a canary)')
 
 
 def postgres():
@@ -208,7 +212,7 @@ CHECKS = [
     ('higgsfield', 'Higgsfield MCP', higgsfield),
     ('seedance', 'BytePlus ModelArk / Seedance', lambda: configured('ARK_API_KEY')), ('kling', 'KlingAI Image', kling),
     ('openai', 'OpenAI / GPT Image 2.5', openai),
-    ('omni', 'Gemini Omni Flash 1.1', omni), ('omnihuman', 'BytePlus Vision / OmniHuman 2.0', omnihuman), ('postgres', 'Postgres', postgres), ('db-connections', 'Database Connections', db_connections), ('generation-indexes', 'Generation Indexes', generation_indexes),
+    ('omni', 'Gemini Omni Flash 1.2', omni), ('omnihuman', 'BytePlus Vision / OmniHuman 2.0', omnihuman), ('postgres', 'Postgres', postgres), ('db-connections', 'Database Connections', db_connections), ('generation-indexes', 'Generation Indexes', generation_indexes),
     ('stuck-generations', 'Stuck Generations', stuck_generations), ('storage', 'Media Storage', storage),
     ('ffmpeg-runtime', 'ffmpeg Runtime', ffmpeg), ('media-delivery', 'Media Delivery', media_delivery),
     ('login-rate-limits', 'Login Rate Limits', login_rate_limits),

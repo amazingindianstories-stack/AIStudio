@@ -2020,7 +2020,7 @@ export const useStore = create((set, get) => ({
     set({
       mode: item.kind,
       // A row made with a retired model reuses its replacement. Gemini Omni Flash's 16:9/9:16, 720p and
-      // 4/6/8s all exist on Gemini Omni Flash 1.1, so the stored settings below stay valid.
+      // 4/6/8s all exist on Gemini Omni Flash 1.2, so the stored settings below stay valid.
       model: composerModel(item.model),
         referenceVideos: item.referenceVideos ?? [],
         referenceAudios: item.referenceAudios ?? [],

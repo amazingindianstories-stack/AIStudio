@@ -28,7 +28,8 @@ ROOT = Path(__file__).resolve().parents[2]
 # fake credentials and are routed to testsupport.fake_provider_server, as scripts/dev/mcp-harness.py does. The real
 # adapters, executor and persistence run; only the network call and the media download are faked. Never real keys.
 FAKE_PROVIDER_ENV = {'VEEVEE_LOCAL_PROVIDERS': 'fake', 'MOCK_GENERATION': '0', 'ARK_API_KEY': 'local-fake-ark-key',
-                     'GOOGLE_API_KEY': 'local-fake-google-key', 'BYTEPLUS_ACCESS_KEY_ID': 'local-fake-ak',
+                     'GOOGLE_API_KEY': 'local-fake-google-key', 'GCP_PROJECT_ID': 'veevee-local-fake',
+                     'BYTEPLUS_ACCESS_KEY_ID': 'local-fake-ak',
                      'BYTEPLUS_SECRET_ACCESS_KEY': 'local-fake-sk', 'KLING_API': 'local-fake-kling-key',
                      'MAGNIFIC_API_KEY': 'local-fake-magnific-key', 'VEEVEE_PROVIDER_MEDIA_HOSTS': 'fake-media.invalid',
                      'PUBLIC_APP_URL': 'https://browser-harness.invalid'}

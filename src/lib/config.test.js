@@ -60,14 +60,14 @@ test("only Seedance 2.5 exposes Draft; direct Seedance models expose bitrate", (
     assert.equal(supportsDraftMode(model), false, model);
     assert.equal(supportsBitrateMode(model), true, model);
   }
-  for (const model of ["Higgsfield Seedance 2.0", "Higgsfield Seedance 2.0 Mini", "Gemini Omni Flash 1.1"]) {
+  for (const model of ["Higgsfield Seedance 2.0", "Higgsfield Seedance 2.0 Mini", "Gemini Omni Flash 1.2"]) {
     assert.equal(supportsDraftMode(model), false, model);
     assert.equal(supportsBitrateMode(model), false, model);
   }
 });
 
 test("Omni video has no audio field either", () => {
-  assert.equal(supportsAudio("Gemini Omni Flash 1.1"), false);
+  assert.equal(supportsAudio("Gemini Omni Flash 1.2"), false);
 });
 
 test("image models never claim audio support", () => {
@@ -126,7 +126,7 @@ test("Higgsfield Seedance does NOT get seed, despite containing 'seedance'", () 
 });
 
 test("Omni and Kling are explicitly excluded (no probe evidence either way)", () => {
-  assert.equal(supportsSeed("Gemini Omni Flash 1.1"), false);
+  assert.equal(supportsSeed("Gemini Omni Flash 1.2"), false);
   assert.equal(supportsSeed("Kling Image 3.0"), false);
   assert.equal(supportsSeed("Kling Image 2.1"), false);
 });
@@ -165,7 +165,7 @@ test("Higgsfield Seedance does NOT get best-of-N, despite containing 'seedance'"
 });
 
 test("Omni is excluded — it has its own separate submission path", () => {
-  assert.equal(supportsVideoBestOf("Gemini Omni Flash 1.1"), false);
+  assert.equal(supportsVideoBestOf("Gemini Omni Flash 1.2"), false);
 });
 
 test("image models are not video-best-of-N capable", () => {
@@ -201,7 +201,7 @@ test("Higgsfield Seedance does NOT get first-frame continuation, despite contain
 });
 
 test("Omni and image models are excluded from first-frame continuation", () => {
-  assert.equal(supportsFirstFrameContinuation("Gemini Omni Flash 1.1"), false);
+  assert.equal(supportsFirstFrameContinuation("Gemini Omni Flash 1.2"), false);
   assert.equal(supportsFirstFrameContinuation("Nano Banana Pro"), false);
 });
 
@@ -221,7 +221,7 @@ test("native BytePlus Seedance supports first-last frame generation", () => {
 
 test("Higgsfield, Omni, and image models are excluded from first-last frame generation", () => {
   assert.equal(supportsFirstLastFrame("Higgsfield Seedance 2.0"), false);
-  assert.equal(supportsFirstLastFrame("Gemini Omni Flash 1.1"), false);
+  assert.equal(supportsFirstLastFrame("Gemini Omni Flash 1.2"), false);
   assert.equal(supportsFirstLastFrame("Nano Banana Pro"), false);
   assert.equal(supportsFirstLastFrame("Seedream 5.0 Pro"), false);
 });
@@ -246,7 +246,7 @@ test("Higgsfield Seedance does NOT accept a video reference", () => {
 });
 
 test("Omni and image models take no video reference", () => {
-  assert.equal(supportsVideoReference("Gemini Omni Flash 1.1"), false);
+  assert.equal(supportsVideoReference("Gemini Omni Flash 1.2"), false);
   assert.equal(supportsVideoReference("Nano Banana Pro"), false);
 });
 
@@ -272,7 +272,7 @@ test("the reference-clip caps match ModelArk's documented limits", () => {
   assert.equal(maxReferenceVideosForVideoModel("Seedance 2.0 Mini"), 3);
   assert.equal(maxReferenceVideosForVideoModel("Higgsfield Seedance 2.0"), null);
   assert.equal(maxReferenceVideosForVideoModel("Seedance 2.5"), 10);
-  assert.equal(maxReferenceVideosForVideoModel("Gemini Omni Flash 1.1"), null);
+  assert.equal(maxReferenceVideosForVideoModel("Gemini Omni Flash 1.2"), null);
 });
 
 test("Seedance reference-image caps match the ModelArk API", () => {
@@ -282,7 +282,7 @@ test("Seedance reference-image caps match the ModelArk API", () => {
   assert.equal(maxReferenceImagesForVideoModel("Seedance 2.0 Mini"), 9);
   assert.equal(maxReferenceImagesForVideoModel("Higgsfield Seedance 2.0"), 9);
   assert.equal(maxReferenceImagesForVideoModel("Seedance 2.5"), 30);
-  assert.equal(maxReferenceImagesForVideoModel("Gemini Omni Flash 1.1"), null);
+  assert.equal(maxReferenceImagesForVideoModel("Gemini Omni Flash 1.2"), 10);
 });
 
 // ── Kling image models ──────────────────────────────────────────────────────
@@ -297,7 +297,7 @@ test("Kling image models are in the picker and are image-kind", () => {
 });
 
 test("isKlingImageModel does not match other models", () => {
-  for (const name of ["Nano Banana Pro", "Seedance 2.0", "Gemini Omni Flash 1.1"]) {
+  for (const name of ["Nano Banana Pro", "Seedance 2.0", "Gemini Omni Flash 1.2"]) {
     assert.equal(isKlingImageModel(name), false, name);
   }
 });
@@ -357,24 +357,24 @@ test("Nano Banana 2.1 is offered right after Pro with its documented controls", 
   assert.equal(getModelDefinition("Nano Banana Pro").providerModelId, "gemini-3-pro-image");
 });
 
-test("Gemini Omni Flash 1.1 replaces Gemini Omni Flash in the picker with its documented controls", () => {
+test("Gemini Omni Flash 1.2 replaces Gemini Omni Flash in the picker with its documented controls", () => {
   // ai.google.dev/gemini-api/docs/models/gemini-omni-flash and /docs/omni (read 2026-10-18).
   const videos = MODELS.filter((m) => m.kind === "video").map((m) => m.name);
-  assert.ok(videos.includes("Gemini Omni Flash 1.1"));
+  assert.ok(videos.includes("Gemini Omni Flash 1.2"));
   assert.ok(!videos.includes("Gemini Omni Flash"), "the retired preview is not selectable");
-  assert.equal(videos.indexOf("Gemini Omni Flash 1.1"), videos.indexOf("OmniHuman 2.0") + 1);
-  const offered = MODELS.find((m) => m.name === "Gemini Omni Flash 1.1");
-  assert.deepEqual(offered, { id: "gemini-omni-1-1-flash", name: "Gemini Omni Flash 1.1", kind: "video", badge: "NEW",
-    hint: "Google Interactions API · 360p draft or 720p · 4-10s · 16:9/9:16 · sound from the prompt" });
-  assert.equal(getModelDefinition("gemini-omni-1-1-flash").providerModelId, "gemini-omni-1.1-flash");
-  assert.deepEqual(resolutionsForModel("Gemini Omni Flash 1.1", "video"), ["360p", "720p"]);
-  assert.deepEqual(resolutionsForModel("Gemini Omni Flash 1.1", "video", true), ["360p", "720p"]);
-  assert.deepEqual(aspectRatiosForModel("Gemini Omni Flash 1.1", "video"), ["16:9", "9:16"]);
-  assert.deepEqual(durationsForModel("Gemini Omni Flash 1.1"), [4, 6, 8, 10]);
-  assert.equal(durationRangeForModel("Gemini Omni Flash 1.1"), null);
+  assert.equal(videos.indexOf("Gemini Omni Flash 1.2"), videos.indexOf("OmniHuman 2.0") + 1);
+  const offered = MODELS.find((m) => m.name === "Gemini Omni Flash 1.2");
+  assert.deepEqual(offered, { id: "gemini-omni-1-2-flash", name: "Gemini Omni Flash 1.2", kind: "video", badge: "NEW",
+    hint: "Vertex AI Interactions API · 360p draft or 720p · 4-10s · 16:9/9:16 · sound from the prompt" });
+  assert.equal(getModelDefinition("gemini-omni-1-2-flash").providerModelId, "gemini-omni-1.2-flash");
+  assert.deepEqual(resolutionsForModel("Gemini Omni Flash 1.2", "video"), ["360p", "720p"]);
+  assert.deepEqual(resolutionsForModel("Gemini Omni Flash 1.2", "video", true), ["360p", "720p"]);
+  assert.deepEqual(aspectRatiosForModel("Gemini Omni Flash 1.2", "video"), ["16:9", "9:16"]);
+  assert.deepEqual(durationsForModel("Gemini Omni Flash 1.2"), [4, 6, 8, 10]);
+  assert.equal(durationRangeForModel("Gemini Omni Flash 1.2"), null);
   for (const gate of [supportsAudio, supportsSeed, supportsDraftMode, supportsBitrateMode, supportsVideoReference,
     supportsVideoEditExtend, supportsVideoBestOf, supportsFirstFrameContinuation, supportsFirstLastFrame]) {
-    assert.equal(gate("Gemini Omni Flash 1.1"), false, gate.name);
+    assert.equal(gate("Gemini Omni Flash 1.2"), false, gate.name);
   }
 });
 
@@ -384,10 +384,10 @@ test("the retired Gemini Omni Flash keeps its definition for history and points 
     assert.equal(retired.name, "Gemini Omni Flash");
     assert.equal(retired.offered, false);
     assert.equal(retired.pricingKey, "Gemini Omni Flash");
-    assert.equal(composerModel(key), "Gemini Omni Flash 1.1");
+    assert.equal(composerModel(key), "Gemini Omni Flash 1.2");
   }
   assert.deepEqual(durationsForModel("Gemini Omni Flash"), [4, 6, 8]);
-  assert.equal(composerModel("Gemini Omni Flash 1.1"), "Gemini Omni Flash 1.1");
+  assert.equal(composerModel("Gemini Omni Flash 1.2"), "Gemini Omni Flash 1.2");
   assert.equal(composerModel("Seedance 2.5"), "Seedance 2.5");
   assert.equal(composerModel("unknown"), "unknown");
   // Every retired model names a replacement that is offered and of the same kind.
@@ -486,7 +486,7 @@ test("durationRangeForModel is null for true-enum providers (Higgsfield/Omni)", 
   // also contain "seedance", so a bare /seedance/i test would wrongly hand
   // it a continuous range its MCP doesn't support.
   assert.equal(durationRangeForModel("Higgsfield Seedance 2.0"), null);
-  assert.equal(durationRangeForModel("Gemini Omni Flash 1.1"), null);
+  assert.equal(durationRangeForModel("Gemini Omni Flash 1.2"), null);
 });
 
 test("only Seedance 2.5 supports Edit/Extend", () => {
@@ -497,7 +497,7 @@ test("only Seedance 2.5 supports Edit/Extend", () => {
   // fall for a hypothetical "Higgsfield Seedance 2.5" the way a bare
   // /seedance/i test would.
   assert.equal(supportsVideoEditExtend("Higgsfield Seedance 2.0"), false);
-  assert.equal(supportsVideoEditExtend("Gemini Omni Flash 1.1"), false);
+  assert.equal(supportsVideoEditExtend("Gemini Omni Flash 1.2"), false);
 });
 
 test("Seedance 2.5 is audio- and video-reference-capable like 2.0", () => {
