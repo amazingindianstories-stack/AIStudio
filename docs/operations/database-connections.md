@@ -99,6 +99,9 @@ How the settings reach the server:
   `pg_stat_activity` still names the service that last used a server connection.
 - Pooled Django sets `DISABLE_SERVER_SIDE_CURSORS=True`, `prepare_threshold=None` and a long `CONN_MAX_AGE` (a pooled
   client holds no server connection between transactions). PgBouncer's `max_prepared_statements=0` is the second line.
+  Raw psycopg connections through the pooler also pass `prepare_threshold=None`: the startup preflight
+  (`backend/deploy/legacy_config.py` `preflight`) repeats one query per RLS table, and an auto-prepared `_pg3_0` left on
+  a server connection makes the next process's preflight fail with `DuplicatePreparedStatement`.
 - Waits and backstops: a client waits `query_wait_timeout` 15 s for a server connection; PgBouncer reaches PostgreSQL
   within `server_connect_timeout` 5 s; `query_timeout` 180 s and `idle_transaction_timeout` 90 s catch a service whose
   own timeouts failed.
