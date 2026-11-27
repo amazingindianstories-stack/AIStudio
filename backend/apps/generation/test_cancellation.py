@@ -216,6 +216,26 @@ class CancellationTests(TransactionTestCase):
         row.refresh_from_db()
         self.assertEqual(row.status, 'running')
 
+    def test_only_gemini_api_omni_task_ids_are_kept_from_vertex_even_after_a_vertex_model_retires(self):
+        from .model_registry import model_definition
+        with patch.dict(model_definition('gemini-omni-1-2-flash'), {'offered': False, 'retiredFor': 'gemini-omni-1-1-flash'}):
+            vertex = self.job(model='Gemini Omni Flash 1.2', task_id='vertex-task')
+            get_omni = Mock(return_value={'status': 'running'})
+            self.assertEqual(cancellation.provider_for(vertex), 'omni')
+            poller.advance(vertex, dependencies=poller.Dependencies(mock=lambda: False, get_omni=get_omni, publish=lambda row: None))
+            get_omni.assert_called_once()
+            self.assertEqual(get_omni.call_args.args, ('vertex-task',))
+            vertex.refresh_from_db()
+            self.assertEqual(vertex.status, 'running')
+        for model in ('Gemini Omni Flash 1.1', 'Gemini Omni Flash'):
+            historical = self.job(model=model, task_id='gemini-api-task')
+            get_omni = Mock(return_value={'status': 'running'})
+            self.assertIsNone(cancellation.provider_for(historical))
+            poller.advance(historical, dependencies=poller.Dependencies(mock=lambda: False, get_omni=get_omni, publish=lambda row: None))
+            get_omni.assert_not_called()
+            historical.refresh_from_db()
+            self.assertEqual(historical.status, 'failed')
+
     def test_paid_guard_lets_only_a_requested_cancel_reach_the_real_adapters(self):
         from django.test import override_settings
         from apps.integrations.transport import HttpTransport

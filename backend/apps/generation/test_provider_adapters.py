@@ -277,14 +277,10 @@ class ProviderAdapterTests(SimpleTestCase):
         self.assertTrue(transport.calls[-1][0][1].endswith('/task%2Fid'))
         for uri in ('https://evil.invalid/video', 'http://googleapis.com/video', 'https://user@googleapis.com/video', 'https://googleapis.com:444/video'):
             for shape in ({'output_video': {'uri': uri}}, {'steps': [{'type': 'model_output', 'content': [{'type': 'video', 'uri': uri}]}]}):
-                download = ScriptedTransport()
                 with self.assertRaises(ProviderError):
-                    omni.extract_video(shape, {'Authorization': 'Bearer fixture-token'}, transport=download)
-                self.assertFalse(download.calls)
-        download = ScriptedTransport(HttpResult(200, b'original-master', {'content-type': 'video/mp4'}))
+                    omni.extract_video(shape)
         with self.assertRaises(ProviderError):
-            omni.extract_video({'output_video': {'uri': 'https://storage.googleapis.com/fixture'}}, transport=download)
-        self.assertFalse(download.calls)
+            omni.extract_video({'output_video': {'uri': 'https://storage.googleapis.com/fixture'}})
         self.assertEqual(omni.get_video_status('gone', transport=ScriptedTransport(result({'error': {'message': 'gone'}}, 404)), env={'GCP_PROJECT_ID': 'fixture-project'})['status'], 'failed')
         with self.assertRaises(ProviderError):
             omni.get_video_status('task', transport=ScriptedTransport(result({}, 401)), env={'GCP_PROJECT_ID': 'fixture-project'})
@@ -379,9 +375,9 @@ class ProviderAdapterTests(SimpleTestCase):
 
     def test_omni_flash_1_1_status_reads_the_documented_rest_shapes(self):
         env = {'GCP_PROJECT_ID': 'fixture-project'}
-        def status(body, code=200, download=None):
+        def status(body, code=200):
             transport = ScriptedTransport(result(body, code))
-            value = omni.get_video_status('v1_task', transport=transport, download_transport=download, env=env)
+            value = omni.get_video_status('v1_task', transport=transport, env=env)
             [((method, url), options)] = transport.calls
             self.assertEqual((method, url, options['headers']), ('GET', 'https://aiplatform.googleapis.com/v1beta1/projects/fixture-project/locations/global/interactions/v1_task', {'Authorization': 'Bearer fixture-token'}))
             return value
@@ -407,11 +403,8 @@ class ProviderAdapterTests(SimpleTestCase):
                                             'taskId': 'v1_task', 'rawBody': '{"status": "budget_exceeded"}', 'receivedAt': 7}})
         # URI delivery is not requested; no credential is attached to an unexpected output URL.
         uri = 'https://storage.googleapis.com/fixture/abc-123.mp4'
-        download = ScriptedTransport(HttpResult(200, b'mp4-master-bytes', {'content-type': 'video/mp4'}))
         with self.assertRaises(ProviderError):
-            status({'status': 'completed', 'steps': [{'type': 'model_output', 'content': [{'type': 'video', 'mime_type': 'video/mp4', 'uri': uri}]}]},
-                   download=download)
-        self.assertFalse(download.calls)
+            status({'status': 'completed', 'steps': [{'type': 'model_output', 'content': [{'type': 'video', 'mime_type': 'video/mp4', 'uri': uri}]}]})
         with self.assertRaisesRegex(ProviderError, 'returned no inline video'):
             omni.get_video_status('v1_task', transport=ScriptedTransport(result({'status': 'completed', 'steps': []})), env=env)
         self.assertEqual(status({'error': {'code': 404, 'message': 'Interaction not found.', 'status': 'NOT_FOUND'}}, 404),

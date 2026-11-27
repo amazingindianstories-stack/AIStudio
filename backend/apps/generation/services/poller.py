@@ -462,7 +462,7 @@ def advance(item, *, source='cron', signal=None, owner=None, provider=None, call
                 **_with_records(item, provider_errors.local('omnihuman', 'expired', omnihuman.EXPIRED, task_id=item.task_id))},
                 deps, signal, owner, {})
         is_omni = is_provider_model(item.model, 'omni')
-        if is_omni and not (model_definition(item.model) or {}).get('offered'):
+        if is_omni and (model_definition(item.model) or {}).get('interactionsBackend') == 'gemini':
             return _terminal(item, {'status': 'failed', 'error': 'This historical Omni interaction used the retired Gemini API and cannot be polled on Vertex. Contact the team to recover its output.'}, deps, signal, owner, provider)
         is_higgsfield = is_provider_model(item.model, 'higgsfield')
         get_status = deps.get_omnihuman if is_omnihuman else deps.get_omni if is_omni else deps.get_higgsfield if is_higgsfield else deps.get_video

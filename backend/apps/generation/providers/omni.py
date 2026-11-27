@@ -83,7 +83,7 @@ def authentication(env):
     return build_endpoint(env), google_genai.auth_headers({**env, google_genai.SWITCH: 'vertex', google_genai.LOCATION: 'global'})
 
 
-def extract_video(result, headers=None, *, transport=None, signal=None):
+def extract_video(result):
     for step in result.get('steps') or []:
         for part in step.get('content') or []:
             if part.get('type') == 'video' and part.get('data'):
@@ -121,7 +121,7 @@ def create_video_task(input, *, transport=None, env=None, signal=None):
     return task_id
 
 
-def get_video_status(task_id, *, transport=None, download_transport=None, env=None, signal=None, include_video=True):
+def get_video_status(task_id, *, transport=None, env=None, signal=None, include_video=True):
     env = os.environ if env is None else env
     endpoint, headers = authentication(env)
     transport = transport or HttpTransport(allowed_hosts=['aiplatform.googleapis.com'], max_response_bytes=512 * 1024 * 1024)
@@ -139,7 +139,7 @@ def get_video_status(task_id, *, transport=None, download_transport=None, env=No
     if status == 'succeeded':
         if not include_video:
             return {'status': status}
-        video = extract_video(result, headers, transport=download_transport, signal=signal)
+        video = extract_video(result)
         return {'status': status, 'videoBase64': video['base64'], 'mimeType': video['mimeType']}
     if status == 'cancelled':
         return {'status': 'cancelled', 'providerStatus': 'cancelled'}

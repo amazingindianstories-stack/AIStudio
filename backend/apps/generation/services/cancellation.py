@@ -40,7 +40,7 @@ class CancelError(Exception):
 
 def provider_for(item, env=None):
     provider = (model_definition(item.model) or {}).get('provider')
-    if provider == 'omni' and item.task_id and not (model_definition(item.model) or {}).get('offered'):
+    if provider == 'omni' and item.task_id and (model_definition(item.model) or {}).get('interactionsBackend') == 'gemini':
         return None  # Historical Gemini API interaction ids must never be sent to Vertex.
     return provider if provider in ADAPTERS and item.kind == 'video' else None
 
