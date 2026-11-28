@@ -30,7 +30,7 @@ import { GenerationFolderCue, GenerationTimestamp } from "./MediaCard";
 import { ViewerMedia } from "./ViewerMedia";
 import { LayerPicker } from "./LayeredImage";
 import { generationPieces, layeredResultLabel, pieceDownload } from "@/lib/layered-generations";
-import { viewerList } from "@/lib/viewer-navigation";
+import { isNavigable, viewerList } from "@/lib/viewer-navigation";
 import { stepViewer } from "@/lib/viewer-step";
 import { useViewerPreload } from "@/lib/viewer-media";
 import { useStore } from "@/lib/store";
@@ -317,8 +317,7 @@ export function DetailModal() {
     () =>
       items.filter(
         (candidate) =>
-          candidate.status === "succeeded" &&
-          Boolean(candidate.url || candidate.poster) &&
+          isNavigable(candidate) &&
           (rightTab !== "project" ||
             !activeProjectId ||
             candidate.projectId === activeProjectId)
