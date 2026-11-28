@@ -1,11 +1,11 @@
 "use client";
 
+import { Wordmark } from "@/components/Wordmark";
 export default function ErrorPage({ error, reset }) {
   return (
     <div className="flex min-h-full items-center justify-center bg-ink-900 p-4">
       <div className="w-full max-w-sm rounded-2xl border border-line bg-ink-850 p-7 text-center shadow-pop">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/logo.png" alt="Veevee.ai" className="mx-auto mb-4 h-9 w-9 rounded-lg shadow-sm" />
+        <Wordmark className="mx-auto mb-4 h-6 text-white" />
         <h1 className="text-lg font-semibold text-white">Something went wrong</h1>
         <p role="alert" className="mt-3 rounded-lg bg-red-500/10 px-3 py-2 text-sm text-red-200">
           {error?.message || "An unexpected error occurred."}
