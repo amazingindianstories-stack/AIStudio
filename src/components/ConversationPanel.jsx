@@ -198,6 +198,9 @@ export function FeedBlock({ item, index }) {
   // dozens of clips and each mounted <video> holds a connection and a decoder.
   const frameRef = useRef(null);
   const nearViewport = useNearViewport(frameRef);
+  // Latched: unmounting a clip the artist is watching would stop playback and lose its position.
+  const [wasNearViewport, setWasNearViewport] = useState(false);
+  if (nearViewport && !wasNearViewport) setWasNearViewport(true);
   const hasPoster = Boolean(item.poster);
 
   return (
@@ -282,7 +285,7 @@ export function FeedBlock({ item, index }) {
                     <Video className="h-6 w-6 text-white/20" />
                   </div>
                 )}
-                {(hasPoster || nearViewport) && (
+                {(hasPoster || wasNearViewport) && (
                   <video
                     // #t makes browsers that stop at metadata (iOS Safari) still decode and paint the first frame.
                     src={hasPoster ? item.url : `${item.url}#t=0.001`}

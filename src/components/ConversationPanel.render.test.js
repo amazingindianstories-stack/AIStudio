@@ -11,7 +11,7 @@ const names = ["window", "document", "HTMLElement", "React", "IS_REACT_ACT_ENVIR
 
 // Every frame counts as on screen. use-near-viewport keeps one shared observer for the module's lifetime, so
 // every test in this file must construct it from the same stub.
-const OnScreenObserver = class { constructor(cb) { this.cb = cb; } observe(target) { this.cb([{ target, isIntersecting: true }]); } unobserve() {} disconnect() {} };
+const OnScreenObserver = class { constructor(cb) { this.cb = cb; OnScreenObserver.instance = this; } observe(target) { this.cb([{ target, isIntersecting: true }]); } unobserve() {} disconnect() {} };
 
 test("a thread card whose stored master is missing shows File missing, opens no viewer and offers no download", async () => {
   const dom = new JSDOM('<div id="root"></div>', { url: "http://localhost", pretendToBeVisual: true });
@@ -82,6 +82,11 @@ test("a thread video paints its stored poster without fetching the master, and a
     assert.equal(plainVideo.getAttribute("preload"), "metadata");
     assert.equal(plainVideo.getAttribute("src"), "/api/media/generations/v2.mov#t=0.001");
     assert.equal(document.querySelectorAll("[data-video-placeholder]").length, 1);
+
+    // Scrolling a clip out of view must not unmount it: it may be playing.
+    await act(async () => OnScreenObserver.instance.cb([{ target: plainVideo.parentElement, isIntersecting: false }]));
+    assert.equal(document.querySelectorAll("video").length, 2);
+    assert.equal(document.querySelectorAll("video")[1], plainVideo);
   } finally {
     await act(async () => root.unmount());
     useStore.setState(original, true);
