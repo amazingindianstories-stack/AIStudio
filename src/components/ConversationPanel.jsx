@@ -17,6 +17,7 @@ import {
   Download,
   RefreshCw,
   Pencil,
+  Video,
 } from "lucide-react";
 import { useStore } from "@/lib/store";
 import { ChatScopeBar } from "./ChatScopeBar";
@@ -29,6 +30,7 @@ import { aspectMaxWidth, aspectToPadding, cn, thumbUrl, generationDownloadUrl } 
 import { LayeredCardPreview } from "./LayeredImage";
 import { generationPieces } from "@/lib/layered-generations";
 import { setAssetDragData } from "@/lib/asset-drag-contract";
+import { useNearViewport } from "@/lib/use-near-viewport";
 
 // Feed images render inside a max-w-3xl (768px) column; cap requests well
 // under typical multi-megapixel originals while staying sharp at ~2x DPR.
@@ -191,6 +193,12 @@ export function FeedBlock({ item, index }) {
   const succeeded = item.status === "succeeded";
   const missing = succeeded && Boolean(item.mediaMissingAt);
   const done = succeeded && !missing;
+  // A video with a stored poster paints it and fetches nothing until played. One without (not backfilled yet)
+  // loads metadata only, so the browser paints its first frame, and only near the viewport: a thread can hold
+  // dozens of clips and each mounted <video> holds a connection and a decoder.
+  const frameRef = useRef(null);
+  const nearViewport = useNearViewport(frameRef);
+  const hasPoster = Boolean(item.poster);
 
   return (
     <>
@@ -247,7 +255,7 @@ export function FeedBlock({ item, index }) {
           done && "cursor-pointer cursor-grab active:cursor-grabbing"
         )}
       >
-        <div style={{ paddingBottom: aspectToPadding(item.aspectRatio) }} className="relative w-full">
+        <div ref={frameRef} style={{ paddingBottom: aspectToPadding(item.aspectRatio) }} className="relative w-full">
           <GenerationName item={item} numberOnly={false} className="generation-name-overlay chat-generation-name z-20" />
           {done && layered && <LayeredCardPreview item={item} />}
           {done && item.kind === "image" && item.url && !layered && (
@@ -267,18 +275,28 @@ export function FeedBlock({ item, index }) {
                 className="absolute inset-0 bg-ink-800"
               />
             ) : (
-              <video
-                src={item.url}
-                poster={thumbUrl(item.poster, FEED_THUMB_WIDTH)}
-                controls
-                playsInline
-                // A thread can hold dozens of clips; fetch nothing until played.
-                preload="none"
-                // A MOV master this browser cannot decode would otherwise stay
-                // a dead black player; the original remains the download.
-                onError={() => setUndecodable(true)}
-                className="absolute inset-0 h-full w-full bg-black object-contain"
-              />
+              <>
+                {!hasPoster && (
+                  // Stays visible until the first frame decodes, and for good if it never does.
+                  <div data-video-placeholder className="absolute inset-0 grid place-items-center bg-ink-800">
+                    <Video className="h-6 w-6 text-white/20" />
+                  </div>
+                )}
+                {(hasPoster || nearViewport) && (
+                  <video
+                    // #t makes browsers that stop at metadata (iOS Safari) still decode and paint the first frame.
+                    src={hasPoster ? item.url : `${item.url}#t=0.001`}
+                    poster={thumbUrl(item.poster, FEED_THUMB_WIDTH)}
+                    controls
+                    playsInline
+                    preload={hasPoster ? "none" : "metadata"}
+                    // A MOV master this browser cannot decode would otherwise stay
+                    // a dead black player; the original remains the download.
+                    onError={() => setUndecodable(true)}
+                    className={cn("absolute inset-0 h-full w-full object-contain", hasPoster && "bg-black")}
+                  />
+                )}
+              </>
             )
           )}
 
