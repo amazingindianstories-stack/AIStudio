@@ -183,7 +183,10 @@ export const MediaCard = memo(function MediaCard({
   // Media loads straight from storage once resolved; /api/media is the fallback.
   const imageMedia = useDirectMediaUrl(done && item.kind === "image" ? item.url : null, CARD_THUMB_WIDTH);
   const posterMedia = useDirectMediaUrl(done && item.poster ? item.poster : null, CARD_THUMB_WIDTH);
-  const videoMedia = useDirectMediaUrl(done && (item.kind === "video" || item.kind === "depth") ? item.url : null);
+  // A video with a poster paints that small image and fetches its master (12-54 MB for a Final) only once the
+  // pointer reaches the card; without a poster the <video> is the only picture, so it mounts near the viewport.
+  const [armed, setArmed] = useState(false);
+  const videoMedia = useDirectMediaUrl(done && (item.kind === "depth" || (item.kind === "video" && (!item.poster || armed))) ? item.url : null);
   // #t makes browsers that stop at metadata (iOS Safari) still decode and paint the first frame.
   const videoSrc = videoMedia.src ? `${videoMedia.src}#t=0.001` : videoMedia.src;
   const depthStepIndex =
@@ -198,6 +201,8 @@ export const MediaCard = memo(function MediaCard({
   const moreRef = useRef(null);
   const openRef = useRef(null);
   const nearViewport = useNearViewport(cardRef);
+  useEffect(() => { if (!nearViewport) setArmed(false); }, [nearViewport]);
+  const mountVideo = nearViewport && (!item.poster || armed);
 
   // ── context menu ──────────────────────────────────────────────────────
   // `menu` holds the anchor rect (a zero-size rect at the pointer, or the
@@ -500,7 +505,8 @@ export const MediaCard = memo(function MediaCard({
       onPointerMove={handlePointerMove}
       onPointerUp={cancelLongPress}
       onPointerCancel={cancelLongPress}
-      onPointerLeave={cancelLongPress}
+      onPointerLeave={() => { cancelLongPress(); setArmed(false); }}
+      onPointerEnter={item.poster ? () => setArmed(true) : undefined}
       onContextMenu={handleContextMenu}
       initial={reducedMotion ? false : { opacity: 0, scale: 0.96 }}
       animate={{ opacity: 1, scale: 1 }}
@@ -563,9 +569,10 @@ export const MediaCard = memo(function MediaCard({
                 imageClassName="object-cover"
               />
             )}
-            {item.url && nearViewport && (
+            {item.url && mountVideo && (
               <video
                 src={videoSrc}
+                autoPlay={Boolean(item.poster)}
                 muted
                 loop
                 playsInline
@@ -585,8 +592,8 @@ export const MediaCard = memo(function MediaCard({
         {done && item.kind === "depth" && item.url && (
           // Same treatment as the video kind — depth output is a real video
           // file (see worker.py), just never a poster (nothing renders one
-          // for depth, same as real image/video generations today; only
-          // MOCK_GENERATION sets poster). <video preload="metadata"> shows
+          // for depth; video generations get theirs from the poster
+          // derivative). <video preload="metadata"> shows
           // its own first frame with no poster needed.
           <>
             {/* Gated on proximity for the same reason as the video kind, and

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { depthStatusDelay } from "@/lib/poll-schedule";
 import { motion } from "framer-motion";
+import { Wordmark } from "@/components/Wordmark";
 import {
   Image as ImageIcon,
   Clapperboard,
@@ -21,7 +22,6 @@ import { useStore } from "@/lib/store";
 import { modeAvailable } from "@/lib/config";
 import { Dropdown, MenuItem } from "./Dropdown";
 import { AccountSettings } from "./AccountSettings";
-import { useWorkspace } from "./WorkspaceBanner";
 import { cn } from "@/lib/utils";
 import { AudioTranscriptionModal } from "./AudioTranscriptionModal";
 
@@ -62,7 +62,6 @@ export function TopBar() {
   const loadMe = useStore((s) => s.loadMe);
   const loadUsers = useStore((s) => s.loadUsers);
   const logout = useStore((s) => s.logout);
-  const workspace = useWorkspace();
   const depthWorkerStatus = useStore((s) => s.depthWorkerStatus);
   const loadDepthWorkerStatus = useStore((s) => s.loadDepthWorkerStatus);
 
@@ -105,11 +104,8 @@ export function TopBar() {
   return (
     <>
       <header className="relative z-40 flex h-14 shrink-0 items-center gap-2 border-b border-line bg-ink-900 px-2 sm:gap-4 sm:px-5">
-        <div className="flex shrink-0 items-center gap-2.5">
-          <img src={workspace?.logoUrl || "/logo.png"} alt={workspace?.name || "Veevee.ai"} className="h-8 w-8 rounded-lg shadow-sm" />
-          <span className="hidden text-[17px] font-semibold tracking-tight text-white sm:inline">
-            {workspace?.name || "Veevee.ai"}
-          </span>
+        <div className="flex shrink-0 items-center">
+          <Wordmark className="h-4 text-white sm:h-5" />
         </div>
 
         <span className="hidden h-6 w-px shrink-0 bg-line sm:block" aria-hidden />

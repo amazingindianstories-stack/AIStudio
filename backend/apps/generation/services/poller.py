@@ -21,7 +21,7 @@ from apps.media import persistence
 from apps.media.errors import MediaTooLargeError
 from apps.integrations.remote import get_media_fetcher
 from apps.media.storage import get_storage
-from . import coordinator
+from . import coordinator, video_posters
 from .deadline import Cancellation
 from .pricing import read_pricing, seedance_token_cost
 
@@ -97,6 +97,7 @@ class Dependencies:
     publish = staticmethod(publish_best_effort)
     pricing = staticmethod(read_pricing)
     mock = staticmethod(lambda: os.environ.get('MOCK_GENERATION') == '1')
+    make_poster = staticmethod(video_posters.poster_ref)
 
     def read_reference(self, ref):
         return get_storage().read_as_base64(ref)
@@ -206,6 +207,11 @@ def _terminal(item, updates, deps, signal, owner, provider):
         updates = {**updates, 'cost_basis': COST_UNCONFIRMED, 'cancellation_state': 'confirmed', 'next_poll_at': None}
     elif updates.get('status') in ('succeeded', 'failed'):
         updates = {'cancellation_state': None, **updates}
+    if updates.get('status') == 'succeeded' and item.kind == 'video' and updates.get('url') and not (item.poster or updates.get('poster')):
+        # The master is stored; a missing poster is only retried by the backfill, never a reason to hold the result.
+        poster = deps.make_poster(updates['url'])
+        if poster:
+            updates = {**updates, 'poster': poster}
     defaults = {'url': None, 'error': None, 'moderation_blocked': None,
                 'completed_at': item.completed_at or timestamp, 'updated_at': max(timestamp, item.updated_at + 1)}
     persisted = coordinator.compare_and_set_outcome(item, {**defaults, **provider, **updates}, owner=owner)
