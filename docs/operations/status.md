@@ -14,6 +14,12 @@ preview build first. Production only receives a release after it has passed ther
 
 Legend: PASS · FAIL · NOT VERIFIED · PENDING (not started) · BLOCKED (needs owner approval)
 
+## Not deployed yet - missing-media marker (branch `fm/veevee-missing-sept-media`)
+
+`generations.media_missing_at` (migration `generation.0014`, additive), the "File missing" card tile and the
+`mark_media_missing` command are verified locally only. The 36 unrecoverable generations of 2026-09-21/22 are **not**
+marked in production; running the command there needs owner approval. Details and procedure: `missing-media.md`.
+
 ## Not deployed yet - Vertex AI switch (branch `fm/veevee-vertex-switch`)
 
 On 2026-11-25 Google paused the Gemini API for the billing account after its monthly spend cap was reached, so every

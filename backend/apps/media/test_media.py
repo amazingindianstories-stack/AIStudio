@@ -413,6 +413,16 @@ class EndpointTests(TransactionTestCase):
         Generation.objects.filter(id=generation.id).update(status='succeeded',url='/api/media/thumbs/512/settings/token.webp')
         self.assertEqual(self.client.get(url).status_code,404)
 
+    def test_download_of_a_row_marked_missing_is_gone_without_touching_storage(self):
+        generation=self._generation(media_missing_at=5)
+        url=f'/api/generations/{generation.id}/download'
+        for query in ('','?signed=1','?redirect=1'):
+            response=self.client.get(url+query)
+            self.assertEqual((response.status_code,response.json()['error']),(410,'MEDIA_MISSING'))
+            self.assertIn('missing',response.json()['message'])
+        Generation.objects.filter(id=generation.id).update(media_missing_at=None)
+        self.assertEqual(self.client.get(url).status_code,200)
+
     def test_local_upload(self):
         with tempfile.TemporaryDirectory() as root,override_settings(VEEVEE_MEDIA_STORAGE=StorageService(FileSystemAdapter(root))):
             key=f'uploads/video-reference/{self.user.id}-fixture'

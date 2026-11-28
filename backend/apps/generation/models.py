@@ -43,6 +43,9 @@ class Generation(models.Model):
     output = models.JSONField(null=True)
     # Seedream 5.5 layer decomposition: [{url, zIndex, width, height, boundingBox, textRecognition?}], base image in `url`.
     layers = models.JSONField(null=True)
+    # Set (epoch ms) when the stored master of a succeeded row was verified absent and unrecoverable. The row keeps its
+    # status, cost and name; the library shows a "File missing" tile and downloads/exports skip it.
+    media_missing_at = models.BigIntegerField(null=True)
     moderation_blocked = models.BooleanField(null=True)
     reference_images = models.JSONField(null=True)
     reference_videos = models.JSONField(null=True)

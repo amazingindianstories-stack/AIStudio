@@ -47,6 +47,37 @@ import { setAssetDragData } from "@/lib/asset-drag-contract";
 // (covers up to ~2x device pixel ratio at the larger end) instead of the
 // full-resolution original.
 const CARD_THUMB_WIDTH = 480;
+const MISSING_THUMB_WIDTH = 512;
+
+// The 512 WebP derivative can outlive a missing master; its key is fixed by the master key, so the tile asks for it directly.
+export function missingThumbUrl(url) {
+  if (typeof url !== "string" || !url.startsWith("/api/media/")) return null;
+  const key = url.slice("/api/media/".length).split(/[?#]/)[0];
+  return key && !key.startsWith("thumbs/") ? `/api/media/thumbs/${MISSING_THUMB_WIDTH}/${key}.webp` : null;
+}
+
+export function MissingMediaTile({ item }) {
+  const thumb = item.kind === "image" ? missingThumbUrl(item.url) : null;
+  const [thumbFailed, setThumbFailed] = useState(false);
+  return (
+    <div data-testid="media-missing-tile" className="absolute inset-0 overflow-hidden bg-ink-800">
+      {thumb && !thumbFailed && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={thumb}
+          alt={item.prompt || ""}
+          loading="lazy"
+          decoding="async"
+          onError={() => setThumbFailed(true)}
+          className="absolute inset-0 h-full w-full object-cover opacity-60 grayscale"
+        />
+      )}
+      <div className="absolute inset-0 grid place-items-center">
+        <span className="rounded-full bg-black/60 px-2.5 py-1 text-xs font-medium text-white/85">File missing</span>
+      </div>
+    </div>
+  );
+}
 
 // Touch has no right click: holding a card this long opens its menu instead.
 const LONG_PRESS_MS = 500;
@@ -143,7 +174,10 @@ export const MediaCard = memo(function MediaCard({
 
   const pending = item.status === "running" || item.status === "queued";
   const failed = item.status === "failed" || item.status === "cancelled";
-  const done = item.status === "succeeded";
+  const succeeded = item.status === "succeeded";
+  // A succeeded row whose stored master was verified gone keeps its status and cost; it never requests the master.
+  const missing = succeeded && Boolean(item.mediaMissingAt);
+  const done = succeeded && !missing;
   const cardLabel = item.filename || (item.prompt ? String(item.prompt).slice(0, 80) : "generation");
   const isDraft = item.kind === "video" && item.draftMode === true;
   // Media loads straight from storage once resolved; /api/media is the fallback.
@@ -330,7 +364,7 @@ export const MediaCard = memo(function MediaCard({
         key: "cancel", label: "Cancel", icon: Square, destructive: true,
         onSelect: ask("cancelGeneration", () => cancelGeneration(item.id)),
       },
-      editable && (done || failed) && {
+      editable && (succeeded || failed) && {
         key: "retry",
         label: "Retry",
         hint: "Generate again with the same prompt, settings and references",
@@ -390,7 +424,7 @@ export const MediaCard = memo(function MediaCard({
           return true;
         }),
       },
-      done && {
+      succeeded && {
         key: "favorite",
         label: item.isFavorite ? "Unfavourite" : "Favourite",
         icon: Star,
@@ -591,6 +625,8 @@ export const MediaCard = memo(function MediaCard({
           </>
         )}
 
+        {missing && <MissingMediaTile item={item} />}
+
         {/* pending skeleton */}
         {pending && (
           <div className="absolute inset-0">
@@ -766,7 +802,7 @@ export const MediaCard = memo(function MediaCard({
           </button>
           {/* During maintenance only a favourite keeps its (disabled) star; the
               hover-only "add" star would be revealed by the paused-control dimming. */}
-          {done && (item.isFavorite || !maintenance) && (
+          {succeeded && (item.isFavorite || !maintenance) && (
             <button
               type="button"
               disabled={maintenance}

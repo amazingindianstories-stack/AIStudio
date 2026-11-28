@@ -38,7 +38,7 @@ export function VideoRefPicker({ onClose }) {
 
   const maxVideos = maxReferenceVideosForVideoModel(model) ?? MAX_REFERENCE_VIDEOS;
   const { items, loading } = useHistoryQuery({ kind: "video" });
-  const usable = items.filter((i) => i.status === "succeeded" && i.url);
+  const usable = items.filter((i) => i.status === "succeeded" && i.url && !i.mediaMissingAt);
   const full = referenceVideos.length >= maxVideos;
 
   const toggle = (url, name) => {

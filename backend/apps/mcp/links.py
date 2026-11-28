@@ -32,7 +32,9 @@ MIN_MAKE_SECONDS = 4               # with less time than this, make nothing
 
 
 def media_key(item):
-    """The stored master's key for a public generation item, or None when it has none or it is hidden."""
+    """The stored master's key for a public generation item, or None when it has none, is marked missing, or is hidden."""
+    if item.get('mediaMissingAt'):
+        return None
     try:
         key = media_key_from_ref(item.get('url'), getattr(settings, 'GCP_MEDIA_CDN_URL', ''))
         return authorize_media_key(key) if key else None

@@ -64,3 +64,48 @@ test("resolveGenerationFolder resolves nested, project and missing folders", () 
   assert.deepEqual(resolveGenerationFolder({ projectId: "zz" }, t), { label: "Project unavailable", navigable: false });
   assert.deepEqual(resolveGenerationFolder({}, undefined), { label: "Global / Unsorted", navigable: true });
 });
+
+test("a succeeded card with a missing master shows a File missing tile that never requests the master", async () => {
+  const dom = new JSDOM('<div id="root"></div>', { url: "http://localhost", pretendToBeVisual: true });
+  const prior = Object.fromEntries(names.map((n) => [n, globalThis[n]]));
+  const requested = [];
+  Object.assign(globalThis, {
+    window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, React, IS_REACT_ACT_ENVIRONMENT: true,
+    requestAnimationFrame: (cb) => setTimeout(cb, 0), cancelAnimationFrame: (id) => clearTimeout(id),
+    ResizeObserver: class { observe() {} unobserve() {} disconnect() {} },
+    IntersectionObserver: class { observe() {} unobserve() {} disconnect() {} },
+    fetch: async (url) => { requested.push(String(url)); return { ok: true, status: 200, json: async () => ({}) }; },
+  });
+  dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+  __setMediaResolverFetch(async (url) => { requested.push(String(url)); return { ok: true, status: 200, json: async () => ({ items: [] }) }; });
+  const original = useStore.getState();
+  const image = { ...card("m1", "a"), url: "/api/media/generations/m1.png", mediaMissingAt: 1234 };
+  const video = { ...card("m2", "a"), kind: "video", url: "/api/media/generations/m2.mov", poster: "/api/media/thumbs/poster/generations/m2.mov.webp", mediaMissingAt: 1234 };
+  useStore.setState({ currentUser: { id: "u", role: "admin" }, items: [image, video], selectedIds: [], usersById: {}, libraryTree: tree() });
+  const root = createRoot(document.querySelector("#root"));
+  try {
+    await act(async () => root.render(React.createElement("div", null,
+      React.createElement(MediaCard, { item: image, selectable: true }),
+      React.createElement(MediaCard, { item: video, selectable: true }))));
+    const tiles = [...document.querySelectorAll('[data-testid="media-missing-tile"]')];
+    assert.equal(tiles.length, 2);
+    assert.ok(tiles.every((tile) => tile.textContent.includes("File missing")));
+    // Image: only the surviving 512 derivative is requested, and when it fails the tile falls back to the plain placeholder.
+    const imageImgs = [...tiles[0].querySelectorAll("img")];
+    assert.deepEqual(imageImgs.map((img) => img.getAttribute("src")), ["/api/media/thumbs/512/generations/m1.png.webp"]);
+    await act(async () => { imageImgs[0].dispatchEvent(new dom.window.Event("error")); });
+    assert.equal(tiles[0].querySelectorAll("img").length, 0);
+    assert.match(tiles[0].textContent, /File missing/);
+    // Video: a plain placeholder, with no <img>, <video> or master request.
+    assert.equal(tiles[1].querySelectorAll("img").length, 0);
+    assert.equal(document.querySelectorAll("video").length, 0);
+    assert.equal(document.querySelectorAll(".media-card-body img").length, 0);
+    assert.deepEqual(requested.filter((url) => url.includes("generations/m1.png") && !url.includes("thumbs/512")), []);
+    assert.deepEqual(requested.filter((url) => url.includes("m2.mov")), []);
+  } finally {
+    await act(async () => root.unmount());
+    useStore.setState(original, true);
+    Object.assign(globalThis, prior);
+    dom.window.close();
+  }
+});

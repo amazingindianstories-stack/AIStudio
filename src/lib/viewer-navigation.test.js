@@ -31,6 +31,16 @@ test("a thread viewer lists the thread in the order it is drawn (oldest first)",
   assert.deepEqual(ids(viewerList("thread", { items: [row("f1")], threadItems })), ["t1", "t3"]);
 });
 
+test("a row whose stored master is missing has no viewer, so arrows and preload skip it", () => {
+  const gone = row("m2", { mediaMissingAt: 1790000000000 });
+  assert.equal(isNavigable(gone), false);
+  const feed = viewerList("feed", { items: [row("m3"), gone, row("m1")] });
+  assert.deepEqual(ids(feed), ["m3", "m1"]);
+  assert.deepEqual(ids(viewerList("thread", { threadItems: [row("m3"), gone, row("m1")] })), ["m1", "m3"]);
+  assert.deepEqual(resolveStep({ list: feed, currentId: "m3", key: "ArrowRight" }), { id: "m1" });
+  assert.deepEqual(ids(neighbourWindow(feed, "m3", 1)), ["m1"]);
+});
+
 test("a single card has no list", () => {
   assert.deepEqual(viewerList("single", { items: [row("a"), row("b")] }), []);
 });
