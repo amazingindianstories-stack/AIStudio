@@ -14,7 +14,7 @@ LOCAL_DATA_MODE = os.environ.get('LOCAL_DATA_MODE', 'fixtures')
 if LOCAL_DATA_MODE not in ('fixtures', 'sanitized_snapshot', 'read_only_viewer'):
     raise ImproperlyConfigured('Invalid local data mode')
 if LOCAL_DATA_MODE == 'read_only_viewer' and any(command in sys.argv for command in (
-        'generation_worker', 'media_export_worker', 'run_scheduler', 'migrate', 'flush', 'backfill_thumbnails')):
+        'generation_worker', 'media_export_worker', 'run_scheduler', 'migrate', 'flush', 'backfill_thumbnails', 'backfill_video_posters')):
     raise ImproperlyConfigured('Read-only viewer cannot start writers or migrations')
 ROOT_URLCONF = 'config.urls'
 WSGI_APPLICATION = 'config.wsgi.application'
