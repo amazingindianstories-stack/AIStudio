@@ -20,13 +20,15 @@ cost, usage counts, `permanent_name` and the stored `url` do not change, so hist
 | `GET /api/generations/<id>/download` | `410 MEDIA_MISSING` ("The stored file for this generation is missing, so it cannot be downloaded."), storage is not touched |
 | ZIP export | the id is rejected with reason `media_missing` and never archived; other ids in the request proceed |
 | MCP original/preview links | no link is made for the item |
-| Media card | "File missing" tile. Images show the surviving 512 WebP thumbnail when it loads, otherwise a plain placeholder; videos show the placeholder. The master is never requested. The card has no viewer or download action, but can still be favourited, moved or deleted. |
+| Media card and chat thread card | "File missing" tile. Images show the surviving 512 WebP thumbnail when it loads, otherwise a plain placeholder; videos show the placeholder. The master is never requested. The card has no viewer or download action and cannot be dragged, but can still be favourited, moved or deleted. |
+| Viewer | the item is left out of viewer navigation, neighbour preloading and keyboard open (`isNavigable` in `src/lib/viewer-navigation.js`) |
 
 ## Command
 ```
 scripts/dev/test-db.sh PYTHON backend/manage.py mark_media_missing --ids-file backend/apps/generation/data/missing_media_2026_09_21.txt
 ```
-Add ids as positional arguments instead of (or as well as) `--ids-file`. The default is a dry run. `--apply` writes.
+Add ids as positional arguments instead of (or as well as) `--ids-file`. An id that is not a UUID stops the command before
+anything is checked. The default is a dry run. `--apply` writes.
 
 Per id it reports one of: `would_mark` / `marked` (master absent), `present` (master exists, never marked),
 `already_marked` (idempotent re-run, timestamp kept), `skipped` (not succeeded, or no protected media key such as an
