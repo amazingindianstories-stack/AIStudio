@@ -2,6 +2,8 @@
 import json
 import os
 import re
+import threading
+from collections import OrderedDict
 from urllib.parse import quote
 
 from apps.common.javascript import string
@@ -9,6 +11,29 @@ from apps.generation import provider_errors
 from apps.generation.model_registry import capability, model_definition, provider_model_id, retirement_message
 from apps.integrations import google_genai
 from apps.integrations.transport import HttpTransport, ProviderError
+
+
+# Vertex answers the create POST only once the video exists (a 4 s clip outlived the 60 s transport default), so create
+# gets a longer budget; the job's own deadline signal still bounds it, and a genuine timeout stays an uncertain submission.
+CREATE_TIMEOUT_SECONDS = 300
+_ALLOWED_HOSTS = ['aiplatform.googleapis.com']
+_MAX_RESPONSE_BYTES = 512 * 1024 * 1024
+
+# A create response that already carries the finished video is kept here, by interaction id, so the first status read
+# takes it as the result instead of downloading the same master again. A miss (another process, a restart) just polls.
+_INLINE_RESULTS, _INLINE_LOCK, _INLINE_LIMIT = OrderedDict(), threading.Lock(), 4
+
+
+def _remember_inline(task_id, video):
+    with _INLINE_LOCK:
+        _INLINE_RESULTS[task_id] = video
+        while len(_INLINE_RESULTS) > _INLINE_LIMIT:
+            _INLINE_RESULTS.popitem(last=False)
+
+
+def _take_inline(task_id):
+    with _INLINE_LOCK:
+        return _INLINE_RESULTS.pop(task_id, None)
 
 
 def build_input(assembled, model_name):
@@ -106,7 +131,8 @@ def create_video_task(input, *, transport=None, env=None, signal=None):
     payload = build_payload(build_input(input['assembled'], model['name']), input['aspectRatio'], duration, env,
                             model=model['id'], resolution=resolution)
     endpoint, headers = authentication(env)
-    transport = transport or HttpTransport(allowed_hosts=['aiplatform.googleapis.com'], max_response_bytes=512 * 1024 * 1024)
+    transport = transport or HttpTransport(allowed_hosts=_ALLOWED_HOSTS, timeout=CREATE_TIMEOUT_SECONDS,
+                                           max_response_bytes=_MAX_RESPONSE_BYTES)
     response = transport.request('POST', endpoint, headers={**headers, 'Content-Type': 'application/json'}, body=payload, signal=signal)
     if not response.ok:
         raise ProviderError(f'Omni create error ({response.status}): {response.text[:400]}', status=response.status,
@@ -118,13 +144,20 @@ def create_video_task(input, *, transport=None, env=None, signal=None):
         raise ProviderError('Omni create returned no interaction id.', provider_response=provider_errors.local(
             'omni', 'no_interaction_id', 'Omni create returned no interaction id.', phase='create',
             status=response.status, body=response.text, headers=response.headers))
+    if map_status(result.get('status')) == 'succeeded':
+        try:
+            _remember_inline(task_id, extract_video(result))
+        except ProviderError:
+            pass  # completed without a video here: the status read reports it the usual way
     return task_id
 
 
 def get_video_status(task_id, *, transport=None, env=None, signal=None, include_video=True):
     env = os.environ if env is None else env
+    if include_video and (video := _take_inline(task_id)):
+        return {'status': 'succeeded', 'videoBase64': video['base64'], 'mimeType': video['mimeType']}
     endpoint, headers = authentication(env)
-    transport = transport or HttpTransport(allowed_hosts=['aiplatform.googleapis.com'], max_response_bytes=512 * 1024 * 1024)
+    transport = transport or HttpTransport(allowed_hosts=_ALLOWED_HOSTS, max_response_bytes=_MAX_RESPONSE_BYTES)
     response = transport.request('GET', endpoint + '/' + quote(task_id, safe=''), headers=headers, signal=signal)
     if not response.ok:
         terminal = terminal_status_http_error(response.status, response.text)

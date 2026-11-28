@@ -285,6 +285,63 @@ class ProviderAdapterTests(SimpleTestCase):
         with self.assertRaises(ProviderError):
             omni.get_video_status('task', transport=ScriptedTransport(result({}, 401)), env={'GCP_PROJECT_ID': 'fixture-project'})
 
+    OMNI_REQUEST = {'assembled': {'groups': [], 'instruction': 'literal'}, 'aspectRatio': '16:9', 'duration': 4,
+                    'resolution': '360p', 'modelDisplay': 'Gemini Omni Flash 1.2'}
+    OMNI_ENV = {'GCP_PROJECT_ID': 'fixture-project'}
+
+    def test_omni_create_uses_a_five_minute_transport_not_the_sixty_second_default(self):
+        # Vertex held the create POST open past 60 s (production job e66334e9 failed request_deadline at 60.5 s).
+        built = []
+        class Recording(ScriptedTransport):
+            def __init__(self, **kwargs):
+                super().__init__(result({'id': 'interaction-1', 'status': 'in_progress'}))
+                built.append(kwargs)
+        with patch.object(omni, 'HttpTransport', Recording):
+            self.assertEqual(omni.create_video_task(dict(self.OMNI_REQUEST), env=self.OMNI_ENV), 'interaction-1')
+        self.assertEqual(built, [{'allowed_hosts': ['aiplatform.googleapis.com'], 'timeout': 300, 'max_response_bytes': 512 * 1024 * 1024}])
+        self.assertEqual(omni.CREATE_TIMEOUT_SECONDS, 300)
+
+    def test_omni_status_reads_keep_the_default_transport_timeout(self):
+        built = []
+        class Recording(ScriptedTransport):
+            def __init__(self, **kwargs):
+                super().__init__(result({'status': 'in_progress'}))
+                built.append(kwargs)
+        with patch.object(omni, 'HttpTransport', Recording):
+            self.assertEqual(omni.get_video_status('interaction-2', env=self.OMNI_ENV), {'status': 'running'})
+        self.assertNotIn('timeout', built[0])
+
+    def test_omni_synchronous_terminal_create_response_yields_the_mp4_unchanged_without_a_second_download(self):
+        body = {'id': 'sync-1', 'status': 'completed', 'steps': [{'content': [{'type': 'video', 'data': 'AAAA-original-bytes', 'mime_type': 'video/mp4'}]}]}
+        transport = ScriptedTransport(result(body))
+        task_id = omni.create_video_task(dict(self.OMNI_REQUEST), transport=transport, env=self.OMNI_ENV)
+        self.assertEqual(task_id, 'sync-1')
+        # A cancellation preflight must not consume the kept video.
+        transport.results.append(result({'status': 'completed'}))
+        self.assertEqual(omni.get_cancel_status(task_id, transport=transport, env=self.OMNI_ENV), {'status': 'succeeded'})
+        self.assertEqual(omni.get_video_status(task_id, transport=transport, env=self.OMNI_ENV),
+                         {'status': 'succeeded', 'videoBase64': 'AAAA-original-bytes', 'mimeType': 'video/mp4'})
+        self.assertEqual([call[0][0] for call in transport.calls], ['POST', 'GET'])
+        # Consumed once: a later read polls the provider again.
+        transport.results.append(result({'status': 'in_progress'}))
+        self.assertEqual(omni.get_video_status(task_id, transport=transport, env=self.OMNI_ENV), {'status': 'running'})
+
+    def test_omni_completed_create_without_a_video_falls_back_to_polling(self):
+        transport = ScriptedTransport(result({'id': 'sync-2', 'status': 'completed'}),
+                                      result({'status': 'completed', 'steps': [{'content': [{'type': 'video', 'data': 'polled', 'mime_type': 'video/mp4'}]}]}))
+        task_id = omni.create_video_task(dict(self.OMNI_REQUEST), transport=transport, env=self.OMNI_ENV)
+        self.assertEqual(omni.get_video_status(task_id, transport=transport, env=self.OMNI_ENV)['videoBase64'], 'polled')
+
+    def test_omni_create_past_the_deadline_is_an_uncertain_submission_and_is_never_retried(self):
+        from apps.generation.services.executor import submission_uncertain
+        error = ProviderError('Provider request deadline exceeded.', code='request_deadline')
+        transport = ScriptedTransport(error, result({'id': 'would-be-a-duplicate'}))
+        with self.assertRaises(ProviderError) as raised:
+            omni.create_video_task(dict(self.OMNI_REQUEST), transport=transport, env=self.OMNI_ENV)
+        self.assertIs(raised.exception, error)
+        self.assertTrue(submission_uncertain(raised.exception))
+        self.assertEqual(len(transport.calls), 1)
+
     def test_omni_flash_1_1_create_payload_endpoint_and_headers_are_exact(self):
         # ai.google.dev/gemini-api/docs/omni and /api/interactions-api VideoResponseFormat (read 2026-10-18).
         first, second, tile = ({'mimeType': 'image/png', 'data': 'first-original'}, {'mimeType': 'image/jpeg', 'data': 'second-original'},
