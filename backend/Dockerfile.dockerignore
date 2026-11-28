@@ -9,6 +9,7 @@ backend/**
 !backend/testsupport/data/*.jpg
 !backend/testsupport/data/*.json
 !backend/apps/canvas/fixtures/*.json
+!backend/apps/generation/data/*.txt
 !backend/requirements.txt
 !backend/constraints-qualified.txt
 !backend/Dockerfile

@@ -271,6 +271,8 @@ def generation_download(request,id):
         return JsonResponse({'error':'GENERATION_PROCESSING','message':'Generation is still processing.'},status=409)
     if generation.status == 'failed':
         return JsonResponse({'error':'GENERATION_FAILED','message':'Cannot download a failed generation.'},status=409)
+    if generation.media_missing_at:
+        return JsonResponse({'error':'MEDIA_MISSING','message':'The stored file for this generation is missing, so it cannot be downloaded.'},status=410)
     if not generation.url:
         return JsonResponse({'error':'MEDIA_NOT_FOUND','message':'Generation has no media output.'},status=404)
     key = media_key_from_ref(generation.url,getattr(settings,'GCP_MEDIA_CDN_URL',''))

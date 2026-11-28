@@ -11,7 +11,7 @@ OPTIONAL = ('resolution', 'duration', 'url', 'poster', 'reference_images', 'refe
     'progress_percent', 'progress_message', 'track_characters', 'depth_claim_id',
     'depth_claim_worker_id', 'project_id', 'folder_id', 'user_id', 'cost_cents', 'seed',
     'candidate_task_ids', 'continuation_frame_url', 'last_frame_url', 'favorited_at',
-    'flagged_at', 'flag_reason', 'judge_score', 'layers')
+    'flagged_at', 'flag_reason', 'judge_score', 'layers', 'media_missing_at')
 
 
 def camel(name):

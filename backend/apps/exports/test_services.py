@@ -46,6 +46,13 @@ class ExportServicesTests(TransactionTestCase):
         with ThreadPoolExecutor(max_workers=len(calls)) as pool:
             return list(pool.map(run, calls))
 
+    def test_rows_marked_missing_are_rejected_and_never_archived(self):
+        present, gone = self.generation(), self.generation(media_missing_at=5)
+        job = services.create_export(self.user, self.clock)
+        result = services.append_items(job['id'], self.user, [str(gone.id), str(present.id)], self.clock)
+        self.assertEqual(result, {'accepted': 1, 'totalItems': 1, 'rejected': [{'id': str(gone.id), 'reason': 'media_missing'}]})
+        self.assertEqual(list(MediaExportItem.objects.filter(export_id=job['id']).values_list('generation_id', flat=True)), [present.id])
+
     def test_append_dedup_order_rejections_and_ownership(self):
         first, second = self.generation(), self.generation(kind='video', url='/api/media/generated/master.mov')
         external = self.generation(url='https://untrusted.example/master.png')
