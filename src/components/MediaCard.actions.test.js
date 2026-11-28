@@ -278,3 +278,20 @@ test('an on-screen video tile without a poster shows a video placeholder until i
     assert.equal(video.classList.contains('opacity-0'), false, 'the first decoded frame reveals the video');
   }, {}, MediaCard, { IntersectionObserver: undefined });
 });
+
+test('an on-screen video tile with a poster paints the poster and fetches its master only on hover', async () => {
+  const item = { id: 'pp1', kind: 'video', status: 'succeeded', prompt: 'p', model: 'Seedance 2.5', aspectRatio: '16:9', createdAt: 1,
+    url: '/api/media/generations/0223.mov', poster: '/api/media/thumbs/poster/generations/0223.mov.webp', filename: 'x_0223.mov' };
+  await harness(item, async ({ card }) => {
+    assert.equal(card.querySelector('video'), null, 'a card with a poster mounts no video, so no master is requested');
+    assert.equal(card.querySelector('[data-video-placeholder]'), null);
+    assert.ok(card.querySelector('img'), 'the poster image is the picture');
+    await act(async () => card.dispatchEvent(new window.Event('pointerover', { bubbles: true })));
+    const video = card.querySelector('video');
+    assert.ok(video, 'hovering mounts the video');
+    assert.equal(video.autoplay, true);
+    assert.match(video.getAttribute('src'), /0223\.mov/);
+    await act(async () => card.dispatchEvent(new window.Event('pointerout', { bubbles: true })));
+    assert.equal(card.querySelector('video'), null, 'leaving the card unmounts the video, so a swept card stops fetching its master');
+  }, {}, MediaCard, { IntersectionObserver: undefined });
+});
