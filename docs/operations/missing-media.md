@@ -22,6 +22,7 @@ cost, usage counts, `permanent_name` and the stored `url` do not change, so hist
 | MCP original/preview links | no link is made for the item |
 | Media card and chat thread card | "File missing" tile. Images show the surviving 512 WebP thumbnail when it loads, otherwise a plain placeholder; videos show the placeholder. The master is never requested. The card has no viewer or download action and cannot be dragged, but can still be favourited, moved or deleted. |
 | Viewer | the item is left out of viewer navigation, neighbour preloading and keyboard open (`isNavigable` in `src/lib/viewer-navigation.js`) |
+| Video reference picker | the item is not listed, so it cannot be picked as an `@vid` reference |
 
 ## Command
 ```
