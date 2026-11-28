@@ -25,6 +25,7 @@
 | [operations/status.md](operations/status.md) | Current production state, incidents, owner approval gates and open items |
 | [operations/release-runbook.md](operations/release-runbook.md) | Release gates, staging and rolling a backend commit to Railway, rollback |
 | [operations/managed-portraits.md](operations/managed-portraits.md) | Rollout and rollback of the automatic BytePlus portrait pool |
+| [operations/video-posters.md](operations/video-posters.md) | First-frame posters for finished videos, how library cards use them, and running the `backfill_video_posters` command |
 | [providers/omnihuman.md](providers/omnihuman.md) | BytePlus OmniHuman 2.0 inputs, task lifecycle and activation prerequisites |
 | [providers/vertex-ai.md](providers/vertex-ai.md) | Moving Gemini calls to Vertex AI: credentials, IAM, variables, which Railway services need them, models and limits |
 | [../local/README.md](../local/README.md) | Running the whole stack on one machine |
