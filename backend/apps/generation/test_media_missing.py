@@ -131,6 +131,14 @@ class MediaMissingTests(TransactionTestCase):
             self.run_command('--ids-file', str(bad), expect_error=True)
         self.run_command(expect_error=True)
 
+    def test_invalid_positional_id_is_a_usage_error_and_writes_nothing(self):
+        row = self.row()
+        with patch.object(mark_media_missing, 'get_storage', return_value=self.storage):
+            with self.assertRaisesMessage(CommandError, "'not-a-uuid': not a UUID"):
+                call_command('mark_media_missing', str(row.id), 'not-a-uuid', '--apply', stdout=io.StringIO())
+        row.refresh_from_db()
+        self.assertIsNone(row.media_missing_at)
+
     def test_shipped_id_list_is_36_unique_uuids(self):
         ids = mark_media_missing.read_ids(Path(mark_media_missing.__file__).resolve().parents[2] / 'data' / 'missing_media_2026_09_21.txt')
         self.assertEqual((len(ids), len(set(ids))), (36, 36))

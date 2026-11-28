@@ -18,9 +18,9 @@
 
 export const VIEWER_SOURCES = ["feed", "thread", "single"];
 
-/** Only finished rows with something to show have a viewer. */
+/** Only finished rows with something to show have a viewer; a row whose stored master is missing has none. */
 export function isNavigable(item) {
-  return Boolean(item) && item.status === "succeeded" && Boolean(item.url || item.poster);
+  return Boolean(item) && item.status === "succeeded" && !item.mediaMissingAt && Boolean(item.url || item.poster);
 }
 
 /** The list a source displays, in display order, narrowed to viewable rows. */

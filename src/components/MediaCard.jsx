@@ -56,7 +56,7 @@ export function missingThumbUrl(url) {
   return key && !key.startsWith("thumbs/") ? `/api/media/thumbs/${MISSING_THUMB_WIDTH}/${key}.webp` : null;
 }
 
-function MissingMediaTile({ item }) {
+export function MissingMediaTile({ item }) {
   const thumb = item.kind === "image" ? missingThumbUrl(item.url) : null;
   const [thumbFailed, setThumbFailed] = useState(false);
   return (

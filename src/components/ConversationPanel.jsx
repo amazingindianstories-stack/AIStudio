@@ -21,7 +21,7 @@ import {
 import { useStore } from "@/lib/store";
 import { ChatScopeBar } from "./ChatScopeBar";
 import { ConfirmActionDialog } from "./ConfirmActionDialog";
-import { GenerationFolderCue, GenerationName, GenerationTimestamp } from "./MediaCard";
+import { GenerationFolderCue, GenerationName, GenerationTimestamp, MissingMediaTile } from "./MediaCard";
 import { GenerationStatus, waitingNote } from "./GenerationStatus";
 import { VideoFallback } from "./VideoFallback";
 import { useConfirmedAction } from "./useConfirmedAction";
@@ -188,6 +188,9 @@ export function FeedBlock({ item, index }) {
   const isUpscale = item.model?.toLowerCase().includes("magnific") || item.model?.toLowerCase().includes("upscaler");
   const label = isUpscale ? "Upscale" : item.kind === "image" ? "Image" : "Video";
   const pending = item.status === "running" || item.status === "queued";
+  const succeeded = item.status === "succeeded";
+  const missing = succeeded && Boolean(item.mediaMissingAt);
+  const done = succeeded && !missing;
 
   return (
     <>
@@ -221,8 +224,8 @@ export function FeedBlock({ item, index }) {
       </div>
 
       <div
-        onClick={() => item.status === "succeeded" && setActiveId(item.id, "thread")}
-        draggable={item.status === "succeeded" && Boolean(item.url)}
+        onClick={() => done && setActiveId(item.id, "thread")}
+        draggable={done && Boolean(item.url)}
         onDragStart={(e) => {
           setAssetDragData(e.dataTransfer, [item], item);
           e.dataTransfer.setData("text/itemId", item.id);
@@ -241,13 +244,13 @@ export function FeedBlock({ item, index }) {
         style={{ maxWidth: aspectMaxWidth(item.aspectRatio) }}
         className={cn(
           "chat-media group/media relative mx-auto w-full overflow-hidden rounded-2xl bg-ink-800 ring-1 ring-line shadow-xl transition-shadow duration-300 hover:ring-white/20 hover:shadow-[0_0_40px_rgba(255,255,255,0.05)] focus-within:ring-white/25",
-          item.status === "succeeded" && "cursor-pointer cursor-grab active:cursor-grabbing"
+          done && "cursor-pointer cursor-grab active:cursor-grabbing"
         )}
       >
         <div style={{ paddingBottom: aspectToPadding(item.aspectRatio) }} className="relative w-full">
           <GenerationName item={item} numberOnly={false} className="generation-name-overlay chat-generation-name z-20" />
-          {item.status === "succeeded" && layered && <LayeredCardPreview item={item} />}
-          {item.status === "succeeded" && item.kind === "image" && item.url && !layered && (
+          {done && layered && <LayeredCardPreview item={item} />}
+          {done && item.kind === "image" && item.url && !layered && (
             <img
               src={thumbUrl(item.url, FEED_THUMB_WIDTH)}
               alt={item.prompt}
@@ -256,7 +259,7 @@ export function FeedBlock({ item, index }) {
               className="absolute inset-0 h-full w-full object-cover"
             />
           )}
-          {item.status === "succeeded" && item.kind === "video" && (
+          {done && item.kind === "video" && (
             undecodable ? (
               <VideoFallback
                 href={generationDownloadUrl(item.id)}
@@ -279,6 +282,8 @@ export function FeedBlock({ item, index }) {
             )
           )}
 
+          {missing && <MissingMediaTile item={item} />}
+
           {pending && (
             <GenerationStatus status={item.status} note={waitingNote(item)} className="absolute inset-0" />
           )}
@@ -300,7 +305,7 @@ export function FeedBlock({ item, index }) {
             </div>
           )}
 
-          {item.status === "succeeded" && (
+          {succeeded && (
             <div className="chat-generation-actions absolute right-2.5 top-2.5 z-20 flex gap-1.5 opacity-0 transition group-hover/media:opacity-100 group-focus-within/media:opacity-100">
               <button
                 onClick={(e) => {
@@ -349,7 +354,7 @@ export function FeedBlock({ item, index }) {
               >
                 <Pencil className="h-4 w-4" />
               </button>
-              {item.url && (
+              {done && item.url && (
                 <a
                   href={generationDownloadUrl(item.id)}
                   download={item.filename || true}
@@ -361,9 +366,11 @@ export function FeedBlock({ item, index }) {
                   <Download className="h-4 w-4" />
                 </a>
               )}
-              <span className="pointer-events-none grid h-8 w-8 place-items-center rounded-lg bg-black/55 text-white/85 backdrop-blur-sm">
-                <Maximize2 className="h-4 w-4" />
-              </span>
+              {done && (
+                <span className="pointer-events-none grid h-8 w-8 place-items-center rounded-lg bg-black/55 text-white/85 backdrop-blur-sm">
+                  <Maximize2 className="h-4 w-4" />
+                </span>
+              )}
             </div>
           )}
         </div>

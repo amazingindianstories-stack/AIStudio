@@ -14,6 +14,7 @@ import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { useMarqueeSelection } from "@/lib/use-marquee-selection";
 import { getNextGridFocus } from "@/lib/grid-navigation";
+import { isNavigable } from "@/lib/viewer-navigation";
 import { libraryDateLabel, libraryDayTitle, localDateKey } from "@/lib/library-filters";
 
 /**
@@ -178,7 +179,7 @@ export function AssetGrid({
       const toOpen = focusedAssetId || selectedIds[0];
       if (toOpen) {
         const it = items.find((x) => x.id === toOpen);
-        if (it?.status === "succeeded") {
+        if (isNavigable(it)) {
           e.preventDefault();
           setActiveId(toOpen);
         }

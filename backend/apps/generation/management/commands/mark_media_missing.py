@@ -24,17 +24,20 @@ from apps.media.keys import is_export_key, media_key_from_ref
 from apps.media.storage import get_storage
 
 
+def parse_id(text, where):
+    try:
+        return str(UUID(text))
+    except ValueError:
+        raise CommandError(f'{where}: not a UUID')
+
+
 def read_ids(path):
     """One UUID per line; blank lines and ``#`` comments are ignored; duplicates collapse in order."""
     ids = []
     for number, line in enumerate(Path(path).read_text().splitlines(), 1):
         text = line.split('#', 1)[0].strip()
-        if not text:
-            continue
-        try:
-            ids.append(str(UUID(text)))
-        except ValueError:
-            raise CommandError(f'{path}:{number}: not a UUID')
+        if text:
+            ids.append(parse_id(text, f'{path}:{number}'))
     return ids
 
 
@@ -65,7 +68,7 @@ class Command(BaseCommand):
         parser.add_argument('--apply', action='store_true', help='Write the marks. Without it nothing is changed.')
 
     def handle(self, *args, ids, ids_file, apply, **options):
-        wanted = list(dict.fromkeys([*(read_ids(ids_file) if ids_file else []), *[str(UUID(i)) for i in ids]]))
+        wanted = list(dict.fromkeys([*(read_ids(ids_file) if ids_file else []), *[parse_id(i, repr(i)) for i in ids]]))
         if not wanted:
             raise CommandError('Give generation ids or --ids-file.')
         storage = get_storage()
