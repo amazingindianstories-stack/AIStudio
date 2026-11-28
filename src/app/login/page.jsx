@@ -3,6 +3,7 @@
 import { useState, } from "react";
 import { Loader2, LogIn } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { Wordmark } from "@/components/Wordmark";
 import { loginNextPath } from "@/lib/login-next";
 import { apiErrorMessage } from "@/lib/api-error";
 
@@ -42,12 +43,9 @@ export default function LoginPage() {
       <div
         className="fade-up w-full max-w-sm rounded-2xl border border-line bg-ink-850 p-7 shadow-pop"
       >
-        <div className="mb-6 flex items-center gap-2.5">
-          <img src="/logo.png" alt="Veevee.ai" className="h-9 w-9 rounded-lg shadow-sm" />
-          <div>
-            <p className="text-lg font-semibold text-white">Veevee.ai</p>
-            <p className="text-xs text-muted">Sign in to continue</p>
-          </div>
+        <div className="mb-6 space-y-2">
+          <Wordmark className="h-6 text-white" />
+          <p className="text-xs text-muted">Sign in to continue</p>
         </div>
 
         <form onSubmit={onSubmit} className="space-y-3">

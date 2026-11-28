@@ -3,6 +3,7 @@
 import { useEffect, useId, useState } from "react";
 import { AlertTriangle, ArrowRight, BadgeCheck, Loader2, ShieldOff } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import { Wordmark } from "@/components/Wordmark";
 import { apiErrorMessage } from "@/lib/api-error";
 import { cn } from "@/lib/utils";
 import { ScopePicker } from "@/components/AgentAccessPanel";
@@ -51,10 +52,8 @@ export default function AuthorizePage() {
         className="fade-up w-full max-w-md rounded-2xl border border-line bg-ink-850 p-6 shadow-pop sm:p-7"
         aria-busy={!details && !failure}
       >
-        <div className="mb-5 flex items-center gap-2.5">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.png" alt="Veevee.ai" className="h-8 w-8 rounded-lg shadow-sm" />
-          <p className="text-sm font-semibold text-white">Veevee.ai</p>
+        <div className="mb-5">
+          <Wordmark className="h-5 text-white" />
         </div>
         {failure ? (
           <Failure failure={failure} />
