@@ -10,6 +10,10 @@ deadline). `generations.poster` holds its `/api/media/...` reference. The master
   15 s ffmpeg deadline); the backfill picks that row up later.
 - **Library cards.** A card with a poster paints it and mounts the `<video>` (and fetches the master) only when the
   pointer reaches the card. A card without a poster behaves as before: the `<video>` mounts near the viewport.
+- **Chat panel.** A clip with a poster paints it and fetches nothing until played. One without a poster shows a
+  placeholder, then mounts the `<video>` with `preload="metadata"` once it first comes near the viewport so the
+  browser paints the first frame; it stays mounted after that so playback is not interrupted (`FeedBlock` in
+  `src/components/ConversationPanel.jsx`).
 
 ## Backfill (owner-approved step, run after the deploy)
 

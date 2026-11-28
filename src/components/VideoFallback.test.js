@@ -64,7 +64,9 @@ test('feed swaps a video that fails to decode for the fallback with a download l
   Object.assign(globalThis, { window: dom.window, document: dom.window.document, HTMLElement: dom.window.HTMLElement, React,
     IS_REACT_ACT_ENVIRONMENT: true, requestAnimationFrame: cb => setTimeout(cb, 0), cancelAnimationFrame: id => clearTimeout(id),
     fetch: async () => ({ ok: true, status: 200, json: async () => ({}) }),
-    ResizeObserver: class { observe() {} unobserve() {} disconnect() {} }, IntersectionObserver: class { observe() {} unobserve() {} disconnect() {} } });
+    ResizeObserver: class { observe() {} unobserve() {} disconnect() {} },
+    // The frame is on screen, so a posterless clip mounts its <video>.
+    IntersectionObserver: class { constructor(cb) { this.cb = cb; } observe(target) { this.cb([{ target, isIntersecting: true }]); } unobserve() {} disconnect() {} } });
   dom.window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
   const original = useStore.getState();
   useStore.setState({ currentUser: { id: 'admin', role: 'admin' }, items: [item], usersById: {}, libraryTree: { globalFolders: [], projects: [] } });
