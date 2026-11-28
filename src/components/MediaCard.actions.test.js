@@ -291,5 +291,7 @@ test('an on-screen video tile with a poster paints the poster and fetches its ma
     assert.ok(video, 'hovering mounts the video');
     assert.equal(video.autoplay, true);
     assert.match(video.getAttribute('src'), /0223\.mov/);
+    await act(async () => card.dispatchEvent(new window.Event('pointerout', { bubbles: true })));
+    assert.equal(card.querySelector('video'), null, 'leaving the card unmounts the video, so a swept card stops fetching its master');
   }, {}, MediaCard, { IntersectionObserver: undefined });
 });

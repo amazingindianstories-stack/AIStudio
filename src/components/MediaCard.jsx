@@ -471,7 +471,7 @@ export const MediaCard = memo(function MediaCard({
       onPointerMove={handlePointerMove}
       onPointerUp={cancelLongPress}
       onPointerCancel={cancelLongPress}
-      onPointerLeave={cancelLongPress}
+      onPointerLeave={() => { cancelLongPress(); setArmed(false); }}
       onPointerEnter={item.poster ? () => setArmed(true) : undefined}
       onContextMenu={handleContextMenu}
       initial={reducedMotion ? false : { opacity: 0, scale: 0.96 }}

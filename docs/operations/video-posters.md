@@ -6,7 +6,8 @@ deadline). `generations.poster` holds its `/api/media/...` reference. The master
 
 - **New videos.** `services/poller._terminal` makes the poster right after the master is stored, for every provider
   path (Seedance, Omni, OmniHuman, Higgsfield, Magnific). A failure is logged (`video_poster_failed`) and never
-  fails or delays the generation beyond the 15 s bound; the backfill picks that row up later.
+  fails the generation nor delays it beyond roughly 30 s (up to 15 s waiting for the process's ffmpeg slot, then the
+  15 s ffmpeg deadline); the backfill picks that row up later.
 - **Library cards.** A card with a poster paints it and mounts the `<video>` (and fetches the master) only when the
   pointer reaches the card. A card without a poster behaves as before: the `<video>` mounts near the viewport.
 
