@@ -86,6 +86,11 @@ stack keeps its fake Gemini provider and does not pass them through.
   returned MP4 bytes and MIME unchanged. The currently offered choices remain 360p/720p and 4/6/8/10 seconds, with
   at most 10 total reference images including selected tiles. Historical 1.1 rows keep their labels; active old
   Gemini API interaction IDs are never sent to Vertex. Project access and billing need a paid canary before release.
+  The create POST can stay open until the video exists (the first production job failed `request_deadline` at the 60 s
+  transport default), so create gets a 300 s transport timeout, still bounded by the job's deadline. A create response that
+  already carries the finished MP4 is kept in process and returned by the first status read; any other case polls. A create
+  that times out stays an uncertain submission (`SUBMISSION_UNCERTAIN`) and is never retried. Admin cost totals count only
+  succeeded jobs, so an uncertain job that Google billed is not in them (follow-up).
 - **Large media use Cloud Storage.** The Vertex handoff below replaces inline-size refusals; Vertex has no Files API.
 - **Nano Banana 2.1 sends no seed.** Vertex rejects `seed` (and `temperature`, `topP`, `topK`) for this model. The seed
   a job records is shown but not sent.
